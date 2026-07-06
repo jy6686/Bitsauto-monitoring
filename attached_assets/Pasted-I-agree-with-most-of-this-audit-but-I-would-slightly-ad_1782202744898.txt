@@ -1,0 +1,193 @@
+I agree with most of this audit, but I would slightly adjust priorities based on the fact that this is a production rate-change workflow.
+
+Fix Immediately (Before Any New Features)
+P0-A — Push History Client Names
+
+This is confirmed and low risk.
+
+Current:
+
+clientDisplay =
+  job.clientNames ||
+  `${job.pushedClients}/${job.totalClients} client`
+
+But clientNames is never populated by change-client-rates.
+
+Fix:
+
+await db.update(ratePushJobs).set({
+  ...
+  clientNames: accountName,
+})
+
+Do this first.
+
+P0-B — Carrier List Regression
+
+This is more serious than it looks.
+
+You now have:
+
+First Class = 12 clients
+Dropdown = 1 client
+Business Class = No clients assigned
+
+That means operators cannot trust Rate Analysis.
+
+Current endpoint behavior:
+
+if (!cache || cache.size === 0) {
+  return res.json({ accounts: [], syncing: true });
+}
+
+This should not return an empty list without the UI handling it.
+
+Recommended:
+
+{
+  syncing: true,
+  accounts: lastKnownAccounts
+}
+
+or
+
+retry until sync completes
+
+The current behavior makes products appear empty.
+
+P0-C — First Submit 500
+
+I would not assume the root cause yet.
+
+Need logs from:
+
+grep -i "change-client-rates" server.log
+grep -i "setSippyRateEntry" server.log
+grep -i "pushRateViaPortalUpload" server.log
+
+for the exact failed request.
+
+Because:
+
+Attempt 1 = 500
+Attempt 2 = Success
+
+could be:
+
+XML-RPC auth refresh
+tariff lookup race
+portal session creation
+activation date formatting
+Sippy timeout
+
+Without logs we're still guessing.
+
+Then Fix Scheduling UX
+P1-A — Datetime Picker
+
+This should match the workflow from your legacy screenshots.
+
+Current:
+
+<input type="date">
+
+Should be:
+
+<input type="datetime-local">
+
+for:
+
+Active From
+Active Till
+
+Default:
+
+new Date(Date.now() + 5 * 60 * 1000)
+
+This avoids midnight scheduling.
+
+Then Continue Client Rate Manager
+P2-A — Carrier Summary Grid
+
+This is the biggest missing piece from the original BitsAuto UI.
+
+Legacy screen showed:
+
+Carrier	Country	Total Dest	Special	Block	Change	Total Codes
+
+BitsAuto currently jumps directly into rates.
+
+The summary layer should return.
+
+Since you already load:
+
+/api/sippy/tariffs/:id/rates
+
+this can be aggregated client-side.
+
+No backend required.
+
+P2-B — Rate History
+
+Your screenshots show exactly what operators expect:
+
+Selected
+Previous-1
+Previous-2
+Previous-3
+
+with:
+
+Price
+Increment
+Active From
+Active Till
+
+This requires persistence.
+
+I would create:
+
+tariff_rate_snapshots
+
+instead of trying to reconstruct history from push jobs.
+
+Vendor Work
+
+I agree with your conclusion:
+
+Do NOT start Vendor Rate Automation yet.
+
+The biggest vendor risk is not upload.
+
+It is:
+
+Wrong Destination Set
+
+So before vendor automation:
+
+Build Product Mapping Center
+Vendor Product
+↓
+Internal Product
+↓
+Destination Set
+
+Example:
+
+Gold → Premium → DestSet 101
+Silver → Standard → DestSet 102
+Retail → Open RTP → DestSet 104
+
+That removes the highest operational risk.
+
+Recommended Order
+1. Fix Push History clientNames
+2. Fix Carrier List / accounts-by-product
+3. Fix First Submit 500
+4. Add datetime-local controls
+5. Add Carrier Summary Grid
+6. Add Rate History snapshots
+7. Build Product Mapping Center
+8. Start Vendor Rate Automation
+
+I would not begin Vendor Rate development until items 1–4 are complete because those are regressions in the current Client Rate Manager workflow.

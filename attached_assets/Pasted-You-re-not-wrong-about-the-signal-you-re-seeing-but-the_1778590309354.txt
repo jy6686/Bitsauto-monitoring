@@ -1,0 +1,173 @@
+You’re not wrong about the signal you’re seeing, but there’s a subtle reasoning trap in the conclusion.
+Let’s separate observed behavior from proven capability.
+
+🧠 What you actually know (strong evidence)
+From your system behavior:
+✔ XML-RPC is working
+✔ Read methods work (getVendorInfo, listActiveCalls)
+✔ Billing write methods are attempted first
+✔ They consistently fail
+✔ System falls back to UI (service_plans.php) scraping
+So yes — this is a very strong operational pattern.
+
+⚠️ What is not yet strictly proven
+Even with those logs, you still have an ambiguity:
+The failure could be caused by 3 different things:
+1. ❌ Method not exposed
+
+
+addServicePlan not available at all
+
+
+UI is only path
+
+
+2. ❌ Method exists but blocked
+
+
+reseller role lacks billing permissions
+
+
+method exists but returns fault
+
+
+3. ❌ Method exists but payload invalid
+
+
+wrong schema / missing required fields
+
+
+internal validation failure before execution
+
+
+
+🧠 Why this matters (important distinction)
+You said:
+
+“they all fail → therefore UI-bound billing”
+
+That conclusion is plausible, but not logically exclusive.
+Because:
+
+“failure of write attempts” ≠ “absence of write capability”
+
+It only proves:
+✔ “your current invocation path is not valid”
+not necessarily:
+❌ “Sippy cannot do it via XML-RPC at all”
+
+🚨 The real architectural risk here
+If you prematurely lock into:
+
+“UI-only billing system”
+
+and you’re wrong, you lose:
+
+
+full automation potential
+
+
+provisioning scalability
+
+
+future API upgrades
+
+
+If you assume automation still possible when it isn’t, you waste time.
+So the decision must be based on hard capability classification, not runtime fallback behavior.
+
+🧭 The correct engineering interpretation
+Your system currently is in this state:
+Billing write attempt   ↓XML-RPC failure (unknown cause)   ↓UI fallback triggered
+That is:
+
+“failure path observed”
+NOT
+“capability boundary confirmed”
+
+
+💡 What would actually close the question (without more guessing)
+You don’t need more probing calls — you need error classification from existing logs:
+Look for:
+Error typeMeaningMETHOD_NOT_FOUNDAPI not exposedPERMISSION_DENIEDrole restrictionINVALID_PARAMSAPI exists but misusedINTERNAL_ERRORbackend failure or hidden validation
+👉 This single classification determines everything.
+
+🧠 So where I agree with you
+You are correct that:
+✔ We already have real write attempts
+✔ We already have consistent failure behavior
+✔ System already has a deterministic fallback path
+So yes:
+
+You are not missing data. You are interpreting incomplete error semantics.
+
+
+🚀 Where I slightly disagree
+The statement:
+
+“research is complete”
+
+is only true if:
+
+you accept that failure mode = architectural limitation
+
+But strictly speaking, we have:
+✔ behavioral evidence
+❌ not explicit capability confirmation
+
+🧭 Practical decision (what actually matters for your platform)
+Even if XML-RPC could support billing:
+👉 It is already unreliable in your deployment
+Because:
+
+
+it is inconsistent or failing in real execution path
+
+
+system already depends on fallback
+
+
+production flow already assumes UI dependency
+
+
+
+✅ So your conclusion is correct for engineering purposes
+From a systems design standpoint:
+
+This is already a hybrid/manual-bound billing environment
+
+regardless of theoretical API capability.
+
+🚀 Final recommendation
+Yes — proceed with:
+✔ Option B (guided handoff UX)
+But make one important adjustment:
+Don’t present it as:
+
+
+“manual step”
+
+
+Present it as:
+
+
+“Sippy provisioning confirmation step”
+
+
+Because in telecom systems, this is normal operational behavior, not a failure.
+
+🧭 Final bottom line
+
+
+You are correct operationally
+
+
+The system behavior is stable and consistent
+
+
+Further probing will not change UX architecture
+
+
+The safest production design is hybrid workflow
+
+

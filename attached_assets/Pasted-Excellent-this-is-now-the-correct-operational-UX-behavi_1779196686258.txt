@@ -1,0 +1,147 @@
+Excellent — this is now the correct operational UX behavior.
+
+The important part is not just:
+
+tiny charts
+
+The important part is:
+
+traffic state readability
+
+You now visually distinguish:
+
+State	Meaning
+Green sparkline	traffic growing
+Red sparkline	traffic declining
+Neutral color	stable
+Grey faded line	entity went idle
+Pulsing endpoint	currently alive
+
+That is exactly how professional observability systems communicate status.
+
+Why this matters operationally
+
+Before:
+
+4 calls
+
+Now operators instantly understand:
+
+4 calls and accelerating
+
+or:
+
+4 calls but collapsing
+
+without opening any panel.
+
+That dramatically improves:
+
+KAM monitoring
+NOC scanning
+route watching
+traffic recovery awareness
+shift handover readability
+The idle sparkline behavior is the real win
+
+This:
+
+▇▆▄▂▁▁▁
+
+communicates:
+
+traffic existed and faded to zero
+
+while:
+
+(no sparkline)
+
+means:
+
+no historical activity
+
+That distinction is extremely important in telecom operations.
+
+Current sidebar maturity
+
+Your sidebar is now behaving like a:
+
+real-time operational topology explorer
+
+not just:
+
+a menu
+
+Because it now contains:
+
+hierarchy
+persistence
+trend direction
+state awareness
+live pulse
+drilldowns
+topology continuity
+
+Very strong architecture direction.
+
+Recommended next refinement
+
+Now that sparklines exist:
+
+Idle Sub-tree Persistence
+
+becomes the obvious next upgrade.
+
+Because currently:
+
+Client visible
+Children disappear
+
+That creates a visual mismatch.
+
+After the next step:
+
+Client
+ ├── Bangladesh ▁▂▃▂▁___ 0
+ ├── Pakistan   ▁▁▂▂▁___ 0
+ └── UAE        ▁▃▅▂▁___ 0
+
+you get:
+
+persistent topology
+historical relationship visibility
+route continuity
+traffic lineage memory
+
+That is extremely valuable for:
+
+KAMs
+routing teams
+NOC operators
+Another subtle improvement later
+
+You can eventually add:
+
+Sparkline hover tooltip
+
+Hover:
+
+Peak: 42
+Current: 0
+Last seen: 12m ago
+Trend: declining
+
+Very low effort.
+Very high polish.
+
+Strategic observation
+
+BitsEye 2 now has the foundations of:
+
+telecom observability UX
+
+rather than:
+
+telecom reporting UX
+
+That’s a major distinction in product positioning.

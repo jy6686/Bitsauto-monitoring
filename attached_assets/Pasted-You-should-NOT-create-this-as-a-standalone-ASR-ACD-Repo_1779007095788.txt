@@ -1,0 +1,283 @@
+You should NOT create this as a standalone “ASR/ACD Report” menu like old telecom systems.
+
+That would make BitsAuto feel:
+
+report-centric
+
+instead of:
+
+operations-centric
+
+The better architecture is:
+
+Recommended Navigation Structure
+Keep Existing Structure
+
+You already have strong modules:
+
+AI Ops
+Vendor Operations
+Analytics & Reporting
+BitsEye
+Routing & LCR
+
+The new system should enhance these — not create isolated report pages.
+
+Recommended Placement (Best Option)
+New Group Under AI Ops
+AI Ops
+ ├── Event Center
+ ├── Carrier Intelligence
+ ├── Route Health Matrix
+ ├── FAS & Fraud Detection
+ ├── Approval Queue
+ └── AI Recommendations
+
+This is the cleanest enterprise structure.
+
+Why?
+
+Because:
+
+ASR/ACD is no longer just reporting
+
+It is now:
+
+decisioning
+anomaly detection
+state management
+recommendation generation
+operational intelligence
+
+So it belongs under:
+
+AI Ops / Carrier Intelligence
+
+NOT under static reports.
+
+Best Naming Recommendation
+
+Avoid:
+
+ASR Report
+ACD Report
+Vendor ASR
+
+These sound:
+
+old Sippy-style
+legacy telecom UI
+spreadsheet-like
+
+Better names:
+
+Best Choice	Why
+Carrier Intelligence	strongest long-term
+Route Intelligence	operational feel
+Route Health Matrix	immediately understandable
+Carrier Quality Center	enterprise
+Vendor Intelligence	good if vendor-focused
+
+Recommended:
+
+Carrier Intelligence
+
+because it scales naturally later into:
+
+rankings
+FAS
+quality policy
+route decisions
+AI recommendations
+automation
+
+without renaming later.
+
+Internal Structure Recommendation
+1. Carrier Intelligence (Main Page)
+
+This becomes:
+
+the operational command center
+
+Contains:
+
+Vendor Quality Matrix
+Health scores
+State badges
+FAS flags
+Recommendations
+Compliance states
+Trend indicators
+
+This replaces the old Sippy-style ASR table.
+
+2. Route Health Matrix (Tab)
+Carrier Intelligence
+ └── Route Health Matrix
+
+Main operational grid.
+
+Filters:
+
+Vendor
+Country
+Prefix
+State
+Confidence
+FAS Risk
+Policy Compliance
+3. Policy Compliance (Tab)
+Carrier Intelligence
+ └── Policy Compliance
+
+Shows:
+
+partner ASR targets
+ACD targets
+compliance %
+drift
+SLA violations
+
+This is where:
+
+35–45% ASR
+ACD >60s
+
+lives.
+
+NOT inside generic reporting.
+
+4. Recommendation Queue (Tab)
+Carrier Intelligence
+ └── Recommendations
+
+Shows:
+
+penalize route
+suppress route
+reroute traffic
+investigate FAS
+recovering route
+
+Integrated with Approval Queue.
+
+5. Connection Analytics (Tab)
+Carrier Intelligence
+ └── Connection Analytics
+
+Detailed:
+
+24H
+7D
+sparkline
+ASR trend
+ACD trend
+margin trend
+recovery trend
+Notification Center Placement
+
+This should NOT be inside Carrier Intelligence.
+
+Instead:
+
+AI Ops
+ ├── Event Center
+ └── Carrier Intelligence
+
+Reason:
+Event Center is platform-wide:
+
+security
+routing
+billing
+vendor quality
+AI alerts
+approvals
+
+Carrier Intelligence is only one producer.
+
+Best Enterprise UX Structure
+Sidebar
+AI Ops
+ ├── Overview
+ ├── Event Center
+ ├── Carrier Intelligence
+ │    ├── Route Health Matrix
+ │    ├── Policy Compliance
+ │    ├── Recommendations
+ │    ├── Connection Analytics
+ │    └── Vendor Rankings
+ ├── FAS & IRSF
+ ├── Approval Queue
+ └── AI Recommendations
+
+This structure is:
+
+scalable
+operational
+enterprise-grade
+future-proof
+Important Strategic Insight
+
+The biggest mistake would be:
+
+Analytics & Reporting
+ └── ASR/ACD Report
+
+because that traps the feature into:
+
+historical passive reporting
+
+while your architecture is evolving into:
+
+real-time operational intelligence
+
+Huge difference.
+
+Where Reports Still Belong
+
+Traditional reports should still exist:
+
+Analytics & Reporting
+ ├── Historical ASR Reports
+ ├── Revenue Reports
+ ├── Margin Reports
+ ├── SLA Reports
+ └── Traffic Reports
+
+These are:
+
+exports
+PDFs
+summaries
+KAM/commercial usage
+
+But:
+
+Carrier Intelligence
+
+becomes:
+
+live operational decisioning
+Final Recommendation
+
+The strongest architecture is:
+
+AI Ops
+Event Center
+Carrier Intelligence
+Approval Queue
+FAS & IRSF
+AI Recommendations
+Analytics & Reporting
+historical exports
+compliance summaries
+SLA PDFs
+trend reporting
+
+That separation keeps:
+
+live intelligence
+
+separate from:

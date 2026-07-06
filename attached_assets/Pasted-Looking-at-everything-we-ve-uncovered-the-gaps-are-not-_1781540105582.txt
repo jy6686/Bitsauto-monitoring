@@ -1,0 +1,261 @@
+Looking at everything we've uncovered, the gaps are not missing screens. The gaps are missing business workflows between data and money.
+
+Current Situation
+
+You already have:
+
+✅ Product Registry
+✅ Rate Manager
+✅ Destination Catalog (foundation)
+✅ Billing Check
+✅ Vendor Cost Extraction
+✅ Revenue Analytics
+✅ Credit Notes
+✅ Credit Control
+✅ Invoice Templates
+
+But you do not have the workflow that turns traffic into cash collection.
+
+Gap 1 — Invoice Draft Generation
+Today
+CDR
+↓
+P&L
+↓
+Billing Check
+
+Stops here.
+
+Needed
+CDR
+↓
+Reconciliation
+↓
+Invoice Draft
+↓
+Approval
+↓
+Invoice
+New Tables
+invoice_drafts
+invoice_draft_items
+invoice_generation_jobs
+Example
+Customer: ABC Telecom
+
+Pakistan Mobile
+Minutes: 120,000
+Rate: 0.0194
+Amount: $2,328
+
+Bangladesh Mobile
+Minutes: 80,000
+Rate: 0.0210
+Amount: $1,680
+
+Draft Total: $4,008
+Gap 2 — Invoice Differences
+
+This existed in the old system and is extremely valuable.
+
+Today
+
+No comparison.
+
+Needed
+Customer DMR
+vs
+BitsAuto Invoice
+Results
+Calls Difference
+Duration Difference
+Amount Difference
+Example
+Customer Claim:
+$10,320
+
+BitsAuto:
+$10,210
+
+Difference:
+$110
+
+This prevents disputes before invoices are sent.
+
+Gap 3 — Approval Workflow
+
+Today:
+
+Generate
+↓
+Done
+
+Need:
+
+Draft
+↓
+Finance Review
+↓
+Approve
+↓
+Send
+Roles
+Management
+Finance
+KAM
+
+Audit every approval.
+
+Gap 4 — Payment Lifecycle
+
+Currently there is no true AR module.
+
+Need:
+
+Invoice
+↓
+Outstanding
+↓
+Partial Payment
+↓
+Paid
+↓
+Overdue
+Tables
+payments
+payment_allocations
+payment_references
+Gap 5 — Collections Dashboard
+
+For management.
+
+Show
+Current Due
+30 Days
+60 Days
+90 Days
+120+ Days
+Per Customer
+Exposure
+Credit Limit
+Outstanding
+
+Connect directly with Credit Control.
+
+Gap 6 — USDT Reconciliation
+
+Your legacy platform had this.
+
+Needed
+Wallet Address
+Transaction Hash
+Amount
+Date
+Invoice
+Status
+
+Auto-match payments.
+
+Gap 7 — Dispute Workflow
+
+Today:
+
+Credit Note
+
+exists.
+
+Need:
+
+Invoice
+↓
+Dispute Opened
+↓
+Investigation
+↓
+Adjustment
+↓
+Credit Note
+↓
+Closed
+Gap 8 — Universal Reconciliation Engine
+
+This is the most important gap.
+
+Everything above depends on it.
+
+Current state:
+
+Governed Calls
+Customer CDR
+Vendor CDR
+P&L
+
+all exist independently.
+
+Need:
+
+Reconciliation Record
+ ├ Call
+ ├ Customer CDR
+ ├ Vendor CDR
+ ├ Revenue
+ ├ Cost
+ ├ Margin
+ └ Status
+
+One source of truth.
+
+Without this:
+
+Invoice Drafts unreliable
+Margin reports unreliable
+Payment disputes harder
+Vendor scorecards unreliable
+Gap 9 — Destination Catalog V2
+
+This becomes finance's master data.
+
+Need:
+
+Country
+Destination
+Operator
+
+FC Rate
+BC Rate
+SB Rate
+SC Rate
+
+Approved
+Blocked
+Review
+
+This feeds:
+
+Invoice
+Rate Manager
+Product Registry
+Billing
+Recommended Build Order
+Phase 1 (Highest ROI)
+Universal Reconciliation Engine
+Invoice Draft Generation
+Invoice Differences
+Approval Workflow
+Phase 2
+Payment Tracking
+Collections Dashboard
+USDT Reconciliation
+Phase 3
+Dispute Workflow
+Accounting Sync (QuickBooks/Xero)
+
+If I were acting as CTO on BitsAuto, I would start with:
+
+Universal Reconciliation Engine
+↓
+Invoice Draft Workspace
+↓
+Invoice Differences
+
+because those three pieces close the largest gap between the old platform and the new platform while leveraging the billing, P&L, product, and analytics infrastructure you've already built.

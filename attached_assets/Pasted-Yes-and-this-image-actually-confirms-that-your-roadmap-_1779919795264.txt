@@ -1,0 +1,272 @@
+Yes — and this image actually confirms that your roadmap is now entering:
+
+Layer 4 → Layer 5 transition
+
+because every feature in this table depends on:
+
+tariff governance,
+rating reproducibility,
+finance isolation,
+reporting normalization,
+and middleware orchestration
+
+which you just completed with Layer 2.
+
+The table contains four enterprise telecom finance pillars:
+
+1. Automated Invoice Delivery & Payment Collection
+
+(Business Value: High | Effort: High)
+
+This is:
+
+Layer 5 — Finance Automation
+
+and now becomes achievable because:
+✅ communication layer exists
+✅ sender profiles exist
+✅ finance service layer exists
+✅ queue-safe operations exist
+✅ audit logging exists
+
+But:
+❌ tariff versioning still missing
+❌ immutable rating snapshots missing
+
+So:
+
+DO NOT build this fully yet.
+Correct Sequencing
+
+Before this feature:
+you MUST implement:
+
+Layer 4A
+Tariff Versioning
+
+then:
+
+Layer 4B
+Rating Verification
+
+then:
+
+Layer 4C
+Immutable Snapshots
+
+ONLY THEN:
+
+invoice automation becomes safe.
+
+Otherwise:
+
+rerating disputes impossible,
+historical invoices mutable,
+Morocco-style interval changes break invoice reproducibility.
+2. Carrier Invoice Reconciliation
+
+(Business Value: Critical)
+
+This is actually:
+
+the most strategically valuable feature in the entire table.
+
+And it depends directly on:
+
+tariff versioning + rating verification.
+
+Because reconciliation requires:
+
+Vendor Invoice
+vs
+Sippy Rated Cost
+vs
+BitsAuto Reproduced Cost
+
+without:
+
+tariff drift,
+interval mismatch,
+or rerating inconsistencies.
+
+This becomes:
+
+Telecom Revenue Assurance Core.
+IMPORTANT
+
+The document correctly says:
+
+pre-populated discrepancy report
+
+That is VERY important.
+
+You should NOT build:
+
+“upload CSV only”
+
+You should build:
+
+discrepancy intelligence engine.
+Future Detection Types
+Overbilled minutes
+Wrong interval
+Missing CDRs
+Duplicate calls
+Currency mismatch
+Wrong connect fee
+Grace-period mismatch
+Post-call surcharge mismatch
+
+This is high-value telecom infrastructure.
+
+3. Profit & Loss Forecasting
+
+(Business Value: High)
+
+This is:
+
+Layer 7 — AI Intelligence
+
+NOT Layer 5.
+
+Very important distinction.
+
+Because forecasting depends on:
+
+stable finance state,
+normalized reporting,
+trustworthy reconciliation,
+and immutable snapshots.
+
+Do NOT build forecasting before:
+
+reconciliation,
+invoice reproducibility,
+and tariff governance.
+
+Otherwise:
+
+forecasts become mathematically unreliable.
+But the Vision Is Correct
+
+This eventually becomes:
+
+Commercial Intelligence Engine
+
+with:
+
+growth projection
+margin simulation
+vendor renegotiation scenarios
+QoS-adjusted profitability
+route economics
+
+Very strong future feature.
+
+4. Monthly Executive PDF Report
+
+(Business Value: High)
+
+This is actually:
+
+the safest Layer 5 feature to implement early.
+
+Because it depends mostly on:
+
+normalized reporting,
+communication layer,
+sender profiles,
+and PDF generation.
+
+NOT necessarily:
+
+immutable snapshots,
+or tariff versioning yet.
+THIS SHOULD ACTUALLY BE YOUR FIRST LAYER 5 FEATURE
+
+Because:
+
+low operational risk,
+highly visible,
+executive-friendly,
+commercially impressive,
+and uses existing infrastructure.
+Recommended Report Contents
+Traffic Growth
+Revenue Summary
+Top 10 Destinations
+ASR/ACD Trends
+Carrier Quality
+Margin Trend
+QoS Overview
+Commercial Notifications Summary
+
+This becomes:
+
+Telecom Executive Intelligence.
+Correct Revised Build Order
+
+Now that Layer 2 is complete:
+
+NEXT
+Layer 4A — Tariff Versioning
+
+Build:
+
+tariff_versions
+tariff_change_events
+interval history
+effective_from/effective_to
+Morocco workflows
+THEN
+Layer 4B — Rating Verification Engine
+
+Build:
+
+reproduce Sippy rating
+discrepancy detection
+interval verification
+connect fee validation
+grace-period validation
+THEN
+Layer 4C — Immutable Rating Snapshots
+
+Build:
+
+invoice_cdr_snapshots
+reproducible finance state
+rerating safety
+THEN
+Layer 5A — Monthly Executive PDF Report
+
+(FIRST SAFE Layer 5 feature)
+
+THEN
+Layer 5B — Automated Invoice Delivery
+THEN
+Layer 5C — Carrier Invoice Reconciliation
+
+(Highest strategic finance feature)
+
+THEN
+Layer 7 — Forecasting & AI Intelligence
+MOST IMPORTANT TAKEAWAY
+
+This image confirms:
+
+you are not building a billing system.
+
+You are building:
+
+Telecom Revenue Operations & Assurance Platform
+
+with:
+
+finance governance,
+telecom economics,
+reconciliation,
+executive intelligence,
+communication orchestration,
+and AI-driven commercial operations.
+
+That is a much stronger strategic direction.

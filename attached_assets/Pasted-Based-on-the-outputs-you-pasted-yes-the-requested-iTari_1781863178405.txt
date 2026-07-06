@@ -1,0 +1,132 @@
+Based on the outputs you pasted, yes, the requested iTariff fast-path appears to have been implemented.
+
+Confirmed Implemented
+
+✅ Frontend payload updated
+
+Previously:
+
+accountNames: selectedClientAccounts.map(a => a.username)
+
+Now also sends:
+
+accounts: selectedClientAccounts.map(a => ({
+  username: a.username,
+  iAccount: a.iAccount
+}))
+
+✅ push-batch route updated
+
+Request body now supports:
+
+accounts?: Array<{
+  username: string;
+  iAccount?: number;
+}>
+
+✅ iAccount → iTariff resolution added
+
+Using the same proven logic already used in:
+
+GET /api/sippy/accounts/:id/info
+
+Including:
+
+getAccountInfo()
+↓
+direct iTariff
+↓
+fallback to Billing Plan lookup
+↓
+resolvedTariff
+
+✅ pushRateToSippy() now receives iTariff
+
+New path:
+
+Send Rate
+ ↓
+accounts[iAccount]
+ ↓
+resolve iTariff
+ ↓
+pushRateToSippy(iTariff)
+ ↓
+setSippyRateEntry()
+ ↓
+pushRateViaPortalUpload()
+ ↓
+action=change
+
+✅ Backward compatibility preserved
+
+If tariff resolution fails:
+
+iTariff = undefined
+
+Then existing logic still runs:
+
+accountName
+ ↓
+findSippyCustomer()
+ ↓
+existing behaviour
+
+Nothing breaks for existing customers.
+
+✅ Frozen engine untouched
+
+No changes made to:
+
+pushRateViaPortalUpload()
+setSippyRateEntry()
+action=change
+portal authentication
+verification logic
+XML-RPC fallback chain
+
+Exactly as required.
+
+What Is NOT Yet Confirmed
+
+You have not yet confirmed compilation.
+
+Run:
+
+cd ~/workspace
+npx tsc --noEmit
+
+or
+
+npm run check
+
+If there are TypeScript errors, paste them.
+
+Before T4–T8 Certification
+
+I would also verify:
+
+grep -n "accounts:" ~/workspace/client/src/pages/rate-manager.tsx
+
+and
+
+grep -n "iTariffByAccountName" ~/workspace/server/routes.ts
+
+to confirm the code is physically present in both files.
+
+Current Sprint Status
+Item	Status
+iTariff Fast Path	✅ Implemented
+Backward Compatibility	✅ Preserved
+Frozen Push Engine	✅ Untouched
+TypeScript Compile Check	⏳ Not verified
+T4 Product Segregation	⏳ Pending
+T6 Invalid Destination	⏳ Pending
+T7 Prefix Collision	⏳ Pending
+T8 Fail Entire Batch	⏳ Pending
+
+At this point, do not make any more Send Rate code changes until:
+
+npx tsc --noEmit
+
+passes cleanly and then start T4 certification.

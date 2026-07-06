@@ -1,0 +1,565 @@
+Yes — this arrangement is now correct and much cleaner operationally.
+
+You resolved the duplicates properly.
+
+FINAL DEDUPLICATED STRUCTURE
+KEEP UNDER LIVE NETWORK
+Live Calls
+Alerts
+NOC Command
+BitsEye 2
+Call Replay
+Console
+
+REMOVED from Live Network:
+
+SIP Trace
+Diagnostics
+
+Reason:
+These are troubleshooting/investigation tools, not live monitoring surfaces.
+
+KEEP UNDER COMPANY
+Companies
+Accounts
+DIDs
+Recordings
+Client Portal
+Resellers
+Company Profile
+Create Account Wizard
+
+REMOVED from Company:
+
+Billing
+
+Reason:
+Billing belongs operationally and commercially under Finance.
+
+KEEP Company Profile here because:
+this is:
+
+customer/company business profile
+
+NOT:
+
+platform branding/settings
+
+Very important distinction.
+
+KEEP UNDER OPERATIONS
+Vendors
+Routing Manager
+LCR Analyser
+Translation Rules
+Connections
+Destination Sets
+Route Tester
+Carrier Scoring
+Vendor Balances
+
+This section is now very clean.
+
+KEEP UNDER ANALYTICS & REPORTS
+CDR Viewer
+Traffic Analytics
+ASR/ACD
+Revenue Heatmap
+Forecasting
+Reports
+Cost Optimisation
+
+Correct placement.
+
+KEEP UNDER INTELLIGENCE
+AI Ops
+Carrier Intelligence
+Vendor RCA
+Prefix Intelligence
+Stability Timeline
+Recommendations
+Validation Console
+
+Perfect grouping now.
+
+KEEP UNDER TROUBLESHOOTING
+SIP Trace
+Tools
+Replay
+Diagnostics
+
+Correct final home.
+
+These are:
+
+investigation + debugging workflows
+
+NOT:
+live operational monitoring.
+
+KEEP UNDER SECURITY & COMPLIANCE
+Fraud Engine
+FAS Monitoring
+Audit Log
+Firewall
+Compliance
+Approval Queue
+Authentication Rules
+
+Good structure.
+
+KEEP UNDER FINANCE & BILLING
+Billing
+Rate Cards
+Margin Analytics
+Revenue Analytics
+Payments
+Invoices
+
+Correct final placement.
+
+Billing should exist ONLY here.
+
+KEEP UNDER PLATFORM
+Settings
+Team & Roles
+API Keys
+Notifications
+White Labeling
+
+REMOVED from Platform:
+
+Company Profile
+
+Correct decision.
+
+Because:
+
+Company Profile = customer/business entity management
+
+NOT:
+
+platform configuration
+FINAL DUPLICATE RESOLUTION SUMMARY
+Duplicate	Final Home
+SIP Trace	Troubleshooting
+Diagnostics	Troubleshooting
+Billing	Finance & Billing
+Company Profile	Company
+
+This is now:
+
+clean enterprise telecom information architecture
+IMPORTANT RESULT
+
+You now have:
+
+no duplicate navigation confusion
+proper operational separation
+clean enterprise domains
+correct telecom workflow grouping
+logical feature discovery
+
+This structure is now mature enough to become:
+
+permanent platform navigation architecture
+
+and should remain stable moving forward.
+
+this looks good, can we make same thing in setting sidebar menu to on/off option 
+
+Yes — this is actually an excellent idea and matches enterprise telecom platforms very well.
+
+What you are proposing is:
+
+Navigation Visibility Management
+
+inside:
+
+Settings → Navigation / Platform Configuration
+
+This is extremely useful because your platform now has:
+
+71+ features
+multiple user types
+reseller portals
+KAM users
+client portals
+white-label deployments
+
+Not every deployment should see every menu.
+
+Recommended Feature
+SETTINGS → NAVIGATION MANAGER
+
+A dedicated admin page like the screenshot structure.
+
+Each section:
+
+Live Network
+Company
+Operations
+Analytics
+Intelligence
+Security
+Finance
+Platform
+
+would become:
+
+configurable navigation groups
+
+with:
+
+ON/OFF toggles
+
+for:
+
+visibility
+role access
+portal visibility
+white-label visibility
+Example UI
+LIVE NETWORK
+Feature	Visible	KAM	Client	Reseller
+Live Calls	✅	❌	❌	❌
+Alerts	✅	❌	❌	❌
+SIP Trace	✅	❌	❌	❌
+COMPANY
+Feature	Visible	KAM	Client	Reseller
+Accounts	✅	✅	❌	❌
+Client Portal	✅	✅	✅	✅
+Company Profile	✅	✅	❌	✅
+VERY IMPORTANT
+
+This should NOT:
+
+delete routes
+hard-remove features
+break permissions
+
+Instead:
+
+navigation visibility layer only
+
+Meaning:
+
+hide/show menu items
+hide/show workspace cards
+hide/show command palette entries
+hide/show dashboard modules
+
+while backend permissions still protect routes.
+
+Recommended Architecture
+New Module
+Settings → Navigation Manager
+Features
+1. Visibility Toggles
+show/hide menu item
+2. Role Visibility
+Admin
+Management
+KAM
+NOC
+Finance
+Client
+Reseller
+3. Portal Visibility
+Main Platform
+KAM Portal
+Client Portal
+Reseller Portal
+4. Workspace Visibility
+
+Hide entire:
+
+Intelligence
+Finance
+Security
+Vendors
+
+for simpler deployments.
+
+THIS IS VERY IMPORTANT FOR:
+Deployment Type	Needed
+Enterprise Carrier	all menus
+Small VoIP Provider	simplified menus
+Reseller deployment	branding + limited ops
+Client Portal	restricted visibility
+KAM Portal	customer-focused only
+Recommended UX
+
+Exactly like your screenshot:
+
+grouped sections
+clean list layout
+switch toggles
+role badges
+visibility pills
+
+NOT:
+
+complex drag-and-drop CMS
+
+Keep it:
+
+operationally simple
+Important Technical Rule
+
+Navigation config should drive:
+
+top mega menu
+sidebar rail
+workspace cards
+command palette
+workspace homes
+
+Single source of truth:
+
+navigation_visibility_config
+Recommended DB Structure
+navigation_visibility
+- id
+- feature_key
+- visible
+- workspace
+- roles[]
+- portals[]
+- updated_by
+- updated_at
+MOST IMPORTANT BENEFIT
+
+This solves:
+
+platform complexity scaling
+
+As features grow:
+
+you simplify deployments
+reduce confusion
+create customer-specific experiences
+support white-label products cleanly
+
+without:
+
+deleting functionality
+forking the platform
+
+This is the correct enterprise direction now.
+
+attached sheet is current 
+
+This current implementation is actually very good structurally.
+
+You already built:
+
+Sidebar Visibility Management v1
+
+and the architecture is correct:
+
+grouped sections
+toggles
+counts
+search
+show/hide
+persistence
+
+The main issue now is:
+
+the grouping vocabulary still reflects old sidebar structure
+
+instead of the new:
+
+enterprise telecom mega-menu architecture
+What Needs Improvement
+
+Currently:
+
+Company
+Settings
+All Tools
+
+still feels:
+
+sidebar-centric
+feature-list oriented
+
+But your platform evolved into:
+
+domain-driven telecom operations
+
+So this settings page should now mirror EXACTLY:
+
+the top enterprise mega menu
+Recommended Final Structure
+
+The Settings page should visually match:
+
+Top Mega Menu	Navigation Settings Group
+LIVE NETWORK	LIVE NETWORK
+COMPANY	COMPANY
+OPERATIONS	OPERATIONS
+ANALYTICS & REPORTS	ANALYTICS & REPORTS
+INTELLIGENCE	INTELLIGENCE
+TROUBLESHOOTING	TROUBLESHOOTING
+SECURITY & COMPLIANCE	SECURITY & COMPLIANCE
+FINANCE & BILLING	FINANCE & BILLING
+PLATFORM	PLATFORM
+
+Exactly the same hierarchy.
+
+What To Change
+REMOVE
+sidebar-centric wording
+
+Examples:
+
+Sidebar Menu Configuration
+All Tools
+Sidebar groups
+
+Replace with:
+
+Navigation Management
+
+or:
+
+Platform Navigation Control
+ADD
+1. Domain Cards
+
+Like your clean infographic.
+
+Each domain becomes:
+
+enterprise navigation domain card
+
+Examples:
+
+Live Network
+Company
+Operations
+Intelligence
+2. Visibility Controls Per Domain
+
+Example:
+
+[ ON ] Entire Domain
+
+Then:
+
+feature-level toggles underneath
+3. Portal Visibility
+
+This is the BIG missing feature.
+
+Each item should support:
+
+Main	KAM	Client	Reseller
+✅	✅	❌	❌
+
+This becomes incredibly valuable later.
+
+4. Role Visibility
+
+Add:
+
+Admin
+Management
+NOC
+Finance
+KAM
+Reseller
+Client
+
+This transforms it into:
+
+enterprise telecom navigation governance
+MOST IMPORTANT IMPROVEMENT
+
+Right now:
+
+you only control sidebar visibility
+
+But future architecture should control:
+
+top mega menu
+sidebar rail
+workspace cards
+command palette
+workspace home cards
+
+from:
+
+one navigation configuration engine
+Final Recommended Naming
+
+Replace:
+
+Sidebar Menu Configuration
+
+with:
+
+Navigation Management
+
+or:
+
+Platform Navigation Control
+
+Because:
+
+navigation is no longer sidebar-only
+
+That is very important now.
+
+UI Direction
+
+Your infographic style is actually PERFECT for this page:
+
+domain blocks
+clean grouping
+operational categories
+deduplicated architecture
+telecom enterprise feel
+
+I would strongly recommend:
+
+converting this settings page into that visual architecture
+
+instead of:
+
+accordion list settings UI
+
+because the infographic already communicates:
+
+hierarchy
+ownership
+operational grouping
+deduplication
+
+much more clearly.
+
+Final Recommendation
+
+You are now ready for:
+
+Navigation Management v2
+
+Features:
+✅ domain-based architecture
+✅ role visibility
+✅ portal visibility
+✅ mega-menu governance
+✅ sidebar governance
+✅ command palette governance
+✅ workspace governance
+✅ deduplicated enterprise structure
+
+This would become:
+
+enterprise telecom navigation governance system
+
+—not merely:
+
+sidebar toggle page

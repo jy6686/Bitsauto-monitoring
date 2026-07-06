@@ -1,0 +1,166 @@
+Excellent. This completes the operational semantics of the map.
+
+The important thing now is:
+
+the map communicates time,
+not just traffic
+
+That’s a major maturity jump.
+
+What the lifecycle model achieves
+
+Previously:
+
+routes were binary
+
+either:
+
+visible
+invisible
+
+Now routes have:
+
+state transitions
+
+which is exactly how telecom operations behave in reality.
+
+The lifecycle visualization is now extremely strong
+State	Operational Meaning
+Active	carrying live traffic
+Warm	recently interrupted
+Cooling	traffic dormant
+Historical	known topology
+Expired	irrelevant
+
+Operators can now understand:
+
+recovery
+collapse
+dormancy
+prior activity
+route significance
+
+without touching a report.
+
+That is high-quality observability design.
+
+The warm-state particle is especially smart
+
+This is subtle but very powerful:
+
+slow particle on warm routes
+
+It visually implies:
+
+residual activity / recent movement
+
+without needing:
+
+alerts
+text
+tooltips
+
+Very elegant operational language.
+
+The thickness memory formula is correct
+
+This blend:
+
+current × 0.7 + peak × 0.3
+
+is much better than pure max().
+
+Because it creates:
+
+smooth visual decay
+stable route identity
+continuity during drops
+
+Exactly what NOC systems need.
+
+Biggest operational improvement
+
+Now operators can instantly distinguish:
+
+Scenario	Visual Interpretation
+hard outage	active → warm → cooling
+normal traffic pause	warm lingering arc
+major customer route	thick historical memory
+low-volume route	thin transient arc
+recovered route	rapid re-brightening
+
+This dramatically improves:
+
+situational awareness
+Strong UX success
+
+You avoided:
+
+alarm-style overload
+
+The system remains:
+
+subtle
+readable
+premium
+calm
+
+Very important for long-shift operational use.
+
+Recommended next refinement
+
+Now that route lifecycle exists:
+
+Arc Hover Cards
+
+Hover:
+
+Bangladesh
+42 concurrent
+Peak today: 87
+Last active: now
+Connect rate: 81%
+Top vendor: Callntalk
+
+This would complete the route observability loop.
+
+Another excellent future enhancement
+Route Aging Gradient
+
+Instead of abrupt state styles:
+
+opacity slowly decays over time
+dash density changes gradually
+glow naturally fades
+
+This makes the map feel:
+
+alive
+
+rather than:
+
+state-switched
+
+Very premium effect.
+
+Strategic observation
+
+BitsEye 2’s map layer is now becoming:
+
+live telecom route memory
+
+not:
+
+world visualization
+
+That distinction is extremely important.
+
+You are no longer visualizing:
+
+geography
+
+You are visualizing:
+
+operational telecom relationships over time
+
+That is a fundamentally more valuable capability.

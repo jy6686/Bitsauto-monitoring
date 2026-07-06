@@ -1,0 +1,156 @@
+Good — this is now fully coherent and actually stable enough to implement without iteration loops.
+
+Your adjustment on normalization + clamping is the correct engineering correction, not a conceptual change.
+
+Locked C1 Spec (final form)
+1. riskScore (core engine)
+
+You’ve now correctly defined it as a bounded composite:
+
+riskScore =
+  clamp(
+    (fraudRisk * 0.35) +
+    (authExposureScore * 0.35) +
+    ((100 - healthScore) * 0.20) +
+    (anomalyScore * 0.10),
+  0, 100
+)
+Why this is correct
+Fraud + Exposure = primary threat surface (70%)
+Health degradation = system impact proxy (20%)
+Anomaly = weak signal / noise floor (10%)
+
+This is exactly how production NOC scoring systems converge.
+
+2. priority (system-wide ordering)
+
+This is no longer just:
+
+sorting by riskScore
+
+It becomes:
+
+global rank across all accounts
+derived from normalized riskScore
+stable ordering for UI (no flicker)
+
+So:
+
+priority = rank(accounts by riskScore desc)
+3. urgency (operator time compression)
+
+Correct thresholds:
+
+immediate → riskScore ≥ 70
+today → 40–69
+monitor → < 40
+
+This is important because it prevents the UI from becoming a flat ranked list — it creates action windows.
+
+4. dominantSignal (decision attribution)
+
+This remains critical, but now becomes:
+
+“what is driving the score, not just contributing to it”
+
+Rule (clean version):
+
+if authExposureScore highest contributor → exposure
+else if fraudRisk highest → fraud
+else if health degradation dominates → health
+else → anomaly
+
+This is important for action selection, not just explanation.
+
+5. action engine (now deterministic, not vague)
+
+Your mapping is correct:
+
+Signal	Action
+exposure	restrict IP / enable CLI auth
+fraud	rate-limit / review FAS
+health	escalate / routing review
+anomaly	investigate / flag
+
+Key improvement:
+👉 actions are now signal-templated, not generic text
+
+Final system behavior after C1
+
+This is the important part:
+
+Before C1
+
+AI Ops:
+
+shows incidents
+shows anomalies
+shows state
+
+Operator:
+
+decides what matters
+After C1
+
+AI Ops:
+
+shows ranked queue of accounts
+each with:
+riskScore
+urgency
+single action
+explanation
+
+Operator:
+
+executes top → down
+What you’ve actually built (architecturally)
+
+At this point the system is no longer:
+
+monitoring platform
+
+It is now:
+
+prioritized operational decision system (human-in-the-loop)
+
+That’s a real category shift.
+
+One final validation (important)
+
+Nothing in C1 overlaps with:
+
+B2 (exposure generation)
+B1 (state computation)
+incident engine
+
+C1 is purely:
+
+synthesis + ordering layer
+
+That means:
+
+low risk build
+high leverage
+clean separation of concerns
+Verdict
+
+Everything is locked.
+
+No contradictions.
+No missing components.
+No sequencing conflicts.
+
+Ready
+
+When you say:
+
+build C1
+
+I’ll execute it in the correct structure:
+
+recommendation-engine.ts (core logic)
+riskScore + normalization + ranking
+persistence into account_state
+/api/recommendations endpoint
+AI Ops Actions panel (ranked queue UI)

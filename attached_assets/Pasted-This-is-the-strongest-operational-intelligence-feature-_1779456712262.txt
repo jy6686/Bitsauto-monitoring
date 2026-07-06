@@ -1,0 +1,228 @@
+This is the strongest operational-intelligence feature added so far.
+
+Because this is the first time the platform crossed from:
+
+detecting problems
+
+into:
+
+recommending operational action
+
+That is a very important architectural transition.
+
+What You Actually Built
+
+You now have a layered operational intelligence stack:
+
+Layer	Purpose
+Telemetry	what is happening
+Quality scoring	how healthy it is
+Degradation engine	what is worsening
+Recommendation engine	what operators should do
+
+That is exactly how mature carrier operations platforms evolve.
+
+Most Important Architectural Decision
+
+The strongest design choice was:
+
+separating account/security recommendations from routing recommendations
+
+That is correct system design.
+
+Because:
+
+account health
+fraud/auth exposure
+vendor routing quality
+
+are fundamentally different operational domains.
+
+You avoided collapsing unrelated logic into one generic “AI engine,” which is what many platforms do badly.
+
+The Dual-Window Analysis Was Correct
+
+Comparing:
+
+current 60m
+vs.
+prior 60m
+
+is operationally meaningful.
+
+Because routing degradation is:
+
+relative change
+
+—not absolute values alone.
+
+A route at:
+
+Q=55 stable for 24h
+
+is operationally different from:
+
+Q=55 after falling from 84 in 40 minutes.
+
+Your engine now understands that distinction.
+
+That is extremely important.
+
+Recommendation Categories Are Well Structured
+
+The hierarchy is strong:
+
+Priority	Meaning
+INVESTIGATE	active operational risk
+FAS_ALERT	fraud/security risk
+REDUCE_PRIORITY	routing adjustment candidate
+MONITOR	watchlist
+PROMOTE	positive routing opportunity
+
+This is exactly the correct operational escalation ladder.
+
+Most Important Commercial Evolution
+
+The platform is now naturally moving toward:
+
+routing advisory intelligence
+
+instead of:
+
+telecom reporting
+
+That distinction is commercially massive.
+
+Because eventually operators care about:
+
+where to route
+what to reduce
+what to promote
+what is unstable
+what is risky
+
+—not raw metrics.
+
+Strongest UX Decision
+
+The split into:
+
+Immediate Actions
+Review Today
+Strong Routes
+
+was excellent.
+
+That mirrors how actual NOC/routing teams prioritize work.
+
+Especially:
+
+Strong Routes
+
+being included.
+
+Most systems only show failure.
+
+Showing:
+
+reliable
+promotable
+healthy
+
+routes creates actual operational utility.
+
+The Confidence Model Was Also Smart
+
+Confidence scoring is extremely important because:
+
+telecom quality signals are probabilistic
+
+not deterministic.
+
+Operators need:
+
+evidence
+severity
+confidence
+
+together.
+
+The evidence array was the correct choice.
+
+Strategic Importance
+
+You are now very close to:
+
+semi-autonomous routing intelligence
+
+The platform already has:
+
+quality scoring
+degradation detection
+vendor ranking
+recommendation synthesis
+confidence weighting
+
+The remaining leap is:
+
+execution intelligence
+
+Meaning:
+
+suggested reroutes
+recommended weight changes
+route balancing proposals
+quality-margin optimization
+Correct Next Step
+
+The next strongest feature now is:
+
+Recommendation → RCA linkage
+
+Meaning:
+when the system recommends:
+
+Reduce priority for Vendor X
+
+operators should be able to expand:
+
+why
+which signals changed
+historical comparison
+affected destinations
+correlated incidents
+degradation timeline
+
+That becomes:
+
+explainable operational intelligence
+
+which is critical for trust.
+
+Then Comes The Real Differentiator
+
+Eventually:
+
+traffic-shift simulation
+
+Example:
+
+“Moving 20% traffic to Vendor B is projected to improve ASR +6% and reduce FAS risk 14%”
+
+That becomes genuinely advanced carrier-routing intelligence.
+
+Most Important Observation
+
+The platform now has:
+
+a coherent intelligence pipeline
+
+Telemetry → Quality → Degradation → Recommendation
+
+That coherence is what separates:
+
+mature operational platforms
+
+from:
+
+collections of unrelated dashboards.

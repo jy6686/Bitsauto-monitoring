@@ -1,0 +1,124 @@
+If P1.1 is already live, then do not build anything else yet.
+
+The next step is validation, not development.
+
+What I need from you
+
+Open:
+
+Platform Operations
+→ Reconciliation Lab
+→ Recording Integrity
+
+Then send screenshots of:
+
+1. SSH Health Card
+
+I want to see:
+
+Connected / Failed
+Host
+User
+Recent files found
+
+This immediately tells us whether:
+
+Asterisk reachable?
+SFTP working?
+Files physically exist?
+2. Recording Integrity Summary Cards
+
+I want to see:
+
+Checked
+File OK
+Missing
+Empty
+Success %
+
+This tells us whether the issue is:
+
+Recording creation
+OR
+Recording retrieval
+3. One Expanded Audio Player Row
+
+Click Play on one recording and send a screenshot showing:
+
+Audio player loaded?
+Duration visible?
+Playback starts?
+
+This verifies:
+
+Range requests
+Streaming
+Audio playback
+After That
+
+If Recording Integrity is green:
+
+P1 = Closed
+
+Then move immediately to:
+
+P3.2 Vendor Cost Validation
+
+because P3.1 is already complete.
+
+P3.2 Validation Checklist
+
+Generate 10–20 new governed calls.
+
+Then in Reconciliation Lab:
+
+Vendor Cost Validation
+
+Check:
+
+Field	Expected
+Revenue	Populated
+Vendor Cost	Populated
+Margin	Calculated
+Negative Margin	Correctly flagged
+
+If vendor cost is still NULL on new calls, then P3.1 didn't fully propagate.
+
+P3.3 Commercial Identity Audit
+
+After 10–20 fresh calls:
+
+Verify:
+
+1923 → FC
+2923 → BC
+6923 → SB
+7923 → SC
+
+and check that:
+
+Product
+↓
+Rate
+↓
+Revenue
+
+matches expectations.
+
+This is the first real invoice-trust validation step.
+
+Current Recommendation
+Do Not Build
+Trust Center
+CCI
+Rate Integrity Audit
+Invoice Validation
+QA Workspace
+Do Validate
+Recording Integrity
+Vendor Cost Validation
+Commercial Identity Audit
+
+Those three validations will tell us whether the platform is finally producing trustworthy commercial data.
+
+Also, several of the earlier uploaded CDR exports, vendor CDR exports, P&L exports, and screenshots have expired and are no longer accessible. If you want me to review the Identity Audit or Vendor Cost Validation results in detail, please upload fresh exports or screenshots from Reconciliation Lab.

@@ -1,0 +1,135 @@
+[root@reve-otp ~]# asterisk -rvvvvvvvvvv
+Asterisk 18.6.0, Copyright (C) 1999 - 2021, Sangoma Technologies Corporation and others.
+Created by Mark Spencer <markster@digium.com>
+Asterisk comes with ABSOLUTELY NO WARRANTY; type 'core show warranty' for details.
+This is free software, with components licensed under the GNU General Public
+License version 2 and other licenses; you are welcome to redistribute it under
+certain conditions. Type 'core show license' for details.
+=========================================================================
+Connected to Asterisk 18.6.0 currently running on reve-otp (pid = 9011)
+[2026-07-03 15:10:17] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 15:10:19] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 15:10:21] DEBUG[9101]: res_pjsip_registrar.c:1278 check_expiration_thread: Woke up at 1783091421  Interval: 30
+[2026-07-03 15:10:21] DEBUG[9101]: res_pjsip_registrar.c:1285 check_expiration_thread: Expiring 0 contacts
+[2026-07-03 15:10:23] DEBUG[4208]: manager.c:6683 process_message: Running action 'Ping'
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9098 __sip_alloc: Allocating new SIP dialog for 021f295a0c71809609269f8902c3cfcb@[::1]:5160 - OPTIONS (No RTP)
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:3573 obproxy_get: OBPROXY: Not applying OBproxy to this call
+[2026-07-03 15:10:26] DEBUG[9119]: acl.c:1047 ast_ouraddrfor: For destination '191.101.30.107', our source address is '159.223.32.59'.
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:3982 ast_sip_ouraddrfor: Setting AST_TRANSPORT_UDP with address 159.223.32.59:5160
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:8887 change_callid_pvt: SIP call-id changed from '021f295a0c71809609269f8902c3cfcb@[::1]:5160' to '526ad7a15e748d6360a2f09e15eb979c@159.223.32.59:5160'
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:3449 initialize_initreq: Initializing initreq for method OPTIONS - callid 526ad7a15e748d6360a2f09e15eb979c@159.223.32.59:5160
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  0 [ 34]: OPTIONS sip:191.101.30.107 SIP/2.0
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  1 [ 64]: Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK20feb131;rport
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  2 [ 16]: Max-Forwards: 70
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  3 [ 63]: From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as4b19c7a3
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  4 [ 24]: To: <sip:191.101.30.107>
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  5 [ 41]: Contact: <sip:Unknown@159.223.32.59:5160>
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  6 [ 60]: Call-ID: 526ad7a15e748d6360a2f09e15eb979c@159.223.32.59:5160
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  7 [ 17]: CSeq: 102 OPTIONS
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  8 [ 35]: User-Agent: FPBX-16.0.10.40(18.6.0)
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  9 [ 35]: Date: Fri, 03 Jul 2026 15:10:26 GMT
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header 10 [ 90]: Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header 11 [ 26]: Supported: replaces, timer
+Reliably Transmitting (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK20feb131;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as4b19c7a3
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 526ad7a15e748d6360a2f09e15eb979c@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Fri, 03 Jul 2026 15:10:26 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:4338 __sip_reliable_xmit: *** SIP TIMER: Initializing retransmit timer on packet: Id  #11
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:3806 __sip_xmit: Trying to put 'OPTIONS sip' onto UDP socket destined for 191.101.30.107:5060
+
+<--- SIP read from UDP:191.101.30.107:5060 --->
+SIP/2.0 200 OK
+Via: SIP/2.0/UDP 159.223.32.59:5160;received=159.223.32.59;branch=z9hG4bK20feb131;rport=5160
+To: <sip:191.101.30.107>;tag=0b46.4af01a49880b8268938612bdb517bd58
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as4b19c7a3
+Call-ID: 526ad7a15e748d6360a2f09e15eb979c@159.223.32.59:5160
+CSeq: 102 OPTIONS
+Server: Sippy Softswitch v2024-PRODUCTION.485
+Content-Length: 0
+
+<------------->
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  0 [ 14]: SIP/2.0 200 OK
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  1 [ 92]: Via: SIP/2.0/UDP 159.223.32.59:5160;received=159.223.32.59;branch=z9hG4bK20feb131;rport=5160
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  2 [ 66]: To: <sip:191.101.30.107>;tag=0b46.4af01a49880b8268938612bdb517bd58
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  3 [ 63]: From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as4b19c7a3
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  4 [ 60]: Call-ID: 526ad7a15e748d6360a2f09e15eb979c@159.223.32.59:5160
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  5 [ 17]: CSeq: 102 OPTIONS
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  6 [ 45]: Server: Sippy Softswitch v2024-PRODUCTION.485
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  7 [ 17]: Content-Length: 0
+--- (8 headers 0 lines) ---
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:9505 __find_call: = Looking for  Call ID: 526ad7a15e748d6360a2f09e15eb979c@159.223.32.59:5160 (Checking To) --From tag as4b19c7a3 --To-tag 0b46.4af01a49880b8268938612bdb517bd58  
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:4598 __sip_ack: ** SIP TIMER: Cancelling retransmit of packet (reply received) Retransid #11
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:4609 __sip_ack: Stopping retransmission on '526ad7a15e748d6360a2f09e15eb979c@159.223.32.59:5160' of Request 102: Match Found
+[2026-07-03 15:10:26] DEBUG[9119]: chan_sip.c:6678 sip_pvt_dtor: Destroying SIP dialog 526ad7a15e748d6360a2f09e15eb979c@159.223.32.59:5160
+Really destroying SIP dialog '526ad7a15e748d6360a2f09e15eb979c@159.223.32.59:5160' Method: OPTIONS
+reve-otp*CLI> pjsip show transports
+
+Transport:  <TransportId........>  <Type>  <cos>  <tos>  <BindAddress....................>
+==========================================================================================
+
+Transport:  0.0.0.0-udp               udp      3     96  0.0.0.0:5060
+
+Objects found: 1
+
+[2026-07-03 15:10:28] DEBUG[14831]: manager.c:6683 process_message: Running action 'Login'
+[2026-07-03 15:10:29] DEBUG[14831]: manager.c:6683 process_message: Running action 'Command'
+[2026-07-03 15:10:29] DEBUG[14831]: manager.c:6683 process_message: Running action 'Command'
+[2026-07-03 15:10:29] DEBUG[14831]: manager.c:6683 process_message: Running action 'Command'
+[2026-07-03 15:10:29] DEBUG[14831]: manager.c:6683 process_message: Running action 'Command'
+[2026-07-03 15:10:29] DEBUG[14831]: manager.c:6683 process_message: Running action 'Command'
+[2026-07-03 15:10:29] DEBUG[14831]: manager.c:6683 process_message: Running action 'Command'
+[2026-07-03 15:10:29] DEBUG[14831]: manager.c:6683 process_message: Running action 'Command'
+[2026-07-03 15:10:30] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+reve-otp*CLI> 
+Disconnected from Asterisk server
+Asterisk cleanly ending (0).
+Executing last minute cleanups
+You have new mail in /var/spool/mail/root
+[root@reve-otp ~]# cat /etc/asterisk/pjsip.conf
+;--------------------------------------------------------------------------------;
+;          Do NOT edit this file as it is auto-generated by FreePBX.             ;
+;--------------------------------------------------------------------------------;
+; For information on adding additional paramaters to this file, please visit the ;
+; FreePBX.org wiki page, or ask on IRC. This file was created by the new FreePBX ;
+; BMO - Big Module Object. Any similarity in naming with BMO from Adventure Time ;
+; is totally deliberate.                                                         ;
+;--------------------------------------------------------------------------------;
+#include pjsip_custom.conf
+#include pjsip.transports.conf
+#include pjsip.transports_custom_post.conf
+#include pjsip.endpoint.conf
+#include pjsip.endpoint_custom_post.conf
+#include pjsip.aor.conf
+#include pjsip.aor_custom_post.conf
+#include pjsip.auth.conf
+#include pjsip.auth_custom_post.conf
+#include pjsip.registration.conf
+#include pjsip.registration_custom_post.conf
+#include pjsip.identify.conf
+#include pjsip.identify_custom_post.conf
+
+
+[global]
+type=global
+user_agent=FPBX-16.0.10.40(18.6.0)
+use_callerid_contact=no
+keep_alive_interval=90
+taskprocessor_overload_trigger=pjsip_only
+#include pjsip_custom_post.conf
+
+[root@reve-otp ~]# cat /etc/asterisk/pjsip_wizard.conf 2>/dev/null || echo "no wizard conf"
+no wizard conf
+[root@reve-otp ~]# 

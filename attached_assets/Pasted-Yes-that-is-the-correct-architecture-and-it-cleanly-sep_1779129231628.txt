@@ -1,0 +1,154 @@
+Yes — that is the correct architecture, and it cleanly separates monitoring from reporting.
+
+Final Direction (Recommended)
+1. BitsEye Dashboard → LIVE / Concurrent Calls
+
+Source:
+
+Active calls table / live call stream
+Real-time switch state
+Near-live cache (seconds/minutes)
+
+Purpose:
+
+NOC monitoring
+Traffic spikes
+CPS/concurrency visibility
+Active vendor/client load
+Real-time ASR collapse detection
+Live route health
+
+Charts should show:
+
+Concurrent calls
+Active channels
+Calls per second (CPS)
+Current ASR trend
+Live vendor load
+Live client load
+Active destinations
+Real-time call distribution
+
+This matches how legacy BitsEye behaves.
+
+The screenshots you shared are clearly concurrency/live-traffic graphs, not historical CDR aggregation.
+
+2. Reports / Analytics → CDR Data
+
+Source:
+
+Sippy reporting endpoints
+Historical CDR database
+/asr_acd.php
+Revenue analytics
+SLA calculations
+QBR metrics
+
+Purpose:
+
+Billing
+Historical analytics
+KPI reporting
+Revenue/margin
+ASR/ACD reports
+Vendor SLA
+Customer reports
+
+Charts should show:
+
+Total calls
+ASR
+ACD
+Minutes
+Revenue
+Margin
+Failed calls
+Daily/hourly historical trends
+
+This is NOT live concurrency.
+
+Correct Architecture Split
+Module	Data Source	Purpose
+BitsEye Dashboard	LIVE calls	Monitoring
+NOC Wallboard	LIVE calls	Operations
+Fraud/FAS	LIVE calls	Detection
+AI Ops	LIVE calls + CDR	Prediction
+ASR/ACD Reports	CDR/reporting DB	Reporting
+Revenue Analytics	CDR/reporting DB	Finance
+Vendor SLA	CDR/reporting DB	KPI
+QBR	CDR/reporting DB	Historical analysis
+What Went Wrong Earlier
+
+The first React BitsEye dashboard was built using:
+
+cdrCache
+aggregated historical calls
+time buckets
+
+So it behaved like:
+
+a reporting dashboard
+
+NOT like:
+
+real BitsEye live concurrency monitoring
+
+That is why:
+
+Sippy showed thousands of live/total switch calls
+your platform showed only cached CDR aggregates
+
+Completely different datasets.
+
+What BitsEye Should Become
+BitsEye v2 Architecture
+LEFT SIDE
+
+Hierarchy filter engine:
+
+Client
+Vendor
+Country
+Destination
+Switch
+Route
+
+(keep from legacy BitsEye)
+
+RIGHT SIDE
+
+LIVE widgets:
+
+Concurrent calls
+CPS
+Active channels
+Live ASR
+Live ACD
+Active vendors
+Active clients
+Top destinations
+Live failure rates
+DATA PIPELINE
+LIVE CALL STREAM
+        ↓
+Live aggregation engine
+        ↓
+Realtime cache (Redis/Memory)
+        ↓
+BitsEye Dashboard
+
+NOT:
+
+CDRs → historical charts
+Best Design Going Forward
+BitsEye Page
+
+Real-time operational intelligence only.
+
+Reports Pages
+
+Historical CDR analytics only.
+
+Do not merge them again.
+
+That separation is the correct telecom/NOC architecture.

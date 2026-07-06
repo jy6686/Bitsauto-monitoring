@@ -1,0 +1,216 @@
+Based on everything you've shared about BitsAuto, Sippy, Call Governance, P&L, Product Registry, billing disputes, and invoice trust, I would not implement Trust Center, QA, Route Certification, or more dashboards right now.
+
+I'd implement these in order:
+
+Priority 1 — Recording Integrity (Production Defect)
+
+Current status: ❌ Open
+
+Build:
+
+Recording Integrity Dashboard
+
+Per call show:
+
+Call ID
+Recording Path
+File Exists
+File Size
+Recording Duration
+Download Test
+Last Validation
+
+Goal:
+
+100% governed calls
+=
+100% accessible recordings
+
+This is operational evidence.
+
+Priority 2 — Universal Reconciliation Engine
+
+Current status: ❌ Missing
+
+This is the biggest platform gap.
+
+Instead of:
+
+Call Governance → find CDR
+Finance → find CDR
+Billing → find CDR
+
+Build:
+
+Universal Reconciliation Engine
+
+Output:
+
+One Reconciled Call Record
+
+Customer CDR
+Vendor CDR
+P&L
+
+Every module consumes this.
+
+This is probably the highest ROI feature in the entire platform today.
+
+Priority 2.5 — Call Identity Audit
+
+Before building Commercial Call Identity (CCI):
+
+Investigate:
+
+Call-ID
+Conf-ID
+UniqueID
+
+across:
+
+Customer CDR
+Vendor CDR
+P&L
+
+Question:
+
+Does Sippy already provide a universal call identifier?
+
+If yes:
+
+Use it.
+Save months of future work.
+Priority 3 — Vendor Cost Validation
+
+Current status: ⚠ Partial
+
+Take:
+
+20 real production calls
+
+Compare:
+
+Vendor CDR Cost
+=
+P&L Cost
+
+If not:
+
+stop
+
+and fix before any margin features.
+
+Priority 4 — Product Registry Authority
+
+This is where I think your focus should move next.
+
+Complete:
+
+Pricing Templates
+Routing Templates
+Product Assignments
+Rate Repository
+Customer → Product Mapping
+
+Because you've already proven:
+
+1923
+2923
+6923
+7923
+
+can have different rates.
+
+Without authoritative Product Registry:
+
+Margin is not trusted
+Invoice is not trusted
+Billing is not trusted
+Priority 5 — Commercial Call Identity (CCI)
+
+After Product Registry is authoritative:
+
+Persist:
+
+product_code
+product_prefix
+original_cld
+normalized_cld
+
+at call creation.
+
+Preferably stamped from:
+
+1923...
+2923...
+6923...
+7923...
+
+when call enters Asterisk.
+
+Priority 6 — Rate Integrity Audit
+
+For every call:
+
+Expected Rate
+Actual Rate
+Difference
+
+Output:
+
+PASS
+WARNING
+FAIL
+
+This becomes the foundation for trusted invoicing.
+
+Freeze These
+
+Do NOT spend time on:
+
+❄️ Trust Center
+❄️ Route Certification
+❄️ QA Workspace
+❄️ Security Scoring
+❄️ Voice Escalation
+❄️ Config Governance
+
+until the financial truth layer is complete.
+
+If I were your CTO for one sprint
+
+I would tell the team:
+
+Sprint 1
+Recording Integrity
+Universal Reconciliation Engine
+Call Identity Audit
+Sprint 2
+Vendor Cost Validation
+Product Registry Authority
+Sprint 3
+Commercial Call Identity
+Rate Integrity Audit
+
+Only after that would I allow:
+
+Invoice Automation
+Margin Intelligence
+Revenue Protection
+Trust Center
+
+Because your biggest business risk today is not security.
+
+It's:
+
+Wrong product
+↓
+Wrong rate
+↓
+Wrong invoice
+↓
+Customer dispute
+↓
+Lost trust
+
+And that should be resolved before building any new major workspace.

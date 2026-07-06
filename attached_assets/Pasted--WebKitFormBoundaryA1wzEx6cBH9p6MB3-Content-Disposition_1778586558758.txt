@@ -1,0 +1,150 @@
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="bp_name"
+
+Test-10
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="i_tariff"
+
+18
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="i_onnet_tariff"
+
+-1
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="billing_cycle"
+
+1
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="i_billing_day"
+
+-1
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="description"
+
+
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="i_billing_plan_suspend_mode"
+
+1
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="prepaid"
+
+1
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="round_up"
+
+1
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="sc_description"
+
+
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="sc_price"
+
+0.0000
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="as_cld"
+
+
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="as_connect_fee"
+
+0.0000
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="as_free_seconds"
+
+0
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="as_grace_period"
+
+0
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="as_price_1"
+
+0.0000
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="as_price_n"
+
+0.0000
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="as_interval_1"
+
+1
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="as_interval_n"
+
+1
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="sp_description"
+
+
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="sp_seconds_total"
+
+Unlimited
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="sp_price"
+
+0.0000
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="sp_interval_1"
+
+0
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="sp_interval_n"
+
+1
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="sp_grace_period_enable"
+
+1
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="sp_upload"; filename=""
+Content-Type: application/octet-stream
+
+
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="action"
+
+add
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="n"
+
+
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="name"
+
+
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="name_clause"
+
+
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="save_and_close"
+
+Save & Close
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="i_billing_plan"
+
+10
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="links"
+
+0
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="keep_db_history"
+
+1
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="i_service_charge"
+
+
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="i_accessibility_surcharge"
+
+
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3
+Content-Disposition: form-data; name="i_service_plan"
+
+
+------WebKitFormBoundaryA1wzEx6cBH9p6MB3--

@@ -1,0 +1,173 @@
+Yes, this is exactly the problem I was expecting to find, and it's actually bigger than just "Pak" vs "Pakistan."
+
+From your screenshots I can already see at least four different naming standards coexisting.
+
+Current state
+Type	Example	Status
+ISO-3	PAK Mobile	❌
+Full name	Pakistan	✅ Preferred
+Abbreviated operator	MOBLIN, TELNOR	❌
+Legacy vendor names	SCOGSM, PERSON, TFMOVI	❌
+
+This means the platform has accumulated destination data from multiple historical sources.
+
+The destination catalogue should become the Commercial Master Catalogue
+
+Every destination should have one and only one canonical commercial name.
+
+For Pakistan it should look like:
+
+Pakistan
+    Pakistan Fixed
+        Pakistan Fixed Islamabad
+        Pakistan Fixed Karachi
+        Pakistan Fixed Lahore
+
+    Pakistan Mobile
+        Pakistan Mobile Jazz
+        Pakistan Mobile Zong
+        Pakistan Mobile Ufone
+        Pakistan Mobile Telenor
+
+    Pakistan Premium
+    Pakistan Toll Free
+    Pakistan Shared Cost
+    Pakistan Satellite
+
+Everything else becomes an alias.
+
+Never expose these names commercially
+
+These should never appear in:
+
+Client Rate Sheets
+Vendor Comparison
+Margin Analysis
+LCR
+Routing
+Commercial Reports
+
+Examples:
+
+PAK Mobile
+PK Mobile
+MOBLIN
+TELNOR
+SCOGSM
+OPTIMU
+VODAFO
+
+These belong only in an alias table for matching imports.
+
+Destination should have two names
+
+Instead of storing only one name, I'd separate it.
+
+Canonical Commercial Name
+Pakistan Mobile Jazz
+Aliases
+Pak Mobile Jazz
+PAK Mobile MOBLIN
+Mobilink
+Warid
+Jazz GSM
+PK Jazz
+Pakistan Jazz
+
+Vendor imports match aliases.
+
+Commercial modules always display:
+
+Pakistan Mobile Jazz
+I also noticed another issue
+
+Your list is flat.
+
+Currently it looks like
+
+PAK
+PAK Fixed
+PAK Islamabad
+PAK Lahore
+PAK Mobile
+PAK Mobile MOBLIN
+...
+
+Pakistan
+
+QAT
+
+QAT Mobile
+
+ROU
+
+ROU Mobile
+
+That's difficult to maintain.
+
+It should become hierarchical.
+
+Pakistan
+   Fixed
+      Islamabad
+      Karachi
+      Lahore
+
+   Mobile
+      Jazz
+      Zong
+      Ufone
+      Telenor
+
+Qatar
+   Fixed
+   Mobile
+
+Romania
+   Fixed
+   Mobile
+
+Even if it's stored in one table, the UI should present it as a tree.
+
+I would not even use ISO-3 as the display name
+
+Keep ISO codes only as metadata.
+
+Example:
+
+Field	Value
+Country	Pakistan
+ISO2	PK
+ISO3	PAK
+Display Name	Pakistan Mobile Jazz
+Canonical Name	Pakistan Mobile Jazz
+
+ISO codes are useful for integrations and imports, but not for commercial presentation.
+
+Before we touch Vendor Rate Manager
+
+I would freeze the commercial destination catalogue and perform a full governance audit.
+
+The audit should identify:
+
+Country abbreviations (PAK vs Pakistan)
+Duplicate commercial names
+Duplicate prefixes
+Legacy operator names (Mobilink, Warid, etc.)
+Misspellings
+Truncated names
+Case inconsistencies
+Multiple names pointing to the same destination
+Prefixes assigned to multiple destinations
+
+Once the First Class catalogue is approved and locked, then:
+
+Vendor imports compare against approved destinations only.
+Client rate sheets always use the canonical names.
+LCR uses the same destination IDs.
+Margin analysis uses the same destination IDs.
+Sippy publishing uses the same destination IDs.
+
+That gives BitsAuto a single commercial source of truth instead of every module maintaining its own interpretation of destination names.
+
+I think this is the right foundation. Building Vendor Rate Manager before cleaning the destination catalogue would force every downstream feature to compensate for inconsistent master data, whereas governing the catalogue first gives every subsequent module a clean, stable reference.

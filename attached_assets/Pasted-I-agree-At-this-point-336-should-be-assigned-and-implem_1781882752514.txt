@@ -1,0 +1,140 @@
+I agree. At this point #336 should be assigned and implemented exactly as locked, with no additional scope added.
+
+Implementation Priority
+Backend First
+rate_notification_jobs lifecycle columns
+submitted_for_approval_at
+submitted_by
+approved_by
+approved_at
+rejected_by
+rejected_at
+rejection_reason
+Status transitions
+pending_rates
+awaiting_approval
+approved
+activated
+rejected
+dismissed
+Approval endpoints
+submit-approval
+approve
+reject
+Validation rules
+Template required before submit
+Rejection reason required
+Status transition validation
+Role validation
+Activation hook
+successful send
+companies.status = live
+activated_at
+activated_by
+Frontend Second
+Job Detail Drawer
+
+Lifecycle Stepper:
+
+Pending Rates
+↓
+Awaiting Approval
+↓
+Approved
+↓
+Activated
+
+Each step displays:
+
+Timestamp
+Actor
+Status
+Manager Approval Panel
+
+Show before approval:
+
+Client
+Product
+Template
+Destination Count
+Notification Type
+
+Actions:
+
+Approve
+Reject
+
+Reject requires reason.
+
+Initial Rate Operations Dashboard
+
+Simple count cards:
+
+Pending Rates
+Awaiting Approval
+Approved
+Activated
+Rejected
+
+Clicking a card filters the Jobs list.
+
+No charts.
+
+No analytics.
+
+No trend graphs.
+
+Success Criteria
+
+A newly provisioned customer should now follow:
+
+Client Wizard
+↓
+Tariff Created
+↓
+Service Plan Created
+↓
+Initial Rate Job Created (#329)
+↓
+Template Linked
+↓
+Submit For Approval (#336)
+↓
+Manager Approval (#336)
+↓
+Send Rate Sheet (existing)
+↓
+Activated (#336)
+↓
+Client Live (#336)
+Explicit Freeze During #336
+
+Do not modify:
+
+pushRateViaPortalUpload()
+setSippyRateEntry()
+pushRateToSippy()
+Send Rate certification work
+Product Registry
+Customer Product Assignments
+Vendor Rate Import
+Trading Desk
+Notification Center redesign
+
+These remain outside Sprint A.
+
+Expected Outcome
+
+After #336:
+
+Phase 1 Completion
+≈ 85%
+
+Remaining Phase-1 work becomes:
+
+Sprint B
+Template Pre-Fill From Job
+
+which is relatively small compared to everything already completed.
+
+So yes — #336 is ready for assignment and implementation exactly as currently specified.

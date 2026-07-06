@@ -1,0 +1,182 @@
+i suggest when rate submit it went to push rates tab to satrt woking on jobs., then save detail in same page when client on details shows the error and if send successfully show the complete process what job been processed 
+
+in short test failed now
+
+Your screenshots actually prove something important:
+
+Good news
+
+The system is no longer failing silently.
+
+The error is now explicit:
+
+Portal CSV: no upload form at /admin/tariffs.php
+grant "Edit Tariff Rates" permission
+
+and
+
+ssp-root admin portal access is read-only for rate uploads
+
+So we have moved from:
+
+Fake Success
+
+to:
+
+Real Failure Message
+
+which is progress.
+
+What the screenshots tell us
+
+The failure is occurring before any rate file (CSV or XLSX) is uploaded.
+
+Your system cannot find a writable upload form.
+
+Therefore:
+
+XLSX vs CSV is NOT the current blocker.
+
+Current blocker:
+
+BitsAuto
+   ↓
+Login OK
+   ↓
+Open tariff page OK
+   ↓
+No upload permission
+   ↓
+Upload aborted
+
+The rate file never reaches Sippy.
+
+I agree with your workflow suggestion
+
+Current UX:
+
+Change Client Rates
+    ↓
+Submit
+    ↓
+Popup shows failure
+    ↓
+User closes popup
+    ↓
+History somewhere else
+
+Not ideal.
+
+Better workflow
+Submit
+Change Client Rates
+     ↓
+Create Job #5105267
+     ↓
+Redirect automatically
+     ↓
+Push History tab
+Job Detail Live View
+
+Show:
+
+Job #5105267
+Client: internal-ptcl
+Tariff: 33
+Created: 18-Jun-2026 10:20
+
+Process Status
+
+✓ Job Created
+✓ Prefix Loaded
+✓ Tariff Found
+✓ Login Successful
+✓ Upload Endpoint Found
+✗ Upload Permission
+✗ File Uploaded
+✗ Verification
+Error Section
+
+Instead of:
+
+portal_csv
+
+show:
+
+Failure Reason
+
+No upload form found at:
+
+/admin/tariffs.php?action=edit_rates
+
+The current Sippy account (ssp-root)
+has read-only access.
+
+Required:
+Edit Tariff Rates permission
+or dedicated Rate Admin account.
+Success View
+
+When working:
+
+✓ Upload Token Generated
+✓ XLSX Uploaded
+✓ Upload Status = DONE
+✓ Verification Passed
+
+Prefix    Old Rate   New Rate
+19230     0.02750    0.02740
+19232     0.02750    0.02740
+
+This becomes the foundation for Task #326 later.
+
+What I would do next
+
+Do not work on more upload code yet.
+
+First solve:
+
+Why does ssp-root not have
+Edit Tariff Rates permission?
+
+because the screenshots show:
+
+Rate file upload never starts.
+
+Until that permission issue is resolved, every:
+
+CSV implementation
+XLSX implementation
+U action
+SA action
+Upload-token logic
+
+will still fail.
+
+My recommendation:
+
+Priority 1
+
+Create the Job workflow/UI you described:
+
+Submit
+   ↓
+Create Job
+   ↓
+Open Push History automatically
+   ↓
+Live status tracking
+
+because it helps debugging immediately.
+
+Priority 2
+
+Configure a dedicated Sippy Rate Admin account and test:
+
+/c1/rates.php?i_tariff=33
+
+manually.
+
+If that account can upload a rate file manually, BitsAuto will have a real target to automate against.
+
+Right now the screenshots indicate the write engine is blocked by Sippy permissions, not by the file format.

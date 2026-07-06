@@ -1,0 +1,77 @@
+[root@reve-otp ~]# # 1. See everything iptables is blocking
+[root@reve-otp ~]# iptables -L INPUT -n --line-numbers | head -50
+Chain INPUT (policy ACCEPT)
+num  target     prot opt source               destination         
+1    ACCEPT     tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:5038
+2    ACCEPT     tcp  --  34.132.235.103       0.0.0.0/0            tcp dpt:5038
+3    ACCEPT     tcp  --  127.0.0.1            0.0.0.0/0            tcp dpt:5038
+4    DROP       tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:5038
+5    fail2ban-recidive  all  --  0.0.0.0/0            0.0.0.0/0           
+6    fail2ban-BadBots  tcp  --  0.0.0.0/0            0.0.0.0/0            multiport dports 80,443
+7    fail2ban-FTP  tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:21
+8    fail2ban-apache-auth  tcp  --  0.0.0.0/0            0.0.0.0/0           
+9    fail2ban-SSH  tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:22
+10   fail2ban-PBX-GUI  all  --  0.0.0.0/0            0.0.0.0/0           
+11   fail2ban-SIP  all  --  0.0.0.0/0            0.0.0.0/0           
+12   DROP       all  --  189.50.142.78        0.0.0.0/0           
+13   DROP       all  --  194.113.233.25       0.0.0.0/0           
+14   DROP       all  --  10.157.85.60         0.0.0.0/0           
+15   DROP       all  --  185.213.155.231      0.0.0.0/0           
+[root@reve-otp ~]# 
+[root@reve-otp ~]# # 2. Confirm what's listening on SIP ports
+[root@reve-otp ~]# ss -lunp | grep -E "5060|5160"
+UNCONN     428032 0            *:5060                     *:*                   users:(("asterisk",pid=9011,fd=22))
+UNCONN     0      0            *:5160                     *:*                   users:(("asterisk",pid=9011,fd=31))
+[root@reve-otp ~]# 
+[root@reve-otp ~]# # 3. Watch for live packets from Sippy during a call attempt
+[root@reve-otp ~]# tcpdump -ni any udp port 5060 and host 191.101.30.107 -c 10
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on any, link-type LINUX_SLL (Linux cooked), capture size 262144 bytes
+14:50:21.712233 IP 159.223.32.59.5160 > 191.101.30.107.sip: SIP: OPTIONS sip:191.101.30.107 SIP/2.0
+14:50:21.934449 IP 191.101.30.107.sip > 159.223.32.59.5160: SIP: SIP/2.0 200 OK
+14:51:21.935701 IP 159.223.32.59.5160 > 191.101.30.107.sip: SIP: OPTIONS sip:191.101.30.107 SIP/2.0
+14:51:22.151423 IP 191.101.30.107.sip > 159.223.32.59.5160: SIP: SIP/2.0 200 OK
+14:52:22.152521 IP 159.223.32.59.5160 > 191.101.30.107.sip: SIP: OPTIONS sip:191.101.30.107 SIP/2.0
+14:52:22.373868 IP 191.101.30.107.sip > 159.223.32.59.5160: SIP: SIP/2.0 200 OK
+14:53:22.374397 IP 159.223.32.59.5160 > 191.101.30.107.sip: SIP: OPTIONS sip:191.101.30.107 SIP/2.0
+14:53:22.594565 IP 191.101.30.107.sip > 159.223.32.59.5160: SIP: SIP/2.0 200 OK
+^C
+8 packets captured
+10 packets received by filter
+0 packets dropped by kernel
+You have new mail in /var/spool/mail/root
+[root@reve-otp ~]# # Check if Sippy's IP is banned in fail2ban-SIP chain
+[root@reve-otp ~]# iptables -L fail2ban-SIP -n
+Chain fail2ban-SIP (1 references)
+target     prot opt source               destination         
+REJECT     all  --  148.240.238.3        0.0.0.0/0            reject-with icmp-port-unreachable
+RETURN     all  --  0.0.0.0/0            0.0.0.0/0           
+[root@reve-otp ~]# 
+[root@reve-otp ~]# # Also check fail2ban-recidive (persistent bans)
+[root@reve-otp ~]# iptables -L fail2ban-recidive -n
+Chain fail2ban-recidive (1 references)
+target     prot opt source               destination         
+REJECT     all  --  51.254.175.198       0.0.0.0/0            reject-with icmp-port-unreachable
+REJECT     all  --  148.240.238.3        0.0.0.0/0            reject-with icmp-port-unreachable
+RETURN     all  --  0.0.0.0/0            0.0.0.0/0           
+[root@reve-otp ~]# 
+[root@reve-otp ~]# # And check fail2ban status directly
+[root@reve-otp ~]# fail2ban-client status asterisk 2>/dev/null || fail2ban-client status sip 2>/dev/null || fail2ban-client status
+Sorry but the jail 'asterisk' does not exist
+Sorry but the jail 'sip' does not exist
+Status
+|- Number of jail:	7
+`- Jail list:		apache-tcpwrapper, recidive, ssh-iptables, apache-badbots, pbx-gui, asterisk-iptables, vsftpd-iptables
+[root@reve-otp ~]# # Unban and whitelist permanently
+[root@reve-otp ~]# fail2ban-client set asterisk unbanip 191.101.30.107
+ERROR  NOK: ('asterisk',)
+Sorry but the jail 'asterisk' does not exist
+[root@reve-otp ~]# fail2ban-client set sip unbanip 191.101.30.107
+ERROR  NOK: ('sip',)
+Sorry but the jail 'sip' does not exist
+[root@reve-otp ~]# 
+[root@reve-otp ~]# # Add to fail2ban whitelist so it never bans again
+[root@reve-otp ~]# echo "ignoreip = 127.0.0.1 191.101.30.107" >> /etc/fail2ban/jail.local
+[root@reve-otp ~]# fail2ban-client reload
+WARNING Wrong value for 'maxretry' in 'recidive'. Using default one: '3'
+[root@reve-otp ~]# 

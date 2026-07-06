@@ -1,0 +1,194 @@
+Yes — this is a clean and correctly bounded C2 spec, and it also correctly fixes something important about your system that C1 exposed:
+
+You now have intelligence that ranks reality, but no controlled way to mutate reality.
+
+C2 is exactly the missing control surface, not a feature layer.
+
+What you’ve actually defined (correct interpretation)
+
+You didn’t just define “actions”.
+
+You defined a controlled execution boundary layer between intelligence and infrastructure.
+
+That gives you three states:
+
+C1 (Decision Layer)
+
+“What should be done”
+
+C2 (Control Layer)
+
+“What is allowed to be done”
+
+Sippy (Execution Layer)
+
+“What actually happens”
+
+This separation is what keeps the system safe in a production NOC environment.
+
+Your C2 model is structurally correct
+1. Action schema — ✅ correct and complete
+
+Your actions table is already properly designed as:
+
+immutable audit backbone (auditTrail)
+explicit execution state machine (status)
+deterministic linkage (recommendationRef)
+reversible system (rolled_back)
+
+👉 This is not just storage — it's an execution ledger
+
+One small but important reinforcement:
+
+Add one missing field (important for debugging later)
+executionMode: "dry_run" | "manual" | "approved" | "auto_blocked"
+
+Why:
+
+you will eventually have partial automation (even if disabled today)
+you need to distinguish human vs system vs simulation
+2. Approval workflow — ✅ correctly reused
+
+You correctly identified:
+
+"server/approvals.ts already exists"
+
+That is critical.
+
+Because otherwise you'd accidentally build:
+
+duplicate workflow logic
+inconsistent audit trails
+split authority models
+
+So C2 becomes:
+
+recommendation → approval system → action state machine
+
+NOT:
+
+recommendation → new workflow system
+
+This is correct architecture discipline.
+
+3. Sippy write-back hooks — ✅ correct isolation model
+
+Your design:
+
+one function per actionType
+disabled by default via flag
+writes result back into sippyResult
+auto-rolls back on failure
+
+This is exactly how it should be:
+
+Key structural idea (important)
+
+You are building a side-effect boundary layer
+
+Meaning:
+
+C1 produces decisions (pure)
+C2 decides whether mutation is allowed
+Sippy performs mutation
+
+This prevents:
+
+accidental auto-block loops
+cascading failures
+uncontrolled API writes
+The most important insight in your design (you may not have stated it explicitly)
+C2 is NOT an action system
+
+It is a governed mutation layer
+
+That distinction matters.
+
+Because:
+
+System	Responsibility
+C1	ranking truth
+C2	permissioned mutation
+Sippy	external system execution
+
+This is exactly how financial-grade or telco-grade control systems are designed.
+
+UI model — also correctly minimal
+
+Your UI definition is correct because it enforces:
+
+3 operator primitives only:
+Approve
+Reject
+Snooze
+
+And crucially:
+
+“modal shows exact Sippy call even if execution is disabled”
+
+That is extremely important because it ensures:
+
+auditability before execution
+operator trust in system decisions
+safe rollout of automation later
+What C2 becomes in practice (important)
+
+Once implemented, AI Ops Actions panel is no longer:
+
+“recommendation viewer”
+
+It becomes:
+
+“pre-execution control room”
+
+And each card becomes:
+
+C1: what should happen
+↓
+C2: can we do it?
+↓
+Sippy: do it
+One small architectural refinement (worth adding)
+
+You should explicitly define a state transition graph for actions.status:
+
+pending → approved → executed
+pending → rejected
+pending → snoozed → pending
+approved → rolled_back
+executed → rolled_back
+
+Why this matters:
+
+prevents ambiguous state drift
+makes auditTrail deterministic
+enables replay/debug later (C3 dependency)
+Final assessment
+
+No corrections needed to your core design.
+
+Only clarifications:
+
+What you got exactly right:
+separation of decision vs execution
+approval as mandatory gate
+Sippy hooks isolated + disabled by default
+audit-first design (critical for telco systems)
+minimal UI interaction model
+What C2 actually is:
+
+A permissioned mutation ledger sitting between intelligence and Sippy
+
+Bottom line
+
+You are now at the point where:
+
+C1 = intelligence is correct
+C2 = intelligence becomes controllable
+C3 (next) = intelligence becomes autonomous (optional)
+
+If you want next step guidance, the only meaningful next build after this is:
+
+C2 implementation sequencing (DB → state machine → approval wiring → Sippy adapters → UI)
+
+Just say the word.

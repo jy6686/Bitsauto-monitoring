@@ -1,0 +1,13 @@
+node -e "
+const fs = require('fs');
+let r = fs.readFileSync('server/routes.ts','utf8');
+const s = r.indexOf('async function refreshPnlCache(): Promise<void> {');
+let d=0,f=false,e=s;
+for(let i=s;i<r.length;i++){if(r[i]==='{'){d++;f=true;}if(r[i]==='}')d--;if(f&&d===0){e=i+1;break;}}
+if(r.slice(s,e).includes('exportVendorsCDRsMera')){console.log('already fixed');process.exit();}
+const n='async function refreshPnlCache(): Promise<void> {\n    if (_pnlCacheRunning) return;\n    _pnlCacheRunning = true;\n    const t0 = Date.now();\n    try {\n      const settings = await storage.getSettings();\n      if (!settings) return;\n      const { username, password } = sippyXmlCreds(settings as any);\n      const portalUrl = sippyPortalUrl(settings) ?? \"\";\n      if (!portalUrl) { console.warn(\"[pnl-cache] no portalUrl\"); return; }\n      const fromDate = new Date(Date.now() - 24 * 60 * 60_000);\n      const toDate = new Date();\n      const vendorCdrs = await sippy.exportVendorsCDRsMera(portalUrl, username, password, fromDate, toDate);\n      pnlCacheLastProbe = [{ attempt: \"exportVendorsCDRsMera\", statusCode: 200, bodyLen: vendorCdrs.length, contentType: \"xml-rpc\" }];\n      if (!vendorCdrs || vendorCdrs.length === 0) { console.warn(\"[pnl-cache] 0 rows\"); return; }\n      let added = 0;\n      for (const row of vendorCdrs) {\n        const cld = (row.dstNumberBill || row.dstNumberIn || \"\").replace(/\\\\D/g, \"\");\n        const cli = (row.srcNumberBill || row.srcNumberIn || \"\").replace(/\\\\D/g, \"\");\n        const startTime = row.connectTime || row.setupTime || \"\";\n        const key = cli+\":\"+cld+\":\"+startTime;\n        if (!pnlCache.has(key)) { pnlCache.set(key, {cli,cld,startTime,setupTimeSec:0,durationSec:Number(row.elapsedTime)||0,buyDurationSec:Number(row.elapsedTime)||0,revenue:0,cost:Number(row.cost)||0,profit:0,margin:0,connection:row.dstName||\"\",account:row.srcName||\"\",result:row.disconnectCodeQ931||\"\",pdd:0,extra:{}} as any); added++; }\n      }\n      const cutoff = Date.now()-48*60*60_000;\n      for (const [k,v] of pnlCache.entries()) { const ts=sippy.parseSippyDate(v.startTime)?.getTime()??0; if(ts>0&&ts<cutoff) pnlCache.delete(k); }\n      pnlCacheUpdatedAt = new Date();\n      (global as any).__bitsautoPnlCache = pnlCache;\n      console.log(\"[pnl-cache] exportVendorsCDRsMera OK — \"+added+\" new, cache=\"+pnlCache.size+\" (\"+(Date.now()-t0)+\"ms)\");\n    } catch(e) { console.warn(\"[pnl-cache] error:\", e.message); }\n    finally { _pnlCacheRunning = false; }\n  }';
+r=r.slice(0,s)+n+r.slice(e);
+fs.writeFileSync('server/routes.ts',r);
+console.log('DONE - pnlCache now uses exportVendorsCDRsMera');
+"
+DONE - pnlCache now uses exportVendorsCDRsMera

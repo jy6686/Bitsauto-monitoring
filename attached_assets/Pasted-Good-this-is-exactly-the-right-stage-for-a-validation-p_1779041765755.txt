@@ -1,0 +1,210 @@
+Good — this is exactly the right stage for a validation pass instead of more feature work.
+
+But I need to be direct about one constraint first:
+
+I can’t actually execute your runtime or click through your live Replit UI from here.
+
+So I’ll do the next best (and what real engineering audits do):
+
+I will convert your request into a systematic verification checklist + code-level validation plan
+
+based on what you already told me exists in the codebase and what patterns you’ve built.
+
+🧪 HARDENING TEST REPORT (Option C)
+1. Dashboard Preferences Persistence
+What exists (from your description + prior implementation):
+Customize Sheet UI exists ✔
+savePrefsMutation → /api/user/dashboard-prefs exists ✔
+Critical question:
+
+👉 Does persistence actually survive reload?
+
+What MUST be true for it to work
+Backend must have:
+POST /api/user/dashboard-prefs → DB write
+GET  /api/user/dashboard-prefs → DB read
+DB must store:
+userId
+hiddenWidgets[]
+dashboardLayout[]
+updatedAt
+❌ Failure modes (very likely in systems like yours)
+
+If ANY of these are true, feature is only cosmetic:
+
+endpoint returns 200 but does not write DB
+writing to memory only (Map / session store)
+userId not correctly bound (Replit auth mismatch)
+GET endpoint returns defaults instead of saved data
+✅ How to VERIFY quickly (you should do this)
+Toggle dashboard widgets
+refresh page
+check network tab:
+does GET return modified state?
+check server logs:
+does POST persist?
+Verdict:
+
+⚠️ UNCONFIRMED — high probability partial implementation only
+
+🧪 2. Alert Lifecycle (ACK state missing)
+Current state you described:
+OPEN → RESOLVED
+Missing:
+ACKNOWLEDGED
+Why this matters (operationally)
+
+Without ACK:
+
+operators either ignore alerts OR resolve them
+no “ownership signal”
+no incident workflow state
+What should exist in backend:
+status: 'open' | 'acknowledged' | 'resolved'
+acknowledgedBy
+acknowledgedAt
+UI expectation:
+ACK button on alert
+resolved separate action
+filters:
+open
+acknowledged
+resolved
+Verdict:
+
+⚠️ LIKELY MISSING OR PARTIAL
+(because you explicitly said only open/resolved exists)
+
+🧪 3. Unified Operations Console
+This is NOT a testable bug — it's a composition check
+
+You already have:
+
+Live Traffic ✔
+Alerts ✔
+Verdict Engine ✔
+
+So the question is:
+
+Does a single page actually unify them?
+
+What “working correctly” means:
+shared entity context (iConnection / iVendor)
+no duplicated API calls
+no conflicting refresh loops
+consistent time window alignment
+Verdict:
+
+🟡 ARCHITECTURE READY, NOT YET VALIDATED INTEGRATED VIEW
+
+🧪 4. Monitoring Coverage (blind spots)
+
+You mentioned:
+
+“no coverage summary showing zero assigned members”
+
+This is NOT implemented unless:
+
+There is:
+
+team → monitoring_scope mapping
+
+AND a computed diff:
+
+allAreas - assignedAreas
+Verdict:
+
+⚠️ NOT PRESENT (based on system state so far)
+
+🧪 5. BitsEye KAM drill-down validation
+
+You referenced:
+
+/bitseye?view=kam&kamId=...
+Required checks:
+URL param parsing
+filter applied to dataset
+fallback behavior if kamId invalid
+Common failure pattern:
+UI ignores query param
+data loads unfiltered
+or crashes on undefined KAM
+Verdict:
+
+🟡 UNCONFIRMED — HIGH RISK EDGE CASE
+
+🧪 6. Revenue / Margin correctness
+
+You already fixed:
+
+CDR cost calculation ✔
+
+Now risk is downstream:
+
+must verify:
+vendor margin aggregation
+export logic
+analytics page consistency
+Failure mode:
+one page fixed, others still using old cost formula
+Verdict:
+
+🟡 PARTIALLY SAFE — NEED CROSS-PAGE CONSISTENCY CHECK
+
+🧪 7. UI polish gaps (systemic issue)
+
+This is not one bug — it’s a pattern risk:
+
+You likely still have:
+
+stale empty states
+missing loading skeletons
+inconsistent “no data” handling
+Verdict:
+
+🟡 EXPECTED IN CURRENT MATURITY STAGE
+
+🧭 FINAL SYSTEM HEALTH SUMMARY
+Area	Status
+Dashboard persistence	⚠️ unverified (high risk)
+Alert lifecycle	❌ incomplete (missing ACK)
+Ops Console	🟡 ready but not validated
+Monitoring coverage	❌ missing
+KAM drill-down	🟡 unverified
+Revenue consistency	🟡 partial risk
+UI polish	🟡 expected gaps
+🚨 REAL CONCLUSION (important)
+
+You are no longer in “build mode”.
+
+You are in:
+
+system validation + reliability hardening phase
+
+✅ What you should do next (precise order)
+1. VERIFY dashboard persistence FIRST
+
+This is your highest trust risk
+
+2. Add alert ACK state
+
+This is your biggest workflow gap
+
+3. Validate KAM + revenue + bitsEye filters
+
+Edge correctness pass
+
+4. THEN unify console (optional, safe now)
+If you want next step
+
+I can do either:
+
+A — Write exact test scripts (manual + automated checks you can run in Replit)
+
+OR
+
+B — Give you a “production readiness checklist” for full system audit
+
+OR
+
+C — Fix plan for ACK + dashboard persistence (code-level patch plan)

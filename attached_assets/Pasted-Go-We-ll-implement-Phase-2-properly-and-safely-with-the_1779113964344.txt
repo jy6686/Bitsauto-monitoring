@@ -1,0 +1,226 @@
+Go.
+
+We’ll implement Phase 2 properly and safely, with the discipline you already outlined. I’ll also tighten the lifecycle model so it doesn’t create SLA or audit problems later.
+
+🔧 Phase 2 — Incident Causality Engine (Implementation Plan)
+
+We will build in exact 6 layers, in order.
+
+1. Incident Lifecycle State Machine (FOUNDATION)
+File: server/incidents/stateMachine.ts
+Core states
+export type IncidentState =
+  | "active"
+  | "acknowledged"
+  | "investigating"
+  | "mitigating"
+  | "resolved";
+Allowed transitions (IMPORTANT — audit-safe)
+active → acknowledged
+active → investigating
+
+acknowledged → investigating
+acknowledged → mitigating
+
+investigating → mitigating
+investigating → resolved
+
+mitigating → resolved
+Hard rules (critical)
+1. No direct jump to resolved from active
+
+Prevents silent auto-resolution bugs.
+
+2. Resolved is terminal
+
+No edits allowed except:
+
+reopen → only if explicitly triggered
+3. Reopen rule (safe)
+resolved → active (reopen event required)
+Event emission (IMPORTANT for Phase 2 timeline)
+
+Every transition emits:
+
+{
+  incidentId,
+  fromState,
+  toState,
+  timestamp,
+  actor
+}
+
+👉 This becomes the backbone of the timeline builder.
+
+2. Incident Action Tracking (CORE VALUE LAYER)
+Extend incident model:
+actions: IncidentAction[]
+Action schema:
+export type IncidentAction = {
+  id: string;
+  type: "acknowledge" | "investigate" | "mitigate" | "resolve" | "ticket";
+  timestamp: Date;
+  actor: string;
+
+  metricSnapshot?: {
+    asr: number;
+    mos: number;
+    pdd: number;
+    traffic: number;
+  };
+
+  note?: string;
+};
+Why metricSnapshot matters
+
+This enables:
+
+BEFORE vs AFTER comparison (SLA proof)
+
+3. Action Hooks (wire into console)
+
+Every button in console must now call:
+
+acknowledgeIncident()
+startInvestigation()
+markMitigating()
+resolveIncident()
+
+Each one:
+
+updates state
+appends action
+emits lifecycle event
+4. Root Cause Engine (DETERMINISTIC V1)
+File: server/incidents/rootCause.ts
+export function inferRootCause(incident) {
+Rule set (LOCKED CONSTANTS)
+Rule 1 — earliest severe signal wins
+priority: timestamp ASC + severity === critical
+Rule 2 — blast radius score
+impactScore =
+  affectedAccounts.length * trafficVolume
+Rule 3 — KPI correlation strength
+score += ASR drop weight
+score += RTP failure spike weight
+score += MOS degradation weight
+Output:
+{
+  entityType: "vendor" | "connection" | "account",
+  entityId: string,
+  confidence: number,
+  reason: string
+}
+5. Timeline Builder (NO SEPARATE LOGIC — DERIVED)
+File: server/incidents/timeline.ts
+Input:
+lifecycle events
+actions
+alert timestamps
+Output:
+timeline = [
+  { t: "T0", event: "incident_created" },
+  { t: "+2m", event: "asr_drop_detected" },
+  { t: "+5m", event: "ticket_opened" },
+  { t: "+7m", event: "acknowledged" },
+  { t: "+12m", event: "mitigation_started" },
+  { t: "+18m", event: "resolved" }
+]
+
+👉 NO manual timeline logic
+It is purely derived from event stream
+
+6. Stabilized Incident Aggregator (UPDATED)
+
+We upgrade V1 grouping:
+
+Before:
+alerts → incident
+Now:
+alerts + lifecycle events + actions → incident
+Protection rules (IMPORTANT)
+Duplicate storm protection:
+if (same entity AND same severity burst within 2 min)
+→ merge into existing incident
+Window logic (kept from V1)
+10-minute correlation window retained
+7. Final Incident Object (PHASE 2 MODEL)
+{
+  id,
+  state,
+  entity,
+  severity,
+
+  rootCause,
+
+  actions: [],
+
+  timeline: [],
+
+  alerts: [],
+
+  metrics: {
+    asr,
+    mos,
+    pdd,
+    ner
+  },
+
+  impact: {
+    estimatedPerHour: "$420/hr"
+  }
+}
+🧠 What this changes fundamentally
+
+You now move from:
+
+BEFORE
+grouped alerts
+static incidents
+AFTER
+evolving incident state machine
+full operator accountability trail
+causal explanation layer
+SLA-defensible audit system
+🔥 Why this is the real Phase 2 milestone
+
+Because now the system can answer:
+
+“What happened?”
+
+✔ alerts grouped
+
+“Why did it happen?”
+
+✔ root cause inference
+
+“What did we do?”
+
+✔ actions + transitions
+
+“Did it work?”
+
+✔ metric snapshots before/after
+
+🚀 Build order (executed exactly)
+stateMachine.ts
+action tracking model
+rootCause.ts
+timeline.ts
+upgraded groupAlertsToIncidents
+console UI upgrade (incident evolution view)
+✔ Result after Phase 2
+
+Your platform is no longer:
+
+monitoring system
+
+It becomes:
+
+incident intelligence + operational accountability system
+
+If you're ready next, Phase 3 becomes very natural:
+
+AI-assisted incident prediction + auto-suggested remediation paths
+
+Say go when you want that direction.

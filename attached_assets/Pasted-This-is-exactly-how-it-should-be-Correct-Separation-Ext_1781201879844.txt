@@ -1,0 +1,109 @@
+This is exactly how it should be.
+
+Correct Separation
+External / Commercial View
+
+Partners, customers, KAMs, and rate sheets should only ever see:
+
+92      Pakistan
+923     Pakistan Mobile
+9230    Jazz
+9231    Zong
+9232    Ufone
+291     Eritrea
+852     Hong Kong
+44      UK
+1       USA
+
+No customer should ever see:
+
+1923
+2923
+6923
+7923
+
+because those are routing/product implementation details, not telecom destinations.
+
+Internal Product Layer
+
+BitsAuto should maintain:
+
+Destination	FC	BC	SB	SC
+923	0.0230	0.0194	0.0320	0.0400
+291	0.1450	0.1320	0.1700	0.2100
+
+Behind the scenes:
+
+Product Prefix
+1 = FC
+2 = BC
+6 = SB
+7 = SC
+
+Used only for:
+
+Sippy tariff generation
+Route selection
+Margin calculations
+Billing verification
+Commercial Identity Audit
+Product analytics
+What I Would Add Next
+
+For the GDS Reconciliation workflow:
+
+Destination Catalog
+   ↓
+GDS Upload
+   ↓
+Reconcile All Products
+   ↓
+Approval Queue
+   ↓
+Approved Destinations
+   ↓
+Rate Notifications
+
+Example:
+
+Prefix	Destination	FC	BC	SB	SC	Status
+923	Pakistan Mobile	✓	✓	✓	✓	Pending
+291	Eritrea Mobile	✓	✓	✗	✗	Review
+
+You approve which destinations/products are commercially available.
+
+Rate Notification Logic
+
+I also agree with your earlier decision:
+
+❌ No 7-day increase notifications.
+
+✅ Immediate alert when a rate drops significantly.
+
+Example:
+
+BC Pakistan Mobile
+Old: 0.0230
+New: 0.0150
+Change: -34.8%
+
+Trigger:
+
+WhatsApp alert
+Notification Center alert
+Rate Governance queue
+
+because a large decrease is commercially important.
+
+Current Recommendation
+
+The next enhancement should be:
+
+Destination Catalog
+→ GDS Reconciliation
+→ Product Matrix (FC/BC/SB/SC)
+→ Approval Workflow
+
+using clean prefixes (923, 291, 852, etc.) externally, while BitsAuto continues managing product prefixes (1, 2, 6, 7) internally.
+
+Also, several files that were uploaded earlier in this conversation have expired and are no longer accessible. If you want me to review any previous GDS files, rate sheets, or reconciliation exports again, please upload them again.

@@ -1,0 +1,104 @@
+Let me find where these IP addresses are displayed in the codebase:
+
+
+5 actions
+Let me check the CDR detail view as well, and understand the IP data from Sippy CDRs:
+
+
+6 actions
+The ip-api.com service works great — it returns country, ISP, and ASN. Let me find all the places IPs are displayed in CDR details:
+
+
+3 actions
+Now I have a clear picture. Let me implement the IP lookup feature:
+
+Backend endpoint with in-memory caching to avoid repeated calls
+Frontend — IpInfoBadge component shown beneath each IP in the Network/Media panel
+Let me start building:
+
+
+2 actions
+Let me find the end of routes.ts to add the new endpoint:
+
+
+3 actions
+Now I'll add the backend endpoint and update the frontend. First, add the IP lookup endpoint to routes:
+
+
+2 actions
+Now let me add the backend IP lookup endpoint with in-memory caching, then update the frontend:
+
+
+2 actions
+Now let me test the new endpoint works, then update the calls-list frontend:
+
+
+3 actions
+Now let me restart the workflow to load the new endpoint, and update the frontend simultaneously:
+
+
+2 actions
+Now update calls-list.tsx to add the IpInfoBadge component and use it in the Network/Media panel:
+
+
+2 actions
+Now let me add the IpInfoBadge component and update the Network/Media panel in one edit:
+
+
+2 actions
+Now I'll add the IpInfoBadge component and update the Network/Media panel. Let me first add the component after the helpers section:
+
+
+2 actions
+Now let me update the Network/Media panel to use the new component, showing info for each IP:
+
+
+2 actions
+Let me check if the CDR detail view in cdrs.tsx also shows remote IPs that need the same treatment:
+
+
+3 actions
+The endpoint is live. Let me check the logs for any errors:
+
+
+2 actions
+The IP lookup is working — the log confirms the first call returned successfully in 56ms. Let me also check if the CDR viewer page has any expanded detail view that shows IPs, to add the same feature there:
+
+
+2 actions
+Good - the CDR viewer doesn't have IP detail rows. Let me verify the feature is fully working by testing a few different IPs, including a test to make sure the ISP stripping looks clean:
+
+
+2 actions
+The formatting is clean. Let me quickly verify the logs to make sure there are no TypeScript errors in the updated files:
+
+
+2 actions
+No errors. Everything looks clean. Let me deploy:
+
+
+Planning deployment sequence
+Here's what was built for the IP lookup feature:
+
+New backend IP lookup endpoint (/api/ip-lookup?ip=x.x.x.x):
+
+Calls ip-api.com (free, no key needed) for country + carrier data
+In-memory cache for 1 hour to avoid repeated external calls
+Returns: country, city, ISP, organization, and ASN (Autonomous System Number)
+Updated Network/Media panel in the live calls detail view:
+
+For the IP 104.245.246.110 you showed, it will now display:
+
+RTP Media Path
+104.245.246.110  ←→  same proxy
+🇺🇸 Dallas, United States
+Tier.Net Technologies  AS397423
+
+If a call has different IPs on caller vs callee sides, it shows them in two columns:
+
+Caller side          Callee side
+104.245.246.110  ←→  85.13.242.206
+🇺🇸 Dallas, US       🇩🇪 Frankfurt, DE
+Tier.Net AS397423    Hetzner AS24940
+
+The ISP name is the carrier/operator of that IP block (Tier.Net Technologies in this case — which is the hosting provider running the Sippy softswitch at that IP). The "resolving…" text shows briefly while the lookup is in progress, then fades away once the info loads.

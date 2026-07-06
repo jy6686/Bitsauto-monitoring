@@ -1,0 +1,99 @@
+You’re actually at a clean stopping point right now. No hidden Phase 1 work, no routing refactor left to do, no ExtJS cleanup pending.
+
+So the correct answer to “what to implement now” is:
+
+Nothing in Routing Manager or Carrier Intelligence right now
+
+Both of those are already aligned with the architecture decisions:
+
+Sippy = source of truth ✔
+CI = observability only ✔ (buttons already removed)
+Routing Manager = execution layer via Sippy ✔ (already React + React Query)
+
+There is no safe, non-duplicative implementation task left in those two modules.
+
+What is the next real implementation step
+
+The only unresolved architectural gap across all your documents is this:
+
+❗ No single decision authority exists
+
+Right now you still have three independent signal producers:
+
+Carrier Intelligence → health scoring (ASR/ACD/PDD → state + recommendations)
+Carrier Scoring → separate scoring logic
+AI Ops → anomaly detection + partial signals
+
+But none of them produce a canonical verdict object.
+
+That’s the missing piece.
+
+The next thing to implement (correct next step)
+👉 AI Ops “Decision Aggregator” layer (READ ONLY v1)
+
+This is NOT automation. It is NOT routing changes.
+
+It is a unified computed view:
+
+/api/ai-ops/vendor-verdicts
+
+It should:
+
+Consume:
+Carrier Intelligence signals
+Carrier Scoring outputs
+AI Ops anomaly flags
+Produce ONE merged object per vendor/connection:
+{
+  entityId: string,
+  vendor: string,
+
+  signals: {
+    ciHealth: "HEALTHY | DEGRADED | CRITICAL",
+    scoringHealth: number,
+    anomalyScore: number
+  },
+
+  unifiedVerdict: {
+    state: "HEALTHY | AT_RISK | DEGRADED | CRITICAL",
+    confidence: "HIGH | MEDIUM | LOW"
+  },
+
+  recommendations: [
+    "MONITOR",
+    "INVESTIGATE",
+    "WATCH_FAS"
+  ]
+}
+Important constraint (matches your architecture docs)
+❌ No routing changes
+❌ No Sippy writes
+❌ No DB persistence required initially
+✔ Pure computed aggregation layer
+Why this is the correct next step
+
+Because it solves the real problem your documents were converging on:
+
+“Three partial decision-makers, no arbiter”
+
+This creates the arbiter — but still safely read-only.
+
+What UI comes after this (next phase)
+
+Once that endpoint exists, then you can:
+
+Replace Carrier Intelligence “recommendation text” → with unified AI Ops verdict chip
+Show:
+“CI says DEGRADED”
+“AI Ops verdict: AT RISK”
+“Routing Impact: unchanged”
+
+That’s when the system becomes coherent.
+
+Bottom line
+
+You do NOT need to implement anything in Routing Manager or Carrier Intelligence.
+
+The correct next implementation is:
+
+👉 AI Ops Decision Aggregation endpoint (read-only unified verdict layer)

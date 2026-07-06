@@ -1,0 +1,368 @@
+The date format in your legacy BitsAuto screenshots is very important because it shows how clients actually receive rate changes, not just how rates are stored.
+
+What I see in the screenshots
+Change Rate Entry Screen
+
+Input format:
+
+2026-06-17 13:30
+
+This is:
+
+YYYY-MM-DD HH:mm
+
+Example:
+
+2026-06-17 13:30
+Rate Notification Preview Screen
+
+Displayed as:
+
+June 17, 2026
+1:30 P.M.
+
+Columns:
+
+Effective Date	Effective Time
+June 17, 2026	1:30 P.M.
+
+So internally:
+
+2026-06-17 13:30
+
+becomes
+
+Effective Date = June 17, 2026
+Effective Time = 1:30 P.M.
+This matches the legacy Rate Sheet Template
+
+From your template screenshots:
+
+Date & Time Format Tab
+
+Combined format:
+
+%d-%b-%Y %H:%M:%S
+
+Example:
+
+17-Jun-2026 13:30:00
+
+Separate format:
+
+Date:
+
+%d-%b-%Y
+
+Example:
+
+17-Jun-2026
+
+Time:
+
+%H:%M:%S
+
+Example:
+
+13:30:00
+Recommendation for BitsAuto
+
+Store everything in database as:
+
+effective_from TIMESTAMP WITH TIME ZONE
+effective_till TIMESTAMP WITH TIME ZONE
+
+Example:
+
+2026-06-17T13:30:00Z
+
+Then render based on template.
+
+Template A — Default Full
+17-Jun-2026
+13:30:00
+Template B — TATA
+17/06/2026
+13:30
+Template C — iBasis
+2026-06-17
+13:30:00
+Template D — T-Mobile
+June 17, 2026
+1:30 PM
+More important observation
+
+Your screenshots reveal the complete commercial workflow:
+
+Step 1
+
+Select destinations
+
+Pakistan Mobile
+Pakistan Mobilink
+Pakistan Zong
+Pakistan Ufone
+Pakistan Warid
+Pakistan Telenor
+Step 2
+
+Enter
+
+Old Rate = 0.04500
+New Rate = 0.04250
+Effective = 2026-06-17 13:30
+Step 3
+
+Generate change set
+
+System calculates:
+
+Decrease
+
+and shows:
+
+Old Rate	New Rate	Change
+0.04500	0.04250	↓
+Step 4
+
+Send Rate Notification
+
+Generates client rate sheet.
+
+Step 5
+
+Push to Client Tariff
+
+Only after validation.
+
+One thing I would add that legacy BitsAuto did not have
+
+When user clicks Change Rate:
+
+Rate Change
+ ↓
+Validation Rules
+ ↓
+Generate Rate Sheet
+ ↓
+Approval Queue (optional)
+ ↓
+Email Client
+ ↓
+Push To Sippy
+ ↓
+Audit Log
+
+This fits perfectly with the Client Validation Rules screens you showed earlier and gives you a complete commercial governance process instead of just changing rates directly.
+
+The screenshots confirm that the legacy system was not simply a rate editor—it was a Rate Change Management & Notification Platform with effective dates, templates, validations, approvals, and client notifications.
+
+The user is showing me the legacy BitsAuto system at 23.106.59.17:8081 that successfully changes rates. Let me read the HTML source to discover the exact rate change mechanism it uses, while also checking the production error:
+
+
+7 actions
+The user is pointing out a date format discrepancy. The legacy BitsAuto system sends 2026-06-17 13:30 (no seconds, no timezone conversion), while ours converts to UTC via new Date().toISOString() — which would produce the wrong time in non-UTC timezones. Let me find and fix this:
+
+
+5 actions
+Found the problem. normaliseSippyDate uses new Date(raw) which treats "2026-06-17T16:30" as local time then fmtSippyDate converts it to UTC — so on a PKT (+5) server, 16:30 local → 11:30 UTC. The date sent to Sippy is 5 hours wrong.
+
+The legacy BitsAuto system (which works) sends 2026-06-17 13:30 — pure string manipulation, no timezone conversion. Both functions need fixing:
+
+
+2 actions
+Now fix the same timezone bug inside pushRateViaPortalUpload — the normDate helper there still uses new Date():
+
+
+4 actions
+Good. Let me save this timezone finding to memory and write the commit:
+
+
+3 actions
+Both fixes are deployed. Here's a summary of what changed and why:
+
+Bug: Date timezone shift
+
+When you type 2026-06-17 16:30 in the "Active From" field, the old code ran:
+
+new Date("2026-06-17T16:30")  // treats as local time (PKT = UTC+5)
+.toISOString()                 // converts to UTC: "2026-06-17T11:30:00Z"
+→ Sippy receives "2026-06-17 11:30:00"  ← 5 hours wrong
+
+The legacy BitsAuto system (which successfully changed rates in your screenshots) sends exactly 2026-06-17 13:30 — no conversion, no seconds. That's now what we send.
+
+Fix:
+Both date normalizers now do pure string manipulation:
+
+"2026-06-17T16:30" → "2026-06-17 16:30" ✓ (just replace T with space)
+"2026-06-17T16:30:00" → "2026-06-17 16:30" ✓ (strip seconds too)
+"2026-06-17" → "2026-06-17 00:00" ✓ (date-only gets midnight)
+This applies to both the XML-RPC activation_date params and the portal CSV ActivationDate column.
+
+Current state of rate push (deployed in dev, needs deploy to production):
+
+All XML-RPC method probes → 404 (expected — Sippy has no write API)
+Portal CSV upload fallback → logs into the portal, scrapes the rates page upload form, builds AS action CSV, POSTs as multipart — this is the working path
+To test: use the dev instance at port 5000 (not the .replit.app production URL, which is one deploy behind)
+
+This is a very important finding.
+
+Based on the legacy screenshots and the Sippy documentation, I agree the date handling was likely one of the reasons rate changes were behaving incorrectly.
+
+What the legacy system actually does
+
+From your screenshots:
+
+User enters:
+
+2026-06-17 13:30
+
+Rate Notification shows:
+
+Effective Date: June 17, 2026
+Effective Time: 1:30 P.M.
+
+There is no timezone conversion anywhere in the workflow.
+
+The system treats:
+
+2026-06-17 13:30
+
+as a business-effective timestamp, not as a UTC timestamp.
+
+Why this matters for Sippy
+
+Sippy rate activation dates are commercial dates.
+
+Examples:
+
+Increase effective:
+2026-07-01 00:00
+
+Decrease effective:
+2026-06-25 13:30
+
+These are intended to be applied exactly as entered.
+
+If your code does:
+
+new Date("2026-06-17T13:30")
+.toISOString()
+
+then:
+
+PKT (+5)
+13:30
+↓
+08:30 UTC
+
+and Sippy receives:
+
+2026-06-17 08:30
+
+which is wrong.
+
+For rate notifications, tariff uploads, pending increases, notice periods, and approval workflows, this can cause:
+
+rates activating early
+rates activating late
+notification mismatch
+validation rule failures
+pending increase/decrease logic errors
+The bigger issue
+
+The date bug is fixed, but it is not the primary rate-send issue.
+
+The primary issue remains:
+
+Change Client Rate
+↓
+Sippy rate update
+
+The legacy BitsAuto system appears to have used:
+
+Change Rate
+↓
+Generate Change Set
+↓
+Send Rate Notification
+↓
+Upload Rate Changes
+
+which aligns perfectly with Sippy's documented:
+
+Upload Rates
+Action = SA
+
+workflow.
+
+What I would verify next
+
+Before changing more code, test one complete scenario:
+
+Test 1
+
+Select:
+
+Pakistan Mobile Zong
+
+Current:
+
+0.04500
+
+New:
+
+0.04250
+
+Effective:
+
+2026-06-17 13:30
+
+Submit.
+
+Then check:
+
+A. Job History
+
+Did BitsAuto create:
+
+change-client-rate job
+B. Server Logs
+
+Look for:
+
+XML-RPC attempt
+Portal upload attempt
+CSV upload
+Upload token
+Upload status
+C. Sippy Tariff
+
+Wait:
+
+1-2 minutes
+
+per Sippy documentation.
+
+Then verify:
+
+getAccountRates()
+
+or directly in tariff.
+
+My current assessment
+
+Confidence:
+
+Area	Status
+Modal workflow	✅ Legacy behavior understood
+Date format	✅ Root cause found
+Timezone bug	✅ Fix is correct
+Sippy write API	❌ Doesn't exist
+Portal upload fallback	⚠️ Needs real verification
+Rate update success path	⚠️ Not proven yet
+Rate notification architecture	✅ Legacy workflow identified
+
+The next critical step is not more coding.
+
+It is proving that the portal-upload path actually creates or updates a rate in Sippy after the timezone fix. Once one rate successfully changes in Sippy, we can build the full commercial workflow (templates, validations, notifications, approvals) on top of a confirmed working rate engine.

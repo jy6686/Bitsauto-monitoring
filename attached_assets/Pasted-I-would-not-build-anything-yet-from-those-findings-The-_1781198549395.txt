@@ -1,0 +1,175 @@
+I would not build anything yet from those findings.
+
+The most important result is actually this:
+
+governed callee: 2923246300609
+cdr_callee:      1923246300609
+
+This changes the priority.
+
+Stop Before Building Backfill
+
+The proposed solutions:
+
+❌ Batch CDR backfill processor
+❌ Extend P&L lookback window
+
+are treating the symptom.
+
+First we need to understand:
+
+Why does 2xxx become 1xxx inside Sippy?
+
+Because this directly affects:
+
+Product Identification
+Commercial Identity Audit
+Rate Integrity
+Billing Verification
+Invoice Accuracy
+New Immediate Investigation
+Check 10 Real Calls
+
+Build a table from live data:
+
+Governed CLD	Customer CDR CLD	P&L CLD
+2923xxxx	?	?
+2923xxxx	?	?
+2923xxxx	?	?
+
+Need to verify:
+
+Is Sippy always converting:
+2 → 1
+
+or only some routes?
+
+If always:
+
+Product identity is being lost.
+
+That's much bigger than vendor-cost coverage.
+
+P3.2 Findings Interpretation
+
+The 0.06% vendor-cost coverage is misleading.
+
+You already proved:
+
+Revenue extraction works
+Cost extraction works
+
+for fresh calls.
+
+The problem is:
+
+Historic backlog
+
+not:
+
+P&L parsing
+
+Therefore:
+
+Don't optimize backlog yet.
+
+First answer:
+
+Can we trust the product identity?
+About the 9xxx Calls
+
+This is another major finding.
+
+You have:
+
+84.5% BC traffic
+15.4% PTCL direct
+
+Those PTCL calls:
+
+9237...
+9233...
+
+have no commercial product attached.
+
+Before building Commercial Call Identity, decide:
+
+Option A
+PTCL Direct
+
+becomes its own product.
+
+Option B
+
+Map PTCL traffic into:
+
+FC
+BC
+SB
+SC
+
+during origination.
+
+Right now those calls sit outside the commercial model.
+
+What I Would Do Next
+Priority 1
+
+Investigate:
+
+Governed CLD
+↓
+Customer CDR CLD
+↓
+P&L CLD
+
+for 20 calls.
+
+Find where:
+
+2xxx → 1xxx
+
+occurs.
+
+Priority 2
+
+Verify Product Identity Chain
+
+Dialed Prefix
+↓
+Governed Call
+↓
+Customer CDR
+↓
+Vendor CDR
+↓
+P&L
+
+Must remain consistent.
+
+Priority 3
+
+Only after that:
+
+Decide whether to:
+
+Extend P&L lookback
+
+or
+
+Build batch backfill
+My conclusion
+
+The most important finding from the report is not vendor cost coverage.
+
+It's:
+
+2923xxxx dialed
+↓
+1923xxxx recorded
+
+If that transformation is real and unexpected, it can create commercial misclassification.
+
+I would investigate that first before investing effort into enrichment scaling or backfill processing.
+
+Also, I see a file was uploaded in this conversation, but I haven't analyzed its contents yet. If that file contains the CLD transformation examples, Sippy logs, or call traces related to the 2xxx→1xxx behavior, tell me to review it and I can analyze the file directly.

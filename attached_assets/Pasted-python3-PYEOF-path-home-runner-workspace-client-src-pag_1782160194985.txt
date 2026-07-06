@@ -1,0 +1,66 @@
+python3 << 'PYEOF'
+path = "/home/runner/workspace/client/src/pages/rate-manager.tsx"
+with open(path) as f:
+    src = f.read()
+
+# Fix 1a: Crash line 2135
+src = src.replace(
+    "{NOTIF_TYPE_LABEL[tpl.notificationType] ?? tpl.notificationType.toUpperCase()}",
+    "{NOTIF_TYPE_LABEL[tpl.notificationType] ?? (tpl.notificationType ?? '').toUpperCase()}"
+)
+
+# Fix 1b: Crash line 3113
+src = src.replace(
+    "const typeLabel = NOTIF_TYPE_LABEL[t.notificationType] ?? t.notificationType.toUpperCase();",
+    "const typeLabel = NOTIF_TYPE_LABEL[t.notificationType] ?? (t.notificationType ?? '').toUpperCase();"
+)
+
+# Fix 2: Named download with correct filename format
+old_dl = """              onClick={() => { const u = `/api/rate-manager/export?format=xlsx${job.productId ? `&productId=${job.productId}` : ''}`; window.open(u,'_blank'); }}"""
+new_dl = """              onClick={async () => {
+                const u = `/api/rate-manager/export?format=xlsx${job.productId ? `&productId=${job.productId}` : ''}`;
+                const resp = await fetch(u, { credentials: 'include' });
+                const blob = await resp.blob();
+                const clientPart = (job.clientNames || '').split(',')[0].trim().replace(/\\s+/g,'').toUpperCase() || 'CLIENT';
+                const prodPart = (job.productName || 'Product').replace(/\\s+/g,'');
+                const dateLabel = new Date().toISOString().slice(0,10).replace(/-/g,'');
+                const fname = `${clientPart}_${prodPart}_Rates_${dateLabel}.xlsx`;
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = fname; a.click();
+              }}"""
+src = src.replace(old_dl, new_dl, 1)
+
+# Fix 3: Add Pencil edit button to template list row
+old_trash = """                      <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
+                        <button onClick={() => deleteTplMut.mutate(t.id)} data-testid={`btn-del-tpl-${t.id}`}
+                          className="text-muted-foreground hover:text-red-400 transition-colors">
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </td>"""
+new_trash = """                      <td className="py-2 px-3" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setSelectedTpl(t)} data-testid={`btn-edit-tpl-${t.id}`}
+                            className="text-muted-foreground hover:text-foreground transition-colors">
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                          <button onClick={() => deleteTplMut.mutate(t.id)} data-testid={`btn-del-tpl-${t.id}`}
+                            className="text-muted-foreground hover:text-red-400 transition-colors">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </td>"""
+src = src.replace(old_trash, new_trash, 1)
+
+with open(path, 'w') as f:
+    f.write(src)
+
+checks = [
+    ("Crash fix 2135", "(tpl.notificationType ?? '').toUpperCase()" in src),
+    ("Crash fix 3113", "(t.notificationType ?? '').toUpperCase();" in src),
+    ("Filename fix", "clientPart}_${prodPart}_Rates" in src),
+    ("Edit button on list", "btn-edit-tpl-" in src),
+]
+for name, ok in checks:
+    print(f"{'OK' if ok else 'FAIL'}: {name}")
+PYEOF
+
+cd /home/runner/workspace && npm run build 2>&1 | tail -8

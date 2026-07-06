@@ -1,0 +1,644 @@
+
+
+<html class="web-legacy">
+<head>
+<meta http-equiv="content-type" content="text/html">
+<meta name="menu-title" content="SIPPY">
+
+
+
+<link rel="stylesheet" type="text/css" href="/js/extjs/resources/css/ext-all.css">
+<script type="text/javascript" src="/js/extjs/ext-all.js"></script>
+
+<script language=javascript type=text/javascript>
+    // reference local blank image
+    Ext.BLANK_IMAGE_URL = '/js/extjs/resources/images/default/s.gif';
+</script>
+
+
+<script src="/web_ng/js/vendor-bundle.js" type="text/javascript"></script>
+<script type="text/javascript" src="/js/utils.js"></script>
+
+<link rel="stylesheet" href="/web_ng/css/roboto.css">
+<link href="styles.css" type="text/css" rel="stylesheet">
+<link rel="stylesheet" href="/web_ng/css/styles.css">
+<title>SIPPY - Accounts - Account PUSHTOTALK - Edit Authentication Rule</title>
+
+
+
+<script>
+    var web_ng_config = JSON.parse('[]')
+</script>
+
+
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="/static/js/menumaker.min.js" type="text/javascript"></script>
+<script src="/static/js/menumaker.local.js"></script>
+<link rel="stylesheet" href="/static/css/fontawesome-all.min.css">
+<link rel="stylesheet" href="/static/css/font-OpenSans.css">
+<link rel="stylesheet" href="/static/css/menumaker.css">
+
+<link rel="stylesheet" href="/web_ng/css/navigation_menu.css">
+
+</head>
+<body>
+
+
+
+
+    <script>
+
+    function hide_ssl_certificate_warning() {
+        Ext.Ajax.request({
+            url: 'system_parameters_ui.php',
+            params: {
+                action: 'hide_ssl_certificate_warning'
+            }
+        });
+        var d = document.getElementById('warning_ssl_certificate');
+        d.style.display = 'none';
+    }
+
+</script>
+
+<div id="warning_ssl_certificate" class="security_vulnerability">
+    <div style="position: relative; top: 0; right: 0; float: right; padding: 0 0 0 20px;">
+        <span onClick="hide_ssl_certificate_warning();"><i class="hide_button fas fa-times"></i><span class="hide_button mdi mdi-close-thick"></span></span>
+    </div>
+   Warning: A SSL certificate has not been added. Please <a href="https://support.sippysoft.com/solution/articles/78262-generating-and-installing-ssl-certificate">upload your own</a> SSL certificate
+   or create a SSL certificate <a href="https://support.sippysoft.com/support/solutions/articles/3000117551-ssl-certificates-for-web-in-sippy-2021-and-above">using LetsEncrypt</a>.
+</div>
+
+    
+<div id="warning_setup_firewall" class="security_vulnerability">
+   Warning: For your security please review your <a href="firewall_rules.php">Firewall Rules</a>
+   and create rules to allow or deny access to your SoftSwitch. For some
+   suggestions visit our support documentation <a href="https://support.sippysoft.com/solution/articles/3000058057--security-management">here</a>.
+</div>
+
+            <div id="cssmenu">
+            <ul>
+
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-users"></i> Customers</a>
+                    <ul>
+
+    
+                        <li class="has-sub"><a>My Customers</a>
+                            <ul>
+
+                                        <li><a href="accounts.php">Accounts</a></li>
+        
+                                        <li><a href="subcustomers.php">Customers</a></li>
+        
+                                        <li><a href="account_classes.php">Account Classes</a></li>
+        
+                                        <li><a href="access.php">Permissions</a></li>
+        
+                                        <li><a href="account_lookup.php">Account Lookup</a></li>
+        
+                            </ul>
+                        </li>
+    
+    
+                        <li class="has-sub"><a>
+                                                Tariffs &amp;
+                                                Currencies</a>
+                            <ul>
+                                    <li><a href="tariffs.php">Tariffs</a></li>
+                                    <li><a href="service_plans.php">Service Plans</a></li>
+                                <li><a href="xrates.php">Exchange Rates</a></li>
+                            </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Payments</a>
+                            <ul>
+                                    <li><a href="payment_processors.php">Payment Processors</a></li>
+    
+    
+                                    <li><a href="payments_history_root.php">Payments History</a></li>
+    
+                                    <li><a href="vouchers.php">Top-Up Vouchers</a></li>
+                                </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Invoicing</a>
+                            <ul>
+                                <li><a href="invoices.php">Invoices</a></li>
+                                <li><a href="invoice_templates.php">Invoice Templates</a></li>
+                                <li><a href="images.php">Images</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-exchange-alt"></i> Vendors</a>
+                    <ul>
+                            <li class="has-sub"><a>My Vendors</a>
+                            <ul>
+                                <li><a href="vendors.php">Vendors</a></li>
+                                <li><a href="registrations.php">Registrations</a></li>
+                            </ul>
+                        </li>
+                        <li class="has-sub"><a>Routing</a>
+                            <ul>
+                                <li><a href="destination_sets.php">Destination Sets</a></li>
+                                <li><a href="routing_groups.php">Routing Groups</a></li>
+                                    <li><a href="test_dialplan.php">Test Dialplan</a></li>
+                            </ul>
+                        </li>
+    
+                            <li class="has-sub"><a>DID Numbers</a>
+                            <ul>
+                                <li><a href="dids_charging_groups.php">Charging Groups</a></li>
+                                <li><a href="dids.php">DID Pool</a></li>
+                            </ul>
+                        </li>
+    
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-sliders-h"></i> System Management</a>
+                    <ul>
+
+                        <li><a href="web_users.php">Users</a></li>
+
+                        <li><a href="ivr_applications.php">IVR Applications</a></li>
+
+                        <li><a href="destinations.php">Destinations</a></li>
+                        <li class="has-sub"><a href="sip_features.php">SIP Features</a>
+                            <ul>
+                                <li><a href="system_parameters_sip.php">SIP, Media, LRN, HEP</a></li>
+                                <li><a href="connection_sip_tls.php?systemConnection=1">System Vendor Connection SIP TLS Options</a></li>
+                                <li><a href="incoming_sip_tls_connections.php">Incoming SIP TLS Connections</a></li>
+                                                            </ul>
+                        </li>
+                        <li class="has-sub"><a href="ssl_management.php">SSL Management</a>
+                            <ul>
+                                <li><a href="ssl_certificates.php">SSL Certificates</a></li>
+                                <li><a href="ca_lists.php">CA Lists</a></li>
+                                <li><a href="csrs.php">CSR Generator</a></li>
+                            </ul>
+                        </li>
+                        <li class="has-sub"><a href="system_parameters.php">System Parameters</a>
+                            <ul>
+                                <li><a href="system_parameters_data.php">Backup, Data Retention</a></li>
+                                <li><a href="system_parameters_ui.php">Web Interface, Security</a></li>
+                                <li><a href="system_parameters_billing.php">Billing, SMTP Server</a></li>
+                                <li><a href="firewall_rules.php">IP Firewall</a></li>
+                                <li><a href="network_services.php">Network Services</a></li>
+                                <li><a href="system_parameters_cdrs.php">CDRs Options</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="external_services.php">External Services</a></li>
+                        <li class="has-sub"><a href="javascript:void(0)">Result Code Translations</a>
+                            <ul>
+                                <li><a href="rcts_int.php">Internal</a></li>
+                                <li><a href="rcts_ext.php">External</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="show_graphs.php">Monitoring</a></li>
+
+                        <li><a href="activecalls.php">Active Calls</a></li>
+
+                        <li><a href="system_information.php">System Information</a></li>
+
+                        <li class="has-sub"><a href="tools.php">Tools</a>
+                            <ul>
+                                <li><a href="sip_logs.php">SIP Logs Viewer</a></li>
+                                <li><a href="tcpdump.php">Network Traffic Capture</a></li>
+                                <li><a href="audit_logs.php">Audit Logs Viewer</a></li>
+                                <li><a href="rerate_cdrs.php">Rerate CDRs</a></li>
+                                <li><a href="looking_glass.php">Looking Glass</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+                <li class="has-sub"><a><i class="fa fa-fw fa-file-excel"></i> Reports</a>
+                    <ul class="wide">
+
+                        <li><a href="cdrs_customer.php">Customers Call Records (CDRs)</a></li>
+                        <li><a href="customer_reports.php">Customer Summary Reports</a></li>
+
+                        <li><a href="profit_loss_report.php">Customer Profit &amp; Loss Reports</a></li>
+                        <li><a href="sales_report.php">Customer Sales Reports</a></li>
+
+                        <li><a href="cdrs_vend.php">Vendors Call Records (CDRs)</a></li>
+                        <li><a href="vendors_reports.php">Vendor Summary Reports</a></li>
+
+                        <li><a href="vendors_did_cdrs.php">Vendor DIDs Call Records (CDRs)</a></li>
+
+                        <li><a href="cdrs_dids.php">DIDs Call Records (CDRs)</a></li>
+
+                        <li><a href="asr_acd.php">ASR/ACD Reports</a></li>
+
+                    </ul>
+                </li>
+
+                <li class="has-sub align-right"><a class="none-text-transform"><i class="fa fa-fw fa-cogs"></i>&nbsp;
+                                                    ssp-root
+                                                </a>
+                    <ul class="wide">
+                        <li><a class="bold">Accounts balance: <span class="nav-menu__accounts-balance" dp="4">N/A</span>&nbsp;<i class="fas fa-sync-alt nav-menu__accounts-balance-reload"></i></a></li>
+                        <li><a class="bold">Customers balance: <span class="nav-menu__customers-balance" dp="4">N/A</span>&nbsp;<i class="fas fa-sync-alt nav-menu__customers-balance-reload"></i></a></li>
+                        <li><a href="customer_prefs.php">My Preferences</a></li>
+
+
+                        <li><a href="logout.php"><i class="fa fa-fw fa-sign-out-alt"></i> Logout</a></li>
+                    </ul>
+                </li>
+
+<script>
+    function menu_search(event) {
+        var len = event.target.value.length;
+
+        var e = document.getElementById("menu-search");
+
+        var ul = document.getElementById('menu-search-results');
+        if (ul) {
+            e.removeChild(ul);
+        }
+
+        if (len == 0) {
+            document.getElementById("menu-search-icon").classList.remove('fa-times-circle');
+            document.getElementById("menu-search-icon").classList.add('fas-search');
+            document.getElementById("menu-search-icon").removeEventListener('click', menu_search);
+            return;
+        } else if (len < 3) {
+            document.getElementById("menu-search-icon").classList.remove('fas-search');
+            document.getElementById("menu-search-icon").classList.add('fa-times-circle');
+            document.getElementById("menu-search-icon").addEventListener('click', function() {
+                document.getElementById("menu-search-pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu-search-pattern").dispatchEvent(event);
+            });
+            return;
+        } else {
+            document.getElementById("menu-search-icon").classList.remove('fas-search');
+            document.getElementById("menu-search-icon").classList.add('fa-times-circle');
+            document.getElementById("menu-search-icon").addEventListener('click', function() {
+                document.getElementById("menu-search-pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu-search-pattern").dispatchEvent(event);
+            });
+
+            ul = document.createElement("ul");
+            ul.setAttribute('id', 'menu-search-results');
+            ul.classList.add("wide");
+
+            var m, i;
+            try {
+                m = document.getElementById("cssmenu").getElementsByTagName('li');
+                for (i = 0; i < m.length; i++) {
+                    if (m[i].classList.contains("has-sub")) {
+                        continue;
+                    };
+
+                    var n, j;
+                    n = m[i].getElementsByTagName('a');
+                    for (j = 0; j < n.length; j++) {
+                        if (!n[j].hasAttribute('href')) {
+                            continue;
+                        }
+                        var re = new RegExp(event.target.value, 'i');
+                        if (n[j].innerText.match(re)) {
+                            ul.appendChild(m[i].cloneNode(true));
+                        }
+                    }
+                }
+            } finally {
+                if (ul.childNodes.length > 0) {
+                    e.appendChild(ul);
+                }
+            }
+        }
+    }
+
+    $(document).ready(function() {
+        var e = document.getElementById('menu-search-pattern');
+        e.addEventListener('input', menu_search);
+    });
+</script>
+
+
+                <li id="menu-search" class="has-sub align-right">
+                    <a>
+                        <input id="menu-search-pattern" type="text" name="menu-search-pattern">
+                        <i id="menu-search-icon" class="fas fa-search"></i>
+                    </a>
+                </li>
+
+            </ul>
+        </div>
+
+    <div style="width: auto; height: 2px; background: #ff9900;"></div>
+    <div id="main">
+                
+
+
+<script type="text/javascript">
+function initForm() {
+    var form = document.forms['form1'];
+	var label_incoming_cld = document.getElementById("label_incoming_cld");
+    if (form.i_protocol.value == 4) {
+        form.remote_ip.disabled = true;
+        form.incoming_cli.disabled = true;
+        form.cli_translation_rule.disabled = true;
+        form.cld_translation_rule.disabled = true;
+        label_incoming_cld.innerHTML = 'Calling Card PIN';
+    } else {
+        form.remote_ip.disabled = false;
+        form.incoming_cli.disabled = false;
+        form.cli_translation_rule.disabled = false;
+        form.cld_translation_rule.disabled = false;
+        label_incoming_cld.innerHTML = 'Incoming CLD/DNIS';
+    }
+}
+
+addLoadEvent( function() { initForm(); } );
+
+Ext.onReady(function(){
+    var store_max_cps = new Ext.data.SimpleStore({
+        fields: ['val'],
+        data: [['Unlimited']]
+    });
+
+    var max_cps = new Ext.form.ComboBox({
+        id: 'max_cps',
+        applyTo: 'max_cps',
+        store: store_max_cps,
+        displayField: 'val',
+        regex: /^(Unlimited|\d+\.?|\d*\.\d+)$/i,
+        mode: 'local',
+        selectOnFocus: true,
+        triggerAction: 'all',
+        width: 130,
+        cls: 'dp3',
+        emptyClass: 'dp3',
+        fieldClass: 'dp3',
+        focusClass: 'dp3',
+        value: 'Unlimited'
+    });
+
+    var store_max_sessions = new Ext.data.SimpleStore({
+        fields: ['val'],
+        data: [['Unlimited']]
+    });
+
+    var max_sessions = new Ext.form.ComboBox({
+        id: 'max_sessions',
+        applyTo: 'max_sessions',
+        store: store_max_sessions,
+        displayField: 'val',
+        regex: /^(Unlimited|\d+)$/i,
+        mode: 'local',
+        selectOnFocus: true,
+        triggerAction: 'all',
+        width: 130,
+        cls: 'dp3',
+        emptyClass: 'dp3',
+        fieldClass: 'dp3',
+        focusClass: 'dp3',
+        value: 'Unlimited'
+    });
+
+});
+
+</script>
+
+
+<form action="account_auth_rules.php" method="GET" name="form1">
+
+<table width="100%" border="0" cellpadding="0" cellspacing="0" id="table1">
+    <tr>
+      <td align="left" class="Headline">
+        <a class="tit" href="accounts.php">Accounts</a> /
+        <a class="tit" href="accounts.php?account=1&action=edit"><span class="style1">Account PUSHTOTALK</span></a> - 
+        <a class="tit" href="account_auth_rules.php?i_account=1">Authentication Rules</a> / 
+                    <span class="style1">Edit Authentication Rule</span>
+              </td>
+    </tr>       
+</table>
+
+<div class="formcol">
+
+  <div class="grouptitle mod3_1">
+        Basic Parameters  </div>
+
+</div>
+
+<div class="formcol">
+
+  <div class="groupdata3_1">
+
+    <div class="dataname_m mod3_1">
+        Protocol    </div>
+    <div class="dataval mod3">
+        <select name="i_protocol" class="sel3" onChange="initForm();">
+            <option value="1" selected>SIP</option>
+            <option value="3" >IAX2</option>
+            <option value="4" >Calling Card PIN</option>
+        </select>
+    </div>
+
+    <div class="dataname mod3_1">
+        Remote IP Address    </div>
+    <div class="dataval mod3">
+        <input name="remote_ip" class="vi2" type="text" value="104.245.246.110">
+    </div>
+
+  </div>
+
+  <div class="groupdata3">
+
+    <div class="dataname mod3" id="label_incoming_cld">
+        Incoming CLD/DNIS    </div>
+    <div class="dataval mod3">
+      <input name="incoming_cld" class="vi2" type="text" value="6686192*">
+    </div>
+
+    <div class="dataname mod3">
+        To Domain    </div>
+    <div class="dataval mod3">
+      <input name="to_domain" class="vi2" type="text" value="">
+    </div>
+
+    <div class="dataname mod3">
+        CLD Tr. Rule    </div>
+    <div class="dataval mod3">
+      <input name="cld_translation_rule" class="vi2" type="text" value="s/^6686192/192/">
+    </div>
+
+  </div>
+
+  <div class="groupdata3">
+
+    <div class="dataname mod3">
+        Incoming CLI/ANI    </div>
+    <div class="dataval mod3">
+      <input name="incoming_cli" class="vi2" value="">
+    </div>
+
+    <div class="dataname mod3">
+        From Domain    </div>
+    <div class="dataval mod3">
+      <input name="from_domain" class="vi2" type="text" value="">
+    </div>
+
+    <div class="dataname mod3">
+        CLI Tr. Rule    </div>
+    <div class="dataval mod3">
+      <input name="cli_translation_rule" class="vi2" type="text" value="">
+    </div>
+
+  </div>
+
+</div>
+
+<div class="formcol">
+
+  <div class="grouptitle mod3_1">
+        Advanced Parameters  </div>
+
+</div>
+
+<div class="formcol">
+
+  <div class="groupdata3_1">
+
+    <div class="dataname mod3_1">
+        Max Sessions    </div>
+    <div class="dataval mod3">
+        <input type="text" class="vi2" id="max_sessions" name="max_sessions">
+    </div>
+
+    <div class="dataname mod3_1">
+        Tariff    </div>
+    <div class="dataval mod3">
+        <select name="i_tariff" class="sel3"  onChange="this.style.color = this.options[this.selectedIndex].style.color;">
+            <option value="0" style="color: grey;">[From Account]</option>
+                      <option style="color: black;" value="32" >ASTERISK-TARIFF (USD)</option>
+                      <option style="color: black;" value="4" >Aircel Pakistan (USD)</option>
+                      <option style="color: black;" value="31" >CALLING-TARIFF (USD)</option>
+                      <option style="color: black;" value="29" >JUNAID-TARIFF (USD)</option>
+                      <option style="color: black;" value="11" >JY-1 (USD)</option>
+                      <option style="color: black;" value="2" >Junaid (USD)</option>
+                      <option style="color: black;" value="24" >NADEEM-TARIFF (USD)</option>
+                      <option style="color: black;" value="23" >NOMAN-TARIFF (USD)</option>
+                      <option style="color: black;" value="20" >Nado-Telecom (USD)</option>
+                      <option style="color: black;" value="3" selected>PUSHTO TALK PK Rates (USD)</option>
+                      <option style="color: black;" value="28" >Saif (USD)</option>
+                      <option style="color: black;" value="5" >TALK Pakistan (USD)</option>
+                      <option style="color: black;" value="7" >TEST-1 (USD)</option>
+                      <option style="color: black;" value="18" >TEST-10 (USD)</option>
+                      <option style="color: black;" value="19" >TEST-91 (USD)</option>
+                      <option style="color: black;" value="22" >TEST1234-TARIFF (USD)</option>
+                      <option style="color: black;" value="25" >TEST12345-TARIFF (USD)</option>
+                      <option style="color: black;" value="27" >TEST202-TARIFF (USD)</option>
+                      <option style="color: black;" value="21" >TEST516-TARIFF (USD)</option>
+                      <option style="color: black;" value="26" >TEST5202026-TARIFF (USD)</option>
+                      <option style="color: black;" value="8" >Test-2 (USD)</option>
+                      <option style="color: black;" value="12" >Test-3 (USD)</option>
+                      <option style="color: black;" value="13" >Test-5 (USD)</option>
+                      <option style="color: black;" value="14" >Test-6 (USD)</option>
+                      <option style="color: black;" value="15" >Test-7 (USD)</option>
+                      <option style="color: black;" value="16" >Test-8 (USD)</option>
+                      <option style="color: black;" value="17" >Test-9 (USD)</option>
+                      <option style="color: black;" value="30" >calling (USD)</option>
+                  </select>
+    </div>
+
+  </div>
+
+  <div class="groupdata3">
+
+    <div class="dataname mod3">
+        Max Calls Per Second    </div>
+    <div class="dataval mod3">
+        <input id="max_cps" type="text" name="max_cps" class="vi2"/>
+    </div>
+
+    <div class="dataname mod3">
+        Routing Group    </div>
+    <div class="dataval mod3">
+        <select name="i_routing_group" class="sel3"  onChange="this.style.color = this.options[this.selectedIndex].style.color;">
+            <option value="0" style="color: grey;">[From Account]</option>
+                      <option style="color: black;" value="7" >A</option>
+                      <option style="color: black;" value="6" >CALLNTALK-PR-CHARLIE(ERI)</option>
+                      <option style="color: black;" value="3" selected>CALLNTALK-PR-CHARLIE(PAK)</option>
+                      <option style="color: black;" value="15" >INTERNAL-PTCL</option>
+                      <option style="color: black;" value="14" >INTERNAL-SKY-TELECOM-UK-PAK-PR-PR</option>
+                      <option style="color: black;" value="10" >Pakistan</option>
+                      <option style="color: black;" value="4" >Pakistan First Class</option>
+                      <option style="color: black;" value="5" >Pakistan First Class TALK</option>
+                      <option style="color: black;" value="8" >Q</option>
+                      <option style="color: black;" value="9" >TEST-RG-BITSAUTO</option>
+                      <option style="color: black;" value="12" >TTest2</option>
+                      <option style="color: black;" value="11" >Test 2</option>
+                      <option style="color: black;" value="13" >UK</option>
+                      <option style="color: black;" value="16" >asterix</option>
+                  </select>
+    </div>
+
+  </div>
+
+</div>
+
+<div class="formcol">
+
+  <div class="genrep3">
+        <input type="hidden" name="i_authentication" value="4">
+        <input type="hidden" name="i_account" value="1">
+        <input type="hidden" name="action" value="change">
+        <input type="submit" name="save_and_close" value="Save &amp; Close" class="bt">
+        <input type="submit" name="save" value="Save" class="bt">
+        <input type="submit" name="no_action" value="Discard &amp; Close" class="bt">
+  </div>
+
+</div>
+
+</form>
+        </div>
+
+
+<script>
+    var e = document.getElementsByClassName("Headline");
+    if (e.length > 0) {
+        // add datetime
+        var tr = e[0].parentElement;
+        var td = document.createElement("td");
+        td.className = "Headline style1";
+        td.style.textAlign = "right";
+        var t = document.createTextNode(" 3 Jun 2026 10:44:42 (Etc/UTC)");
+        td.appendChild(t);
+        tr.appendChild(td);
+
+        // move navigation bar before main div
+        e = tr;
+        while (e = e.parentElement) {
+            if (e.tagName != "TABLE") {
+                continue;
+            }
+            break;
+        }
+        if (e) {
+            e = e.parentElement.removeChild(e);
+            var main_div = document.getElementById('main');
+            main_div.parentElement.insertBefore(e, main_div);
+            main_div.className = "main_div";
+        }
+    }
+</script>
+
+
+<script src="/web_ng/legacy/js/apply_polyfills.js"></script>
+<script>
+  window.loadWebNgScript('navigation_menu')
+</script>
+
+
+
+</body>
+</html>

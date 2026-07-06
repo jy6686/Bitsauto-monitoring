@@ -1,0 +1,147 @@
+TASK: Implement Global Fix Button System Across Entire Application
+
+Add a Fix button on EVERY page, tab, and feature of the application (CDR, P&L, Live Calls, ASR/ACD, Reports, Settings, APIs, etc.).
+
+This must be a universal system, not module-specific only.
+
+🧠 CORE BEHAVIOR
+
+When user clicks Fix on ANY page:
+
+System must:
+
+Detect current page / feature automatically
+Collect logs + API status + errors
+Identify issue type
+Attempt predefined fixes
+If not resolved → trigger AI-assisted analysis
+Suggest or apply fix (with admin approval)
+Validate and reload page
+⚙️ GLOBAL FIX FLOW (MANDATORY FOR ALL PAGES)
+✅ STEP 1 — Detect Context (AUTO)
+
+System must capture:
+
+Page URL
+Module/feature name
+Active API calls
+User action state
+✅ STEP 2 — Collect Logs (ALWAYS FIRST)
+Server logs
+API logs (Sippy Soft + other vendors)
+Frontend console errors
+Network failures
+Background job status
+✅ STEP 3 — Check API FIRST (CRITICAL RULE)
+
+Before anything:
+
+Validate API response
+Check auth/session
+Detect timeout / failure
+✅ STEP 4 — Classify Issue
+
+System must detect:
+
+API_FAILURE
+AUTH_ERROR
+NO_DATA
+DATA_MISMATCH
+UI_ERROR
+BACKEND_ERROR
+TIMEOUT
+✅ STEP 5 — Run Predefined Fix Actions (AUTO)
+
+System should attempt:
+
+Retry API
+Refresh session/login
+Reload data
+Clear cache
+Restart service connection
+Switch vendor/trunk (if configured)
+✅ STEP 6 — RE-CHECK STATUS
+Did data load?
+Are logs clean?
+Is UI working?
+
+If YES → STOP
+
+⚠️ STEP 7 — IF NOT FIXED → AI MODE
+
+System should:
+
+Send logs + affected file context
+Analyze issue
+Generate:
+root cause
+code fix suggestion
+🔐 STEP 8 — ADMIN CONTROLLED FIX
+Show suggested fix
+Admin can:
+✅ Approve & Apply fix
+❌ Reject
+🔁 STEP 9 — APPLY FIX (IF APPROVED)
+Update code (targeted files only)
+Restart server
+Re-run logs
+✅ STEP 10 — FINAL VALIDATION
+No errors in logs
+Page loads correctly
+Data visible
+🖥️ FRONTEND REQUIREMENT (ALL PAGES)
+
+Every page must include:
+
+<Button onClick={handleFix}>🔧 Fix</Button>
+Fix Modal Must Show:
+Page Name
+Issue Detected
+Logs Summary
+Actions Taken
+AI Suggestion (if needed)
+Approve / Reject buttons (Admin only)
+Final Status
+🔌 SIPPY-SPECIFIC RULE (GLOBAL)
+
+Always:
+
+Check API connection first
+Refresh session if needed
+Retry API
+Then reload data
+⚠️ GLOBAL RULES (STRICT)
+Never use mock data
+Never apply partial fixes
+Always read logs before action
+Always fix at root cause (not UI only)
+Never modify config files unless required:
+package.json
+vite.config.ts
+drizzle.config.ts
+🔐 PERMISSION CONTROL
+Admin:
+Full fix + code apply
+Management:
+Run fix (no code changes)
+Viewer:
+No fix access
+🚀 FINAL SYSTEM BEHAVIOR
+For ANY page:
+
+Fix Button → Detect Page → Analyze → Fix → Validate → Display Result
+
+🎯 FINAL GOAL
+
+Build a global, intelligent Fix Button system that works across:
+
+All pages
+All features
+All APIs (Sippy + others)
+
+With:
+
+Automated recovery
+AI-assisted debugging
+Admin-controlled code fixing
+✅ END

@@ -1,0 +1,368 @@
+Good — this is actually the point where the system stops being “features” and starts behaving like a telecom observability + control plane.
+
+Here’s the honest read of where you are now, and what actually matters next.
+
+What you’ve successfully built (this is real maturity now)
+
+You now have 4 working planes:
+
+1. Execution plane
+Sippy routing execution
+approvals → execution → result storage
+2. Signal plane (AI Ops)
+execution signals (failure, latency, PDD)
+synthetic test signals
+route degradation signals
+3. Intelligence plane
+carrier scoring engine
+routing decision traces
+correlation engine (incidents)
+4. Observability UI plane
+AI Ops feed (signals + anomalies)
+incidents (correlated root cause)
+carrier scoring dashboard
+SIP ladder trace viewer
+synthetic test scheduler
+
+This is no longer “a dashboard system”.
+
+This is now:
+
+closed-loop telecom operations system
+
+What is STILL missing (important, not cosmetic)
+
+At this stage, the gaps are not features — they are system properties.
+
+1. True root-cause merging (biggest gap left)
+
+Right now you have:
+
+signals
+anomalies
+incidents
+traces
+
+But correlation is still rule-based grouping, not true causality.
+
+What’s missing:
+
+“this SIP failure CAUSED this ASR drop”
+not just “they happened together”
+
+👉 Next evolution:
+
+causal linking graph (event dependency chain)
+2. Routing decision replay (VERY important)
+
+You now log decisions — but you cannot replay them.
+
+Missing capability:
+
+“why did call X go to Carrier A instead of B?”
+with full reconstructed decision tree
+
+👉 This becomes:
+
+explainable routing engine
+3. Feedback loop into routing engine (critical next phase)
+
+Right now:
+
+detect issue → show alert
+
+But not:
+
+detect issue → change routing behavior
+
+Missing:
+
+auto-weight adjustment of LCR based on:
+ASR drop
+PDD spike
+carrier degradation score
+
+This is where it becomes self-healing routing
+
+4. Media-layer truth (RTP reality gap)
+
+You already correctly deprioritized this — but now it becomes relevant again:
+
+You still cannot answer:
+
+“call connected but no audio”
+
+Because you still lack:
+
+RTP stream validation / SBC media metrics
+What you should implement NEXT (priority order)
+🥇 1. Routing Replay Engine (NEXT BEST STEP)
+
+This is the most valuable missing piece.
+
+Build:
+
+per-call “decision replay”
+show:
+all candidate carriers
+scoring at that moment
+why winner was selected
+
+👉 This completes:
+“explain every call” capability
+
+🥈 2. Self-Healing Routing Layer
+
+Use your carrier score + signals to:
+
+auto-adjust LCR weights
+temporarily deprioritize degraded carriers
+re-route traffic dynamically (with approval toggle)
+
+👉 This closes the loop:
+detect → decide → act
+
+🥉 3. Incident causality graph (AI Ops upgrade)
+
+Upgrade incidents from:
+
+grouped events
+
+to:
+
+causal chains
+
+Example:
+
+RTP jitter spike
+  ↓ caused
+ASR drop on Carrier X
+  ↓ caused
+Routing fallback increase
+What NOT to build yet
+
+You correctly identified this:
+
+❌ RTP correlation layer
+
+Still depends on:
+
+SBC access
+media tap / packet capture
+
+This is infrastructure, not app logic.
+
+Final honest state of your system
+
+You are now at:
+
+Phase: Autonomous Telecom Control System (early stage)
+
+You already have:
+
+execution
+observation
+detection
+partial correlation
+
+You are missing only:
+
+decision replay + automated corrective action
+
+My recommendation (very clear)
+
+👉 Next build:
+
+✔ Routing Replay Engine
+
+Because it:
+
+uses existing data
+requires no external infra
+completes explainability
+directly improves AI Ops debugging
+
+If you want, I can next design:
+
+“full routing decision replay system (UI + backend + data model)”
+
+This is the piece that makes everything you built feel fully explainable per call, which is the real “operator-grade” milestone.
+
+Here's my honest read of this document against what the system actually looks like now.
+
+What the document says is missing vs. what's already built
+
+The doc flags Route Decision Trace as a major gap. That's no longer true — we built it in the last session. Every synthetic call now writes a trace record with selected carrier, candidate routes, decision reason, PDD, and failure category. The carrier scoring engine also runs every 30 minutes and cross-references traces. So layers 1 and 2 of the doc's "3 additions" are done.
+
+What is genuinely still missing
+
+1. Execution Reliability Layer — this is the most important real gap. Right now, if Sippy times out or returns an unexpected error during a synthetic call, the scheduler catches the exception and counts it as a failed call, which directly pollutes ASR and can trigger false SYNTHETIC_TEST_ASR_DROP events. There's no retry policy, no distinction between "Sippy infrastructure failure" vs "actual carrier failure," and no circuit breaker on the synthetic engine itself.
+
+2. Cross-campaign Correlation — the correlation engine at server/aiops/correlation-engine.ts handles real traffic, but it has no awareness that two campaigns failing on the same carrier simultaneously should produce one incident, not two separate signals. This is the upgrade that turns isolated synthetic alerts into systemic carrier incidents.
+
+3. Baseline Weakness — 10-run rolling average is vulnerable to false positives on low-traffic campaigns. A campaign that only runs twice a day could have its baseline skewed by one bad run. A 24-hour time-window baseline or weighted EMA would make the anomaly detection much more trustworthy.
+
+What I would NOT recommend building next
+
+Any new pages or UI modules — the existing UI is already dense enough
+RTP correlation — correctly excluded, needs infrastructure access
+Per-destination AI Ops normalization — useful eventually, but premature before reliability is fixed
+Suggested priority order if you want to proceed
+
+Execution Reliability — add retry (max 2 attempts, 5s backoff) on Sippy call failure, separate "infra failure" from "carrier failure" in the failure classifier, and prevent infra failures from counting against ASR baseline
+Cross-campaign Carrier Correlation — extend the correlation engine to group SYNTHETIC_FAILURE and ROUTE_DEGRADATION_SIGNAL events by carrier name across campaigns within a 15-minute window and produce a single CARRIER_INCIDENT record
+Baseline to Time-Window — replace the 10-run rolling ASR baseline with a 24h time-window average (or EMA with α=0.3)
+None of these require new pages or new tables — they're all improvements to existing engines. Want me to implement any of them?
+
+Your read is accurate — and more importantly, it correctly separates “missing features” vs “missing correctness”, which is where this system is now.
+
+At this stage, you’re no longer building capabilities — you’re fixing system reliability semantics.
+
+🔴 What is actually the next correct move
+
+From what you described, there are 3 real issues:
+
+1. Execution Reliability (CRITICAL)
+
+This is the only true correctness problem.
+
+Right now:
+
+Sippy timeout = failure
+network glitch = failure
+carrier failure = failure
+
+So your system is mixing:
+
+infra instability ≠ telecom degradation
+
+That breaks everything downstream:
+
+ASR becomes noisy
+incidents become fake
+AI Ops loses trust signal quality
+✔ This is the #1 thing to fix
+
+You need to introduce:
+
+retry policy (2 attempts, backoff 3–5s)
+classification split:
+INFRA_FAILURE
+CARRIER_FAILURE
+exclude infra failures from:
+ASR baseline
+anomaly triggers
+but still log them for observability
+
+👉 This is data integrity layer, not feature work.
+
+2. Cross-campaign correlation (NEXT VALUE LAYER)
+
+You already have:
+
+carrier-level traces
+synthetic campaigns
+signal events
+
+But missing:
+
+“multiple campaigns hitting same carrier = one incident”
+
+So instead of:
+
+Campaign A → Carrier X failure incident
+Campaign B → Carrier X degradation incident
+
+You want:
+
+Carrier X → unified incident
+
+This is:
+
+entity-level aggregation across time windows
+
+Not UI — pure backend grouping logic.
+
+3. Baseline correction (STATISTICAL FIX)
+
+Current 10-run baseline is:
+
+fragile
+over-sensitive
+low sample biased
+
+You correctly identified better options:
+
+✔ 24h window baseline (best for telecom)
+or
+✔ EMA (α = 0.3) (best for responsiveness)
+
+This is a signal stability fix, not a feature.
+
+🧠 What NOT to build (you are right)
+❌ RTP correlation (still infra-bound)
+❌ new dashboards
+❌ new AI Ops views
+❌ routing UI expansion
+
+You are already past UI expansion stage.
+
+📌 Correct priority order (refined)
+🥇 1. Execution Reliability Layer (DO THIS FIRST)
+
+This is foundational correctness.
+
+Fix:
+
+retry logic
+infra vs carrier separation
+failure taxonomy cleanup
+baseline exclusion rules
+
+👉 Without this, everything else is statistically corrupted
+
+🥈 2. Cross-campaign Carrier Correlation
+
+This upgrades system intelligence:
+
+turns alerts → incidents
+turns noise → systemic events
+aligns with real NOC behavior
+🥉 3. Baseline model upgrade
+
+Choose one:
+
+24h rolling window (recommended)
+OR
+EMA smoothing
+
+This stabilizes everything above it.
+
+🧩 The real architectural truth now
+
+Your system has moved into this maturity stage:
+
+Before:
+
+“We detect events”
+
+Now:
+
+“We interpret telecom behavior”
+
+Next stage:
+
+“We distinguish truth vs infrastructure noise”
+
+That’s exactly what Execution Reliability fixes.
+
+🚀 My recommendation (very clear)
+
+👉 Build Execution Reliability Layer first
+
+Because it:
+
+fixes correctness of ALL downstream AI Ops
+improves incident quality immediately
+prevents false alarms permanently
+requires no UI or schema overhaul

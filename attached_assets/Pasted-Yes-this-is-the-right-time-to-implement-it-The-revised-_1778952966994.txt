@@ -1,0 +1,211 @@
+Yes — this is the right time to implement it.
+
+The revised Phase B approach is technically safe, architecturally correct, and small enough to ship incrementally without destabilising the existing platform.
+
+You already completed the hardest prerequisite:
+
+AI Ops consolidation
+Central anomaly ownership
+Audit Log foundation
+Existing fraud + MOS + CDR intelligence
+Existing live operational polling infrastructure
+
+That means the platform is ready for its first true “shared operational state” layer.
+
+Recommended Implementation Scope (Phase B1)
+
+Do NOT build carrier_state and route_state yet.
+
+Start with only:
+
+account_state
+
+This keeps the rollout isolated, reversible, and immediately useful.
+
+Recommended V1 Schema
+
+account_state
+-------------
+id
+accountId
+accountName
+
+healthScore            // 0-100
+fraudRisk              // 0-100
+anomalyScore           // 0-100
+qualityScore           // 0-100
+
+balanceTrend           // rising/stable/falling
+activeIncidentCount
+
+state                  // healthy | warning | critical
+
+reasons                // JSON array
+lastIncidentAt
+updatedAt
+
+Keep it intentionally small.
+
+Do NOT add:
+
+prediction models
+ML weights
+historical snapshots
+carrier linkage
+route linkage
+recommendation logic
+
+Not yet.
+
+How the scores should work initially
+
+Keep it rule-based and transparent.
+
+Example:
+
+healthScore
+
+Start at 100 and subtract:
+
+active fraud incident
+low MOS
+abnormal CPS spike
+balance below threshold
+repeated short calls
+recent route failures
+fraudRisk
+
+Derived from:
+
+FAS triggers
+destination entropy
+CLI diversity
+short duration ratio
+traffic spikes
+qualityScore
+
+Derived from:
+
+MOS
+ASR
+ACD
+RTP quality
+recent SIP failures
+state
+80–100 = healthy
+50–79  = warning
+0–49   = critical
+
+Simple is better for V1.
+
+Most Important Architectural Decision
+
+AI Ops becomes the writer.
+Everything else becomes a reader.
+
+That is the core transformation.
+
+Only one service should compute operational state.
+
+Pages should NEVER recompute independently again.
+
+Updater Job Design
+
+Best approach:
+
+After each AI Ops anomaly cycle:
+
+AI Ops cycle
+    ↓
+collect signals
+    ↓
+compute account operational state
+    ↓
+upsert account_state
+
+Do NOT create another polling engine.
+
+Reuse the existing AI Ops timing infrastructure.
+
+Where the badges should appear first
+
+Ship visible value early.
+
+Recommended first surfaces:
+
+Accounts page
+health badge
+fraud badge
+quality badge
+Live Calls
+tiny account state pill beside calls
+AI Ops
+“Top Critical Accounts” widget
+
+Do NOT spread across 20 pages initially.
+
+What operators should see
+
+Instead of:
+
+“Open 5 pages to understand account status”
+
+They instantly see:
+
+Account: ABC Telecom
+State: Critical
+Health: 38
+Fraud Risk: 82
+Reasons:
+- abnormal destination entropy
+- MOS degradation
+- short-call spike
+
+That is the exact moment the platform becomes operational intelligence instead of monitoring.
+
+What NOT to implement yet
+
+Avoid these until V1 stabilises:
+
+automated actions
+auto-blocking from state engine
+carrier_state
+route_state
+AI recommendations
+confidence scoring
+LLM integration
+incident correlation engine
+
+Those belong after account_state proves stable.
+
+Best Build Sequence
+
+Sprint 1
+DB schema
+updater job
+score calculator
+API endpoints
+Sprint 2
+Accounts badges
+Live Calls indicators
+AI Ops critical accounts widget
+Sprint 3
+state history timeline
+trend arrows
+operational reasons UI
+
+That is a very safe progression.
+
+Expected Outcome
+
+After this ships:
+
+Before:
+
+pages compute intelligence independently
+
+After:
+
+platform maintains persistent operational truth
+
+That is the architectural turning point for BitsAuto.

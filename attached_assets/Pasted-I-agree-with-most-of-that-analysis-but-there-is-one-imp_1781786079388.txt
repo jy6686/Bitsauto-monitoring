@@ -1,0 +1,183 @@
+I agree with most of that analysis, but there is one important correction.
+
+What is already proven
+
+From your screenshots and Sippy UI:
+
+✅ Date format is correct
+
+2026-06-18 11:15
+
+matches Sippy's activation date format.
+
+✅ Rate sheet structure is correct
+
+Action
+Id
+Prefix
+Country
+Interval 1
+Interval N
+Price 1
+Price N
+Forbidden
+Grace Period
+Activation Date
+Expiration Date
+
+✅ SA is valid for Sippy tariff imports.
+
+✅ The upload page definitely exists:
+
+/c1/rates_tariff.php?i_tariff=33
+
+and your ssp-root account can clearly access it because we can see:
+
+Upload Rates
+Select File
+Format: .csv or MS-Office 2007 .xlsx
+
+on the page.
+
+What is NOT proven yet
+
+The statement:
+
+"Three things deployed since the last failed test"
+
+cannot be verified from screenshots alone.
+
+The problem is that the error message in your latest screenshot is identical to the previous one:
+
+Portal CSV:
+no upload form at /admin/tariffs.php
+
+If the code were actually reaching:
+
+/c1/rates_tariff.php?i_tariff=33
+
+you would not still be seeing an error mentioning:
+
+/admin/tariffs.php
+
+So one of these is true:
+
+Scenario 1
+
+The deployment did not actually pick up the new code.
+
+or
+
+Scenario 2
+
+There is another fallback path still pointing to:
+
+/admin/tariffs.php
+
+and that path is still being executed.
+
+Before another test
+
+I would verify these logs appear:
+
+[Sippy] findRatesCapableSession
+
+and specifically:
+
+.../c1/rates_tariff.php?i_tariff=33
+
+Then:
+
+[Sippy] rates_tariff page
+fileInputs=1
+
+Then:
+
+[Sippy] pushRateViaPortalUpload
+formAction=
+fileField=
+
+Without seeing those logs, another UI test is unlikely to tell us anything new.
+
+Bigger architectural observation
+
+Looking at all legacy screenshots together, the original BitsAuto almost certainly worked like this:
+
+Download Current Tariff
+        ↓
+Create Modified Tariff Sheet
+        ↓
+Archive Sheet Version
+        ↓
+Upload Sheet To Sippy
+        ↓
+Verify Rate Changed
+        ↓
+Create Job
+
+not:
+
+Edit Prefix Directly
+
+That is why the old system could later show:
+
+Old Rate
+New Rate
+Effective Date
+Effective Time
+Job History
+Download Button
+
+for every notification job.
+
+The feature I would add after upload works
+
+Not now, but immediately after upload succeeds:
+
+Tariff Sheet Archive
+
+Store every generated upload:
+
+tariff33_20260618_111500.xlsx
+tariff33_20260618_130000.xlsx
+tariff33_20260619_090000.xlsx
+
+with:
+
+job_id
+client
+product
+user
+effective_at
+created_at
+
+Retention:
+
+90 days minimum
+
+This gives:
+
+rollback
+audit trail
+dispute resolution
+exact proof of what was uploaded
+
+and matches what the legacy platform appears to have been doing.
+
+Current priority
+
+I would not implement Jobs Phase 2, Notifications, or Archive yet.
+
+Priority remains:
+
+BitsAuto
+↓
+Open /c1/rates_tariff.php?i_tariff=33
+↓
+Upload XLSX
+↓
+Verify rate changed
+↓
+Return success
+
+Once a single prefix (19230 or 19232) actually changes in Sippy, everything else becomes straightforward. Right now the remaining question is whether the code is truly reaching /c1/rates_tariff.php or still executing an older /admin/tariffs.php path.

@@ -1,0 +1,206 @@
+Automated Test Account & Customer Onboarding Workflow
+
+Overview
+
+We need a dedicated onboarding page that automates the entire customer setup workflow. The goal is that users only enter the required customer information, and the platform automatically performs all necessary provisioning tasks.
+
+⸻
+
+Automated Workflow
+
+Once the required information is submitted, the system should automatically:
+
+1.⁠ ⁠Create the Company Profile.
+2.⁠ ⁠Create the Test Account.
+3.⁠ ⁠Create all required Authentication records.
+4.⁠ ⁠Create the predefined Routing configuration.
+5.⁠ ⁠Generate and assign the initial rates.
+6.⁠ ⁠Generate customer documentation.
+7.⁠ ⁠Send onboarding emails automatically.
+
+This should be a fully automated process with minimal manual intervention.
+
+⸻
+
+Validation Requirements
+
+Before account creation, the system must validate the following:
+
+IP Address Validation
+
+•⁠  ⁠The customer’s IP address must not conflict with an existing customer IP.
+•⁠  ⁠If a conflict is detected, account creation should be blocked.
+•⁠  ⁠The system should display a clear error message indicating that the IP address is already in use.
+
+Customer Name Validation
+
+•⁠  ⁠Company name must be unique.
+•⁠  ⁠Duplicate customer names should not be allowed.
+
+Email Validation
+
+•⁠  ⁠Customer email addresses must not conflict with existing records.
+•⁠  ⁠Duplicate email addresses should trigger validation errors.
+
+Internal Customer Exception
+
+Some internal customers may intentionally share predefined IP addresses.
+
+For these cases:
+
+•⁠  ⁠Internal IP addresses should be maintained in a predefined whitelist.
+•⁠  ⁠IP conflict validation should be bypassed for approved internal accounts.
+
+⸻
+
+Automatic Test Account Provisioning
+
+When a test account is created, the platform should automatically:
+
+Create Authentication
+
+•⁠  ⁠Generate authentication records.
+•⁠  ⁠Assign customer credentials.
+•⁠  ⁠Configure customer access.
+
+Create Routing
+
+Routing should be created automatically using predefined templates.
+
+Assign Test Destinations
+
+Predefined destinations should be configured automatically.
+
+Examples:
+
+•⁠  ⁠Top 3 Destinations
+•⁠  ⁠Top 5 Destinations
+
+The exact destination list will be configurable.
+
+⸻
+
+Automatic Rate Assignment
+
+The system should automatically generate and assign predefined rates for:
+
+•⁠  ⁠First Class
+•⁠  ⁠Business Class
+•⁠  ⁠Special Bravo
+•⁠  ⁠Special Charlie
+
+or any other predefined products.
+
+A background job should be triggered automatically to generate and assign customer rates.
+
+⸻
+
+Initial Product Activation
+
+During onboarding:
+
+•⁠  ⁠All predefined products should be created.
+•⁠  ⁠All products should be activated automatically.
+•⁠  ⁠Initial rate sheets should be generated for each product.
+
+⸻
+
+Customer Communication
+
+Once onboarding is completed, the platform should automatically generate and send an onboarding email.
+
+Email Recipients
+
+To:
+
+•⁠  ⁠Customer Email Address
+
+CC:
+
+•⁠  ⁠Assigned Key Account Manager (KAM)
+•⁠  ⁠Internal NOC Email Address
+
+Example:
+
+•⁠  ⁠noc1@achibanlogic.com
+•⁠  ⁠Assigned KAM email
+
+This ensures that all onboarding communications are tracked internally.
+
+⸻
+
+Email Content
+
+The onboarding email should include:
+
+Connection Information
+
+•⁠  ⁠Achiban SIP IP Address
+•⁠  ⁠Customer IP Address
+•⁠  ⁠Customer Prefix (4-digit prefix)
+•⁠  ⁠Authentication Details
+•⁠  ⁠Product Information
+•⁠  ⁠Supported Destinations
+•⁠  ⁠Test Routing Information
+•⁠  ⁠Contact Details
+
+A predefined email template will be provided and should be used for all onboarding emails.
+
+⸻
+
+Traffic Activation Logic
+
+The system should distinguish between account creation and traffic activation.
+
+Immediately After Account Creation
+
+The following should be completed automatically:
+
+•⁠  ⁠Company Profile
+•⁠  ⁠Test Account
+•⁠  ⁠Authentication
+•⁠  ⁠Routing
+•⁠  ⁠Products
+•⁠  ⁠Rates
+•⁠  ⁠Rate Sheets
+•⁠  ⁠Customer Communication
+
+Traffic Restriction
+
+Traffic must remain blocked until the customer IP address is approved and whitelisted.
+
+This means:
+
+•⁠  ⁠Authentication may exist.
+•⁠  ⁠Routing may exist.
+•⁠  ⁠Rates may exist.
+•⁠  ⁠Products may exist.
+
+However, the customer must not be able to send live traffic until IP approval has been completed.
+
+After IP Approval
+
+Once the IP address is approved and whitelisted:
+
+•⁠  ⁠Traffic routes become active.
+•⁠  ⁠Customer can begin sending traffic.
+•⁠  ⁠Account status changes to Active.
+
+⸻
+
+Expected Outcome
+
+The onboarding process should become a one-click automated workflow where entering customer information automatically provisions:
+
+•⁠  ⁠Company Profile
+•⁠  ⁠Test Account
+•⁠  ⁠Authentication
+•⁠  ⁠Routing
+•⁠  ⁠Products
+•⁠  ⁠Rates
+•⁠  ⁠Rate Sheets
+•⁠  ⁠Customer Notifications
+
+while ensuring that live traffic remains disabled until IP approval and whitelisting have been completed.
+
+Additional requirements and enhancements can be incorporated in future phases as the onboarding process evolves.

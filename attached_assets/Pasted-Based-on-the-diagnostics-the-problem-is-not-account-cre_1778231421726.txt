@@ -1,0 +1,101 @@
+Based on the diagnostics, the problem is not account creation itself — the issue is specifically around service-plan provisioning on this Sippy build.
+
+Current findings confirm:
+
+/web_ng/api/rest/* returns 404
+XML-RPC can list and assign plans, but cannot create them
+service_plans.php redirects back to the SPA/login flow
+The portal is using web_ng browser/session architecture
+The UI likely uses authenticated internal AJAX/session calls not publicly documented
+
+Since API-based creation is blocked, I recommend implementing a controlled session-aware automation layer using Python + Playwright.
+
+Recommended architecture:
+
+Replit App
+→ Provisioning Middleware
+→ Playwright Session Automation
+→ Sippy web_ng Portal
+
+This avoids dependency on unavailable REST APIs and mimics the exact browser workflow used by the UI.
+
+Suggested Python implementation approach:
+
+from playwright.sync_api import sync_playwright
+
+SIPPY_URL = "https://your-sippy-host.com"
+USERNAME = "admin"
+PASSWORD = "password"
+
+def create_service_plan(plan_name):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+
+        context = browser.new_context()
+        page = context.new_page()
+
+        # Open login page
+        page.goto(f"{SIPPY_URL}/index.php")
+
+        # Login
+        page.fill('input[name="login"]', USERNAME)
+        page.fill('input[name="password"]', PASSWORD)
+        page.click('button[type="submit"]')
+
+        # Wait for authenticated SPA load
+        page.wait_for_load_state("networkidle")
+
+        # Navigate directly to service plans section
+        page.goto(f"{SIPPY_URL}/web_ng/")
+
+        # Wait for SPA rendering
+        page.wait_for_timeout(3000)
+
+        # OPTIONAL:
+        # inspect/select actual UI buttons from browser devtools
+
+        # Example selectors (must match real UI)
+        page.click('text=Service Plans')
+        page.click('text=Add Service Plan')
+
+        page.fill('input[name="name"]', plan_name)
+
+        page.click('button:has-text("Save")')
+
+        page.wait_for_timeout(3000)
+
+        print(f"Service plan created: {plan_name}")
+
+        browser.close()
+
+create_service_plan("TEST PLAN")
+
+Important next step:
+
+Please inspect browser Network tab while manually creating a service plan inside Sippy.
+
+We need to capture:
+
+hidden AJAX endpoints
+request payloads
+CSRF/session tokens
+internal API calls
+
+Most likely scenario:
+The SPA is calling undocumented internal endpoints that are inaccessible without browser-authenticated session context.
+
+Once those requests are captured, we can:
+
+replay them directly from backend
+OR
+fully automate provisioning via Playwright
+
+This is likely the only stable approach for this Sippy build since:
+
+REST APIs are unavailable
+XML-RPC provisioning methods are missing
+reseller context restrictions block direct inserts
+
+Recommendation:
+Keep the dropdown selection workflow as fallback,
+but implement browser-session provisioning middleware for full automation support.

@@ -1,0 +1,79 @@
+Approved and clear — new Reports section, ASR/ACD page, CDR-only, CSV/Excel export. Let me read the sidebar and CDR structure before touching anything:
+
+
+4 actions
+Let me get the full picture efficiently — sidebar, CDR fields, and existing aggregation logic all at once:
+
+
+12 actions
+Let me read the remaining files I need — layout shell, App.tsx, and the CDR type — all in parallel:
+
+
+4 actions
+I have everything. Let me find the insertion point for the new endpoint then implement all four files in parallel:
+
+
+3 actions
+Now I have all I need. Building all four components in parallel — backend endpoint, frontend page, sidebar group, and route registration:
+
+
+3 actions
+All information gathered. Now implementing all four components simultaneously — backend endpoint, frontend page, sidebar, and routing:
+
+
+3 actions
+Now writing the frontend page, sidebar update, and App.tsx route all in parallel:
+
+
+2 actions
+Now updating the sidebar and App.tsx in parallel:
+
+
+6 actions
+Now adding the route registration to App.tsx:
+
+
+2 actions
+Let me verify the build is clean and the app is running correctly:
+
+
+2 actions
+App is running with HMR applied. Let me take a screenshot to verify the sidebar and page:
+
+
+2 actions
+The login screen is expected — auth is required. The HMR hot-reloaded both layout-shell.tsx and App.tsx without errors. Let me do a quick typecheck to confirm there are no TypeScript issues:
+
+
+2 actions
+The Vite HMR applied all changes cleanly — if there were TypeScript errors they would have shown as failed module updates in the log. The implementation is complete.
+
+Here is exactly what was built:
+
+Backend — GET /api/reports/asr-acd (inserted in server/routes.ts)
+
+Filters the live CDR cache by time window (30m / 1h / 4h / 24h or custom ISO range)
+Optional CLI/CLD substring filters (case-insensitive)
+Origination: groups by clientName / accountNameCache lookup
+Termination: groups by cdr.vendor field
+Computes per-row: totalCalls, billableCalls, durationSec, acdSec, ASR%, avgPDD, amount (7 decimal places like Sippy)
+Sorts each table independently (by calls / ASR / ACD / revenue|cost)
+Hides zero-call entries when hideEmpty=true
+Returns origination rows, termination rows, totals, CDR count, and timestamp
+Pure CDR cache — no CI, no AI Ops, no BitsEye signals
+Frontend — client/src/pages/asr-acd-report.tsx
+
+Filter panel: time preset, CLI contains, CLD contains, ASR highlight threshold, sort-by origination, sort-by termination
+Update Report button — manual refresh only, no auto-polling (Sippy behaviour)
+Download CSV / Excel button — produces a .csv file in the exact Sippy column order, opens natively in Excel (no extra packages needed)
+Two tables: Origination and Termination, each with Calls / Billable / Duration mm:ss / ACD mm:ss / ASR% / Avg PDD / Revenue or Cost
+Rows highlighted red when ASR is below the configured threshold, ASR cell turns red too
+Totals row in a distinct footer
+Empty state prompt before first run
+Sidebar — client/src/components/layout-shell.tsx
+
+New Reports group (key: reports, emerald tint) positioned between Analytics and Troubleshooting
+Contains: ASR / ACD Report → /asr-acd with spreadsheet icon and "New" badge
+Route — client/src/App.tsx
+
+/asr-acd registered and protected for admin and management roles

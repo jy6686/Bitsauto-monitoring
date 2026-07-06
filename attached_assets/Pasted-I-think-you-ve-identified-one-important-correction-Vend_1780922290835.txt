@@ -1,0 +1,224 @@
+I think you've identified one important correction:
+
+Vendor Side
+
+In your Sippy setup, vendors are usually priced through:
+
+Vendor
+   ↓
+Connection
+   ↓
+Destination Set
+   ↓
+Rate
+
+not necessarily through the same tariff model used for customers.
+
+So I would not assume:
+
+vendorCost = 0
+↓
+missing Cost Tariff
+
+without checking your specific Sippy configuration.
+
+The More Important Finding
+
+This part is much more convincing:
+
+Track 3 searching:
+923799834357
+
+Sippy stores:
+1923799834357
+
+and the query uses:
+
+cld_clause = 0
+(Begins With)
+
+That means:
+
+923799834357
+
+does NOT begin-match:
+
+1923799834357
+
+So the search returns:
+
+0 rows
+
+Then the fallback logic kicks in:
+
+Load recent CDRs
+
+which explains:
+
+157 CDRs
+160 CDRs
+178 CDRs
+
+appearing in logs.
+
+That is exactly the behavior you'd expect from a broken destination filter.
+
+Why This Explains "No CDR"
+
+Current flow:
+
+Governed Call
+      ↓
+Destination
+923799834357
+
+Track 3 Search
+      ↓
+No Match
+
+Fallback
+      ↓
+Recent CDRs
+
+Correlation
+      ↓
+Fails
+
+Billing Check
+      ↓
+No CDR
+
+So:
+
+CDR exists
+
+but:
+
+Billing Check cannot find it
+What I Would Prioritize
+Priority 1
+
+Fix destination filtering.
+
+Instead of:
+
+cld_clause = 0
+Begins With
+
+use:
+
+cld_clause = 2
+Ends With
+
+and search using:
+
+Last 10 digits
+
+Example:
+
+Stored:
+1923799834357
+
+Search:
+3799834357
+
+Ends With:
+✓
+
+This is much more robust because:
+
+Product prefixes can change
+Tech prefixes can change
+Carrier prefixes can change
+
+but:
+
+last 10 digits
+
+normally remain stable.
+
+Priority 2
+
+Add debugging columns to Billing Check
+
+Show:
+
+Governance CLD
+Matched CDR CLD
+Match Method
+
+Example:
+
+923799834357
+1923799834357
+Suffix Match
+
+Then you'll instantly know whether correlation is working.
+
+Priority 3
+
+Vendor Cost Investigation
+
+Separate from CDR matching.
+
+Once CDR matching works:
+
+Customer Seconds
+Revenue
+Vendor Name
+
+should appear.
+
+Then investigate:
+
+Vendor Cost
+
+independently.
+
+My Current Assessment
+
+Based on everything you've shared:
+
+CDR Problem
+
+I agree this is probably:
+
+Destination Filter Logic
+
+not:
+
+CDR Generation Failure
+
+Probability:
+
+85%
+Vendor Cost Problem
+
+Still separate.
+
+Could be:
+
+Destination Set Pricing
+Vendor Configuration
+Mera Export Mapping
+
+But fixing vendor cost will not fix the "No CDR" issue.
+
+What I Would Tell The Developer
+
+Focus first on:
+
+Track 3
+  ↓
+CLD Search
+  ↓
+Ends-With Matching
+
+because if Billing Check cannot locate the correct CDR, then:
+
+Revenue
+Cost
+Margin
+Profit
+
+will all remain blank regardless of whether vendor cost is configured correctly.

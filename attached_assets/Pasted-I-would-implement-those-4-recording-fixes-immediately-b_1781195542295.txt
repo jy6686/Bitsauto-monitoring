@@ -1,0 +1,176 @@
+I would implement those 4 recording fixes immediately because they are production diagnostics, not roadmap features.
+
+Priority P1.1 — Recording Integrity Hardening
+Fix 1: Correct Success Rate Calculation
+
+Current issue:
+
+2,396 completed calls
+Only first 100 SSH checked
+2,296 = Unchecked
+Success % appears near 0%
+
+Wrong denominator.
+
+Change:
+
+Success % = File OK / Checked Files
+
+Display:
+
+Checked: 100
+OK: 95
+Missing: 3
+Empty: 2
+
+Success Rate: 95%
+Coverage: 100 / 2396 checked
+
+This immediately makes the dashboard trustworthy.
+
+Fix 2: SSH Health Check
+
+Add card:
+
+Asterisk SSH Health
+
+Host
+Last Check
+Latency
+Status
+
+Examples:
+
+🟢 Connected
+🔴 Authentication Failed
+🔴 Timeout
+🔴 SFTP Unavailable
+
+Right now you cannot tell if:
+
+Missing Recording
+
+means:
+
+File missing
+OR
+SSH failed
+
+Huge difference.
+
+Fix 3: Inline Audio Player
+
+Current:
+
+Stream
+↓
+New Tab
+↓
+JSON / Download
+
+Not useful.
+
+Replace with:
+
+<audio controls>
+
+inside Recording Integrity.
+
+Then operators can immediately verify:
+
+Recording Exists
+Recording Plays
+Audio Valid
+
+without leaving the page.
+
+Fix 4: Range Request Support
+
+Most important technical fix.
+
+Current endpoint:
+
+GET /recording
+↓
+Full file only
+
+Browsers expect:
+
+Range: bytes=...
+
+Without Range support:
+
+Seek
+Pause
+Resume
+Audio controls
+
+become unreliable.
+
+Add:
+
+206 Partial Content
+Accept-Ranges: bytes
+Content-Range
+
+support.
+
+Then:
+
+Inline audio player
+
+works properly.
+
+Updated Recording Priority
+P1 — Recording Integrity
+
+Current status:
+
+Recording Path = Present
+2396 / 2396 calls
+
+Good.
+
+P1.1 — Recording Diagnostics
+
+Implement:
+
+Success-rate denominator fix
+SSH health endpoint
+Inline audio player
+Range request support
+P1.2 — Root Cause Validation
+
+After deployment:
+
+Check:
+
+File OK %
+Missing %
+Empty %
+SSH failures %
+Playback failures %
+
+Then we finally know whether the problem is:
+
+Recording creation
+Recording storage
+SSH access
+Streaming
+UI playback
+
+instead of guessing.
+
+Updated Priority Board
+Priority	Item	Status
+P1	Recording Integrity	Active
+P1.1	Recording Diagnostics Fixes	Next
+P2	CDR Reconciliation	Active
+P2.5	Identity Audit	Active
+P3.1	Vendor Cost Extraction	✅ Complete
+P3.2	Vendor Cost Validation	Ready
+P3.3	Commercial Identity Audit	Ready
+CCI	Commercial Call Identity	Deferred
+Trust Center	Trust Center	Frozen
+
+One additional note: some of the earlier uploaded CDR exports, vendor reports, and screenshots have expired and are no longer accessible. If you want me to compare the new Reconciliation Lab results against those datasets, please upload the latest files again.

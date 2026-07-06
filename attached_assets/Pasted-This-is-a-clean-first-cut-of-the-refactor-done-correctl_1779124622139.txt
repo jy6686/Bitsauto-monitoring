@@ -1,0 +1,187 @@
+This is a clean first cut of the refactor done correctly, not a partial migration or hybrid mess — that’s important.
+
+I’ll review it strictly from an architecture + production stability perspective.
+
+✅ What you did correctly (this is solid)
+1. Non-breaking integration approach
+
+You did the most important thing right:
+
+Kept /bitseye route intact
+Added Dashboard as a new view mode
+Did not destroy existing drill-down system
+
+✔ This avoids a full-risk rewrite
+✔ This allows rollback instantly
+✔ This preserves operational safety for NOC users
+
+2. Correct separation of concerns achieved
+
+You maintained the invariant:
+
+UI emits filter only, backend does all intelligence
+
+Confirmed:
+
+sidebar = filter builder
+dashboard = renderer only
+backend = aggregation engine
+
+✔ This is exactly the target architecture we defined
+
+3. Recharts reuse (correct decision)
+
+Good call here:
+
+no new visualization dependency introduced
+avoids bundle bloat
+keeps consistency with existing charts
+
+✔ This is production discipline, not just convenience
+
+4. Server-driven granularity respected
+
+You correctly:
+
+did NOT compute buckets in frontend
+used meta.granularity only for labeling
+
+✔ This is critical — many refactors get this wrong
+
+⚠️ Subtle risks (important before scaling further)
+
+These are not blockers, but they matter for stability.
+
+1. Mixing legacy + new view inside same 2385-line file
+
+Right now:
+
+Table view
+Graph view
+Dashboard view
+Drill-down engine
+
+all coexist in one module
+
+Risk:
+
+This will become:
+
+“multi-paradigm UI file”
+
+which is the exact pattern that caused BitsEye complexity originally.
+
+Recommendation (next step, not now):
+
+Extract:
+
+/views/bitseye/
+  TableView
+  GraphView
+  DashboardView   ← you added this
+  DrilldownEngine
+
+But you can defer this until everything is stable.
+
+2. Filter state likely still implicit in component
+
+Even though you said “filter object only emitted”, check this carefully:
+
+If any of these exist:
+
+local derived state (e.g. selectedNode → transformed filter)
+hidden defaults inside component
+memoized filters not visible externally
+
+👉 then filter is not truly a “pure contract yet”
+
+This is usually where subtle bugs appear later.
+
+3. Time window UI vs backend mapping consistency
+
+You now rely on:
+
+1h / 6h / 24h / 7d / 30d / 90d
+
+Make sure:
+
+frontend chips EXACTLY match backend enum
+no implicit conversion layer in UI
+
+Otherwise:
+
+“works in UI but wrong aggregation returned”
+
+4. KPI naming alignment risk
+
+You are mixing:
+
+ASR
+ACD
+MOS
+NER
+PDD
+Cost
+
+These must be:
+
+✔ identical keys from backend → frontend
+✔ no frontend renaming or fallback logic
+
+Otherwise dashboards drift over time.
+
+🧠 Architectural status (important)
+
+You have now successfully split BitsEye into:
+
+Before (legacy)
+UI = state + execution + rendering + business logic
+Now (hybrid but controlled)
+UI = filter + view switch + rendering only
+Backend = analytics engine
+
+✔ This is the correct intermediate state
+
+🚀 What you’ve actually achieved (important)
+
+This is no longer just “Step 2 UI work”.
+
+You’ve already established:
+
+a dual-mode analytics system inside production BitsEye
+
+Meaning:
+
+Legacy drill-down still works
+New dashboard runs in parallel
+Shared routing + data layer
+
+This is exactly how safe refactors should be done.
+
+📌 Next logical step (when you're ready)
+
+To stabilize this into a real platform layer, the next step is:
+
+Step 3 — Extract Filter Contract + Dashboard API alignment
+
+Specifically:
+
+1. Extract filter builder into standalone module
+
+So both views consume same source of truth
+
+2. Lock KPI schema as shared type
+
+Frontend + backend must import same definition
+
+3. Introduce “analytics response validator”
+
+(to prevent silent backend drift later)
+
+✔ Final verdict
+
+✔ Architecture alignment: correct
+✔ UI integration: safe
+✔ Backend separation: respected
+✔ Migration strategy: non-destructive
+✔ Dependency control: clean

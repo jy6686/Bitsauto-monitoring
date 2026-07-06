@@ -1,0 +1,217 @@
+Yes — this is the correct next evolution of the platform.
+
+Right now the reports and intelligence layers are still mostly:
+
+“read-only visibility.”
+
+What you're describing transforms them into:
+
+“operational navigation.”
+
+That is a major usability improvement and matches how telecom NOC teams actually work.
+
+Recommended Architecture
+1️⃣ Canonical Entity Linking Layer
+
+Every Vendor and Connection shown anywhere in the platform should carry:
+
+{
+  vendorId,
+  vendorName,
+  connectionId,
+  connectionName
+}
+
+Not just display strings.
+
+This should flow through:
+
+ASR/ACD Report
+Live Traffic
+Carrier Intelligence
+Verdict Cards
+Routing Simulator
+AI Ops events
+Alerts
+CDR drilldowns
+2️⃣ Clickable Operational Navigation
+Vendor click behavior
+
+Clicking:
+
+VendorName
+
+opens:
+
+/vendors/:vendorId
+
+with:
+
+vendor profile
+active connections
+ASR/ACD
+live traffic
+AI Ops verdict
+routing exposure
+recent alerts
+Connection click behavior
+
+Clicking:
+
+ConnectionName
+
+opens:
+
+/connections/:connectionId
+
+or:
+
+/routing/connections/:connectionId
+
+showing:
+
+SIP settings
+destination
+capacity
+CPS
+routing groups
+active traffic
+current verdict
+block status
+recent failures
+3️⃣ Operational Actions Layer
+
+Inside Connection Settings:
+
+Safe operational controls
+Traffic controls
+Block / Unblock
+Enable / Disable
+Maintenance mode
+Capacity controls
+Concurrent call limit
+CPS limit
+Burst allowance
+Routing controls
+Weight
+Priority
+Route enable/disable
+Monitoring controls
+Alert threshold
+ASR threshold
+AI Ops sensitivity
+4️⃣ Important Architectural Boundary
+
+Operational actions should NOT be triggered directly from:
+
+reports
+graphs
+dashboards
+
+Those should navigate into:
+
+Operational Entity Pages
+
+This prevents:
+
+accidental blocking
+unsafe actions
+“dashboard becomes control panel” chaos
+
+The reports become:
+
+Observe → Investigate → Operate
+
+instead of:
+
+Observe → Random inline actions
+Correct Workflow Example
+Current
+ASR report
+→ see degraded vendor
+→ open Vendors manually
+→ search connection
+→ open settings
+→ block route
+Proposed
+ASR report
+→ click Vendor
+→ vendor page opens
+→ click affected connection
+→ operational settings open
+→ block / reduce CPS / lower capacity
+
+This is dramatically faster operationally.
+
+My Strong Recommendation
+
+Before adding clickable links everywhere:
+
+First build:
+Shared EntityResolver layer
+
+Example:
+
+resolveEntity(type, id)
+
+and:
+
+buildEntityLink(entity)
+
+Otherwise every page will invent its own:
+
+vendor URLs
+connection URLs
+routing references
+
+and the platform becomes inconsistent later.
+
+Priority Order I Recommend
+Phase 1 — Entity normalization
+
+Shared:
+
+vendor IDs
+connection IDs
+canonical routes
+Phase 2 — Clickable navigation
+
+Links from:
+
+reports
+verdicts
+live traffic
+alerts
+Phase 3 — Operational entity pages
+
+Unified:
+
+telemetry
+routing
+controls
+AI Ops
+Phase 4 — Safe execution controls
+
+Block/unblock/CPS/capacity changes with:
+
+audit log
+confirmation modal
+rollback visibility
+Important Telecom Safety Recommendation
+
+For:
+
+block/unblock
+CPS changes
+capacity changes
+
+ALWAYS require:
+
+reason field
+operator identity
+audit log entry
+timestamp
+
+because these are production traffic-impacting actions.
+
+You already built the Audit Log foundation earlier — this is exactly where it becomes valuable.

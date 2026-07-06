@@ -1,0 +1,583 @@
+
+
+<html class="web-legacy">
+<head>
+<meta http-equiv="content-type" content="text/html">
+<meta name="menu-title" content="SIPPY">
+
+
+
+<link rel="stylesheet" type="text/css" href="/js/extjs/resources/css/ext-all.css">
+<script type="text/javascript" src="/js/extjs/ext-all.js"></script>
+
+<script language=javascript type=text/javascript>
+    // reference local blank image
+    Ext.BLANK_IMAGE_URL = '/js/extjs/resources/images/default/s.gif';
+</script>
+
+
+<script src="/web_ng/js/vendor-bundle.js" type="text/javascript"></script>
+<script type="text/javascript" src="/js/utils.js"></script>
+
+<link rel="stylesheet" href="/web_ng/css/roboto.css">
+<link href="styles.css" type="text/css" rel="stylesheet">
+<link rel="stylesheet" href="/web_ng/css/styles.css">
+<title>SIPPY - Edit Tariffs - Test-2</title>
+
+
+
+<script>
+    var web_ng_config = JSON.parse('[]')
+</script>
+
+
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="/static/js/menumaker.min.js" type="text/javascript"></script>
+<script src="/static/js/menumaker.local.js"></script>
+<link rel="stylesheet" href="/static/css/fontawesome-all.min.css">
+<link rel="stylesheet" href="/static/css/font-OpenSans.css">
+<link rel="stylesheet" href="/static/css/menumaker.css">
+
+<link rel="stylesheet" href="/web_ng/css/navigation_menu.css">
+
+</head>
+<body>
+
+
+
+
+
+    
+<div id="warning_setup_firewall" class="security_vulnerability">
+   Warning: For your security please review your <a href="firewall_rules.php">Firewall Rules</a>
+   and create rules to allow or deny access to your SoftSwitch. For some
+   suggestions visit our support documentation <a href="https://support.sippysoft.com/solution/articles/3000058057--security-management">here</a>.
+</div>
+
+            <div id="cssmenu">
+            <ul>
+
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-users"></i> Customers</a>
+                    <ul>
+
+    
+                        <li class="has-sub"><a>My Customers</a>
+                            <ul>
+
+                                        <li><a href="accounts.php">Accounts</a></li>
+        
+                                        <li><a href="subcustomers.php">Customers</a></li>
+        
+                                        <li><a href="account_classes.php">Account Classes</a></li>
+        
+                                        <li><a href="access.php">Permissions</a></li>
+        
+                                        <li><a href="account_lookup.php">Account Lookup</a></li>
+        
+                            </ul>
+                        </li>
+    
+    
+                        <li class="has-sub"><a>
+                                                Tariffs &amp;
+                                                Currencies</a>
+                            <ul>
+                                    <li><a href="tariffs.php">Tariffs</a></li>
+                                    <li><a href="service_plans.php">Service Plans</a></li>
+                                <li><a href="xrates.php">Exchange Rates</a></li>
+                            </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Payments</a>
+                            <ul>
+                                    <li><a href="payment_processors.php">Payment Processors</a></li>
+    
+    
+                                    <li><a href="payments_history_root.php">Payments History</a></li>
+    
+                                    <li><a href="vouchers.php">Top-Up Vouchers</a></li>
+                                </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Invoicing</a>
+                            <ul>
+                                <li><a href="invoices.php">Invoices</a></li>
+                                <li><a href="invoice_templates.php">Invoice Templates</a></li>
+                                <li><a href="images.php">Images</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-exchange-alt"></i> Vendors</a>
+                    <ul>
+                            <li class="has-sub"><a>My Vendors</a>
+                            <ul>
+                                <li><a href="vendors.php">Vendors</a></li>
+                                <li><a href="registrations.php">Registrations</a></li>
+                            </ul>
+                        </li>
+                        <li class="has-sub"><a>Routing</a>
+                            <ul>
+                                <li><a href="destination_sets.php">Destination Sets</a></li>
+                                <li><a href="routing_groups.php">Routing Groups</a></li>
+                                    <li><a href="test_dialplan.php">Test Dialplan</a></li>
+                            </ul>
+                        </li>
+    
+                            <li class="has-sub"><a>DID Numbers</a>
+                            <ul>
+                                <li><a href="dids_charging_groups.php">Charging Groups</a></li>
+                                <li><a href="dids.php">DID Pool</a></li>
+                            </ul>
+                        </li>
+    
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-sliders-h"></i> System Management</a>
+                    <ul>
+
+                        <li><a href="web_users.php">Users</a></li>
+
+                        <li><a href="ivr_applications.php">IVR Applications</a></li>
+
+                        <li><a href="destinations.php">Destinations</a></li>
+                        <li class="has-sub"><a href="sip_features.php">SIP Features</a>
+                            <ul>
+                                <li><a href="system_parameters_sip.php">SIP, Media, LRN, HEP</a></li>
+                                <li><a href="connection_sip_tls.php?systemConnection=1">System Vendor Connection SIP TLS Options</a></li>
+                                <li><a href="incoming_sip_tls_connections.php">Incoming SIP TLS Connections</a></li>
+                                                            </ul>
+                        </li>
+                        <li class="has-sub"><a href="ssl_management.php">SSL Management</a>
+                            <ul>
+                                <li><a href="ssl_certificates.php">SSL Certificates</a></li>
+                                <li><a href="ca_lists.php">CA Lists</a></li>
+                                <li><a href="csrs.php">CSR Generator</a></li>
+                            </ul>
+                        </li>
+                        <li class="has-sub"><a href="system_parameters.php">System Parameters</a>
+                            <ul>
+                                <li><a href="system_parameters_data.php">Backup, Data Retention</a></li>
+                                <li><a href="system_parameters_ui.php">Web Interface, Security</a></li>
+                                <li><a href="system_parameters_billing.php">Billing, SMTP Server</a></li>
+                                <li><a href="firewall_rules.php">IP Firewall</a></li>
+                                <li><a href="network_services.php">Network Services</a></li>
+                                <li><a href="system_parameters_cdrs.php">CDRs Options</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="external_services.php">External Services</a></li>
+                        <li class="has-sub"><a href="javascript:void(0)">Result Code Translations</a>
+                            <ul>
+                                <li><a href="rcts_int.php">Internal</a></li>
+                                <li><a href="rcts_ext.php">External</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="show_graphs.php">Monitoring</a></li>
+
+                        <li><a href="activecalls.php">Active Calls</a></li>
+
+                        <li><a href="system_information.php">System Information</a></li>
+
+                        <li class="has-sub"><a href="tools.php">Tools</a>
+                            <ul>
+                                <li><a href="sip_logs.php">SIP Logs Viewer</a></li>
+                                <li><a href="tcpdump.php">Network Traffic Capture</a></li>
+                                <li><a href="audit_logs.php">Audit Logs Viewer</a></li>
+                                <li><a href="rerate_cdrs.php">Rerate CDRs</a></li>
+                                <li><a href="looking_glass.php">Looking Glass</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+                <li class="has-sub"><a><i class="fa fa-fw fa-file-excel"></i> Reports</a>
+                    <ul class="wide">
+
+                        <li><a href="cdrs_customer.php">Customers Call Records (CDRs)</a></li>
+                        <li><a href="customer_reports.php">Customer Summary Reports</a></li>
+
+                        <li><a href="profit_loss_report.php">Customer Profit &amp; Loss Reports</a></li>
+                        <li><a href="sales_report.php">Customer Sales Reports</a></li>
+
+                        <li><a href="cdrs_vend.php">Vendors Call Records (CDRs)</a></li>
+                        <li><a href="vendors_reports.php">Vendor Summary Reports</a></li>
+
+                        <li><a href="vendors_did_cdrs.php">Vendor DIDs Call Records (CDRs)</a></li>
+
+                        <li><a href="cdrs_dids.php">DIDs Call Records (CDRs)</a></li>
+
+                        <li><a href="asr_acd.php">ASR/ACD Reports</a></li>
+
+                    </ul>
+                </li>
+
+                <li class="has-sub align-right"><a class="none-text-transform"><i class="fa fa-fw fa-cogs"></i>&nbsp;
+                                                    ssp-root
+                                                </a>
+                    <ul class="wide">
+                        <li><a class="bold">Accounts balance: <span class="nav-menu__accounts-balance" dp="4">N/A</span>&nbsp;<i class="fas fa-sync-alt nav-menu__accounts-balance-reload"></i></a></li>
+                        <li><a class="bold">Customers balance: <span class="nav-menu__customers-balance" dp="4">N/A</span>&nbsp;<i class="fas fa-sync-alt nav-menu__customers-balance-reload"></i></a></li>
+                        <li><a href="customer_prefs.php">My Preferences</a></li>
+
+
+                        <li><a href="logout.php"><i class="fa fa-fw fa-sign-out-alt"></i> Logout</a></li>
+                    </ul>
+                </li>
+
+<script>
+    function menu_search(event) {
+        var len = event.target.value.length;
+
+        var e = document.getElementById("menu-search");
+
+        var ul = document.getElementById('menu-search-results');
+        if (ul) {
+            e.removeChild(ul);
+        }
+
+        if (len == 0) {
+            document.getElementById("menu-search-icon").classList.remove('fa-times-circle');
+            document.getElementById("menu-search-icon").classList.add('fas-search');
+            document.getElementById("menu-search-icon").removeEventListener('click', menu_search);
+            return;
+        } else if (len < 3) {
+            document.getElementById("menu-search-icon").classList.remove('fas-search');
+            document.getElementById("menu-search-icon").classList.add('fa-times-circle');
+            document.getElementById("menu-search-icon").addEventListener('click', function() {
+                document.getElementById("menu-search-pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu-search-pattern").dispatchEvent(event);
+            });
+            return;
+        } else {
+            document.getElementById("menu-search-icon").classList.remove('fas-search');
+            document.getElementById("menu-search-icon").classList.add('fa-times-circle');
+            document.getElementById("menu-search-icon").addEventListener('click', function() {
+                document.getElementById("menu-search-pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu-search-pattern").dispatchEvent(event);
+            });
+
+            ul = document.createElement("ul");
+            ul.setAttribute('id', 'menu-search-results');
+            ul.classList.add("wide");
+
+            var m, i;
+            try {
+                m = document.getElementById("cssmenu").getElementsByTagName('li');
+                for (i = 0; i < m.length; i++) {
+                    if (m[i].classList.contains("has-sub")) {
+                        continue;
+                    };
+
+                    var n, j;
+                    n = m[i].getElementsByTagName('a');
+                    for (j = 0; j < n.length; j++) {
+                        if (!n[j].hasAttribute('href')) {
+                            continue;
+                        }
+                        var re = new RegExp(event.target.value, 'i');
+                        if (n[j].innerText.match(re)) {
+                            ul.appendChild(m[i].cloneNode(true));
+                        }
+                    }
+                }
+            } finally {
+                if (ul.childNodes.length > 0) {
+                    e.appendChild(ul);
+                }
+            }
+        }
+    }
+
+    $(document).ready(function() {
+        var e = document.getElementById('menu-search-pattern');
+        e.addEventListener('input', menu_search);
+    });
+</script>
+
+
+                <li id="menu-search" class="has-sub align-right">
+                    <a>
+                        <input id="menu-search-pattern" type="text" name="menu-search-pattern">
+                        <i id="menu-search-icon" class="fas fa-search"></i>
+                    </a>
+                </li>
+
+            </ul>
+        </div>
+
+    <div style="width: auto; height: 2px; background: #ff9900;"></div>
+    <div id="main">
+                
+
+<script language="javascript">
+
+function initForm() {
+    var form = document.forms['tariff_edit'];
+    var adv_params_div = document.getElementById('adv_params');
+
+    if (form.i_tariff_type.value == 2) {
+        adv_params_div.style.display = 'none';
+    } else {
+        adv_params_div.style.display = 'block';
+    }
+
+    if (form.loss_protection.checked) {
+        form.max_loss.disabled = false;
+    } else {
+        form.max_loss.disabled = true;
+    }
+
+    if (form.local_calling.checked) {
+        form.local_calling_cli_validation_rule.disabled = false;
+    } else {
+        form.local_calling_cli_validation_rule.disabled = true;
+    }
+}
+
+addLoadEvent( function() { initForm(); } );
+        
+</script>
+
+
+
+<form method='GET' action='tariffs.php' name="tariff_edit">
+
+<table width="100%" cellpadding="5" cellspacing="0">
+ <tr>
+     <td class="Headline">
+                    <a class="tit" href="tariffs.php">Tariffs</a>/&nbsp;<span class="style1">Test-2</span>
+             </td>
+ </tr>
+</table>
+
+<div class="formcol">
+
+  <div class="grouptitle mod3_1">
+        Basic Parameters  </div>
+
+</div>
+
+<div class="formcol">
+
+  <div class="groupdata3_1">
+
+    <div class="dataname_m mod3_1">
+        Tariff Name    </div>
+    <div class="dataval mod3">
+        <input name="name" class="vi2" type="text" value="Test-2" >
+    </div>
+
+    <div class="dataname_m mod3_1">
+        Currency    </div>
+    <div class="dataval mod3">
+      <input type="hidden" name="iso_4217" value="USD">
+      <select name="_iso_4217" disabled class="sel3">
+                  <option value="USD" selected>US Dollar (USD)</option>
+              </select>
+    </div>
+
+    <div class="dataname_m mod3_1">
+        Type    </div>
+    <div class="dataval mod3">
+      <input type="hidden" name="i_tariff_type" value="1">
+      <select name="_i_tariff_type" disabled class="sel3">
+                  <option value="2" >Incoming Tariff</option>
+                  <option value="1" selected>Tariff</option>
+              </select>
+    </div>
+
+  </div>
+
+  <div class="groupdata3" style="width: 305px;">
+
+    <div class="dataname_m mod3" style="width: 165px;">
+        Free Seconds    </div>
+    <div class="dataval mod3">
+        <input name="free_seconds" class="vi2" type="text" value='0' >
+    </div>
+
+    <div class="dataname_m mod3" style="width: 165px;">
+        Post Call Surcharge, %
+    </div>
+    <div class="dataval mod3">
+        <input name="post_call_surcharge" class="vi2" type="text" value='0.0000' >
+    </div>
+
+  </div>
+
+  <div class="groupdata3">
+
+    <div class="dataname_m mod3">
+        Connect Fee    </div>
+    <div class="dataval mod3">
+        <input name="connect_fee" class="vi2" type="text" value='0.0000' >
+    </div>
+
+    <div class="dataname_m mod3">
+        Grace Period, sec    </div>
+    <div class="dataval mod3">
+        <input name="grace_period" class="vi2" type="text" value='0' >
+    </div>
+
+  </div>
+
+</div>
+
+<div id="adv_params" ddd="1" >
+
+<div class="formcol">
+
+  <div class="grouptitle mod3_1">
+        Advanced Parameters  </div>
+
+</div>
+
+<div class="formcol">
+
+  <div class="groupdata3_1">
+
+    <div class="dataname mod3_1">
+        Enable Loss Protection    </div>
+    <div class="dataval mod3">
+        <input type="checkbox" name="loss_protection" value="t" checked  onChange="initForm();">
+    </div>
+
+    <div class="dataname mod3_1">
+        Max Loss, %
+    </div>
+    <div class="dataval mod3">
+        <input name="max_loss" class="vi2" type="text" value="0.0000" >
+    </div>
+
+  </div>
+
+  <div class="groupdata3">
+
+    <div class="dataname mod3">
+        Calls Cost    </div>
+    <div class="dataval mod3">
+        <select name="cost_round_up" class="sel3" >
+            <option value="0">Round</option>
+            <option value="1" >Round-Up</option>
+        </select>
+    </div>
+
+    <div class="dataname mod3">
+        Cost Decimal Precision    </div>
+    <div class="dataval mod3">
+        <input name="decimal_precision" class="vi2" type="text" value='20' >
+    </div>
+
+  </div>
+
+  <div class="groupdata3" style="width: 305px;">
+
+    <div class="dataname mod3" style="width: 165px;">
+        Avg. Call Duration, sec    </div>
+    <div class="dataval mod3">
+        <input name="average_duration" class="vi2" type="text" value='200' >
+    </div>
+
+  </div>
+
+</div>
+
+<div class="formcol">
+
+  <div class="grouptitle mod3_1">
+      Local Calling  </div>
+
+</div>
+
+<div class="formcol">
+
+  <div class="groupdata3_1">
+
+    <div class="dataname mod3_1">
+        Enabled    </div>
+    <div class="dataval mod3">
+        <input name="local_calling" type="checkbox" value="1"   onChange="initForm();">
+    </div>
+
+  </div>
+
+  <div class="groupdata3" style="width: 570px;">
+
+    <div class="dataname mod3" style="width: 165px;">
+        CLI Validation Rule    </div>
+    <div class="dataval mod3">
+        <input name="local_calling_cli_validation_rule" class="vi2" style="width: 405px;" type="text" value='' disabled>
+    </div>
+
+  </div>
+
+</div>
+
+</div>
+
+<div class="formcol">
+
+  <div class="genrep3">
+        <input type="hidden" name="action" value="change">
+        <input type="hidden" name="n" value="">
+        <input type="hidden" name="filter_clause[name]" value="">
+        <input type="hidden" name="filter_clause[name_clause]" value="">
+        <input type="hidden" name="filter_clause[type]" value="">
+        <input type="submit" name="save_and_close" value="Save &amp; Close" class="bt">
+        <input type="submit" name="save" value="Save" class="bt">
+        <input type="submit" name="no_action" value="Discard &amp; Close" class="bt">
+
+        <input type="hidden" name="i_tariff" value="8">
+  </div>
+
+</div>
+
+</form>  
+        </div>
+
+
+<script>
+    var e = document.getElementsByClassName("Headline");
+    if (e.length > 0) {
+        // add datetime
+        var tr = e[0].parentElement;
+        var td = document.createElement("td");
+        td.className = "Headline style1";
+        td.style.textAlign = "right";
+        var t = document.createTextNode(" 4 May 2026 15:05:29 (Europe/Andorra)");
+        td.appendChild(t);
+        tr.appendChild(td);
+
+        // move navigation bar before main div
+        e = tr;
+        while (e = e.parentElement) {
+            if (e.tagName != "TABLE") {
+                continue;
+            }
+            break;
+        }
+        if (e) {
+            e = e.parentElement.removeChild(e);
+            var main_div = document.getElementById('main');
+            main_div.parentElement.insertBefore(e, main_div);
+            main_div.className = "main_div";
+        }
+    }
+</script>
+
+
+<script src="/web_ng/legacy/js/apply_polyfills.js"></script>
+<script>
+  window.loadWebNgScript('navigation_menu')
+</script>
+
+
+
+</body>
+</html>

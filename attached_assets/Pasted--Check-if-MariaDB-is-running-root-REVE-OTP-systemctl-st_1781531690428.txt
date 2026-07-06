@@ -1,0 +1,63 @@
+# # Check if MariaDB is running
+[root@REVE-OTP ~]# systemctl status mariadb
+● mariadb.service - MariaDB database server
+   Loaded: loaded (/usr/lib/systemd/system/mariadb.service; enabled; vendor preset: disabled)
+   Active: inactive (dead) since Sat 2026-06-13 11:47:48 UTC; 2 days ago
+ Main PID: 8436 (code=exited, status=0/SUCCESS)
+[root@REVE-OTP ~]# 
+[root@REVE-OTP ~]# # Start it
+[root@REVE-OTP ~]# systemctl start mariadb
+
+[root@REVE-OTP ~]# 
+[root@REVE-OTP ~]# # Confirm it came back up
+[root@REVE-OTP ~]# systemctl status mariadb
+● mariadb.service - MariaDB database server
+   Loaded: loaded (/usr/lib/systemd/system/mariadb.service; enabled; vendor preset: disabled)
+   Active: active (running) since Mon 2026-06-15 13:54:10 UTC; 12ms ago
+  Process: 1038 ExecStartPost=/usr/libexec/mariadb-wait-ready $MAINPID (code=exited, status=0/SUCCESS)
+  Process: 1000 ExecStartPre=/usr/libexec/mariadb-prepare-db-dir %n (code=exited, status=0/SUCCESS)
+ Main PID: 1036 (mysqld_safe)
+   CGroup: /system.slice/mariadb.service
+           ├─1036 /bin/sh /usr/bin/mysqld_safe --basedir=/usr
+           └─1201 /usr/libexec/mysqld --basedir=/usr --datadir=/var/lib/mysql...
+
+Jun 15 13:54:07 REVE-OTP systemd[1]: Starting MariaDB database server...
+Jun 15 13:54:07 REVE-OTP mariadb-prepare-db-dir[1000]: Database MariaDB is pr...
+Jun 15 13:54:07 REVE-OTP mariadb-prepare-db-dir[1000]: If this is not the cas...
+Jun 15 13:54:07 REVE-OTP mysqld_safe[1036]: 260615 13:54:07 mysqld_safe Logg....
+Jun 15 13:54:07 REVE-OTP mysqld_safe[1036]: 260615 13:54:07 mysqld_safe Star...l
+Jun 15 13:54:10 REVE-OTP systemd[1]: Started MariaDB database server.
+Hint: Some lines were ellipsized, use -l to show in full.
+[root@REVE-OTP ~]# journalctl -u mariadb -n 50
+-- Logs begin at Fri 2026-05-29 21:01:01 UTC, end at Mon 2026-06-15 13:54:27 UTC
+Jun 15 13:54:07 REVE-OTP systemd[1]: Starting MariaDB database server...
+Jun 15 13:54:07 REVE-OTP mariadb-prepare-db-dir[1000]: Database MariaDB is proba
+Jun 15 13:54:07 REVE-OTP mariadb-prepare-db-dir[1000]: If this is not the case, 
+Jun 15 13:54:07 REVE-OTP mysqld_safe[1036]: 260615 13:54:07 mysqld_safe Logging 
+Jun 15 13:54:07 REVE-OTP mysqld_safe[1036]: 260615 13:54:07 mysqld_safe Starting
+Jun 15 13:54:10 REVE-OTP systemd[1]: Started MariaDB database server.
+...skipping...
+-- Logs begin at Fri 2026-05-29 21:01:01 UTC, end at Mon 2026-06-15 13:54:27 UTC
+Jun 15 13:54:07 REVE-OTP systemd[1]: Starting MariaDB database server...
+Jun 15 13:54:07 REVE-OTP mariadb-prepare-db-dir[1000]: Database MariaDB is proba
+Jun 15 13:54:07 REVE-OTP mariadb-prepare-db-dir[1000]: If this is not the case, 
+Jun 15 13:54:07 REVE-OTP mysqld_safe[1036]: 260615 13:54:07 mysqld_safe Logging 
+Jun 15 13:54:07 REVE-OTP mysqld_safe[1036]: 260615 13:54:07 mysqld_safe Starting
+Jun 15 13:54:10 REVE-OTP systemd[1]: Started MariaDB database server.
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+lines 1-7/7 (END)

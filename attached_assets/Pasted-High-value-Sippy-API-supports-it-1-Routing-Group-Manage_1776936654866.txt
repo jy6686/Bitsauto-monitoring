@@ -1,0 +1,20 @@
+High value (Sippy API supports it)
+1. Routing Group Manager
+View all routing groups live from the switch, see their assigned policy (Least Cost / Prefix Length / Route Preference / Routing Entries Order), which accounts/customers are assigned to each group, and what connections are members. Currently you can only see routing group names in the Call Flow Simulator.
+2. Destination Set Explorer
+Browse all Destination Sets and the route prefixes inside them. Click a prefix to instantly run it through the LCR analyser. Useful for auditing coverage gaps (prefixes with no route).
+3. Quality-Based Routing (QBR) Dashboard
+Sippy's QBR feature automatically monitors each vendor connection on ACD, ASR, and PDD — and can demote or block bad connections. A dedicated dashboard would show: which connections are currently blocked or demoted by QBR, the current statistics window vs thresholds, and the retry batch countdown. Right now this data is buried in the Sippy web portal.
+4. Routing Audit Trail
+Show which account/customer is assigned to which routing group, and trace the full routing path for any call: Account → Routing Group → Destination Sets → Connections tried → Final result. Essentially an enhanced version of the existing Call Flow Simulator with live Sippy data.
+5. Connection Coverage Map
+Given a routing group, show a table of all prefixes covered by each connection, with gaps highlighted (prefixes in one vendor but not another) — useful for redundancy planning.
+6. Bulk Rate / Route Uploader
+Sippy supports bulk CSV upload for rates, routes, and tariffs. We could add a drag-and-drop uploader in the Rate Cards page that pre-validates the file format before sending to Sippy, showing a diff of what will change.
+Medium value
+7. On-Net Routing Viewer
+See which routing groups have On-Net calling enabled, the On-Net scope (All / Customer / Customer+Sub), and whether voicemail is configured.
+8. Routing Policy Simulator
+For a given destination, show how the route order would differ under each of the four routing policies — useful for planning policy changes without applying them.
+9. Prefix Coverage Checker (bulk)
+Upload a list of destination numbers and get back a table showing which ones have a matching route, which vendor would handle them, and at what cost. An expanded version of the existing Route Tester that handles dozens of numbers at once.

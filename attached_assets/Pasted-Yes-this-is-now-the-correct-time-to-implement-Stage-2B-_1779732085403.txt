@@ -1,0 +1,268 @@
+Yes — this is now the correct time to implement:
+
+Stage 2B + Stage 2B.5 together
+
+Your observations are accurate, and the architecture is mature enough for this phase.
+
+Most importantly, you correctly identified the true 2B precondition:
+
+destination_manager and routing_admin must exist
+as first-class role types
+
+That MUST be verified before any:
+
+UI gating
+visibility scoping
+approval boundaries
+explainability depth
+policy ownership
+
+can work reliably.
+
+FINAL RECOMMENDATION
+YES — proceed with 2B + 2B.5 now
+
+Because these are:
+
+governance stabilization layers
+
+NOT:
+
+automation execution
+routing mutation
+failover activation
+
+Operational risk remains low.
+
+Correct 2B Scope
+
+(Role & Permission Alignment)
+
+1. Formal Role Validation
+
+FIRST TASK.
+
+Verify:
+
+destination_manager
+routing_admin
+
+exist consistently in:
+
+DB role enum
+auth middleware
+frontend role guards
+session payloads
+audit logic
+approval ownership checks
+
+If missing:
+
+add BEFORE any UI work
+
+This is critical.
+
+2. Visibility Boundaries
+
+(very important)
+
+Your observation is absolutely correct:
+
+external portal contexts must be explicitly excluded
+
+NOT:
+
+implicitly hidden
+Explicitly Exclude From:
+Client Portal
+Reseller Portal
+Viewer
+KAM
+Restricted Intelligence Data
+simulation evidence
+confidence internals
+override rationale
+recommendation lifecycle
+failover policies
+vendor scoring internals
+concentration analysis
+rollback history
+
+This should become:
+
+explicit deny-list policy
+
+Very important.
+
+3. Authority Separation
+
+Must formally enforce:
+
+Action	Allowed Role
+approve failover	Destination Manager
+execute failover	Routing Admin
+acknowledge incident	NOC
+modify thresholds	Destination Manager
+modify route order	Routing Admin
+
+And critically:
+
+approver ≠ executor
+
+This should become:
+
+hard validation rule
+
+NOT just UI hiding.
+
+Correct 2B.5 Scope
+
+(Semantic Stabilization Pass)
+
+You correctly prioritized:
+
+/self-heal vs /traffic-steering
+
+That is the most important semantic clarification.
+
+Final Semantic Model
+Traffic Steering
+
+(INTELLIGENCE)
+
+advisory
+recommendation
+optimization
+simulation
+projected outcome
+Failover Engine
+
+(OPERATIONS)
+
+execution
+reroute
+auto-heal
+rollback
+policy failover
+
+This separation must now become:
+
+universal platform vocabulary
+Feature Flag Architecture
+
+Your refinement is excellent.
+
+Absolutely add:
+
+flag ownership + auditability
+Recommended Flag Model
+Flag	Owner
+governance_v2	Platform Admin
+explainability_v2	Intelligence Lead
+simulation_validation	Destination Manager Lead
+intelligent_failover	Operations Director
+REQUIRED AUDIT EVENT
+
+Whenever toggled:
+
+flag_name
+previous_state
+new_state
+changed_by
+timestamp
+reason
+
+This is extremely important later.
+
+Most Important Observation You Made
+
+This is critical:
+
+2C requires operator engagement
+
+Correct.
+
+You need:
+
+operational trust formation period
+
+between:
+
+explainability
+and:
+automation
+
+because:
+operators must:
+
+use recommendations
+open drawers
+validate evidence
+compare simulations
+override intelligently
+
+BEFORE:
+
+automation credibility exists
+
+This is probably the most operationally important insight in the entire rollout strategy.
+
+Recommended Rollout Timing
+Release 1
+2B + 2B.5
+
+Governance stabilization
+
+Release 2
+2C
+
+Explainability
+
+THEN:
+
+2–4 weeks operator observation period
+
+Collect:
+
+drawer usage
+override behavior
+decision latency
+trust signals
+Release 3
+2D
+
+Simulation validation layer
+
+Release 4
+2E
+
+Policy-governed intelligent failover
+
+ONLY after:
+
+simulation trusted
+explainability trusted
+governance stable
+audit trails verified
+MOST IMPORTANT PHILOSOPHICAL RULE
+
+You correctly highlighted:
+
+Telecom operators tolerate advisory mistakes.
+They do not tolerate automated routing mistakes.
+
+That sentence SHOULD absolutely go into:
+
+the platform constitution
+
+because it explains:
+
+rollout order
+governance rigor
+simulation requirements
+explainability priority
+failover constraints
+
+It is effectively:
+
+the operational philosophy of the platform.

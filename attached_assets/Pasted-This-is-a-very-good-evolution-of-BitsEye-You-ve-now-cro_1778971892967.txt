@@ -1,0 +1,208 @@
+This is a very good evolution of BitsEye.
+You’ve now crossed from:
+
+analytics dashboard
+
+into:
+
+operational telemetry surface
+
+The important part is not the visuals themselves.
+
+It’s that the visuals now communicate:
+
+pressure
+degradation
+stability
+saturation
+velocity
+
+without operators needing to read tables first.
+
+That’s the correct direction for a telecom intelligence UI.
+
+Assessment of the Three New Additions
+1. Capacity Threshold Overlay ✓✓✓
+
+This is the strongest addition.
+
+Because operators immediately understand:
+
+safe zone
+warning zone
+danger zone
+
+visually.
+
+That reduces cognitive load dramatically during incidents.
+
+The choice to derive capacity dynamically from observed peak + headroom was also correct for Phase 1.
+
+You avoided hardcoding carrier/network assumptions.
+
+2. Connected Ratio Glow ✓✓
+
+Very strong.
+
+Because now the graph card itself becomes a health signal.
+
+That creates:
+
+peripheral awareness
+
+Operators can detect degradation from the edge of their vision.
+
+That’s how mature NOC systems behave.
+
+The smooth transition timing (0.6s) was also the right choice.
+
+No flashing.
+No panic UI.
+
+3. Surge Detection Badge ✓
+
+Good addition.
+
+Especially because it detects:
+
+CPS spikes
+route flapping
+fraud bursts
+sudden reconnect storms
+
+before incidents formally open.
+
+That is operationally valuable.
+
+What This Unlocks Next
+
+Now that the chart understands:
+
+capacity
+saturation
+connected ratio
+surge velocity
+
+you can begin introducing:
+
+SYSTEM BEHAVIOR INTELLIGENCE
+
+instead of only graph rendering.
+
+That’s the next major leap.
+
+Recommended Next Operational Enhancements
+1. Saturation Prediction Line
+
+Very high value.
+
+Example:
+
+Current growth rate projects capacity hit in ~11 min
+
+Show:
+
+faint projected line
+projected threshold collision point
+
+This turns the graph from:
+
+reactive
+
+into:
+
+anticipatory
+2. Recovery Velocity Indicator
+
+When concurrent calls recover after degradation:
+
+show:
+
+RECOVERING +14%
+
+in soft green.
+
+Important because operators need to know:
+
+is the system healing or collapsing further?
+
+not just current state.
+
+3. Quality Pressure Correlation
+
+This is the next truly intelligent layer.
+
+Example:
+
+Concurrent calls rising
+Connected ratio falling
+ASR declining
+
+That combination strongly suggests:
+
+capacity exhaustion or routing instability
+
+The UI should eventually recognize these combinations and annotate them.
+
+Not as alerts yet.
+
+As:
+
+behavior hints
+4. Entity-Aware Capacity
+
+Very important later.
+
+Currently capacity zones are globally derived.
+
+Eventually they should become:
+
+per KAM
+per Client
+per Destination
+per Vendor
+
+because different entities naturally have different traffic envelopes.
+
+This depends on fixing the hierarchy-driven filtering first.
+
+Most Important Remaining Architectural Gap
+
+Still this:
+
+selectedEntityContext propagation
+
+Because right now:
+
+the graph is smart
+the animations are smart
+the overlays are smart
+
+BUT:
+
+the hierarchy context still isn’t fully driving the telemetry.
+
+Until that exists:
+
+KAM → Client → Destination → Breakout
+
+will still feel partially disconnected.
+
+That remains the real P0.
+
+What I Would Prioritize Next
+Priority	Recommendation
+P0	Fix hierarchy-driven telemetry filtering
+P1	Entity-aware graph context
+P2	Investigation drawer tied to graph nodes
+P3	Saturation prediction line
+P4	Recovery velocity intelligence
+P5	Behavior hint engine
+
+Because the visual foundation is now already strong enough for production-grade NOC usage.
+
+The next leap is:
+
+contextual operational intelligence
+
+not additional styling.

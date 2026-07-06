@@ -1,0 +1,171 @@
+Understood — but I need to be blunt here: if your goal is 100% automation with zero manual steps in Sippy Softswitch, then the current approach (calling service_plans.php) is fundamentally the wrong foundation.
+That endpoint is UI-driven, session-bound, and not automation-safe, so even if you “perfect” the curl, it will always break under real production conditions.
+So the real solution is not UX or fallback — it’s removing Sippy UI from the critical path entirely.
+
+🚨 The Truth You Need to Design Around
+Sippy has no reliable public API for Service Plan creation.
+So you only have 2 real automation paths:
+❌ BAD (what you're doing now)
+
+
+HTML form automation (service_plans.php)
+
+
+PHP session scraping
+
+
+hidden fields / UI dependency
+
+
+👉 This will ALWAYS break eventually
+
+✅ GOOD (real production-grade solution)
+You build a provisioning abstraction layer in your system that:
+
+
+Creates Tariff via Sippy API (if available)
+
+
+Creates Service Plan via internal DB mapping OR API proxy layer
+
+
+If Sippy API missing → you simulate it via direct DB or provisioning backend (if allowed)
+
+
+Never depends on UI
+
+
+
+🧠 Correct Architecture (What you actually need)
+🔥 You must decouple Sippy UI completely:
+YOUR SYSTEM (IchiBaan)        ↓Provisioning Engine (YOU BUILD THIS)        ↓Sippy Integration Layer        ↓Sippy DB / API / Provisioning Access
+
+🚀 OPTION THAT ACHIEVES 100% AUTOMATION
+🟢 Option 1 (BEST): Direct Provisioning Layer (No UI)
+You implement:
+👉 “Sippy Provisioning Service”
+This service does:
+
+
+Create Tariff
+
+
+Create Service Plan
+
+
+Assign Billing Plan
+
+
+Attach to Account
+
+
+WITHOUT touching UI.
+
+🔧 How it works technically
+Instead of:
+❌ POST /service_plans.php (UI)
+You move to:
+✔ Internal provisioning engine:
+createServicePlan()createTariff()linkBillingPlan()updateAccount()
+
+🧩 If Sippy API is missing (important reality)
+Then you have 2 enterprise-grade options:
+Option A — DB-level provisioning (used in legacy VoIP systems)
+
+
+Direct MySQL insert into Sippy tables
+
+
+Requires schema knowledge
+
+
+Very powerful, very risky if not controlled
+
+
+Option B — Headless provisioning user
+
+
+Create a hidden Sippy reseller/admin user
+
+
+Use internal XML-RPC (if enabled on your build)
+
+
+Fully automatable
+
+
+
+⚠️ CRITICAL DECISION
+If you insist on:
+
+“No manual work at all”
+
+Then ONLY these are valid:
+MethodAutomation LevelStabilityUI scraping (your current)❌ Partial❌ FragileHybrid manual❌ No✔ StableAPI provisioning layer✔ Full✔✔ BestDB-level integration✔ Full⚠ Risky
+
+🧠 What I recommend for YOUR system
+Since you're building a platform (IchiBaan), the correct approach is:
+🟢 Build a Provisioning Engine (MANDATORY)
+It should:
+Account Wizard   ↓Provisioning Engine (NO UI CALLS)   ↓- Create/ensure Tariff- Create Service Plan (logical model)- Push to Sippy (API or DB)   ↓Attach Account
+
+🔥 Key Design Change You MUST Make
+Right now you are thinking:
+
+“How do I automate Sippy UI?”
+
+That is the wrong question.
+Correct question:
+
+“How do I abstract Sippy so UI is irrelevant?”
+
+
+🧭 Final Recommendation (Clear)
+❌ Do NOT pursue:
+
+
+service_plans.php automation
+
+
+curl-based form submission
+
+
+session scraping
+
+
+✅ DO THIS INSTEAD:
+Build:
+👉 “Sippy Provisioning Layer Service”
+Capabilities:
+
+
+createTariff()
+
+
+createServicePlan()
+
+
+createAccount()
+
+
+linkBilling()
+
+
+And internally it decides:
+
+
+API route (if available)
+
+
+DB route (if required)
+
+
+fallback logic (never UI)
+
+
+
+💡 Bottom line
+If you want true zero-manual automation, then:
+
+You must stop automating Sippy UI and start replacing it with a provisioning abstraction layer.
+

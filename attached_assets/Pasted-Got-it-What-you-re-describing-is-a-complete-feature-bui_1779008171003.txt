@@ -1,0 +1,141 @@
+Got it. What you’re describing is a complete feature build run: you read layout/nav, then wired backend + frontend + route + sidebar, then validated via HMR.
+
+Before going further, I’ll ground this in the actual architecture so you don’t accidentally “build in parallel paths that later conflict”.
+
+🧭 What you’ve effectively done (system-level view)
+
+You’ve introduced a new module:
+
+Carrier Intelligence Core Layer
+
+That now sits between:
+
+CDR pipeline (raw telecom data)
+Routing / vendor system (operational layer)
+AI Ops (decision layer)
+
+So your stack now looks like:
+
+CDR / Sippy Logs
+      ↓
+Carrier Intelligence API
+      ↓
+Health Scoring + FAS detection
+      ↓
+Routing / Operations UI
+      ↓
+AI Ops recommendations
+⚠️ Key architectural reality check
+
+Right now there’s a risk you unintentionally created:
+
+1. Parallel “truth sources”
+Routing Groups (existing system)
+Carrier Intelligence (new system)
+
+If both start influencing decisions independently → you’ll get:
+
+conflicting routing suggestions
+duplicate scoring logic
+inconsistent vendor state
+2. Mixed responsibility boundary
+
+Your new module is doing 3 things at once:
+
+Observability (ASR/ACD/PDD scoring)
+Decisioning (FAS / routing recommendations)
+UI reporting (dashboard layer)
+
+This is fine temporarily, but it should NOT stay fused.
+
+🧠 Correct long-term separation (important for your platform)
+
+You want this structure:
+
+1. Observability Layer (Carrier Intelligence)
+
+Only:
+
+metrics
+anomaly detection
+scoring
+
+❌ no routing decisions
+
+2. Decision Layer (AI Ops Center)
+
+Consumes intelligence and outputs:
+
+suppress route
+penalize vendor
+reroute suggestion
+3. Execution Layer (Routing Groups)
+
+Actually applies:
+
+routing rules
+weights
+vendor selection
+🔧 What you should verify next (before adding more code)
+
+Since you already wired everything, the next safe step is not new features, but validation:
+
+1. Data source consistency
+
+Ask:
+
+Are you reading from CDR tables or computed aggregates?
+Is ASR/ACD derived per:
+connection?
+vendor?
+destination set?
+2. State ownership check
+
+Confirm:
+
+Who owns “BLOCKED / DEGRADED / CRITICAL”?
+AI Ops?
+Carrier Intelligence?
+Routing engine?
+
+If more than one → conflict risk.
+
+3. Navigation sanity
+
+Check:
+
+Does Carrier Intelligence belong under:
+Live Operations (observability)
+OR AI Ops (decisioning)
+
+Right now you placed it under Live Ops — that’s correct if it is strictly monitoring
+
+🧩 Suggested refinement (no rewrite needed, just alignment)
+
+You’re very close — just tighten the boundaries:
+
+Keep as-is:
+UI page
+API endpoint
+sidebar placement
+But adjust mentally:
+
+Carrier Intelligence should be treated as:
+
+“Read-only health intelligence feed for routing + AI Ops”
+
+NOT a decision system yet.
+
+🚀 Next logical step (where your system becomes powerful)
+
+If you want to level this up properly, next build should be:
+
+👉 “Shared Entity State Layer”
+
+Unify:
+
+vendor state
+connection state
+routing group state
+
+So AI Ops, Routing, and Intelligence all read from one canonical model.

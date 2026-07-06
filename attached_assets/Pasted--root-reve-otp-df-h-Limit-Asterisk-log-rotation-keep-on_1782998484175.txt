@@ -1,0 +1,58 @@
+[root@reve-otp ~]# df -h /# Limit Asterisk log rotation — keep only 7 days, max 500MB
+df: ‘/#’: No such file or directory
+df: ‘Limit’: No such file or directory
+df: ‘Asterisk’: No such file or directory
+df: ‘log’: No such file or directory
+df: ‘rotation’: No such file or directory
+df: ‘—’: No such file or directory
+df: ‘keep’: No such file or directory
+df: ‘only’: No such file or directory
+df: ‘7’: No such file or directory
+df: ‘days,’: No such file or directory
+df: ‘max’: No such file or directory
+df: ‘500MB’: No such file or directory
+[root@reve-otp ~]# cat > /etc/logrotate.d/asterisk << 'EOF'
+> /var/log/asterisk/full {
+>     daily
+>     rotate 7
+>     compress
+>     missingok
+>     notifempty
+>     maxsize 500M
+>     postrotate
+>         /usr/sbin/asterisk -rx 'logger reload' > /dev/null 2>&1 || true
+>     endscript
+> }
+> /var/log/asterisk/messages {
+>     daily
+>     rotate 7
+>     compress
+>     missingok
+>     notifempty
+>     maxsize 200M
+> }
+> EOF
+[root@reve-otp ~]# 
+[root@reve-otp ~]# # Test it
+[root@reve-otp ~]# logrotate -d /etc/logrotate.d/asterisk
+reading config file /etc/logrotate.d/asterisk
+Allocating hash table for state file, size 15360 B
+
+Handling 2 logs
+
+rotating pattern: /var/log/asterisk/full  after 1 days (7 rotations)
+empty log files are not rotated, log files >= 524288000 are rotated earlier, old logs are removed
+considering log /var/log/asterisk/full
+error: skipping "/var/log/asterisk/full" because parent directory has insecure permissions (It's world writable or writable by group which is not "root") Set "su" directive in config file to tell logrotate which user/group should be used for rotation.
+
+rotating pattern: /var/log/asterisk/messages  after 1 days (7 rotations)
+empty log files are not rotated, log files >= 209715200 are rotated earlier, old logs are removed
+considering log /var/log/asterisk/messages
+error: skipping "/var/log/asterisk/messages" because parent directory has insecure permissions (It's world writable or writable by group which is not "root") Set "su" directive in config file to tell logrotate which user/group should be used for rotation.
+[root@reve-otp ~]# iptables -A INPUT -s 189.50.142.78 -j DROP
+[root@reve-otp ~]# service iptables save
+iptables: Saving firewall rules to /etc/sysconfig/iptables:[  OK  ]
+[root@reve-otp ~]# df -h /
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda1        25G   24G  1.2G  96% /
+[root@reve-otp ~]# 

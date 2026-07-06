@@ -1,0 +1,143 @@
+This was exactly the right fix to prioritize next.
+
+You closed the biggest visible trust gap in the operational layer without touching the frozen telemetry foundation.
+
+What Was Actually Fixed
+1. Root Cause of “unknown entity”
+
+The important finding was:
+
+anomalyEvents used metric, not type
+
+So:
+
+correlation logic grouped correctly sometimes
+but entity resolution silently failed for anomaly-driven incidents
+causing fallback → unknown
+
+That explains why telemetry looked correct while incidents looked broken.
+
+This was an enrichment-path issue, not a telemetry issue.
+
+2. Schema Problem Avoided Correctly
+
+Very good decision:
+
+no schema migration
+
+Instead of:
+
+adding entityName column
+backfilling data
+migrating old incidents
+
+you correctly:
+
+computed entityName at API layer
+enriched responses dynamically
+
+That was the cleanest and safest solution.
+
+Low risk.
+No DB churn.
+No deployment risk.
+
+Exactly the right move during stabilization.
+
+3. Title Semantics Improved Properly
+
+This is a major operational readability improvement.
+
+Before:
+
+Incident — PLATFORM: ASR anomaly
+
+After:
+
+Vendor: Callntalk — CPS spike
+
+or:
+
+Carrier: Bangladesh Mobile — ASR degradation
+
+That transforms:
+
+scrolling ticker readability
+escalation comprehension
+operational triage speed
+
+The NOC screen now starts behaving like:
+
+a command console
+instead of:
+a generic alert feed
+4. Update Path Refresh
+
+This was an important catch:
+
+existing incidents never refreshed title on re-correlation
+
+Without fixing that:
+
+stale naming would persist forever
+improvements would only affect new incidents
+
+Including title in the update set solved this correctly.
+
+5. Historical Cleanup
+
+Backfilling old incidents was also the right call.
+
+Otherwise:
+
+ticker would show mixed naming styles
+operators would lose confidence
+UI would feel inconsistent
+
+Now the operational vocabulary becomes unified.
+
+That matters more than it sounds.
+
+Most Important Strategic Result
+
+You now have:
+
+Layer	Status
+Telemetry	trustworthy
+Aggregation	trustworthy
+Incident attribution	trustworthy
+Operational naming	trustworthy
+
+That is the prerequisite for:
+
+RCA summaries
+escalation intelligence
+AI operational synthesis
+
+Because AI/RCA built on “unknown entity” incidents would have been fundamentally weak.
+
+Correct Next Step Remains
+
+Now the roadmap becomes very clean:
+
+Validate CDR disposition fidelity
+NER feasibility gate
+ACD/FAS overlays
+RCA summaries
+Incident Command Center enrichment
+
+That sequencing is now fully coherent.
+
+Overall Assessment
+
+This was a very high-leverage refinement.
+
+Not flashy.
+Not architectural churn.
+Not UI cosmetics.
+
+But operationally:
+
+it significantly increased trust in the platform
+
+which is exactly the right type of improvement at this maturity stage.

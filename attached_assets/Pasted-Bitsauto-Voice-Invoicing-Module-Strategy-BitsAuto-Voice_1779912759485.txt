@@ -1,0 +1,718 @@
+Bitsauto Voice Invoicing Module Strategy
+BitsAuto — Voice Invoicing System Strategy
+Objective
+
+Build a fully automated telecom voice invoicing engine tightly integrated with:
+
+Sippy CDRs
+Routing engine
+Client billing profiles
+Vendor reconciliation
+Finance workflows
+AI anomaly detection
+
+This should become:
+
+“Telecom Revenue Intelligence + Automated Billing Layer”
+
+instead of only a simple invoice generator.
+
+Core Voice Invoicing Architecture
+1. CDR Billing Engine
+Purpose
+
+Convert raw telecom CDRs into billable records.
+
+Billing Inputs
+Duration
+Rounded duration
+Billing increments
+Buy rate
+Sell rate
+Prefix
+Route
+Vendor
+Client
+CLI/ANI
+CLD/Destination
+Codec
+SIP response
+Currency
+Tax profile
+Smart Billing Rules
+
+Support:
+
+6/6 billing
+30/6 billing
+60/60 billing
+Per-minute
+Per-call
+Free seconds
+Grace duration
+Minimum charge
+Peak/off-peak rates
+Holiday rates
+Country-specific taxation
+2. Invoice Draft Engine
+Automatic Billing Cycle
+
+Support:
+
+Daily
+Weekly
+Fortnightly
+Monthly
+Custom cycle
+Draft Generation
+
+At billing time:
+
+System automatically:
+
+Pulls approved CDRs
+Applies rating logic
+Calculates totals
+Generates PDF invoice
+Creates reconciliation summary
+Detects anomalies
+Pushes for approval
+3. Client Billing Profiles
+
+Each client should have:
+
+Billing Configuration
+Billing cycle
+Currency
+VAT profile
+Invoice template
+Payment terms
+Credit limit
+Auto-send enable/disable
+Tax IDs
+Company details
+Preferred timezone
+Email recipients
+Commercial Configuration
+Rate deck
+Margin rules
+Billing increments
+Special destinations
+DID charges
+SIP registration charges
+Setup fees
+Port charges
+Number rental
+4. Vendor Invoice Reconciliation
+Purpose
+
+Compare vendor invoice against actual switch CDRs.
+
+Reconciliation Logic
+
+Compare:
+
+Total minutes
+ASR
+ACD
+Destination usage
+Rate mismatches
+Duplicate calls
+Missing calls
+Incorrect rounding
+Currency mismatches
+AI Detection
+
+Flag:
+
+Suspicious invoice inflation
+Margin leakage
+Wrong prefix charging
+Route abuse
+Sudden cost spikes
+5. Automated Invoice Approval Workflow
+Workflow
+
+Draft → Finance Review → Approval → Send → Payment Tracking
+
+Roles
+Finance Operator
+Finance Manager
+Admin
+Read-only Auditor
+Approval Features
+Difference highlighting
+Historical comparison
+Margin impact analysis
+Revenue variance alerts
+6. PDF Invoice Generator
+Professional Telecom Invoice Layout
+Sections
+Client information
+Billing period
+Traffic summary
+Destination summary
+Tax summary
+Previous balance
+Payments received
+Current due
+Currency details
+Smart Attachments
+
+Optional:
+
+CDR CSV attachment
+ASR/ACD summary
+QoS report
+Fraud events
+Route quality report
+7. Real-Time Revenue Dashboard
+Live Metrics
+Revenue today
+Revenue this month
+Margin by carrier
+Margin by destination
+Client profitability
+Vendor cost trends
+Unbilled traffic
+Estimated month-end revenue
+Intelligence Layer
+
+Predict:
+
+Revenue drop risk
+Low margin routes
+High-cost destinations
+Client payment risk
+8. Auto Invoice Sending System
+Automatic Delivery
+
+After approval:
+
+Send email automatically
+Attach PDF invoice
+Attach CDR ZIP
+Add payment instructions
+Add overdue notices
+Delivery Tracking
+
+Track:
+
+Delivered
+Opened
+Downloaded
+Failed
+Bounced
+9. Payment Reconciliation System
+Supported Methods
+Bank transfer
+Stripe
+Wise
+PayPal
+Crypto settlement
+Manual adjustment
+Auto Matching
+
+Match payments using:
+
+Invoice number
+Amount
+Client account
+Reference number
+10. Revenue Protection Intelligence
+
+This is where BitsAuto becomes unique.
+
+AI Revenue Protection
+
+Detect:
+
+Negative margin calls
+Under-billed destinations
+Incorrect rate application
+Billing bypass
+Fraud traffic spikes
+Fake CLI routing
+UAN manipulation
+Premium route abuse
+Smart Recommendations
+
+System can recommend:
+
+Re-rate invoice
+Block abusive route
+Change vendor
+Increase sell rate
+Apply fraud surcharge
+11. Client Portal Billing Section
+
+Client should ONLY see:
+
+Their invoices
+Their payments
+Their usage
+Their reports
+Download center
+
+Client must NOT see:
+
+Vendors
+Internal routing
+Carrier names
+Margins
+Platform intelligence
+Internal QoS scores
+Routing groups
+AI operational insights
+12. High-Value Future Features
+A. Predictive Billing
+
+Estimate invoice before billing cycle ends.
+
+B. Dispute Management
+
+Client can dispute invoice line items.
+
+C. Margin Heatmap
+
+Visual map of profitable/unprofitable destinations.
+
+D. Multi-Switch Billing
+
+Aggregate billing from multiple Sippy clusters.
+
+E. Revenue Leakage Analyzer
+
+Detect hidden losses automatically.
+
+F. Intelligent Tax Engine
+
+Country-based telecom taxation.
+
+G. AI Collection Assistant
+
+Predict late payments and collection risks.
+
+Recommended Development Priority
+Phase 1 — Core Billing Stability
+CDR billing engine
+Invoice draft generator
+PDF invoice system
+Approval workflow
+Auto email sender
+Phase 2 — Intelligence Layer
+Reconciliation engine
+Revenue analytics
+Margin dashboards
+Billing anomaly detection
+Vendor comparison
+Phase 3 — AI Finance Operations
+Predictive billing
+Revenue protection AI
+Collection intelligence
+Auto dispute analysis
+Dynamic margin optimization
+Strategic Positioning
+
+Most telecom billing systems only:
+
+generate invoices,
+export CDRs,
+and track payments.
+
+BitsAuto can become:
+
+"AI-Powered Telecom Revenue Intelligence Platform"
+
+combining:
+
+routing intelligence,
+QoS analytics,
+fraud protection,
+finance automation,
+and operational intelligence
+
+inside one unified platform.
+
+This becomes extremely difficult for competitors to replicate because the billing layer is directly connected with:
+
+routing decisions,
+carrier quality,
+live operations,
+and AI anomaly detection.
+
+I created a complete strategic architecture for the BitsAuto Voice Invoicing System including:
+
+Automated telecom invoice generation
+CDR billing engine
+Client/vendor reconciliation
+AI revenue protection
+Finance workflows
+PDF invoice automation
+Payment reconciliation
+Client portal billing security
+Predictive billing intelligence
+Revenue leakage detection
+Future AI finance roadmap
+
+It is designed specifically around your:
+
+Sippy integration
+routing intelligence
+QoS analytics
+fraud monitoring
+and existing BitsAuto operational architecture.
+Let me check what billing and finance infrastructure already exists in the platform before making roadmap recommendations:
+
+
+6 actions
+Good context. Here's what already exists vs. what's missing, then a concrete roadmap:
+
+What the platform already has (do not rebuild):
+
+Existing	Where
+Invoice preview, generate, validate-template routes	/api/sippy/invoices/*
+Payment recording (GET/POST)	/api/sippy/payments
+Manual billing run per account	/api/sippy/accounts/:id/billing-run
+Billing disputes table + page	billing-disputes.tsx, schema
+Vendor/client billing cycle fields	vendorBillingCycle, clientBillingCycle in schema
+Invoice email field per company	invoiceEmail in schema
+Credit limit field	creditLimit in schema
+billing.tsx page	exists
+The schema already has the billing cycle and invoice email fields — the foundation for automatic dispatch is there. The gap is that nothing orchestrates them into a scheduled pipeline.
+
+Volume 2 — Immediate (builds on what exists)
+
+1. Automatic Invoice Dispatch Engine (highest value, most requested)
+
+The clientBillingCycle and invoiceEmail columns exist but nothing reads them on a schedule. The engine would:
+
+Nightly cron job checks which companies have a billing cycle closing today
+Pulls CDRs for that period from the existing CDR cache + /asr_acd.php aggregation
+Generates PDF via the existing invoice generator
+Emails it to invoiceEmail with CDR CSV attached
+Logs delivery status (sent / failed / pending approval)
+This is the "1st to send invoice to client with reconciliation with Sippy data/CDR" item the document flags as top priority.
+
+2. Vendor Invoice Reconciliation
+
+The billingDisputes table already exists. The missing piece is the comparison engine:
+
+Import vendor invoice (CSV or manual entry)
+Compare against platform CDRs for same period
+Surface duration mismatches, missing calls, cost variance per destination
+Auto-create dispute record when variance exceeds threshold
+Approval workflow to accept/reject/escalate
+3. Real-Time Margin Intelligence (expand what exists)
+
+Revenue analytics are already on the dashboard. Expand to show:
+
+Margin per carrier, per destination, per client — live
+Alert when route margin drops below configured threshold
+"Negative margin detected" warnings before invoice is sent
+Volume 3 — High Value (after Volume 2 is stable)
+
+4. Credit Control Engine — integrates with the existing creditLimit field, paymentTerm, and the provisioning/routing layer. Auto-block when balance threshold is hit.
+
+5. Customer Profitability Intelligence — per-client P&L combining revenue (from CDRs), routing cost (vendor CDRs), and fraud exposure (from the fraud engine). Answers "which clients are actually profitable after cost and fraud."
+
+6. Billing Governance Workflow — extends existing approval infrastructure: Generated → Finance Review → Approved → Locked → Sent → Paid → Archived. Finance role sees approval queue.
+
+7. Revenue Leakage Detection — scans for unrated traffic, zero-cost vendor calls, tariff mismatches, duplicate CDR rows. Flags them before invoice is locked.
+
+Do not build yet (Volume 4+):
+
+AI/ML billing anomaly models
+Predictive churn-linked revenue forecasting
+Autonomous vendor dispute resolution
+Closed-loop financial optimization
+Recommended build order if you want to start now:
+
+The single highest-impact item that uses the most existing infrastructure is the Automatic Invoice Dispatch Engine — because clientBillingCycle, invoiceEmail, and the invoice generator all exist. It just needs the scheduler, PDF attachment, and email delivery wired together. That is the "send invoice to client per billing cycle" question from the document, and it's the most visible operational win before the next demo.
+
+Want to implement that first?
+
+Yes — that is the correct next implementation.
+
+You already have enough infrastructure inside the BitsAuto platform to build a production-grade automated telecom invoicing pipeline without redesigning the finance architecture.
+
+The key insight is:
+
+You do NOT need another billing system.
+You need an orchestration + automation layer on top of the existing billing components.
+
+Your analysis is accurate:
+
+invoice generation already exists
+payment APIs already exist
+dispute structure already exists
+billing cycle fields already exist
+invoice email fields already exist
+
+The missing component is:
+
+Billing Orchestration Engine
+
+This becomes the central finance automation service.
+
+Recommended Immediate Architecture
+New Service
+
+billing-orchestrator.service.ts
+
+Responsibilities:
+
+detect billing cycle closures
+trigger billing run
+generate invoice
+export CDR summary
+create PDF
+send email
+log audit trail
+create finance approval item
+track delivery state
+Recommended Flow
+Step 1 — Nightly Scheduler
+
+Run:
+
+every midnight
+timezone aware
+
+Checks:
+
+clientBillingCycle
+invoice status
+approval status
+unpaid locks
+suspended clients
+
+Example:
+
+SELECT * FROM companies
+WHERE:
+  billing_enabled = true
+  AND next_invoice_date <= NOW()
+Step 2 — Billing Snapshot Lock
+
+CRITICAL FEATURE.
+
+Before invoice generation:
+
+freeze billing window
+snapshot rated CDRs
+store immutable invoice dataset
+
+Otherwise:
+
+rerates,
+deleted CDRs,
+delayed imports,
+route changes
+
+can alter old invoices.
+
+This is one of the most important telecom finance protections.
+
+Recommended table:
+
+invoice_cdr_snapshots
+Step 3 — Reconciliation Layer
+
+Before invoice approval:
+compare:
+
+Sippy totals
+platform CDR cache
+ASR/ACD aggregation
+rated totals
+vendor totals
+
+If mismatch:
+
+Invoice Status = REQUIRES_REVIEW
+Step 4 — Intelligent Validation Engine
+
+This is where BitsAuto becomes stronger than standard telecom billing.
+
+Checks:
+
+negative margins
+unrated destinations
+zero-cost routes
+abnormal ASR drop
+suspicious duration spikes
+duplicate UUIDs
+impossible CPS bursts
+invoice delta vs previous cycle
+
+This should feed directly into:
+
+AI Ops Center
+
+and
+
+Finance Review Queue
+Step 5 — Approval Workflow
+
+Recommended statuses:
+
+DRAFT
+VALIDATING
+REQUIRES_REVIEW
+APPROVED
+LOCKED
+SENT
+PARTIALLY_PAID
+PAID
+DISPUTED
+ARCHIVED
+
+VERY IMPORTANT:
+After LOCKED
+invoice rows must become immutable.
+
+Step 6 — PDF + Attachments
+
+Generate:
+
+telecom invoice PDF
+destination summary
+ASR/ACD report
+QoS summary
+ZIP CDR export
+
+Optional:
+
+fraud summary
+route quality analytics
+billing variance report
+Step 7 — Email Delivery Pipeline
+
+Recommended stack:
+
+queue-based delivery
+retry logic
+SMTP failover
+delivery tracking
+
+Tables:
+
+invoice_delivery_logs
+invoice_email_queue
+
+Track:
+
+sent
+delivered
+bounced
+opened
+failed
+Step 8 — Finance Dashboard Expansion
+
+You already have finance pages.
+
+Add:
+
+pending invoices
+failed deliveries
+margin alerts
+top unpaid accounts
+live receivables
+aging buckets
+invoice disputes
+vendor variance alerts
+Highest Strategic Addition
+Revenue Leakage Engine
+
+This is where telecom billing systems usually fail.
+
+Detect:
+
+unrated calls
+zero-duration billing
+duplicate CDRs
+mismatched prefixes
+wrong billing increments
+vendor/client rate mismatch
+bypass routes
+missing vendor invoices
+
+This alone can save large operators huge revenue losses.
+
+Recommended Database Additions
+Core Tables
+invoice_jobs
+invoice_cdr_snapshots
+invoice_delivery_logs
+vendor_invoice_imports
+vendor_reconciliation_results
+finance_approval_queue
+revenue_leakage_alerts
+Recommended Build Order
+Sprint 1
+scheduler
+auto billing run
+invoice status pipeline
+PDF generation
+email delivery
+Sprint 2
+immutable snapshots
+reconciliation engine
+finance approvals
+delivery logs
+Sprint 3
+revenue leakage detection
+negative margin alerts
+dispute automation
+live receivables dashboard
+Sprint 4
+predictive finance intelligence
+client profitability
+AI anomaly detection
+collection risk scoring
+Most Important Architectural Decision
+
+Do NOT tightly couple invoicing directly to live CDR queries forever.
+
+Instead:
+
+CDRs
+→ Rating Engine
+→ Snapshot Layer
+→ Invoice Objects
+→ Immutable Finance Records
+
+That separation is what makes enterprise telecom billing reliable.
+
+Without snapshot isolation:
+
+rerating destroys historical accuracy
+disputes become impossible
+audits become dangerous
+finance loses trust
+Strategic Positioning
+
+This evolution turns BitsAuto into:
+
+“Telecom Revenue Intelligence Platform”
+
+instead of only:
+
+VoIP monitoring
+routing management
+operational analytics
+
+Very few telecom platforms combine:
+
+routing intelligence
+QoS analytics
+fraud detection
+reconciliation
+finance automation
+AI operations
+revenue protection
+
+inside one architecture.
+
+That becomes your strongest differentiator.

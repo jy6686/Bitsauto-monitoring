@@ -1,0 +1,205 @@
+Yes — your observation is correct, and this exposes a second architectural issue in BitsEye 2.
+
+The previous “8 vs 800” problem was fixed correctly.
+
+But this new issue is different:
+
+Current Problem
+
+BitsEye 2 is NOT maintaining proper historical continuity for:
+
+NOC Overview
+Concurrent Call Stream
+Daily graphs
+Weekly graphs
+
+The charts are visually behaving like:
+
+short-memory rolling buffers
+or newly initialized datasets
+
+instead of:
+
+persistent historical telemetry timelines.
+
+From your screenshots:
+
+Old BitsEye
+DAILY = ~3 days visible
+WEEKLY = ~7 days visible
+dense historical continuity
+no empty reset zones
+graphs look operationally “alive”
+New BitsEye 2
+DAILY shows only recent few hours
+WEEKLY almost empty
+NOC Overview line appears frozen/stuck
+history feels reset/restarted repeatedly
+
+That means:
+
+historical retention exists in DB
+BUT
+frontend query/windowing/bucket hydration is incomplete
+
+NOT telemetry engine failure.
+
+Most Likely Root Cause
+
+Your backend persistence is now correct:
+
+concurrent_snapshots
+
+is writing properly every 45s.
+
+But the frontend is probably still doing one of these:
+
+Issue	Result
+slicing last N points	only 2–3h visible
+filtering using in-memory fallback	partial graph
+wrong bucket start range	compressed history
+hydration after reload only from recent cache	history gaps
+LIVE buffer reused for DAILY/WEEKLY	charts look reset
+timestamp normalization bug	sparse rendering
+MAX aggregation grouped incorrectly	flat/empty sections
+Why Old BitsEye Looks Better
+
+Old BitsEye was visually simpler but operationally correct because:
+
+it always rendered persisted timelines
+not transient memory timelines
+
+BitsEye 2 currently mixes:
+
+persisted history
+live snapshots
+local rolling state
+React query refreshes
+
+which creates:
+
+partial hydration
+graph resets
+empty chart regions
+“stuck” appearance.
+Important Distinction
+
+This is NOT the previous bug.
+
+Previous bug:
+
+missing zero snapshots
+
+Current bug:
+
+frontend/history hydration window mismatch
+
+Different layer entirely.
+
+What Needs To Be Fixed
+1. DAILY/WEEKLY must ALWAYS query DB history
+
+Never:
+
+reuse live buffer
+reuse entityConcurrentHistory
+reuse current React state
+
+Instead:
+
+LIVE     -> in-memory rolling live snapshots
+DAILY    -> DB query (24h)
+WEEKLY   -> DB query (7d)
+
+hard-separated.
+
+2. NOC Overview should use persisted aggregate history
+
+Right now it appears to:
+
+start near zero
+spike only on recent points
+lose historical continuity
+
+Meaning:
+
+aggregate hydration is incomplete
+probably only latest rows loaded.
+
+Need:
+
+SELECT bucket, SUM(max_active)
+FROM concurrent_snapshots
+GROUP BY bucket
+ORDER BY bucket
+
+for full historical rendering.
+
+3. Frontend should stop trimming returned history
+
+Very likely somewhere exists:
+
+.slice(-40)
+.slice(-60)
+.slice(-120)
+
+or:
+
+history.splice(...)
+
+This was acceptable for LIVE mode.
+Not acceptable for DAILY/WEEKLY persisted telemetry.
+
+4. Bucket Density Must Match Span
+
+Correct operational ranges should be:
+
+Span	Window	Bucket
+LIVE	4h	5 min
+DAILY	72h	1h
+WEEKLY	7d	6h
+
+Right now DAILY appears to still use near-live density/window logic.
+
+Your “stuck graph” observation is also correct
+
+This screenshot:
+
+Concurrent Call Stream
+
+showing:
+
+flat line
+one spike
+almost empty history
+
+is operationally wrong.
+
+A NOC overview graph should NEVER look empty unless:
+
+there truly was no traffic.
+
+Your old screenshots prove there WAS traffic historically.
+
+So:
+
+telemetry persistence is working
+rendering/hydration range is not.
+Recommended Fix Direction
+
+This should now be treated as:
+
+BitsEye 2 Historical Hydration Stabilization
+
+NOT telemetry redesign.
+
+The telemetry redesign is already complete and should remain frozen.
+
+The next work is:
+
+query correctness
+historical hydration
+frontend range management
+bucket/window consistency.
+
+That is a much safer class of fix.

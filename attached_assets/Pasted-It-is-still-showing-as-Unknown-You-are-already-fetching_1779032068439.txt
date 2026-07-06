@@ -1,0 +1,171 @@
+It is still showing as “Unknown.” You are already fetching Vendor data in the Vendors section and Connection data in the Connections sidebar — please properly map/wire those into the ASR/ACD Termination Report so the correct vendor and connection names are displayed instead of “Unknown.”
+
+You're correct — if the platform already has:
+
+cached Connections
+cached Vendors
+vendor ↔ connection relationships
+
+then the Termination Report should resolve identities from those caches first before falling back to "Unknown Connection".
+
+The important distinction is:
+
+We should use deterministic cache joins — not country heuristics.
+
+That keeps the report operationally trustworthy.
+
+Correct Fix Architecture
+Current issue
+
+Your portal-derived CDRs often do not include:
+
+iConnection
+direct vendor identity
+
+So the report currently cannot resolve:
+
+VendorName / ConnectionName
+
+and falls back to:
+
+Unknown Connection
+Proper deterministic resolution chain
+
+The Termination Report should resolve identities in this exact order:
+
+Step 1 — Direct iConnection match (preferred)
+
+If CDR contains:
+
+cdr.iConnection
+
+then:
+
+connection = connectionCache[iConnection]
+vendor = vendorCache[connection.vendorId]
+
+Output:
+
+VendorName / ConnectionName
+Step 2 — Connection name match from cached live routes
+
+If iConnection missing:
+
+Use existing routing/connection caches already loaded in:
+
+Connections page
+Vendors page
+Routing Manager
+
+Possible deterministic joins:
+
+cdr.remoteIp
+cdr.terminationHost
+cdr.routeName
+cdr.vendor
+SIP gateway name
+
+against:
+
+cachedConnections[]
+
+NOT country matching.
+
+Step 3 — Vendor-only fallback
+
+If connection unresolved but vendor field exists:
+
+Show:
+
+VendorName / Unknown Connection
+
+instead of plain Unknown.
+
+Step 4 — Honest unknown
+
+Only after all deterministic joins fail:
+
+Unknown Vendor / Unknown Connection
+Why this matters operationally
+
+Right now the report weakens trust because operators see:
+
+Unknown
+Unknown
+Unknown
+
+even though the system already knows:
+
+the vendor
+the route
+the connection inventory
+
+from other modules.
+
+That creates a perception that:
+
+“the platform data model is disconnected.”
+
+The fix is not UI.
+It is entity normalization across caches.
+
+Recommended implementation approach
+
+Create one shared resolver utility:
+
+resolveTerminationIdentity(cdr)
+
+Used by:
+
+ASR/ACD Report
+Live Traffic Engine
+Carrier Intelligence
+Verdict Engine
+Routing Simulator
+
+Output:
+
+{
+  connectionId,
+  connectionName,
+  vendorId,
+  vendorName,
+  confidence: 'direct' | 'cache-match' | 'vendor-only' | 'unknown'
+}
+
+This prevents five different identity-resolution implementations from diverging later.
+
+Important warning
+
+Do NOT:
+
+use country
+use destination prefix
+use fuzzy string matching
+use token heuristics
+
+for vendor attribution in telecom reporting.
+
+Because:
+
+billing
+routing analysis
+vendor SLA disputes
+
+must remain deterministic and auditable.
+
+Best next move
+
+Implement:
+
+Shared Termination Identity Resolver
+
+then refactor:
+
+ASR/ACD Report
+Live Traffic
+Verdict Engine
+
+to consume it.
+
+That solves the “Unknown” issue correctly and establishes a proper entity identity layer for the entire platform.

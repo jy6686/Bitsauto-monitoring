@@ -1,0 +1,460 @@
+BitsAuto ↔ Sippy: Complete Account Creation Guide
+Date: 2026-05-04 Author: Replit Agent (Implementation Team) Purpose: Complete findings for Architect review — covers Sippy API requirements, BitsAuto system gaps, and all changes needed for end-to-end account creation.
+
+TABLE OF CONTENTS
+Sippy API Environment — Live Discovery
+Sippy Hierarchy: Customer → Account
+createAccount — Golden Payload (54 Fields)
+createCustomer — Probed Requirements
+BitsAuto System Audit — What Exists Today
+GAP ANALYSIS — What's Missing or Broken
+Frontend Field Mapping — Both Pages
+Recommended Changes — Priority Ordered
+Appendix: Raw API Discovery Data
+1. SIPPY API ENVIRONMENT — LIVE DISCOVERY {#1-sippy-api-environment}
+Authentication
+Method: HTTP Digest Auth (RFC 2617)
+Credentials: SIPPY_API_USERNAME / SIPPY_API_PASSWORD environment secrets
+Credential scope: ssp-root level (i_customer=1 accepted; can create accounts under any customer)
+Available API Methods (confirmed live)
+Method	Status	Notes
+createAccount	✅ Working	54 required fields (see §3)
+createCustomer	✅ Available	Requires i_tariff, name, web_password + more (see §4)
+getAccountInfo	✅ Working	Returns full account struct
+getCustomerInfo	✅ Working	Returns full customer struct
+listAccounts	✅ Working	Scoped by i_customer
+listCustomers	✅ Working	Returns all customers
+listRoutingGroups	✅ Working	Returns routing groups
+getServicePlanInfo	✅ Working	Lookup by i_billing_plan
+listServicePlans	❌ 404 Not Found	Method doesn't exist on this instance
+listBillingPlans	❌ 404 Not Found	Method doesn't exist
+listTariffs	❌ 404 Not Found	Method doesn't exist
+listTimeZones	❌ 404 Not Found	Method doesn't exist
+listPasswordPolicies	❌ 404 Not Found	Method doesn't exist
+Service Plans (Billing Plans) — Confirmed by Probing
+i_billing_plan	Name	Currency	Status
+1	sippy_support_bft	USD	✅ Exists
+2	—	—	❌ Not found
+3	Test-1-SP	USD	✅ Exists
+4–6	—	—	❌ Not found
+7	Testing-ServicePlan-30Apr	USD	✅ Exists
+Routing Groups — Confirmed via listRoutingGroups
+i_routing_group	Name	Policy
+1	sippy_support_bft	order, least_cost
+2	Testing-30Apr	prefix, preference
+Customers — Confirmed
+i_customer	Name	Type	Notes
+1	ssp-root	Root	Our API authenticates as this
+29	RTST	Customer	Target parent for new accounts; i_time_zone=1; credit_limit=5.0
+Existing Accounts Under RTST (i_customer=29)
+i_account	username	balance	credit_limit	Notes
+87	Hayder	0.0	0.0	Pre-existing
+91	Faisal-test	50.0	0.0	Pre-existing
+133	BA_v308_tz370_dc1bff	0.0	0.0	Created by us (v3.08 golden test)
+134	BA_v308b_RTST_9c006c	0.0	0.0	Created by us (v3.08b golden test)
+13	bitsauto_accttest_mnxta8ls	0.0	500.0	Earlier test
+11	wt_1776115320083	0.0	0.0	Earlier test
+2. SIPPY HIERARCHY: CUSTOMER → ACCOUNT {#2-sippy-hierarchy}
+Sippy Instance
+├── Customer (i_customer)          ← "RTST" = i_customer=29
+│   ├── Account (i_account)        ← SIP endpoint / carrier
+│   │   ├── Auth Rules
+│   │   └── CDR records
+│   ├── Account
+│   └── Account
+├── Customer
+│   └── ...
+├── Service Plans (i_billing_plan) ← Tariff / rate plan
+├── Routing Groups (i_routing_group)
+└── Tariffs (i_tariff)             ← Required for customer creation
+
+Key relationship: Every Account belongs to exactly one Customer. When creating accounts, you must specify i_customer to place the account under the correct parent.
+
+BitsAuto's current approach:
+
+Carrier workflow (/carriers/create): Creates a BitsAuto carrier → syncs to Sippy as an Account (under i_customer=1 root). Does NOT create a Sippy Customer.
+Phase 3 workflow (/security/customer-accounts/.../create): Creates accounts under an existing mirrored customer. Requires the customer to already exist in BitsAuto DB with a sippy_customer_id.
+What's missing: There is NO UI page to create a new Sippy Customer from scratch. Customers currently only exist through the Sippy import/mirror process. If a user needs to create a brand-new customer in Sippy (not import an existing one), there is no path.
+
+3. CREATEACCOUNT — GOLDEN PAYLOAD (54 FIELDS) {#3-createaccount-golden-payload}
+This is the exact payload that successfully created i_account=134 on our Sippy instance. Every field listed here is REQUIRED by our instance — removing any single one results in a 400 "Parameter X is required" error.
+
+CRITICAL BUG DISCOVERED: i_time_zone
+i_time_zone=1 causes a 501 "Fatal error" when ALL address fields are present.
+
+This is a server-side bug specific to OUR Sippy instance
+IchiBaan team uses i_time_zone=1 successfully on THEIR instance
+The fix: use i_time_zone=370 (US/Central)
+The existing account on our instance also uses i_time_zone=370
+Field-by-Field Reference
+Group A: SIP Identity (5 fields)
+#	Field	Type	Required	Description	Example Value
+1	username	string	YES	SIP account name / login	carrier_delta_01
+2	web_password	string	YES	Sippy web portal password (must contain letters AND digits)	Web4837Pass
+3	authname	string	YES	SIP auth username (usually same as username)	carrier_delta_01
+4	voip_password	string	YES	SIP auth password (min 6 chars)	Vp8k3mN2x
+5	vm_password	string	YES	Voicemail PIN	54321
+Group B: Customer & Billing (8 fields)
+#	Field	Type	Required	Description	Working Value
+6	i_customer	int	YES	Parent customer ID	29 (RTST)
+7	i_billing_plan	int	YES	Service plan / tariff	3 or 7
+8	credit_limit	int/double	YES	Credit limit (0=no credit)	0
+9	balance	int/double	YES	Starting balance	0
+10	payment_currency	string	YES	ISO 4217 currency	USD
+11	payment_method	int	YES	Payment method type	1
+12	i_export_type	int	YES	Export integration type	2
+13	i_password_policy	int	YES	Password policy ID	1
+Group C: Routing & Capacity (5 fields)
+#	Field	Type	Required	Description	Working Value
+14	i_routing_group	int	YES	Routing group ID	2 (Testing-30Apr)
+15	max_sessions	int	YES	Max concurrent calls (0=unlimited)	5
+16	max_credit_time	int	YES	Max call duration seconds	3600
+17	translation_rule	string	YES	CLD translation (empty=none)	""
+18	cli_translation_rule	string	YES	CLI translation (empty=none)	""
+Group D: Regional & Language (2 fields)
+#	Field	Type	Required	Description	Working Value
+19	i_time_zone	int	YES	⚠️ MUST be 370 (US/Central). Value 1 crashes!	370
+20	i_lang	string	YES	Language code	en
+Group E: SIP Technical (8 fields)
+#	Field	Type	Required	Description	Working Value
+21	cpe_number	string	YES	CPE device number (empty=none)	""
+22	preferred_codec	int	YES	Codec preference (0=none)	0
+23	use_preferred_codec_only	int (0/1)	YES	Force codec	0
+24	reg_allowed	int (0/1)	YES	Allow SIP registration	1
+25	trust_cli	int (0/1)	YES	Trust caller ID	0
+26	disallow_loops	int (0/1)	YES	Prevent routing loops	0
+27	i_media_relay_type	int	YES	Media relay mode	0
+28	lifetime	int	YES	Account lifetime days (0=unlimited)	0
+Group F: Voicemail (4 fields)
+#	Field	Type	Required	Description	Working Value
+29	vm_enabled	int (0/1)	YES	Enable voicemail	0
+30	vm_notify_emails	string	YES	VM notification emails (empty=none)	""
+31	vm_forward_emails	string	YES	VM forward emails (empty=none)	""
+32	vm_del_after_fwd	int (0/1)	YES	Delete VM after forward	0
+Group G: Payment & Automation (4 fields)
+#	Field	Type	Required	Description	Working Value
+33	welcome_call_ivr	int	YES	Welcome call IVR (0=disabled)	0
+34	on_payment_action	int	YES	Payment trigger action	1
+35	min_payment_amount	double	YES	Min payment threshold	0.0
+36	blocked	int (0/1)	YES	Account blocked state	0
+Group H: Contact / Identity (7 fields)
+#	Field	Type	Required	Description	Working Value
+37	company_name	string	YES	Company name	""
+38	salutation	string	YES	Mr/Mrs/Dr	""
+39	first_name	string	YES	First name	""
+40	last_name	string	YES	Last name	""
+41	mid_init	string	YES	Middle initial	""
+42	contact	string	YES	Primary contact name	""
+43	alt_contact	string	YES	Alt contact name	""
+Group I: Address (5 fields)
+#	Field	Type	Required	Description	Working Value
+44	street_addr	string	YES	Street address	""
+45	city	string	YES	City	""
+46	state	string	YES	State/province	""
+47	postal_code	string	YES	ZIP/postal code	""
+48	country	string	YES	Country code	""
+Group J: Communication (6 fields)
+#	Field	Type	Required	Description	Working Value
+49	phone	string	YES	Phone number	""
+50	fax	string	YES	Fax number	""
+51	alt_phone	string	YES	Alt phone	""
+52	email	string	YES	Email address	""
+53	cc	string	YES	Email CC	""
+54	bcc	string	YES	Email BCC	""
+BOOLEAN FIELD RULE
+Sippy expects integer 0 or 1 for all boolean-like fields. Do NOT send JS true/false or XML <boolean>. Always use <int>0</int> or <int>1</int>.
+
+4. CREATECUSTOMER — PROBED REQUIREMENTS {#4-createcustomer-requirements}
+The createCustomer method exists on our Sippy instance. Iterative probing revealed these required fields (in order):
+
+Order	Field	Type	Notes
+1	i_tariff	int	Tariff ID — required FIRST. Must be a valid tariff on the instance.
+2	name	string	Customer name
+3	web_password	string	Web portal password
+?	...	...	Probing stopped here to avoid accidentally creating a customer
+Important: createCustomer requires i_tariff (NOT i_billing_plan). This is a different field than what createAccount uses. A tariff must be created first (via createTariff — which our carrier-sync already does).
+
+BitsAuto's current customer-push code (sippy-customer-write.adapter.ts) already handles:
+
+Duplicate checking via listCustomers
+Building customer payload
+Push to Sippy via createCustomer
+Read-back confirmation
+But there is NO frontend page to trigger customer creation. The customer routes exist (POST /api/v1/customers → creates locally, POST /api/v1/customers/:id/push-to-sippy → pushes to Sippy), but no UI page walks through the full customer creation + Sippy sync flow.
+
+5. BITSAUTO SYSTEM AUDIT — WHAT EXISTS TODAY {#5-bitsauto-system-audit}
+Backend (API Server)
+Component	Path	Status
+Carrier Create	POST /api/v1/carriers	✅ Works — creates local carrier record
+Carrier Push to Sippy	POST /api/v1/carriers/:id/push-to-sippy	⚠️ BROKEN — i_time_zone=0 crashes Sippy
+Customer Create (local)	POST /api/v1/customers	✅ Works — creates local customer record
+Customer Push to Sippy	POST /api/v1/customers/:id/push-to-sippy	⚠️ Exists but untested with corrected timezone
+Customer Account Create	via Phase 3 orchestrator	⚠️ Missing many required Sippy fields
+Sippy XML-RPC Transport	sippy-xmlrpc-transport.ts	✅ Working (HTTP Digest)
+Sippy XML-RPC Serializer	sippy-xmlrpc-serializer.ts	✅ Working (FROZEN d7421dae9b0a)
+Carrier Sync Service	carrier-sync.service.ts	⚠️ FROZEN d73b67107ccf — needs i_time_zone fix
+Dictionaries Endpoint	GET /api/v1/sippy/dictionaries	✅ Exists — returns routing groups & billing plans
+Frontend (Web App)
+Page	Path	Status
+Create Carrier	/carriers/create (CreateCarrierPage.tsx)	✅ Comprehensive form — BUT hardcoded dropdowns
+Create Account (Phase 3)	/security/customer-accounts/:id/create (CreateAccountPage.tsx)	✅ 4-tab form with dynamic dropdowns — BUT missing many Sippy fields
+Create Customer	—	❌ DOES NOT EXIST — no UI page for customer creation
+Carrier List	/carriers	✅ Works
+Carrier Detail	/carriers/:id	✅ Works with sync status
+Customer List	/security/customers	✅ Works (mirror view)
+Database Schema
+Table	Key Columns	Notes
+carriers	id, name, username, sippy_account_id, sippy_tariff_id, sippy_sync_status	Has voip_password_encrypted, web_password_encrypted
+customers	id, name, sippy_customer_id, sippy_sync_status	Has sippy_web_password_encrypted
+customer_accounts	id, customer_id, sippy_account_id	Phase 3 mirror accounts
+6. GAP ANALYSIS — WHAT'S MISSING OR BROKEN {#6-gap-analysis}
+CRITICAL (Blocks account creation)
+#	Gap	Current State	Fix Required
+C1	i_time_zone value wrong	carrier-sync.service.ts L234: i_time_zone: 0	Change to 370
+C2	Customer creation UI missing	No page exists	Build /customers/create page OR add customer creation to existing flow
+C3	Phase 3 account create missing Sippy fields	Form sends ~25 fields; Sippy needs 54	Backend must supply defaults for missing ~29 fields
+HIGH (Functional gaps)
+#	Gap	Current State	Fix Required
+H1	Carrier page: hardcoded routing groups	Only shows sippy_support_bft (ID=1)	Should show both: sippy_support_bft (1) + Testing-30Apr (2)
+H2	Carrier page: hardcoded service plans	Shows plan 1 and 3 only	Should also show plan 7 (Testing-ServicePlan-30Apr)
+H3	Phase 3 account create: no fax field	Form has no fax input	Add fax to Identity tab
+H4	Phase 3 account create: no company_name field	Form has no company_name input	Add company_name to Identity tab
+H5	Phase 3 account create: no cc / bcc email fields	Form only has email + alt_email	Add cc/bcc to Identity tab
+H6	Phase 3 account create: alt_email vs Sippy alt_phone mismatch	Form has alt_email; Sippy has alt_phone (NO alt_email field)	Fix field name mapping
+H7	Carrier sync: boolean → int conversion	Sweep converts but happens AFTER diagnostic log	Verify sweep runs before Sippy call
+H8	No listServicePlans method available	Method returns 404 on our instance	Must probe individual plan IDs or maintain static list
+MEDIUM (Improvements)
+#	Gap	Current State	Fix Required
+M1	Phase 3: no vm_enabled / vm_password fields	Not in form	Backend should default vm_enabled=0, vm_password=generated
+M2	Phase 3: no blocked field	Not in form	Backend should default blocked=0
+M3	Phase 3: no i_time_zone field	Not in form	Backend should hardcode 370
+M4	Phase 3: no i_lang field	Not in form	Backend should default "en"
+M5	Phase 3: no payment_currency / payment_method	Not in form	Backend should default USD/1
+M6	Phase 3: no i_export_type	Not in form	Backend should default 2
+M7	Phase 3: no welcome_call_ivr / on_payment_action / min_payment_amount	Not in form	Backend should default 0/1/0.0
+M8	Phase 3: no vm_notify_emails / vm_forward_emails / vm_del_after_fwd	Not in form	Backend should default ""/""/ 0
+M9	Phase 3: no reg_allowed field	Not in form	Backend should default based on use case
+M10	Phase 3: no disallow_loops field	Not in form	Backend should default 0
+7. FRONTEND FIELD MAPPING — BOTH PAGES {#7-frontend-field-mapping}
+CreateCarrierPage.tsx → carrier-sync.service.ts → Sippy createAccount
+Form Field	carrier-sync.service.ts Field	Sippy Field	Status
+name	carrier.name → tariff name	—	✅ Used for tariff
+company_name	contactParts → first_name/last_name	company_name	⚠️ NOT mapped (only name parts used)
+username	carrier.username	username + authname	✅
+voip_password	carrier.voipPasswordEncrypted → decrypt	voip_password	✅
+web_password	carrier.webPasswordEncrypted → decrypt	web_password	✅
+sippy_billing_plan_id	carrier.sippyBillingPlanId	i_billing_plan	✅
+sippy_routing_group_id	carrier.sippyRoutingGroupId	i_routing_group	✅
+max_sessions	carrier.maxSessions	max_sessions	✅
+max_credit_time	carrier.maxCreditTime	max_credit_time	✅
+credit_limit	carrier.creditLimit	credit_limit	✅
+payment_currency	carrier.paymentCurrency	payment_currency	✅
+use_preferred_codec_only	carrier.usePreferredCodecOnly	use_preferred_codec_only	✅
+allow_registration	carrier.allowRegistration	reg_allowed	✅ (semantic map)
+trust_cli	carrier.trustCli	trust_cli	✅
+disallow_loops	carrier.disallowLoops	disallow_loops	✅
+—	hardcoded 0	i_time_zone	❌ MUST BE 370
+—	hardcoded "en"	i_lang	✅
+—	hardcoded 0	i_export_type	⚠️ Should be 2 (golden uses 2)
+—	hardcoded -1	lifetime	⚠️ Should be 0 (golden uses 0)
+—	hardcoded 0	payment_method	⚠️ Should be 1 (golden uses 1)
+—	hardcoded 0	on_payment_action	⚠️ Should be 1 (golden uses 1)
+email	—	email	❌ NOT passed to Sippy
+phone	—	phone	❌ NOT passed to Sippy
+fax	—	fax	❌ NOT passed to Sippy
+city	—	city	❌ NOT passed to Sippy
+state	—	state	❌ NOT passed to Sippy
+country	—	country	❌ NOT passed to Sippy
+postal_code	—	postal_code	❌ NOT passed to Sippy
+street_address	—	street_addr	❌ NOT passed to Sippy
+contact_name	—	contact	❌ NOT passed to Sippy
+Summary: The Carrier page collects address/contact info in the form BUT the carrier-sync.service.ts does NOT include these fields in the Sippy payload. All address, contact, and email fields from the form are stored in the BitsAuto DB but never sent to Sippy.
+
+CreateAccountPage.tsx → Phase 3 API → Sippy createAccount
+Form Field	Sippy Field	Status
+username	username	✅
+web_password	web_password	✅
+authname	authname	✅
+voip_password	voip_password	✅
+i_routing_group	i_routing_group	✅ (dynamic dropdown)
+i_billing_plan	i_billing_plan	✅ (dynamic dropdown)
+max_sessions	max_sessions	✅
+max_credit_time	max_credit_time	✅
+credit_limit	credit_limit	✅
+balance	balance	✅
+translation_rule	translation_rule	✅
+cli_translation_rule	cli_translation_rule	✅
+trust_cli	trust_cli	✅
+preferred_codec	preferred_codec	✅
+use_preferred_codec_only	use_preferred_codec_only	✅
+i_media_relay_type	i_media_relay_type	✅
+i_password_policy	i_password_policy	✅
+cpe_number	cpe_number	✅
+lifetime	lifetime	✅
+salutation	salutation	✅
+first_name	first_name	✅
+last_name	last_name	✅
+mid_init	mid_init	✅
+email	email	✅
+phone	phone	✅
+contact	contact	✅
+alt_phone	alt_phone	✅
+alt_contact	alt_contact	✅
+street_addr	street_addr	✅
+city	city	✅
+state	state	✅
+postal_code	postal_code	✅
+country	country	✅
+—	i_customer	❌ Missing (must come from parent customer's sippy_customer_id)
+—	i_time_zone	❌ Missing (must be 370)
+—	i_lang	❌ Missing (default "en")
+—	i_export_type	❌ Missing (default 2)
+—	payment_currency	❌ Missing (default "USD")
+—	payment_method	❌ Missing (default 1)
+—	vm_enabled	❌ Missing (default 0)
+—	vm_password	❌ Missing (must generate)
+—	vm_notify_emails	❌ Missing (default "")
+—	vm_forward_emails	❌ Missing (default "")
+—	vm_del_after_fwd	❌ Missing (default 0)
+—	blocked	❌ Missing (default 0)
+—	welcome_call_ivr	❌ Missing (default 0)
+—	on_payment_action	❌ Missing (default 1)
+—	min_payment_amount	❌ Missing (default 0.0)
+—	reg_allowed	❌ Missing (default 1)
+—	disallow_loops	❌ Missing (default 0)
+—	fax	❌ Missing (no form field)
+—	company_name	❌ Missing (no form field)
+—	cc	❌ Missing (no form field)
+—	bcc	❌ Missing (no form field)
+alt_email	—	⚠️ Form has alt_email but Sippy has NO alt_email field. Sippy only has alt_phone + alt_contact
+Summary: 20 of 54 required Sippy fields are NOT present in the Phase 3 form or its backend payload builder. These must either be added as form fields (for user-configurable ones) or supplied as backend defaults (for system/technical fields).
+
+8. RECOMMENDED CHANGES — PRIORITY ORDERED {#8-recommended-changes}
+Phase 1: Fix Critical Bugs (Unblocks account creation)
+Change 1: Fix i_time_zone in carrier-sync.service.ts
+
+File: artifacts/api-server/src/modules/carriers/carrier-sync.service.ts
+Line ~234: Change i_time_zone: 0 → i_time_zone: 370
+Impact: Carrier push-to-Sippy will stop crashing with 501
+Change 2: Fix other hardcoded values in carrier-sync.service.ts
+
+i_export_type: 0 → 2 (match golden payload)
+lifetime: -1 → 0 (match golden payload — 0=unlimited)
+payment_method: 0 → 1
+on_payment_action: 0 → 1
+Phase 2: Complete the Account Creation Backend
+Change 3: Build complete Sippy payload in Phase 3 account creation
+
+The backend that handles POST /api/v1/customers/:id/accounts must supply ALL 54 fields
+User-provided fields (from the form): ~30 fields
+Backend-defaulted fields: ~24 fields (vm_*, i_time_zone, i_lang, blocked, welcome_call_ivr, on_payment_action, min_payment_amount, cc, bcc, fax, company_name, etc.)
+Change 4: Map carrier form contact/address fields to Sippy payload
+
+The carrier-sync.service.ts currently does NOT pass contact_name, email, phone, fax, city, state, country, postal_code, street_address to Sippy
+These fields ARE collected in the carrier form and stored in DB — they just need to be included in the Sippy payload
+Phase 3: Fix Frontend Forms
+Change 5: Update CreateCarrierPage.tsx dropdowns
+
+Routing Groups: Add Testing-30Apr (ID=2) — currently only shows sippy_support_bft (ID=1)
+Service Plans: Add Testing-ServicePlan-30Apr (ID=7) — currently only shows plans 1 and 3
+Better yet: fetch these dynamically from the dictionaries endpoint
+Change 6: Fix CreateAccountPage.tsx field gaps
+
+Add missing form fields: fax, company_name, cc, bcc
+Remove alt_email (Sippy doesn't have this field — it's alt_phone and alt_contact only)
+Add reg_allowed and disallow_loops checkboxes to Advanced tab
+Phase 4: Customer Creation
+Change 7: Build Customer Creation UI page
+
+New page at /customers/create or integrate into existing flow
+Fields: name, company_name, web_password (for Sippy), contact info, payment_currency, credit_limit
+Flow: Create locally → Push to Sippy (requires i_tariff — must create tariff first)
+Backend routes already exist: POST /api/v1/customers + POST /api/v1/customers/:id/push-to-sippy
+9. APPENDIX: RAW API DISCOVERY DATA {#9-appendix}
+Golden createAccount XML (v3.08b — i_account=134)
+<?xml version="1.0"?>
+<methodCall><methodName>createAccount</methodName>
+<params><param><value><struct>
+  <member><name>username</name><value><string>BA_v308b_RTST_9c006c</string></value></member>
+  <member><name>web_password</name><value><string>abcd12345</string></value></member>
+  <member><name>authname</name><value><string>BA_v308b_RTST_9c006c</string></value></member>
+  <member><name>voip_password</name><value><string>abcd12345</string></value></member>
+  <member><name>i_customer</name><value><int>29</int></value></member>
+  <member><name>max_sessions</name><value><int>5</int></value></member>
+  <member><name>max_credit_time</name><value><int>3600</int></value></member>
+  <member><name>translation_rule</name><value><string></string></value></member>
+  <member><name>cli_translation_rule</name><value><string></string></value></member>
+  <member><name>credit_limit</name><value><int>0</int></value></member>
+  <member><name>balance</name><value><int>0</int></value></member>
+  <member><name>i_billing_plan</name><value><int>3</int></value></member>
+  <member><name>i_time_zone</name><value><int>370</int></value></member>
+  <member><name>i_lang</name><value><string>en</string></value></member>
+  <member><name>i_routing_group</name><value><int>2</int></value></member>
+  <member><name>cpe_number</name><value><string></string></value></member>
+  <member><name>vm_enabled</name><value><int>0</int></value></member>
+  <member><name>vm_password</name><value><string>54321</string></value></member>
+  <member><name>blocked</name><value><int>0</int></value></member>
+  <member><name>lifetime</name><value><int>0</int></value></member>
+  <member><name>preferred_codec</name><value><int>0</int></value></member>
+  <member><name>use_preferred_codec_only</name><value><int>0</int></value></member>
+  <member><name>reg_allowed</name><value><int>1</int></value></member>
+  <member><name>trust_cli</name><value><int>0</int></value></member>
+  <member><name>disallow_loops</name><value><int>0</int></value></member>
+  <member><name>welcome_call_ivr</name><value><int>0</int></value></member>
+  <member><name>on_payment_action</name><value><int>1</int></value></member>
+  <member><name>min_payment_amount</name><value><double>0.0</double></value></member>
+  <member><name>payment_currency</name><value><string>USD</string></value></member>
+  <member><name>payment_method</name><value><int>1</int></value></member>
+  <member><name>i_export_type</name><value><int>2</int></value></member>
+  <member><name>i_password_policy</name><value><int>1</int></value></member>
+  <member><name>i_media_relay_type</name><value><int>0</int></value></member>
+  <member><name>vm_notify_emails</name><value><string></string></value></member>
+  <member><name>vm_forward_emails</name><value><string></string></value></member>
+  <member><name>vm_del_after_fwd</name><value><int>0</int></value></member>
+  <member><name>company_name</name><value><string></string></value></member>
+  <member><name>salutation</name><value><string></string></value></member>
+  <member><name>first_name</name><value><string></string></value></member>
+  <member><name>last_name</name><value><string></string></value></member>
+  <member><name>mid_init</name><value><string></string></value></member>
+  <member><name>street_addr</name><value><string></string></value></member>
+  <member><name>state</name><value><string></string></value></member>
+  <member><name>postal_code</name><value><string></string></value></member>
+  <member><name>city</name><value><string></string></value></member>
+  <member><name>country</name><value><string></string></value></member>
+  <member><name>contact</name><value><string></string></value></member>
+  <member><name>phone</name><value><string></string></value></member>
+  <member><name>fax</name><value><string></string></value></member>
+  <member><name>alt_phone</name><value><string></string></value></member>
+  <member><name>alt_contact</name><value><string></string></value></member>
+  <member><name>email</name><value><string></string></value></member>
+  <member><name>cc</name><value><string></string></value></member>
+  <member><name>bcc</name><value><string></string></value></member>
+</struct></value></param></params>
+</methodCall>
+
+Sippy Response (Success)
+<?xml version='1.0'?>
+<methodResponse>
+<params><param><value><struct>
+  <member><name>result</name><value><string>OK</string></value></member>
+  <member><name>i_account</name><value><int>134</int></value></member>
+  <member><name>username</name><value><string>BA_v308b_RTST_9c006c</string></value></member>
+  <member><name>web_password</name><value><string>abcd12345</string></value></member>
+  <member><name>authname</name><value><string>BA_v308b_RTST_9c006c</string></value></member>
+  <member><name>voip_password</name><value><string>abcd12345</string></value></member>
+  <member><name>vm_password</name><value><string>54321</string></value></member>
+</struct></value></param></params>
+</methodResponse>
+
+i_time_zone Bug Evidence
+Test	i_time_zone	Address Fields	Result
+v3.07 iterative	1	ALL 20 present	❌ 501 Fatal error
+v3.07e	1	city + bcc ONLY (2 of 20)	✅ 400 (asks for next field)
+v3.07f-G	1	ALL with real values	❌ 501 Fatal error
+v3.07f-H	1	ALL minus cc (19 of 20)	✅ 400 (asks for cc back)
+v3.07g	1	ALL + description	❌ 501 Fatal error
+v3.08	370	ALL 20 present	✅ SUCCESS — i_account=133
+v3.08b	370	ALL 20 present	✅ SUCCESS — i_account=134
+Conclusion: i_time_zone=1 triggers a server-side Python crash on our Sippy instance when the complete set of address/contact fields is present. i_time_zone=370 (US/Central) works perfectly. This is instance-specific — the IchiBaan team uses tz=1 successfully on their instance.
+
+End of document. Ready for Architect review and packet authorization.

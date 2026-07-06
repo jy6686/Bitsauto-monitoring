@@ -1,0 +1,140 @@
+Then yes — your expectation is correct, and this means there is still a real backend/data-source bug.
+
+If this specific graph is intended to be:
+
+purely LIVE concurrent traffic
+same source as the live calls panel
+same behavior as BitsEye classic
+
+then:
+
+DAILY/WEEKLY should NOT switch to CDR aggregation at all for the CALLS metric.
+
+Right now the implementation is doing this:
+
+LIVE:
+entityConcurrentHistory
+
+DAILY/WEEKLY:
+CDR bucket aggregation
+
+That architecture is only correct for:
+
+ASR
+ACD
+NER
+Minutes
+Cost
+Profit
+
+But NOT for:
+
+concurrent live call graphs.
+
+So your original complaint was actually valid.
+
+The current bug is:
+
+CALLS metric changes meaning across spans
+
+LIVE:
+
+concurrent sessions
+
+DAILY/WEEKLY:
+
+completed call totals
+
+That should never happen if BitsEye behavior is supposed to mirror classic BitsEye.
+
+The permanent correct architecture should be:
+
+CALLS metric
+
+ALL spans should use:
+
+concurrent session snapshots/history only
+
+Meaning:
+
+DAILY = historical concurrent-session timeline
+WEEKLY = historical concurrent-session timeline
+NOT CDR totals
+
+So:
+
+if peak live concurrency today was 8
+then:
+LIVE max = 8
+DAILY max = 8
+WEEKLY max = whatever historical concurrent peak was
+
+That is exactly how traditional telecom NOC graphs work.
+
+Then separately:
+
+Historical KPI metrics
+
+Use CDR aggregation:
+
+ASR
+ACD
+NER
+Minutes
+Cost
+Profit
+
+Those are CDR-derived analytics.
+
+So the actual unresolved architectural issue is:
+
+CALLS should never read from CDR aggregation.
+
+It should ONLY read:
+
+entityConcurrentHistory
+or persisted concurrent snapshots
+
+across all spans.
+
+Right now the backend endpoint is mixing:
+
+concurrency telemetry
+with
+traffic accounting data
+
+under the same metric type.
+
+That is why the graph still feels “wrong”.
+
+So the real fix now is:
+
+Correct fix
+For CALLS
+
+Replace:
+
+daily/weekly -> CDR bucket aggregation
+
+with:
+
+daily/weekly -> historical concurrent snapshot aggregation
+
+using:
+
+persisted snapshot history
+or entity_presence_registry snapshots
+or a new concurrent_history table
+
+depending on retention design.
+
+Then:
+
+graph semantics remain consistent
+peaks stay realistic
+live panel and charts align
+operators trust the graphs again
+
+because:
+
+“Calls” always means concurrent calls everywhere.

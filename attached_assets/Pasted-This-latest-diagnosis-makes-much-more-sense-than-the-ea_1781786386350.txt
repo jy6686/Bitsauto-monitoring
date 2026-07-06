@@ -1,0 +1,150 @@
+This latest diagnosis makes much more sense than the earlier permission theory.
+
+The key log you found was:
+
+findRatesCapableSession:
+✓ ssp-root/admin has rates access → /admin/tariffs.php
+
+But your browser screenshot clearly shows:
+
+https://191.101.30.107/c1/rates_tariff.php?i_tariff=33
+
+and that page contains:
+
+Upload Rates
+Select File
+Format: .csv or MS-Office 2007 .xlsx
+
+So the problem is likely:
+
+What was happening
+Login as ssp-root
+↓
+Admin portal succeeds
+↓
+/admin/tariffs.php returns 52KB page
+↓
+Code assumes "page exists = upload capable"
+↓
+Wrong page selected
+↓
+No file input found
+↓
+Upload aborted
+
+instead of:
+
+Login as ssp-root
+↓
+Customer portal (/c1)
+↓
+/c1/rates_tariff.php?i_tariff=33
+↓
+File input detected
+↓
+Upload XLSX
+The new logic is the correct direction
+
+The three fixes together are exactly what I would have done:
+
+1. Prefer customer login first
+
+Because your screenshots prove:
+
+ssp-root → /c1/
+
+not:
+
+ssp-root → /admin/
+2. Require actual upload capability
+
+Don't accept:
+
+<form>...</form>
+
+Don't accept:
+
+/admin/tariffs.php
+
+Only accept a page containing:
+
+<input type="file">
+
+because that's what Sippy's upload screen actually uses.
+
+3. Prioritize the real URL
+
+Your screenshots prove the upload page is:
+
+/c1/rates_tariff.php?i_tariff=33
+
+not:
+
+/admin/tariffs.php
+What I want to see in the next test
+
+Not the UI.
+
+Not the toast.
+
+Not Push History.
+
+Only these logs:
+
+[Sippy] findRatesCapableSession
+
+Expected:
+
+✓ ssp-root/customer has upload form at
+/c1/rates_tariff.php?i_tariff=33
+
+Then:
+
+fileInputs=1
+
+Then:
+
+formAction=
+fileField=
+
+If those appear, then for the first time we know the code is talking to the same page you manually use in Sippy.
+
+One thing I would still change after upload works
+
+Based on all the legacy screenshots:
+
+Instead of generating a fresh XLSX from scratch every time:
+
+Read tariff #33
+↓
+Download current Sippy XLSX
+↓
+Store archive copy
+↓
+Modify affected rows
+↓
+Upload modified XLSX
+
+Benefits:
+
+identical format to Sippy export
+preserves hidden columns
+safer upgrades
+easy rollback
+enables 90-day archive/versioning
+
+Example archive:
+
+tariff33_20260618_091300.xlsx
+tariff33_20260618_114500.xlsx
+tariff33_20260619_080000.xlsx
+
+and tie those files to:
+
+Job 5105266
+Job 5105267
+Job 5105268
+
+which matches what the legacy BitsAuto job system appears to have been designed around.
+
+For now, though, I would not implement any archive/versioning yet. The next push test should tell us whether the code finally reaches the correct Sippy upload page. If the logs show /c1/rates_tariff.php with fileInputs=1, we're finally debugging the real upload path instead of the wrong admin page.

@@ -1,0 +1,160 @@
+Yes — that’s the correct call, and your framing is already aligned with how this should evolve.
+
+Let’s tighten the decision properly so you don’t accidentally create “two competing AI systems.”
+
+✅ Final architectural decision (correct approach)
+👉 Keep BOTH tables
+anomaly_events → statistical/telemetry-driven (CDR-based)
+ai_ops_events → execution-driven (control-plane signals)
+
+This separation is correct and intentional, not duplication.
+
+🧠 Why separation is the right design
+
+These two systems answer fundamentally different questions:
+
+1. anomaly_events = “What is happening in the network?”
+
+Source:
+
+ASR drops
+CPS spikes
+vendor degradation patterns
+historical baselines
+
+👉 This is observational intelligence
+
+2. ai_ops_events = “What did we do, and what happened?”
+
+Source:
+
+routing change executed
+Sippy failure
+latency in control actions
+rollback triggered
+
+👉 This is control-plane intelligence
+
+⚠️ Why merging them is a mistake
+
+If you merge:
+
+execution signals get diluted into statistical noise
+anomaly engine becomes polluted with human actions
+root cause becomes ambiguous (network vs operator action)
+
+So separation preserves:
+
+clarity of causality
+
+🧩 Best UI model (important)
+
+Instead of merging tables, you unify presentation layer only:
+
+AI Ops Dashboard = unified feed
+
+Each event has:
+
+{
+  source: "anomaly" | "execution",
+  type,
+  severity,
+  message,
+  timestamp
+}
+
+So UI becomes:
+
+single timeline of “everything that matters”
+
+But backend stays clean.
+
+🔧 What we are building (confirmed scope)
+1. ai_ops_events table (execution signals)
+
+✔ correct
+
+2. signal-mapper.ts
+
+✔ pure deterministic function
+✔ no ML
+✔ no side effects
+
+Rules:
+
+!execResult.success → ROUTING_FAILURE
+durationMs > 6000 → LATENCY_WARNING
+vendor routing op failure → VENDOR_DEGRADATION
+3. hook inside approveRequest()
+
+✔ after normalization layer
+✔ one-line call:
+
+emitAiOpsSignal(normalizedExecResult, operationType)
+4. UI change (important refinement)
+
+Instead of replacing anomaly_events:
+
+AI Ops page should:
+query anomaly_events
+query ai_ops_events
+merge in-memory
+sort by timestamp
+render unified feed
+
+This avoids:
+
+breaking existing anomaly logic
+losing statistical intelligence
+🧠 Key architectural insight (important)
+
+You are now building two orthogonal intelligence systems:
+
+Layer	Meaning
+anomaly_events	“system behavior over time”
+ai_ops_events	“system reactions to actions”
+
+Together they form:
+
+full closed-loop observability + control intelligence
+
+🚀 Final recommendation (clear decision)
+✔ Yes — implement exactly this design:
+Backend:
+ai_ops_events table
+signal-mapper.ts
+hook in approveRequest()
+Frontend:
+merge feed (not replace anomaly view)
+tag by source
+🎯 Why this is the correct next move
+
+Because it completes the missing conceptual layer:
+
+You now move from:
+
+execution system with observability
+
+to:
+
+dual-channel operational intelligence system
+
+Channel A: system health (anomalies)
+Channel B: operator/system actions (execution signals)
+📌 What NOT to do yet
+
+Avoid:
+
+ML clustering
+predictive inference
+causal graph modeling
+
+That comes AFTER both signal streams stabilize.
+
+✔ Final answer
+
+Yes — implement it this way:
+
+separate table + unified UI feed + execution hook
+
+That is the cleanest, most scalable architecture for where your system is right now.

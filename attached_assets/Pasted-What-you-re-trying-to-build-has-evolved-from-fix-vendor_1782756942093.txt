@@ -1,0 +1,486 @@
+What you're trying to build has evolved from "fix vendor imports" into something much more fundamental: a Destination Master Data (MDM) layer for the entire BitsAuto platform.
+
+The destination_aliases table you've just created is one component of that larger architecture.
+
+The overall problem
+
+Today, the same destination is known by different names depending on the source:
+
+Source	Example
+Sippy	PAK Mobile MOBLIN
+Vendor A	Mobilink
+Vendor B	Jazz GSM
+Vendor C	Pakistan Jazz
+Canonical Catalogue	Pakistan Mobile Jazz
+
+Without a mapping layer, every system treats these as different destinations.
+
+That causes:
+
+vendor imports failing to match
+duplicate destinations
+incorrect analytics
+wrong commercial reports
+inconsistent routing decisions
+What we're actually implementing
+
+Think of it as this architecture:
+
+                Vendor XLSX
+                     │
+                     ▼
+        Vendor Destination Name
+                     │
+                     ▼
+        Destination Resolution Service
+                     │
+      ┌──────────────┼───────────────┐
+      │              │               │
+      ▼              ▼               ▼
+ Alias Lookup   Canonical Name   Prefix Match
+      │              │               │
+      └──────────────┴───────────────┘
+                     │
+                     ▼
+        global_destinations.id
+                     │
+                     ▼
+ Everything else uses ONE destination_id
+
+That one destination_id becomes the master key across the platform.
+
+Why destination_aliases exists
+
+Your table:
+
+destination_aliases
+
+is effectively becoming a dictionary.
+
+Example:
+
+alias_text	alias_type	destination_id
+PAK Mobile MOBLIN	sippy	374641
+Mobilink	vendor	374641
+Jazz GSM	vendor	374641
+Pakistan Mobile Jazz	canonical	374641
+
+So regardless of what arrives:
+
+Mobilink
+
+or
+
+PAK Mobile MOBLIN
+
+the resolver returns
+
+destination_id = 374641
+Why normalize aliases
+
+You created:
+
+normalized_alias
+
+which removes punctuation and case.
+
+So these all become identical:
+
+PAK Mobile MOBLIN
+
+pak-mobile-moblin
+
+PAK_Mobile_MOBLIN
+
+pak mobile moblin
+
+↓
+
+pakmobilemoblin
+
+That gives deterministic matching.
+
+What the resolver now does
+
+Instead of:
+
+Vendor Name
+
+↓
+
+Exact string compare
+
+↓
+
+No match
+
+it becomes:
+
+Vendor Name
+
+↓
+
+Normalize
+
+↓
+
+Alias table
+
+↓
+
+Destination ID
+
+If alias lookup fails:
+
+↓
+
+Canonical name
+
+↓
+
+Longest prefix
+
+↓
+
+Manual review
+Why this matters outside Vendor Imports
+
+This is much bigger than imports.
+
+Every subsystem should use the same resolver.
+
+For example:
+
+Vendor Rate Manager
+
+↓
+
+Destination Resolver
+Market Intel
+
+↓
+
+Destination Resolver
+Sippy Sync
+
+↓
+
+Destination Resolver
+Rate Comparison
+
+↓
+
+Destination Resolver
+AI Routing
+
+↓
+
+Destination Resolver
+Commercial Reports
+
+↓
+
+Destination Resolver
+
+No module should implement its own matching logic.
+
+What you've already completed
+
+From everything you've done over the last several days:
+
+Database
+✅ Removed duplicate routing destinations.
+✅ Archived duplicate records.
+✅ Added uniqueness protection.
+✅ Created destination_aliases.
+Backend
+✅ Destination Alias Service.
+✅ Destination Resolver Service.
+✅ Destination Matcher Service.
+✅ Vendor matcher now uses resolver.
+Frontend
+✅ Import wizard validation improved.
+✅ Better error messages.
+⏳ "Save as Alias" still to implement.
+What remains
+Phase 1
+
+Populate aliases.
+
+Initially:
+
+PAK Mobile MOBLIN
+↓
+
+Pakistan Mobile Jazz
+TELNOR
+
+↓
+
+Pakistan Mobile Telenor
+MOBILINK
+
+↓
+
+Pakistan Mobile Jazz
+
+These can come from:
+
+Market Intel
+Sippy
+Vendor sheets
+Phase 2
+
+Market Intel becomes the governance screen.
+
+Instead of only displaying
+
+Sippy
+
+↓
+
+Canonical
+
+users should be able to click
+
+Save Alias
+
+which inserts
+
+destination_aliases
+Phase 3
+
+Automatic learning.
+
+When an operator manually resolves
+
+Mobilink
+
+↓
+
+Pakistan Mobile Jazz
+
+the system asks:
+
+Save as alias?
+
+[Yes]
+
+One click.
+
+Never manually resolve again.
+
+Phase 4
+
+Every import becomes smarter.
+
+The first vendor upload might have
+
+40 unmatched
+
+After saving aliases:
+
+0 unmatched
+One architectural recommendation
+
+Your current table is good, but I'd make one enhancement before it accumulates data.
+
+Instead of:
+
+alias_type
+
+only,
+
+I'd distinguish where the alias came from:
+
+alias_type
+
+vendor
+sippy
+customer
+legacy
+manual
+
+and separately:
+
+source
+
+Vendor XYZ
+
+Sippy Switch A
+
+Manual
+
+Imported CSV
+
+That lets you answer questions like:
+
+"Which vendor introduced this alias?"
+"Which Sippy switch is using this naming?"
+"How often is this alias used?"
+
+You've already included a source column, which is a good foundation for this.
+
+Bottom line
+
+You're no longer just fixing vendor imports.
+
+You're building a Destination Master Data (MDM) service for BitsAuto.
+
+The goal is that every name from every external system resolves to exactly one canonical global_destinations.id, and every module—vendor imports, Sippy integration, Market Intel, routing, analytics, commercial reporting, and AI recommendations—uses that single canonical identity. That's the foundation that eliminates duplicate destinations, inconsistent matching, and repeated manual mapping across the platform.
+
+The screenshot actually shows the next issue very clearly.
+
+What Replit is telling you
+
+The deployment is failing during the production schema migration, not because of your new destination services.
+
+The failing SQL is:
+
+CREATE UNIQUE INDEX idx_global_destinations_prefix_unique
+ON global_destinations (dial_prefix)
+WHERE dial_prefix IS NOT NULL
+  AND dial_prefix != '';
+
+and PostgreSQL reports:
+
+could not create unique index
+
+That means production still contains duplicate dial_prefix values, while your development database has already been cleaned.
+
+Why this happened
+
+Earlier you cleaned your development database:
+
+✅ Archived 1,333 duplicate destinations
+✅ Deleted 1,333 duplicate destination rows
+✅ Deleted 6,665 duplicate rate rows
+✅ Successfully created the unique index
+
+But production is still on the old data.
+
+So during deployment Replit tries to execute:
+
+CREATE UNIQUE INDEX ...
+
+against production, where duplicates still exist.
+
+PostgreSQL refuses because a unique index cannot be built while duplicate keys exist.
+
+This is NOT an application bug
+
+Your code is fine.
+
+This is a data migration problem.
+
+There are two databases that are now different:
+
+Development DB
+--------------
+Duplicates removed
+✓ Unique index exists
+
+Production DB
+-------------
+Duplicates still exist
+✗ Unique index cannot be created
+Do NOT choose
+
+The deployment dialog offers
+
+Copy your development database schema & data to production
+
+I would not use that option for this project.
+
+Given the amount of commercial and routing data you're managing, overwriting production data is much riskier than performing a controlled migration.
+
+The correct deployment sequence
+
+You should treat this as a staged database migration.
+
+Step 1
+
+Run the duplicate audit on production.
+
+You already know the query:
+
+SELECT
+    dial_prefix,
+    COUNT(*)
+FROM global_destinations
+WHERE dial_prefix IS NOT NULL
+  AND dial_prefix <> ''
+GROUP BY dial_prefix
+HAVING COUNT(*) > 1;
+
+Confirm production has the same duplicate pattern.
+
+Step 2
+
+Run the same archive + cleanup migration you successfully tested on development.
+
+That includes:
+
+archive duplicate destinations
+archive duplicate rates
+delete old duplicate rows
+verify no orphan references
+
+Exactly the process you've already validated.
+
+Step 3
+
+Only after production is clean:
+
+CREATE UNIQUE INDEX ...
+I would improve the migration
+
+Right now your migration assumes:
+
+clean data
+
+↓
+
+create unique index
+
+A production-safe migration should instead be:
+
+archive duplicates
+
+↓
+
+verify duplicates removed
+
+↓
+
+assert duplicate count = 0
+
+↓
+
+create unique index
+
+If verification fails, abort before creating the index.
+
+Current project status
+
+Here's where I think the work stands:
+
+✅ Completed
+Destination deduplication strategy
+Destination Resolver
+Alias Registry
+Vendor Matcher
+Canonical destination architecture
+Development database cleanup
+Development uniqueness enforcement
+⏳ Remaining
+Production data cleanup
+Production unique index creation
+Populate destination_aliases
+Market Intel "Save as Alias"
+End-to-end vendor import validation
+Recommendation
+
+Don't try to force this deployment by bypassing the migration.
+
+Instead, create a production data migration that performs the same deduplication and archival you already executed successfully in development. Once production contains no duplicate dial_prefix values, the unique index migration should apply cleanly, and subsequent deployments will no longer fail on this step.

@@ -1,0 +1,159 @@
+Good — this is the first point in the whole chain where a new system is actually justified, not just refactoring.
+
+I’ll answer in the same mode you’ve been using: read → validate → propose only, no build yet.
+
+What your synthesis actually reveals (important correction)
+
+You’ve correctly identified the key truth:
+
+The original “3 systems → 1 arbiter” idea is conceptually right, but physically impossible to unify cleanly at entity level.
+
+Because:
+
+CI = connection-level truth
+Carrier Scoring = destination-prefix economics
+AI Ops = event-based anomaly stream
+
+So the mismatch is not implementation noise — it’s three different measurement planes.
+
+That means:
+
+❌ There is no single “join key problem to solve”
+✔ There is a “decision context problem” to solve
+
+What should be built (clean architecture interpretation)
+
+Instead of forcing a false unification, the correct abstraction is:
+
+1. Keep all 3 systems independent (correct)
+CI → network health
+Scoring → traffic quality economics
+AI Ops → anomaly detection
+
+No merging at source.
+
+2. Introduce a Decision Overlay Layer (read-only)
+
+This is the missing piece:
+
+A computed, ephemeral “opinion fusion layer” that does NOT try to unify entities, only aligns interpretation per screen context
+
+So instead of:
+
+❌ unified entity = merge(CI + scoring + AI Ops)
+
+You do:
+
+✔ decision context = CI primary
+✔ scoring = attached context (if relevant)
+✔ AI Ops = temporal corroboration
+Correct v1 design (what your endpoint should actually be)
+/api/ai-ops/decision-overlay
+
+Not “decisions” as a system of truth.
+
+It is:
+
+“Explain what we know about this CI connection right now”
+
+Response model (corrected)
+{
+  connection: "ASTRA-BD-PR-PR",
+  
+  ci: {
+    state: "DEGRADED",
+    healthScore: 62,
+    confidence: "HIGH"
+  },
+
+  aiOps: {
+    recentEvents: [
+      {
+        severity: "HIGH",
+        type: "ANOMALY_SPIKE",
+        message: "PDD spike detected"
+      }
+    ],
+    corroborationLevel: "YES | PARTIAL | NONE"
+  },
+
+  scoringContext: {
+    avgFailureRate: 3.2,
+    sampleCount: 1240,
+    note: "destination-level signal only"
+  },
+
+  overlayVerdict: {
+    state: "AT_RISK",
+    reasoning: [
+      "CI shows degradation",
+      "AI Ops confirms anomaly activity",
+      "Scoring data is not directly comparable"
+    ]
+  }
+}
+What this fixes (this is the real value)
+
+This avoids the mistake the earlier docs were drifting toward:
+
+❌ Wrong idea
+
+“One unified vendor truth”
+
+✔ Correct idea
+
+“One contextual decision view per surface”
+
+So:
+
+Routing Manager sees CI truth
+AI Ops sees anomaly truth
+This overlay shows combined interpretation without forcing data fusion
+UI placement (important)
+
+This should go in:
+
+AI Ops page → new tab:
+
+“Decision Overlay”
+
+Not:
+
+not replacing CI
+not replacing scoring
+not modifying routing
+
+It is:
+
+a diagnostic lens, not a control system
+
+What NOT to build (this is critical)
+
+Do NOT:
+
+create shared state tables
+normalize entity keys across systems
+try to convert scoring → connection-level
+attempt “global vendor health”
+
+That is exactly what your previous architecture correction already rejected.
+
+Final recommendation
+Yes — this should be built
+
+But only as:
+
+✔ read-only aggregation layer
+✔ CI-centered interpretation
+✔ no system-of-record claim
+✔ no execution capability
+
+If you say “go”
+
+Next step would be:
+
+Define endpoint in Express (/api/ai-ops/decision-overlay)
+Wire CI reuse (no recomputation duplication)
+AI Ops event filter (48h window)
+Lightweight scoring summary attach
+React tab inside AI Ops page

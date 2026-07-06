@@ -1,0 +1,251 @@
+Yes — your current screenshot confirms something important:
+
+During the:
+
+workspace-card-grid migration
+
+some of the:
+
+operational telemetry sections
+
+were accidentally removed or visually deprioritized.
+
+Your older dashboard direction was actually stronger operationally.
+
+The current version looks:
+
+cleaner
+more enterprise
+more modern
+
+BUT:
+it lost:
+
+operational density
+
+which is critical for:
+
+NOC
+telecom routing
+live operations
+
+You are correct to flag this.
+
+What Is Missing Right Now
+
+Comparing the older operational dashboard vs current:
+
+Feature	Old	Current
+Traffic Graph	✅	❌ Missing
+Top Clients panel	✅	❌ Missing
+Top Vendors panel	✅	❌ Missing
+Top Routes panel	✅	❌ Missing
+Live Calls table	✅	❌ Missing
+Quick Actions panel	✅	❌ Missing
+System Health section	✅	❌ Missing
+Risk Destinations	✅	❌ Missing
+KPI trend visibility	✅	Reduced
+NOC density feel	✅	Too sparse
+
+The current layout became:
+
+card-launch heavy
+
+instead of:
+
+live telecom operations heavy
+
+That is the issue.
+
+Correct Fix
+
+DO NOT remove:
+
+card grids
+operational launch surfaces
+smart priorities
+
+Those are good.
+
+Instead:
+
+combine BOTH layers
+
+Meaning:
+
+Layer	Purpose
+Operational Cards	workflow launch
+Telemetry Panels	live monitoring
+
+This is the correct architecture.
+
+Correct Dashboard Structure
+SECTION 1 — KPI STRIP
+
+Keep:
+
+Active Calls
+Alerts
+Degraded Carriers
+Approvals
+
+Good already.
+
+SECTION 2 — SMART PRIORITIES
+
+Keep.
+
+Very strong.
+
+SECTION 3 — PRIMARY WORKFLOWS
+
+Keep.
+
+Good operational launch surface.
+
+SECTION 4 — LIVE TELEMETRY GRID ← MISSING
+
+Bring back:
+
+LEFT (70%)
+Total Traffic Graph
+LIVE / 24H / 7D
+Calls
+ASR
+ACD
+CPS
+Live Calls Table
+caller
+callee
+vendor
+duration
+codec
+state
+RIGHT (30%)
+Top Clients
+Top Vendors
+Top Routes
+
+All 3 stacked vertically.
+
+These are VERY important operational widgets.
+
+SECTION 5 — SYSTEM HEALTH ← MISSING
+
+Bring back:
+
+CPU
+Memory
+DB
+WebSocket
+Cache freshness
+Engine status
+
+This is critical for NOC feel.
+
+SECTION 6 — QUICK ACTIONS ← MISSING
+
+Bring back:
+
+Create Alert
+Check Balance
+Add Route
+Generate Report
+Test Route
+
+Good operational acceleration layer.
+
+SECTION 7 — RISK DESTINATIONS ← MISSING
+
+VERY valuable operational widget.
+
+Examples:
+
+Pakistan Mobile
+Bangladesh
+UAE Mobile
+
+with:
+
+degradation score
+FAS risk
+instability
+
+This gives:
+
+routing awareness
+
+immediately on dashboard.
+
+Most Important Principle
+
+The dashboard should feel like:
+
+telecom operational cockpit
+
+NOT:
+
+workspace homepage only
+
+You currently over-optimized for:
+
+cleanliness
+launch surfaces
+enterprise spacing
+
+and under-optimized for:
+
+live operational telemetry
+NOC density
+routing visibility
+Correct Final Balance
+
+You need BOTH:
+
+Component	Purpose
+Workflow cards	navigation
+Telemetry panels	operations
+
+That combination becomes:
+
+carrier-grade NOC UX
+Strong Recommendation
+
+Do NOT:
+
+enlarge cards further
+add more whitespace
+reduce density further
+
+Instead:
+
+increase operational telemetry density again
+
+especially on:
+
+Live Ops
+Vendors
+Intelligence
+
+Those should feel:
+
+alive
+real-time
+signal-rich
+Final Verdict
+
+Your older screenshot had:
+
+better operational density
+
+Your newer screenshot has:
+
+better enterprise workflow architecture
+
+The correct final system is:
+
+merge both together
+
+That will produce:
+
+carrier-grade operational intelligence cockpit UX

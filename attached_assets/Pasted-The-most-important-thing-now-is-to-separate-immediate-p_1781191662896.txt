@@ -1,0 +1,213 @@
+The most important thing now is to separate immediate production fixes from the long-term CCI architecture.
+
+Right now you have two different categories:
+
+Category A — Production Issues (Must Fix Now)
+1. Recording Issue ❌ Still Open
+
+This is not a Product Registry problem.
+
+Current flow:
+
+Governance Cut
+↓
+Playback Started
+↓
+Recording Path Created
+↓
+UI says Recording Missing
+
+This means one of these is failing:
+
+Asterisk recording file not created
+OR
+File created but wrong path stored
+OR
+File exists but BitsAuto cannot read it
+OR
+File cleanup removes it before UI reads it
+
+I would make this Priority #1 because recordings are evidence.
+
+Without recordings:
+
+Customer disputes cannot be verified
+Governance validation is incomplete
+QA / Route Certification impossible later
+
+You need a recording audit page showing:
+
+Call ID
+Expected Recording Path
+File Exists? (Y/N)
+File Size
+Duration
+Download Link
+
+No guessing.
+
+2. Universal CDR Reconciliation ❌ Not Complete
+
+Current status:
+
+Customer CDR
+Vendor CDR
+P&L
+
+are still separate worlds.
+
+The fix should not be:
+
+Call Governance Match
+
+The fix should be:
+
+Reconciliation Engine
+
+Used by:
+
+Billing Verification
+Finance
+Deal Workspace
+Revenue Assurance
+Call Governance
+
+One engine.
+
+3. Vendor Cost Verification ⚠️
+
+The P&L report proves vendor cost exists.
+
+Need to verify:
+
+Vendor CDR Cost
+=
+P&L Cost
+
+for sample calls.
+
+Until proven:
+
+Margin Truth
+
+is not trusted.
+
+Category B — Foundation Architecture
+
+This is where the CCI discussion fits.
+
+Commercial Call Identity (CCI)
+
+I agree with the correction:
+
+Product Registry does not originate Product.
+
+The call already tells us.
+
+Example:
+
+1923069306001
+↑
+1 = FC
+
+Asterisk can immediately stamp:
+
+BITSAUTO_PRODUCT=FC
+
+No lookup needed.
+
+CCI Fields
+
+Every call gets:
+
+call_uuid
+customer_id
+product_code
+product_prefix
+original_cld
+normalized_cld
+start_time
+
+at call creation.
+
+Then later:
+
+tariff_id
+vendor_id
+revenue
+cost
+margin
+
+are attached.
+
+What I Would Implement First
+
+Not Trust Center.
+
+Not QA.
+
+Not Route Certification.
+
+Phase 1 — Reconciliation Foundation
+Customer CDR
+Vendor CDR
+P&L
+
+all linked into one record.
+
+Phase 2 — Recording Reliability
+
+Fix:
+
+Recording Created
+Recording Stored
+Recording Retrieved
+
+100%.
+
+Phase 3 — Commercial Call Identity
+
+Add:
+
+product_code
+product_prefix
+original_cld
+
+to every call record.
+
+Phase 4 — Product Registry Authority
+
+Map:
+
+FC
+BC
+SB
+SC
+
+to:
+
+Pricing Template
+Routing Template
+Tariff
+Phase 5 — Rate Integrity Audit
+
+Verify:
+
+Expected Rate
+Actual Rate
+
+per call.
+
+My Current Assessment
+
+Today the biggest unresolved production issues are:
+
+Issue	Status
+Recording retrieval	❌ Open
+Universal CDR reconciliation	⚠ Partial
+Vendor cost validation	⚠ Partial
+Product identity	❌ Missing
+Rate integrity	❌ Missing
+Invoice trust	❌ Not ready
+
+The CCI architecture is the correct long-term solution, but the recording issue should not wait for CCI. It should be fixed immediately because it affects evidence, troubleshooting, QA, and customer disputes today.

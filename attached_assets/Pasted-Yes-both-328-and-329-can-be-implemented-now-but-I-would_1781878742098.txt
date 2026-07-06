@@ -1,0 +1,154 @@
+Yes, both #328 and #329 can be implemented now, but I would do them in this order:
+
+Priority 1: #329 Initial Client Rate Job on Provisioning
+
+Risk: Low
+Dependency: None
+
+Why first:
+
+Does not touch the proven Sippy rate push engine.
+Does not affect Send Rate certification.
+Pure workflow enhancement.
+Creates the missing Commercial/KAM queue immediately.
+
+Fits naturally after:
+
+Company
+  ↓
+Sippy Account
+  ↓
+Tariff
+  ↓
+Service Plan
+  ↓
+Initial Rate Job
+Suggested Enhancement Before Build
+
+Store:
+
+company_id
+company_name
+
+product_id
+product_name_snapshot
+
+i_account
+i_tariff
+service_plan_id
+
+status = pending_rates
+
+not only:
+
+clientName
+productName
+
+This avoids future schema changes.
+
+Priority 2: #328 Rate Job Audit Fields
+
+Risk: Low-Medium
+Dependency: None
+
+Can be implemented now because:
+
+Only affects Rate Notification jobs.
+Does not modify:
+pushRateViaPortalUpload()
+setSippyRateEntry()
+pushRateToSippy()
+Send Rate certification path
+I would slightly extend #328
+
+Instead of only:
+
+sheet_generated
+template_version
+generated_attachment_hash
+
+I'd add:
+
+sheet_generated_at
+
+or
+
+generated_at
+
+at the same time.
+
+Future audit reports will need timestamps.
+
+Recommended Sequence
+Sprint A (Now)
+
+Implement:
+
+#329
+Initial Client Rate Job
+
+Then verify:
+
+Create Client
+↓
+Tariff Created
+↓
+Service Plan Created
+↓
+Pending Rate Job Appears
+Sprint B (Immediately After)
+
+Implement:
+
+#328
+Sheet Generated
+Template Version
+Attachment Hash
+
+Verify:
+
+Generate Sheet
+↓
+Hash Stored
+↓
+Template Version Stored
+↓
+SMTP Send
+Then Continue
+
+After #328 and #329:
+
+Send Rate Certification
+T6
+T7
+T8
+T1
+T2
+T3
+T5
+
+No need to wait for Product Membership redesign, Notification Center, or Background Workers.
+
+One Thing I Would NOT Implement Yet
+
+Do not implement:
+
+companies.product_id
+
+or
+
+automatic product membership redesign
+
+during #328/#329.
+
+Keep those as a separate project after certification.
+
+My Recommendation
+
+✅ Implement #329 now
+✅ Implement #328 immediately after
+✅ Keep Sippy rate engine untouched
+✅ Keep schema redesign out of scope for this sprint
+✅ Continue certification afterward
+
+These two features are workflow/audit improvements and are safe to add without risking the rate push functionality that was already proven.

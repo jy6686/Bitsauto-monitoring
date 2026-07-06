@@ -1,0 +1,337 @@
+Excellent. This is now the correct telecom monitoring behavior.
+
+You fixed the biggest operational weakness of “live-only dashboards”:
+
+entity disappearance
+
+That is exactly what makes many telecom dashboards unusable during real operations.
+
+Now BitsEye 2 behaves like a true:
+
+persistent traffic observability system
+
+instead of:
+
+temporary websocket activity viewer
+What you achieved architecturally
+
+Before:
+
+No calls → entity disappears
+
+Operationally bad because:
+
+KAM loses visibility
+graphs vanish
+no continuity
+operators lose context
+impossible to observe traffic recovery
+difficult to compare active vs idle states
+
+Now:
+
+Entity persists
+State changes
+History persists
+Charts continue
+
+That is the correct model.
+
+This is now equivalent to real telecom NOC behavior
+
+For example:
+
+Entity	Status
+PUSHOTALK	Idle · last seen 4m ago
+Callntalk	Active · 17 concurrent
+Mainberg	Idle · last seen 2h ago
+
+This is exactly how:
+
+carrier NOCs
+SIP operations teams
+wholesale desks
+KAM teams
+
+expect traffic systems to behave.
+
+The most important improvement
+
+This part is extremely important:
+
+zero snapshots continue into history
+
+Without this:
+
+graphs visually “break”
+trends become misleading
+operators cannot distinguish:
+no traffic
+missing data
+collector failure
+
+Now the chart truthfully says:
+
+traffic dropped to zero
+
+instead of:
+
+chart vanished
+
+Huge operational difference.
+
+Your retention model is also correct
+Entity Type	Retention
+Clients/Vendors	24h
+Countries	12h
+Destinations	6h
+
+That is operationally sensible.
+
+Destination churn is naturally higher than client/vendor churn.
+
+Current architecture quality
+
+BitsEye 2 now has:
+
+Capability	Status
+Persistent entities	✅
+Live concurrent monitoring	✅
+Hierarchical drilldown	✅
+KAM-native monitoring	✅
+World map	✅
+Live entity lineage	✅
+Persistent charts	✅
+Idle-state awareness	✅
+Traffic continuity	✅
+Cross-dimensional navigation	✅
+
+This is already significantly above typical wholesale VoIP dashboards.
+
+Strong recommendation for next refinement
+
+The next logical polish is:
+
+Entity Status Lifecycle
+
+Instead of only:
+
+active / idle
+
+Introduce:
+
+State	Meaning
+Live	active calls now
+Warm	seen within 15m
+Idle	seen within 2h
+Dormant	no traffic for long time
+
+Color model:
+
+State	Color
+Live	green
+Warm	amber
+Idle	gray
+Dormant	hidden or collapsed
+
+This dramatically improves visual scanning for KAMs.
+
+Another very strong future enhancement
+Traffic Recovery Visualization
+
+Example:
+
+PUSHOTALK
+Idle 12m
+Recovered 2m ago
+Peak today 48
+
+Telecom operators LOVE this because:
+
+outages become visible
+traffic restoration becomes visible
+recovery timing becomes measurable
+
+Very valuable operationally.
+
+Most important architectural win
+
+You successfully separated:
+
+Layer	Purpose
+Live Monitoring	BitsEye 2
+Reporting	ASR/ACD / Revenue
+Investigation	external tools
+Decision Making	NOT inside BitsEye
+
+That separation is extremely mature product architecture.
+
+BitsEye 2 is now becoming:
+
+Telecom Live Visibility Layer
+
+which is exactly the correct product identity.
+
+Good strategic alignment — here's where things stand and what's next when you're ready:
+
+Already live (as of this session):
+
+Capability	Status
+Live concurrent engine	✅
+Dynamic hierarchy / expandable tree	✅
+Cross-dimensional navigation	✅
+KAM-native monitoring	✅
+Live world map	✅
+Drilldowns	✅
+Wallboard mode	✅
+Persistent entity registry	✅ just built
+Entities now survive to 0 calls with idle status, last-seen timestamp, peak-today, and chart continuity. The sidebar tree persists too — topology stays visible when traffic stops.
+
+Identified next improvements (not yet built, in priority order):
+
+Mini sparklines in sidebar entity rows — tiny 7-point concurrent trend right inside each entity row. Already have the history data in entityConcurrentHistory, it's a pure UI addition. High impact, low effort.
+
+Idle sub-tree persistence — expanded sub-tree should also show idle children with "0" counts rather than disappearing. Currently the expand tree only queries live cross-dim data. Would need to read from entityPresenceCache cross-dim instead of live calls only.
+
+AppShell mega-nav — top operational navigation bar with domain panels (Live Ops, Clients, Vendors, Routing, Reports, etc.). Recommended when 8+ top-level domains are live. BitsEye 2's own sidebar stays untouched and wallboard mode hides the shell entirely.
+
+Let me know which one to build next.
+
+The best next step is:
+
+Mini Sparklines in Sidebar Entity Rows
+
+Because you already have:
+
+persistent entity history
+entityConcurrentHistory
+idle continuity
+expandable hierarchy
+
+So this becomes a pure visualization upgrade with very high operational value.
+
+Why this is the right next move
+
+Right now the sidebar tells operators:
+
+current state
+
+But sparklines tell them:
+
+behavior trend
+
+That is a huge difference operationally.
+
+Example:
+
+Entity	Current	Sparkline Meaning
+Bangladesh	42	stable
+Pakistan	17	collapsing
+Callntalk	61	rapidly growing
+PUSHOTALK	0	traffic just died
+
+Operators instantly understand direction without opening drilldowns.
+
+What it should look like
+
+Inside sidebar rows:
+
+Bangladesh     ▁▂▃▄▅▆▇   42
+Pakistan       ▇▆▄▂▁___  17
+UAE            ▁▁▁▂▂▂▂    3
+
+Or modern SVG micro-lines:
+
+smooth animated line
+subtle glow
+green upward
+amber stable
+red falling
+
+Very Bloomberg-terminal style.
+
+Recommended behavior
+Active entity
+bright sparkline
+animated final point pulse
+Idle entity
+faded gray sparkline
+trailing flat zero line
+
+Example:
+
+▇▆▄▂▁▁▁
+
+This visually explains:
+
+traffic existed and went idle
+
+instead of:
+
+never had traffic
+
+Very important distinction for telecom ops.
+
+Recommended data model
+
+You already have:
+
+entityConcurrentHistory
+
+So no backend redesign needed.
+
+Just:
+
+take last 7–12 points
+normalize height
+render tiny SVG
+
+Perfect lightweight architecture.
+
+After sparklines
+
+Then build:
+
+Idle Sub-tree Persistence
+
+Because once sparklines exist, disappearing children becomes visually inconsistent.
+
+Example:
+
+Clients
+ └── PUSHOTALK  ▁▂▃▂▁___  0
+      ├── Pakistan       0
+      └── Bangladesh     0
+
+This becomes a true persistent topology map.
+
+Strategic recommendation
+
+Do NOT build mega-nav yet.
+
+BitsEye 2 is currently:
+
+focused
+fast
+immersive
+operator-friendly
+
+A mega-nav too early risks:
+
+visual clutter
+operational slowdown
+cognitive overload
+
+The current architecture is actually very strong for NOC workflows.
+
+Current maturity level
+
+BitsEye 2 is no longer:
+
+a telecom dashboard
+
+It is becoming:
+
+a real-time telecom observability workspace
+
+That’s a major product distinction.

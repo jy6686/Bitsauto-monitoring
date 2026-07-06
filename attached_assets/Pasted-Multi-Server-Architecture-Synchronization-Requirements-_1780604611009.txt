@@ -1,0 +1,189 @@
+Multi-Server Architecture & Synchronization Requirements
+
+Currently, the platform supports linking multiple servers, but only one server can be designated as the Primary server while all others operate as Secondary servers.
+
+We would like to evaluate whether the platform can support a Multi-Primary architecture, where three or four IPs/servers can operate simultaneously as Primary nodes.
+
+Current Operational Model
+
+Our environment typically consists of multiple servers with different responsibilities:
+
+Core Traffic Server
+
+* Main production server.
+* Handles inbound and outbound traffic.
+* Primary routing and switching point.
+
+DID Management Server
+
+* Dedicated server for DID services.
+* Handles DID provisioning.
+* Processes DID inbound and outbound traffic separately from the core traffic server.
+
+Testing Server
+
+* Dedicated testing environment.
+* Test calls originate from the testing server IP.
+* Traffic may be routed through vendor testing IPs.
+* Calls can terminate on the Core Traffic Server for validation purposes.
+
+Additional Services Server
+
+* Used for future expansion, redundancy, monitoring, analytics, or specialized services.
+
+Required Enhancements
+
+Multi-Primary Server Support
+
+The platform should allow:
+
+* Multiple Primary servers.
+* Active-Active architecture.
+* Shared traffic processing.
+* Shared routing configuration.
+* Shared customer database.
+* Shared rate management.
+
+Instead of:
+
+* 1 Primary
+* Multiple Secondary
+
+We need:
+
+* Multiple Active Primary Servers
+* Real-time synchronization between all nodes
+
+⸻
+
+Data Synchronization Requirements
+
+When multiple servers are active simultaneously:
+
+Customer Synchronization
+
+If a customer is created on one server:
+
+* Automatically replicate to all active servers.
+* Maintain identical configurations.
+
+Rate Synchronization
+
+If a rate update is imported:
+
+* Apply changes across all active servers.
+* Ensure all routing engines receive the same rates.
+* Prevent inconsistent pricing between servers.
+
+Routing Synchronization
+
+Routing changes should automatically propagate across:
+
+* Core servers
+* DID servers
+* Testing servers
+* Additional production nodes
+
+Authentication Synchronization
+
+Changes to:
+
+* IP Authentication
+* SIP Authentication
+* Username/Password
+* CLD Rules
+
+Should be replicated instantly across all active servers.
+
+⸻
+
+Traffic Aggregation & Reporting
+
+If traffic is running simultaneously on multiple servers:
+
+Example
+
+Server A
+
+* 100,000 minutes
+
+Server B
+
+* 150,000 minutes
+
+Server C
+
+* 75,000 minutes
+
+The platform should provide:
+
+Consolidated Reporting
+
+* Combined traffic statistics.
+* Combined ASR.
+* Combined ACD.
+* Combined revenue.
+* Combined margin analysis.
+
+Per-Server Reporting
+
+* Traffic by server.
+* Revenue by server.
+* Quality metrics by server.
+
+⸻
+
+Monitoring Requirements
+
+The monitoring module should support:
+
+Multi-IP Monitoring
+
+Monitor all active IPs simultaneously.
+
+Track:
+
+* Traffic
+* CPS
+* Concurrent Calls
+* ASR
+* ACD
+* SIP Errors
+* Server Health
+
+Unified Dashboard
+
+Provide a single dashboard showing:
+
+* Overall platform statistics.
+* Individual server statistics.
+* Cluster health status.
+
+⸻
+
+High Availability & Failover
+
+In an Active-Active environment:
+
+* If one server becomes unavailable:
+    * Traffic should automatically shift to remaining servers.
+    * No manual intervention required.
+* Once restored:
+    * Configuration should automatically synchronize.
+    * Traffic should rebalance automatically.
+
+⸻
+
+Recommended Architecture
+
+For long-term scalability, the platform should support:
+
+* Multi-Primary (Active-Active) deployment.
+* Centralized Database Cluster.
+* Real-time configuration synchronization.
+* Shared Rate Management Engine.
+* Shared Customer Repository.
+* Distributed Traffic Processing.
+* Unified Monitoring and Reporting.
+
+This architecture will enable the platform to scale across multiple servers while maintaining configuration consistency, synchronized rates, centralized management, and high availability.

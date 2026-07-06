@@ -1,0 +1,249 @@
+Your understanding is solid, and your requirement is actually very clear in telecom terms:
+
+Authentication rules must never exist in Sippy unless the IP is approved inside BitsAuto first — and all auth creation must be forced through BitsAuto only.
+
+That’s the correct control boundary. Let’s tighten this into a proper enforced security design, not just a UI rule.
+
+🔐 1. Correct Target Architecture (What you actually want)
+You want this invariant:
+
+Sippy should never be the source of truth for authentication rules.
+BitsAuto is the ONLY authority that can create them.
+
+So the system becomes:
+✔ BitsAuto = Control Plane
+
+
+IP approval
+
+
+Authentication rules
+
+
+Trunk bindings
+
+
+Client provisioning logic
+
+
+✔ Sippy = Execution Plane (dumb receiver)
+
+
+Receives only approved configs
+
+
+Cannot be directly modified by users
+
+
+No UI/API direct auth creation bypass
+
+
+
+🚨 2. Critical Rule You MUST enforce
+❌ NEVER allow:
+
+
+Direct auth rule creation in Sippy UI/API
+
+
+Manual SIP auth additions outside BitsAuto
+
+
+Any “edit Sippy account” bypass flow
+
+
+✅ ONLY allow:
+
+
+BitsAuto → validates IP → creates auth rule → pushes to Sippy
+
+
+
+🧠 3. Your required flow (clean + enforceable)
+STEP 1 — IP Registration
+
+
+User adds IP in BitsAuto
+
+
+Status = PENDING
+
+
+
+STEP 2 — Admin Approval Gate
+Admin action:
+
+
+Approve IP → APPROVED
+
+
+Reject IP → REJECTED
+
+
+⚠️ Until approval:
+
+IP is completely ignored for provisioning
+
+
+STEP 3 — Auth Rule Creation (STRICT GATE)
+Authentication rule creation logic must enforce:
+Hard rule:
+IF IP.status != APPROVED → BLOCK
+So even if someone tries:
+
+
+UI
+
+
+API
+
+
+script
+
+
+backend call
+
+
+👉 It must fail.
+
+STEP 4 — Only BitsAuto creates Sippy auth
+Once approved:
+BitsAuto does:
+
+
+Create authentication rule in Sippy
+
+
+Attach:
+
+
+trunk
+
+
+IP
+
+
+CLI rules
+
+
+SIP username overrides
+
+
+
+
+Sippy never receives anything directly from user input.
+
+🔒 4. What this fixes (important security impact)
+This design eliminates:
+❌ Unauthorized SIP access
+No approved IP = no valid SIP endpoint in Sippy
+
+❌ Internal bypass risk
+Even admins cannot “manually add in Sippy” without BitsAuto record
+
+❌ Shadow configuration drift
+Sippy and BitsAuto always stay synchronized
+
+🧩 5. Minimal enforcement model (what you actually need in code)
+You don’t need a heavy workflow system.
+Just enforce 3 backend guards:
+
+Guard 1 — IP Approval Check
+function canCreateAuthRule(ip_id):    return IP.status == APPROVED
+
+Guard 2 — Central Auth Creation API ONLY
+POST /bitsauto/auth-rules/create
+This endpoint:
+
+
+validates IP
+
+
+validates trunk
+
+
+validates company
+
+
+creates Sippy rule
+
+
+❌ No other path allowed
+
+Guard 3 — Block direct Sippy access (IMPORTANT)
+You must ensure:
+
+
+No UI button that links to Sippy auth screens
+
+
+No API keys exposed for direct Sippy writes
+
+
+No admin “shortcut page”
+
+
+If exists → it becomes a bypass vulnerability.
+
+⚠️ 6. Key misunderstanding in earlier analysis (important correction)
+Earlier idea said:
+
+“Auto-approval is only risky if it directly pushes to Sippy”
+
+That is partially incorrect.
+Reality:
+Even if you don’t push to Sippy immediately,
+risk still exists if:
+
+
+later automation syncs pending IPs
+
+
+or batch jobs push everything
+
+
+or someone manually triggers sync
+
+
+👉 So risk is in any eventual path to Sippy, not just immediate push.
+
+🟡 7. Recommended model for BitsAuto (best balance)
+Given your platform is internal (not public SaaS), the best design is:
+✔ Strict Mode (Recommended)
+ComponentRuleIPMust be APPROVEDAuth rule creationONLY via BitsAuto backendSippyNo direct user accessSyncOne-way only (BitsAuto → Sippy)
+
+🧱 8. Small improvement (high impact)
+Add this in UI:
+IP Status Badge System
+
+
+🟡 Pending (no auth allowed)
+
+
+🟢 Approved (can create auth rules)
+
+
+🔴 Rejected (blocked completely)
+
+
+And in auth wizard:
+
+“This IP is not approved. Authentication rule creation disabled.”
+
+
+🚀 Final Recommendation (clear answer)
+Your requirement translates to:
+✔ MUST HAVE RULE
+
+Authentication rules can only be created when IP.status = APPROVED, and only via BitsAuto backend.
+
+✔ MUST BLOCK
+
+
+any direct Sippy auth creation
+
+
+any bypass API
+
+
+any frontend-only validation

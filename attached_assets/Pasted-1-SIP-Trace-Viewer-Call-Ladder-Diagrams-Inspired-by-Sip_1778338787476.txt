@@ -1,0 +1,43 @@
+1. SIP Trace Viewer / Call Ladder Diagrams
+Inspired by: Sippy support portal, MediaCore SBC
+
+The most requested feature in any VoIP NOC. Per-call SIP signalling trace displayed as an interactive ladder diagram (INVITE → 100 Trying → 183 → 200 OK → ACK → BYE). Currently you can see CDRs and quality metrics but not the SIP dialogue itself.
+
+Pull SIP traces from Sippy's packet dump API (/api/sippy/packet-dumps already exists as a route stub)
+Parse and render as a timeline/ladder in the browser
+Show SIP response codes, timing deltas, codec negotiation, and failure reasons per hop
+Link directly from a CDR row → "View SIP trace"
+Why it matters: When a call fails (no audio, one-way audio, 486 Busy, 408 Timeout), the CDR alone doesn't tell you why. This closes the diagnostic loop entirely.
+
+2. Automated Routing Intelligence (AI-Driven Route Actions)
+Inspired by: LCR Analyser already in system, cost optimisation engine
+
+Build on the existing LCR Analyser and approval queue to add rule-based automated routing decisions:
+
+"If ASR for Carrier X to destination Y drops below 60% for 5 consecutive minutes → automatically deprioritise that route and alert"
+"If cost per minute for a route exceeds margin threshold → flag for approval"
+"If a vendor's concurrent call usage exceeds 90% of SIP trunk capacity → pre-alert before overflow"
+Currently the system detects and alerts, but a human must act. This closes the loop to automated response with an approval gate.
+
+3. Synthetic Call Testing / Quality Benchmarking (Scheduled)
+Inspired by: Test Call already exists, test campaigns exist
+
+The test call launcher works manually. Extend it to:
+
+Scheduled test calls — run every 15/30/60 minutes across selected routes automatically
+PESQ/POLQA-style MOS scoring — compare actual audio quality vs. theoretical
+Regression baseline — flag when quality degrades vs. previous test on the same route
+Per-carrier quality matrix — show which carriers are consistently delivering sub-4.0 MOS
+This turns the test call feature from a one-off manual tool into a continuous quality assurance engine.
+
+4. Number Intelligence Layer
+Inspired by: adcharge.eu number validation, Sippy HLR integration
+
+Add a number intelligence panel accessible from any phone number in the system (CDR, live call, DID, test call):
+
+HLR (Home Location Register) lookup — is the number active, what network, roaming?
+CNAM lookup — what name is registered to that number?
+Number Portability — which carrier currently holds this number?
+STIR/SHAKEN attestation — what attestation level did this call carry (A/B/C or unsigned)?
+Number reputation — is this number in spam/fraud databases?
+Single click from any number → intelligence panel. Connects directly to Sippy's existing HLR query API and external providers (e.g. Telnyx, Neustar, or your own HLR gateway).

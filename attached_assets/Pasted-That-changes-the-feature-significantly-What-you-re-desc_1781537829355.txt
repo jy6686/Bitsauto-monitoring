@@ -1,0 +1,149 @@
+That changes the feature significantly.
+
+What you're describing is not a cap rule anymore, because the call is not ending when the cap is reached.
+
+Your desired flow is:
+
+Caller ↔ Vendor RTP Direct
+
+0-30 sec
+Normal conversation
+
+30 sec
+Start recording vendor audio
+
+60 sec
+Governance event fires
+
+Vendor B-leg disconnected
+↓
+Replay vendor recording
+↓
+Caller keeps listening
+↓
+Caller eventually hangs up
+Architectural Impact
+
+The A-leg becomes the owner of call termination:
+
+Current Governance:
+Cap hit → Cut vendor → End scenario
+
+Your New Scenario:
+Cap hit → Cut vendor → Start replay
+Replay continues
+Caller decides when to disconnect
+New Rule Type Recommendation
+
+Instead of:
+
+cap_and_vendor_buffer_replay
+
+I would define:
+
+vendor_buffer_replay
+
+or
+
+vendor_leg_record_and_replay
+
+because:
+
+Call does not terminate at cap.
+Cap simply triggers the vendor cut.
+A-leg remains active indefinitely.
+Required Configuration
+Action: vendor_buffer_replay
+
+Direct RTP: Enabled
+Record Start: 30 sec
+Replay Start: 60 sec
+Replay Mode: Loop
+Max Replay Length: Unlimited
+Caller Controls Disconnect: Yes
+Important Risks
+1. Infinite Call Duration
+
+If the caller never hangs up:
+
+Vendor cut at 60 sec
+↓
+Replay loops for 20 minutes
+↓
+A-leg remains connected
+
+This creates:
+
+Longer channel occupancy
+Billing implications
+Increased concurrent call counts
+
+I strongly recommend adding:
+
+Maximum Replay Duration
+
+Example:
+
+15 min
+30 min
+60 min
+Unlimited
+
+even if the default is very high.
+
+2. Direct RTP Recording Dependency
+
+You still need:
+
+RTP Forking
+or
+SIPREC
+or
+Media Duplication
+
+because pure Direct RTP means:
+
+Caller ↔ Vendor
+
+and Asterisk has no audio to replay later.
+
+This remains the biggest technical dependency.
+
+3. Analytics
+
+The governance platform should separately track:
+
+Vendor Duration
+Replay Duration
+Total Call Duration
+
+Example:
+
+Vendor Live Time: 60 sec
+Replay Time: 8 min
+Total Call: 9 min
+
+Otherwise billing and reporting become misleading.
+
+Recommendation
+
+For this use case, I would build:
+
+Action:
+vendor_buffer_replay
+
+with:
+
+Direct RTP enabled
+Vendor-only audio capture
+Vendor B-leg cut at trigger time
+Replay starts immediately
+Caller controls disconnect
+Configurable maximum replay duration
+Separate analytics for live vendor time vs replay time
+
+That matches your stated requirement much better than a traditional cap-and-replay rule. The key technical question for the developers is still:
+
+Can the current Asterisk/Sippy environment capture a copy of vendor RTP while Direct RTP is active?
+
+If the answer is no, then RTP forking/SIPREC must be solved first before any replay feature can work.

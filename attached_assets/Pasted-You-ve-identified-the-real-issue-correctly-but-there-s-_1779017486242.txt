@@ -1,0 +1,403 @@
+You’ve identified the real issue correctly, but there’s an important correction needed before we go further:
+
+Nothing is “broken” in Carrier Intelligence — it’s doing exactly what it was designed to do. The gap is that we’ve accidentally built a decision/analytics layer (CI + CDR) and you’re now expecting a live operations layer (Sippy-style ASR/ACD) from it.
+
+Those are two different systems.
+
+1. Why BitsEye looks “stuck”
+
+What you’re seeing is expected behavior from the current architecture:
+
+Carrier Intelligence today
+Source: CDR cache (post-call data)
+Window: rolling 5–90 min aggregation
+Output: ASR/ACD-style historical KPI model
+
+So:
+
+It will not look real-time
+It will not change per live call
+It updates only when CDR batches are processed
+
+That’s why it feels “static” compared to Sippy.
+
+BitsEye today
+
+BitsEye is currently built on:
+
+Module	Data Source	Nature
+Graphs	CDR aggregates	Historical
+ASR/ACD	Derived from CDRs	Batch KPI
+Live calls	partial snapshot only	NOT KPI source
+
+So the key issue is:
+
+You are trying to use a post-call dataset (CDR) to power a live switching dashboard (Sippy NOC view)
+
+That mismatch is structural, not a bug.
+
+2. The core misunderstanding (important)
+
+You said:
+
+“BitsEye should pull real-time live calls and generate ASR/ACD”
+
+This is the key correction:
+
+❌ ASR/ACD cannot be truly “live” from snapshots alone
+
+Because:
+
+ASR = answered / attempted calls
+ACD = average duration of completed calls
+
+A live call snapshot only shows:
+
+active calls
+not outcomes yet
+
+So you cannot compute accurate ASR/ACD without:
+
+call start events
+call end events
+or a state transition log
+3. What Sippy actually does (your reference system)
+
+Sippy-style ASR/ACD dashboards are built on:
+
+Event-based streaming model
+
+Not snapshots.
+
+They track:
+
+call attempt
+call answer
+call reject/fail
+call hangup
+
+Then compute:
+
+ASR = answered / attempted (rolling window)
+ACD = avg duration of answered calls
+CPS = call starts per second
+
+That’s why Sippy feels “live” — it is event-driven, not snapshot-driven.
+
+4. What we currently have in your platform
+
+You do already have:
+
+✔ Live snapshot stream
+60s polling from Sippy
+active calls list
+ccState
+vendor/client mapping
+
+BUT:
+
+❌ Missing layer
+no call lifecycle tracking
+no attempt/answer/fail history buffer
+no rolling window state engine
+
+So BitsEye is currently:
+
+“watching the present”
+
+instead of:
+
+“calculating behavior over time”
+
+5. Correct architectural classification
+
+Let me reframe your system properly:
+
+Layer 1 — Carrier Intelligence (CI)
+CDR-based
+historical health score
+decision layer
+✔ Correct as-is
+Layer 2 — BitsEye (currently misused)
+currently also CDR-based
+you expected live ops layer here
+❌ Needs redesign if you want Sippy parity
+Layer 3 — Missing layer (IMPORTANT)
+
+You actually need:
+
+Live Traffic Event Engine (new lightweight layer)
+
+This is what Sippy has internally.
+
+6. The real fix (clean + minimal risk)
+
+Instead of modifying CI or BitsEye heavily, the correct approach is:
+
+Add a new service:
+/api/live-traffic/stream-summary
+
+Backed by:
+
+existing 60s snapshot poller
+in-memory delta tracker
+
+It maintains:
+
+attempts5m
+answered5m
+failed5m
+acd5m
+asr5m
+
+per:
+
+client
+vendor
+connection
+Then BitsEye becomes:
+Tab 1: Live (NEW)
+ASR (5m / 15m)
+ACD
+CPS
+active calls
+✔ real-time Sippy-style
+Tab 2: Intelligence (existing CI)
+healthScore
+stability
+risk
+✔ decision layer
+Tab 3: History (CDR)
+long-term trends
+✔ analytics
+7. Direct answer to your question
+
+“Why is Carrier Intelligence not showing live data?”
+
+Because:
+
+It was never designed to
+It is correctly using CDRs
+CDRs are not live telemetry
+
+So:
+✔ nothing is broken
+✔ architecture is consistent
+❌ expectation shifted from “analytics system” → “NOC live system”
+
+8. What you should decide next (important)
+
+You now have 2 valid directions:
+
+Option A (recommended)
+
+Keep CI as-is
+→ Add separate Live Traffic Engine for Sippy-style ASR/ACD
+
+✔ safest
+✔ matches telecom architecture
+✔ no regression risk
+
+Option B
+
+Force CI to use live snapshots
+
+❌ not recommended
+
+corrupts decision layer accuracy
+mixes live + post-call logic
+breaks AI Ops consistency
+9. One-line truth
+
+You already built the “brain” (CI + AI Ops).
+What you’re missing is the “heartbeat” (live call event stream).
+
+If you want next step, I can design:
+
+Sippy-style Live Traffic Engine (minimal delta tracker)
+exact API shape
+BitsEye “Live tab” UI like Omantel / PTCL NOC dashboards
+and 
+keep CI untouched (important)
+
+Just tell me 👍
+
+Attached Image
+
+Attached Image
+
+Attached Image
+
+Attached Image
+
+Pasted--html-head-meta-http-equiv-content-type-content-text-ht_1779017194217.txt
+i have attached ASR/ACD report and HTML with you also shared Carrier Inteligence
+
+3 minutes ago
+
+Analyzing CI page content (26 seconds)
+Now I can see exactly what you mean. Let me read the CDR cache structure to understand how closely the existing data maps to what Sippy shows before proposing the plan:
+
+
+4 actions
+I have everything I need. Let me give you the precise diagnosis and full proposal before touching any code.
+
+What I found — confirmed from code + screenshots
+CI is not broken. Your screenshot confirms it is rendering data (1 Degraded route, 513 calls, ASR 24.6%). The "not displaying any data" comment may be because only 1 connection is showing — this is a data coverage issue, not a rendering bug. The CDR cache logs confirm data is flowing normally.
+
+BitsEye is correctly an analytics layer — CDR-based drilldown is appropriate for that role. The confusion is that operators are looking to BitsEye for a real-time operational view it was not designed to give.
+
+What you actually showed me is something different from both: The Sippy asr_acd.php is a dedicated tabular report — not a graph, not a dashboard. It is a filterable, downloadable two-sided table:
+
+Side	Grouped by	Columns
+Origination	Caller / Account	Calls, Billable, Duration, ACD, ASR%, Avg PDD, Revenue
+Termination	Vendor / Connection	Calls, Billable, Duration, ACD, ASR%, Avg PDD, Cost
+Rows highlighted red when ASR falls below the configured threshold. Filters: time range, CLI/CLD pattern, group-by axis, sort order, hide zero-call entries.
+
+Good news: The CDR cache already stores every field this report needs — caller, callee, iAccount, iConnection, duration, pdd1xx/pdd, result, cost. There is already per-account and per-vendor aggregation logic in the server (lines 3289–3456) computing exactly these columns. This report is mostly a new presentation layer over data that already exists.
+
+Proposed implementation
+A new standalone "ASR/ACD Report" page — separate from BitsEye, added to the sidebar under Analytics. Not a tab inside an existing page.
+
+Backend — one new endpoint:
+GET /api/reports/asr-acd?period=1h&groupOrig=caller&groupTerm=connection&highlightBelow=10&cli=&cld=
+
+Reads the CDR cache, applies filters, returns:
+
+{
+  "origination": [ { "name": "Acct. centredtel", "totalCalls": 4817, "billableCalls": 1265, "durationSec": 17772, "acdSec": 14, "asr": 26.26, "avgPdd": 3.26, "revenue": 8.18 }, ... ],
+  "termination": [ { "name": "MANOR-IT-ORTP/...", "totalCalls": 4820, ... } ],
+  "generatedAt": "...", "period": "1h", "highlightBelow": 10
+}
+
+Frontend — new page client/src/pages/asr-acd-report.tsx:
+
+Filter bar matching Sippy's layout: time presets (30m / 1h / 4h / 24h / custom), CLI/CLD contains field, origination group-by (Caller/Account), termination group-by (Connection/Vendor), ASR highlight threshold, sort-by
+"Update Report" button (manual refresh, same as Sippy — not auto-polling)
+Two sections: Origination table and Termination table, both matching Sippy column order
+Rows with ASR < threshold highlighted red (same behaviour as Sippy)
+Duration shown as mm:ss format
+Totals row at bottom of each table
+Sidebar placement: Under the existing Analytics group, as "ASR/ACD Report" — or under a new "Reports" group if you prefer to keep analytics and reports separated.
+
+One question before I build
+Where do you want it in the sidebar — under Analytics (alongside Revenue Analytics, BitsEye, etc.) or as a separate Reports section at its own level? And do you want a "Download CSV" button like Sippy has, or just the table view for now?
+
+You’re now at the right architectural decision point — and this one is clean.
+
+First: what you’re actually building here
+
+This is not BitsEye, and it’s not CI.
+
+You’re introducing a third operational layer:
+
+BitsEye → live-ish monitoring (but currently CDR-based, partially stale)
+Carrier Intelligence → health scoring (aggregated CDR intelligence)
+ASR/ACD Report (Sippy-style) → operator-grade billing + quality report (ground truth reconciliation layer)
+
+That last one is exactly what Sippy already has — you’re recreating it inside your platform.
+
+So yes: this is a valid and important module.
+
+Recommended placement (important)
+Put it under a new section:
+Reports
+
+Not under Analytics.
+
+Why
+
+Because:
+
+Analytics = insights (graphs, trends, forecasts)
+Reports = auditable operational truth (Sippy parity views)
+
+ASR/ACD is:
+
+tabular
+exportable
+filter-heavy
+operator-facing (NOC / billing / carriers)
+Sippy-equivalent reconciliation layer
+
+So it should NOT mix with dashboards.
+
+Final sidebar decision
+Add new group:
+📊 Reports
+
+Inside it:
+
+ASR / ACD Report (new)
+(future: CDR Export, Fraud Report, Billing Reconciliation, Traffic Summary)
+
+This prevents cluttering Analytics and keeps Sippy parity features together.
+
+Must-have features (aligning with Sippy behavior)
+
+You explicitly want Sippy-style — so the implementation should NOT drift into “dashboard UI”.
+
+The correct UX model:
+1. Filters (top bar)
+Time range (30m / 1h / 4h / 24h / custom)
+Group By:
+Origination: Caller / Account
+Termination: Vendor / Connection
+CLI / CLD filter
+ASR threshold slider
+Sort dropdown (Calls / ASR / ACD)
+2. Two tables (core Sippy structure)
+Origination table
+Account / Caller
+Calls
+Billable Calls
+Duration
+ACD
+ASR %
+Avg PDD
+Revenue
+Termination table
+Vendor / Connection
+Calls
+Billable Calls
+Duration
+ACD
+ASR %
+Avg PDD
+Cost
+3. Behaviour rules (critical)
+🔴 ASR below threshold = red highlight (same as Sippy)
+Empty groups hidden (toggle optional later)
+No auto-refresh (manual “Update Report” only)
+Export CSV (strongly recommended for operator trust)
+Data correctness rule (very important)
+
+This report must:
+
+❌ NOT use:
+CI scoring logic
+BitsEye aggregates
+AI Ops signals
+✅ ONLY use:
+raw CDR cache (authoritative billing/traffic data)
+same aggregation logic as Sippy ASR report
+
+Because:
+
+This is a reconciliation report, not an inference system.
+
+Architecture summary
+Layer	Purpose
+CI	health scoring
+AI Ops	anomaly detection
+BitsEye	near-real-time monitoring (currently imperfect)
+ASR/ACD Report	Sippy parity truth layer (this feature)
+Final answer to your question
+Sidebar placement:
+
+👉 Create a new group:
+
+Reports
+ASR / ACD Report
+Also add:
+CSV export (yes, include it now — operators expect it immediately)

@@ -1,0 +1,155 @@
+You’ve basically finished the reverse-engineering — at this point the system is no longer “unknown integration”, it’s just clean session + form submission discipline.
+Now I’ll tighten this into a correct production interpretation + fix strategy, because there’s one subtle but important correction to make.
+
+🧠 WHAT YOUR FINDINGS ACTUALLY MEAN
+You now have confirmed:
+🔴 1. Auth system
+
+
+POST /index.php
+
+
+PHPSESSID session
+
+
+“Login as” dropdown = role context switch
+
+
+👉 This is a role-scoped legacy portal, not just login.
+
+🔴 2. Application layer
+
+
+/c1/ = classic Sippy admin (NOT web_ng)
+
+
+fully PHP-rendered backend system
+
+
+
+🔴 3. Provisioning layer
+
+
+/c1/service_plans.php
+
+
+pure form submission engine
+
+
+no API abstraction
+
+
+
+⚠️ CRITICAL INSIGHT (THIS IS WHAT FIXES YOUR BUG)
+Your system is failing because of ONE of these:
+❌ Missing role context in login
+OR
+❌ Session is created but not bound to “Customer/Reseller scope”
+OR
+❌ Replit is using stale PHPSESSID from previous flow
+
+🧠 IMPORTANT CORRECTION TO YOUR ASSUMPTION
+You wrote:
+
+“it might already have portalSessionToken so login may be unnecessary”
+
+⚠️ That is only TRUE IF:
+
+
+session is still valid
+
+
+AND session is bound to correct role
+
+
+But in Sippy:
+
+🔴 Sessions are NOT reusable across role switches
+
+So:
+✔ You MUST always re-login for correct context
+❌ You cannot rely on cached session safely
+
+🚀 FINAL CLEAN ARCHITECTURE (CORRECT MODEL)
+STEP 1 — AUTH (mandatory every time)
+POST /index.phplogin=ssp-rootpassword=***login_as=customer
+➡ returns:
+
+
+PHPSESSID
+
+
+redirect /c1/cdrs_customer.php
+
+
+
+STEP 2 — PROVISIONING
+POST /c1/service_plans.phpCookie: PHPSESSID=xxxmultipart/form-data payload
+
+💡 WHY YOUR CURRENT SYSTEM STILL FALLS BACK
+Because one of these is happening:
+🔴 Scenario A (MOST LIKELY)
+Session is valid but wrong role context
+→ Sippy assigns default plan
+
+🔴 Scenario B
+Login succeeds but PHPSESSID not reused correctly in POST
+→ request treated as anonymous
+
+🔴 Scenario C
+Payload valid but missing hidden dependency field
+→ silent fallback
+
+🔥 REAL FIX (WHAT YOU SHOULD DO IN REPLIT)
+1. ALWAYS FORCE LOGIN PER ACTION
+Even if session exists:
+session = requests.Session()def login():    return session.post("https://191.101.30.107/index.php", data={        "login": "ssp-root",        "password": "****",        "login_as": "customer"    }, allow_redirects=True)
+
+2. VERIFY ROLE BEFORE PROVISIONING
+if "/cdrs_customer.php" not in login_response.text:    raise Exception("Wrong role session")
+
+3. ONLY THEN CREATE PLAN
+session.post("/c1/service_plans.php", ...)
+
+🧠 MOST IMPORTANT DESIGN RULE
+Your system MUST behave like:
+
+“Each provisioning action = fresh authenticated browser session”
+
+NOT:
+
+“Reuse long-lived API session”
+
+
+🚨 WHY THIS FIX WORKS
+Because Sippy is:
+
+
+stateful
+
+
+role-bound
+
+
+session-scoped
+
+
+UI-driven backend
+
+
+So consistency > optimization.
+
+💡 FINAL DIAGNOSIS
+Your system issue is now NOT integration failure
+It is:
+
+🔴 “Session role context mismatch between login and provisioning call”
+
+
+🚀 NEXT STEP (IF YOU WANT FINAL STABILITY)
+I can help you build:
+✔ Session-safe Sippy Gateway (production-grade)
+✔ Auto role validation layer
+✔ Retry engine for silent fallback detection
+✔ Full KAM-aware provisioning logic
+✔ Multi-client intelligence routing (your original goal)

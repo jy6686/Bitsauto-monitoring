@@ -1,0 +1,149 @@
+es, I would implement #337 now.
+
+I would not implement #338 yet, because #338 depends on #337 being live and populated.
+
+Why #337 is low risk
+
+It is only:
+
+Configuration Values
+    ↓
+Database
+    ↓
+API
+    ↓
+UI
+
+No impact on:
+
+Send Rate
+Rate Push Engine
+Sippy Upload Engine
+Rate Notification Engine
+Approval Workflow (#336)
+Client Provisioning
+
+So it follows the same principle you've been using:
+
+Build
+Validate
+Populate
+Consume Later
+Business value of #337
+
+Today many values are effectively hidden or hardcoded:
+
+Future Effective Date
+Old Effective Date
+Rate Increase Alert
+Rate Decrease Alert
+Pending Increase Limit
+Invoice Difference
+Payment Duration
+CDR Reconciliation Delay
+
+Putting them into a centralized Configuration Values page gives:
+
+Commercial control
+Operations control
+Visibility
+Foundation for Validation Rules
+
+without changing any live behavior.
+
+Suggested implementation order
+Phase 1 — Database
+configuration_values
+
+with:
+
+id
+category
+key
+label
+description
+unit
+value
+default_value
+value_type
+is_editable
+is_active
+created_at
+updated_at
+
+Categories:
+
+Vendor
+Client
+Commercial
+Global
+A-Z
+BSR
+Phase 2 — Seed Data
+
+Populate:
+
+Vendor values (from legacy screenshot)
+Client values (from legacy screenshot)
+Global values (from legacy screenshot)
+Commercial values (new BitsAuto governance values)
+
+Leave:
+
+A-Z
+BSR
+
+empty but visible.
+
+Phase 3 — API
+GET    /api/configuration-values
+GET    /api/configuration-values?category=vendor
+PATCH  /api/configuration-values
+
+Bulk update support.
+
+Phase 4 — UI
+Tools
+ └ Configuration Values
+
+Tabs:
+
+Vendor
+A-Z
+BSR
+Global
+Client
+Commercial
+
+Features:
+
+Filter
+Inline edit
+Update button
+Read-only for support/viewer
+Edit for management/admin
+After #337
+
+Then implement #338:
+
+Validation Rules
+
+where each rule references values from #337.
+
+Example:
+
+Effective Date Greater Than Allowed Limit
+Threshold: 15 days
+(Source: Client.Future Effective Date)
+
+Action:
+( ) Ignore
+( ) Reject Country
+( ) Approval Required
+My recommendation
+
+✅ Implement #337 now.
+
+⏸ Hold #338 until #337 is deployed, seeded, and reviewed by Commercial/NOC.
+
+That keeps risk near zero while building the governance foundation that the old BitsAuto system clearly relied on.

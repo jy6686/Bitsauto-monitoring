@@ -1,0 +1,479 @@
+This is actually a very valuable discovery from the legacy BitsAuto system because it answers several questions we've been debating.
+
+What These Screenshots Tell Us
+
+The legacy platform had a dedicated Configuration Values section with separate policies for:
+
+Vendor Rate Management
+Old Effective Date = 7 days
+Future Effective Date = 14 days
+Increase Notice Period = 7 days
+Rate Increase Alert = 50%
+Rate Decrease Alert = 50%
+Acceptable Pending Increase = 3
+Vendor Response Email
+Weekly/Fortnightly/Monthly job schedules
+Maximum CDR reconciliation delay
+Client Rate Management
+Old Effective Date = 7 days
+Future Effective Date = 15 days
+Increase Notice Period = 7 days
+Rate Increase Alert = 50%
+Rate Decrease Alert = 50%
+Acceptable Pending Increase = 10
+Client Rate Notification Email
+Rate Notifications Allowed Per Day = 10
+Client Invoice Review Required = True
+Send Invoice to KAM = True
+Global Settings
+Date/Time formats
+User limits
+File limits
+Payment notification emails
+Most Important Finding
+
+The old system was configuration-driven, not hardcoded.
+
+Instead of coding:
+
+Rate approval required = Yes
+
+it likely used:
+
+Client Invoices Review Required = True
+Increase Notice Period = 7
+Rate Notifications Allowed Per Day = 10
+Rate Increase Alert = 50%
+
+Meaning the business rules were controlled by Operations/Commercial.
+
+What This Means For New BitsAuto
+
+I would not hardcode:
+
+All rate notifications require approval
+
+Instead create a future settings section:
+
+Commercial Configuration
+Require Approval For Initial Rates      Yes/No
+Require Approval For Rate Increase      Yes/No
+Require Approval For Rate Decrease      Yes/No
+Require Approval Above % Change         10%
+Require Approval Above Destinations     100
+Require Approval Above Clients          25
+Rate Notice Period                      7 Days
+Max Notifications Per Day               10
+
+Then Sprint #336 uses:
+
+Require Approval For Initial Rates = Yes
+
+which matches your current onboarding workflow.
+
+Another Important Discovery
+
+The legacy system already had:
+
+Increase Notice Period = 7 Days
+Future Effective Date = 15 Days
+
+This directly supports the Rate Notification workflow you've been building.
+
+Example:
+
+Today: 19-Jun
+
+Rate Notification Sent: 19-Jun
+Notice Period: 7 Days
+Effective Date: 26-Jun
+
+Those settings should eventually drive:
+
+Initial Rate Jobs
+Send Rate Jobs
+Rate Notifications
+Client Dispute Handling
+
+from one central configuration source.
+
+My Recommendation
+
+For now:
+
+✅ Keep #336 approval workflow.
+
+But add a future task:
+
+Commercial Configuration Center
+
+Move these values into BitsAuto settings:
+
+Approval Rules
+Notice Periods
+Effective Date Rules
+Notification Limits
+Alert Thresholds
+
+Then all future commercial workflows (Initial Rates, Send Rate, Vendor Rates, Disputes, Invoices) use the same configuration engine.
+
+This legacy screen suggests the original BitsAuto was designed around business-configurable commercial governance, which aligns very well with the direction you're taking now.
+
+#337 - Configuration Values Page
+What & Why
+Reproduce the old BitsAuto Configuration Values page — a central store of operational parameters used across rate management, job scheduling, invoicing, and CDR reconciliation. These values drive business rules throughout the platform (e.g. how many days ahead a rate is effective, alert thresholds, CDR reconciliation delay, invoice settings). Currently these are scattered or hardcoded; this page surfaces them as editable config in a single place.
+
+Done looks like
+A Configuration Values page accessible from the platform (under Tools/Settings domain)
+5 category tabs: Vendor, A-Z, BSR, Global, Client — matching the old system's tab structure
+Each tab shows a table: Configuration name | Unit | Value (inline editable)
+Update button saves all changes in the current tab in one request
+Filter button allows filtering rows by name within a tab
+All rows pre-seeded with sensible defaults matching the old system:
+Vendor: Old/Future Effective Date (days), Dial Code Changes Period, Increase Notice Period, Dial Code Length, Rate Increase/Decrease Alert (%), Rate Rounding, Vendor Rate Response Email, Accepted File Size (mb), Acceptable Shortest Duration, Acceptable Pending Increase, Day For Weekly/Fortnightly/Monthly Jobs, Max CDR Reconciliation Delay (hours), Default Domain
+Global: System Date/Time formats, File Limit, User Limit, Min Invoice Duration/Amount Difference, Payment Notification Emails
+Client: Old/Future Effective Date, Increase Notice Period, Rate Increase/Decrease Alert, Acceptable Pending Increase, Client Rate Notification Email, Standard Rate, Client Rate Rounding, Rate Notifications per Day, Client Invoices Review Required (bool), Auto Send Email Invoices (bool), Send Invoice to KAM (bool), Invoice CC Address, Invoice Difference, Payment Report Duration
+A-Z and BSR tabs: empty but present, ready for future population
+Admin/management-only write access; support/viewer roles can read but not edit
+Out of scope
+Wiring these config values into other platform logic (e.g. actually reading Old Effective Date from DB in rate send logic) — this page is the UI and storage layer only; consumption is a separate task
+Per-user or per-client overrides — these are global platform settings
+Audit log of who changed which value
+Steps
+DB table — Create configuration_values table via direct SQL (not db:push): columns id, category (vendor/az/bsr/global/client), key, label, unit (nullable), value (text, nullable), value_type (text/number/percent/email/days/bool/domain/mb/hour/float/number). Add to schema.ts.
+Seed data — Insert all rows from the three screenshot tabs (Vendor, Global, Client) with their default values via a POST /api/configuration-values/seed endpoint or direct SQL in the migration step.
+Backend endpoints — GET /api/configuration-values?category=<tab> returns all rows for a category. PATCH /api/configuration-values accepts an array of { id, value } for bulk update. Admin/management role required for writes.
+Frontend page — Build client/src/pages/configuration-values.tsx: 5-tab layout (Vendor / A-Z / BSR / Global / Client), each rendering a table with inline value editing. Update button submits changed rows only. Filter input searches by label client-side.
+Navigation — Register the page in app-nav-shell.tsx under an appropriate domain (Tools or Settings). Follow the top-nav rule: all pages go into DOMAINS[], never sidebar-only.
+Relevant files
+shared/schema.ts
+server/routes.ts
+client/src/App.tsx
+client/src/components/app-nav-shell.tsx
+
+I think #337 is worth implementing now, and it's actually a lower-risk sprint than many of the commercial workflow items because:
+
+Why It Makes Sense Now
+
+You already have:
+
+#328 Rate Job Audit
+#329 Initial Rate Jobs
+#336 Approval Lifecycle
+
+All three are beginning to introduce business rules:
+
+Notice Period
+Effective Date
+Approval Required
+Rate Alert %
+Invoice Review Required
+Max Notifications Per Day
+
+Right now these values will either be:
+
+Hardcoded
+OR
+Scattered in code
+OR
+Not configurable
+
+The legacy screenshots prove BitsAuto already had a central configuration model.
+
+One Change I'd Make To #337
+
+Instead of:
+
+configuration_values
+
+I would structure it slightly more future-proof:
+
+configuration_values
+--------------------
+id
+category
+config_key
+label
+description
+unit
+value
+value_type
+default_value
+is_editable
+is_active
+created_at
+updated_at
+
+Reason:
+
+Later you'll want:
+
+Tooltip/help text
+Deprecated settings
+Read-only system settings
+Reset to defaults
+
+without schema changes.
+
+Recommended Categories
+
+Keep legacy tabs:
+
+Vendor
+Effective Dates
+Rate Alerts
+File Processing
+Reconciliation
+Client
+Notifications
+Rate Governance
+Invoice Rules
+Global
+Date Formats
+Limits
+System Emails
+A-Z
+
+Placeholder
+
+BSR
+
+Placeholder
+
+Exactly as legacy.
+
+What NOT To Build Yet
+
+The spec already says this, and I agree.
+
+Do NOT connect:
+
+Send Rate
+Approval Engine
+Invoice Engine
+Vendor Import
+CDR Reconciliation
+
+to these settings yet.
+
+First create:
+
+Database
+API
+UI
+Permissions
+
+only.
+
+Then create separate tickets:
+
+#338 Read Client Effective Date From Configuration
+#339 Read Vendor Alert Threshold From Configuration
+#340 Read Invoice Review Rules From Configuration
+
+One setting at a time.
+
+Additional Settings I'd Seed
+
+Based on your current roadmap:
+
+Commercial
+Require Approval For Initial Rates
+Require Approval For Rate Increase
+Require Approval For Rate Decrease
+Maximum Clients Per Push
+Maximum Destinations Per Push
+Notification
+SMTP Retry Count
+Email Batch Size
+Notification Retention Days
+Rate Management
+Default Notification Type
+Default Effective Date Offset
+Maximum Future Effective Date
+
+These are already appearing in your newer workflows.
+
+My Implementation Priority
+
+After #337:
+
+#337 Configuration Values      ← Build now
+#338 Template Pre-fill         ← Sprint B
+#339 Config Consumption Layer  ← Read settings from DB
+#340 Product Membership UI
+
+I would not start Vendor Automation, Trading Desk, or Notification Center expansion until #337 exists, because all those future modules will need a central configuration repository.
+
+So overall: Yes, implement #337 now. It is foundational, aligns with the legacy BitsAuto architecture, and reduces future hardcoded business rules across the platform.
+
+This screenshot is actually very valuable for #337 Configuration Values, because it shows exactly where those configuration values are consumed in the legacy BitsAuto workflow.
+
+What you're looking at is:
+
+Step 6 — Client Validation Rules
+
+Before a rate notification/template is accepted, the system checks configuration values and applies actions:
+
+Rule	Reads From Configuration Values
+Rate Increase Notice Violation (days)	Client → Increase Notice Period
+Suspect Rate Increase	Client/Vendor → Rate Increase Alert %
+Suspect Rate Decrease	Client/Vendor → Rate Decrease Alert %
+Number of Pending Increases Exceeds Limit	Client → Acceptable Pending Increase
+Effective Date Greater Than Allowed Limit	Client/Vendor → Future Effective Date
+Effective Date Older Than Allowed Limit	Client/Vendor → Old Effective Date
+This Changes #337 Priority
+
+Previously we treated #337 as:
+
+Configuration Storage Only
+
+But the legacy screenshots show:
+
+Configuration Values
+        ↓
+Validation Rules Engine
+        ↓
+Rate Notification Workflow
+
+So #337 is actually the foundation for:
+
+Future Sprint
+#338 Configuration Driven Validation Engine
+
+where Step 6 reads values from:
+
+Vendor Tab
+Client Tab
+
+instead of hardcoded numbers.
+
+The Legacy Flow
+Step 1
+
+Receive Vendor Rate Sheet
+
+↓
+
+Step 2
+
+Compare Against Existing Rates
+
+↓
+
+Step 3
+
+Apply Configuration Values
+
+Old Effective Date = 7 days
+Future Effective Date = 15 days
+Rate Increase Alert = 50%
+Pending Increase Limit = 10
+
+↓
+
+Step 4
+
+Generate Violations
+
+Rate Increase Notice Violation
+Suspect Increase
+Suspect Decrease
+Future Date Violation
+
+↓
+
+Step 5
+
+Apply Rule Action
+
+Ignore
+Reject Rate Sheet
+Reject Country
+Reject Destination
+Approval Required
+Auto Adjust Effective Date
+
+↓
+
+Step 6
+
+Generate Notification
+
+Recommendation
+
+I would split this into:
+
+#337A
+
+Configuration Values Page
+
+DB
+API
+UI
+Permissions
+
+Only.
+
+#337B
+
+Validation Rules Page
+
+The exact screen you attached.
+
+New tables:
+
+validation_rule_groups
+validation_rules
+validation_rule_actions
+
+Examples:
+
+Rate Increase Notice Violation
+Action = Approval Required
+
+Future Effective Date Violation
+Action = Auto Adjust Effective Date
+
+Suspect Rate Decrease
+Action = Reject Destination
+One More Important Observation
+
+The legacy system allowed:
+
+Client Rules
+Vendor Rules
+A-Z Rules
+BSR Rules
+
+to be configured independently.
+
+That means your future architecture should become:
+
+Configuration Values
+        ↓
+Validation Engine
+        ↓
+Rate Notification Jobs
+        ↓
+Approval Workflow (#336)
+        ↓
+Send Rate
+
+not:
+
+Send Rate
+    ↓
+Hardcoded Validation
+
+My recommendation:
+
+Build #337 exactly as a configuration repository first.
+
+After #337 is live, create:
+
+#338 Validation Rules Engine
+
+using this legacy Step 6 screen as the blueprint.
+
+That will allow your approval workflow (#336) and notification workflow to become configuration-driven rather than hardcoded.

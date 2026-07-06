@@ -1,0 +1,146 @@
+Based on everything you've tested so far, I would stop UI work and stop building new features until the Sippy write path is proven.
+
+Your screenshots and logs indicate:
+
+Confirmed Status
+Area	Status
+Rate Manager UI	Mostly working
+Rate Detail panel	Fixed
+Prefix mapping	Looks correct (19230 visible)
+Change Client Rates modal	Working
+Push History improvements	Working
+Send Rate UX	Needs validation improvements
+Actual Sippy rate update	❌ Not proven
+Upload Token flow	❓ Unknown
+Portal CSV fallback	❌ Failing
+Rate Notification Jobs (#326)	🚫 Should remain blocked
+What I would do next (before any more coding)
+Test 1 — Manual Sippy Change
+
+In Sippy:
+
+Tariff #33
+Prefix 19230
+
+Current rate:
+
+0.02750
+
+Manually change to:
+
+0.02755
+
+Save.
+
+Wait 1 minute.
+
+Refresh tariff.
+
+Verify:
+
+0.02755
+
+If this doesn't work, then Sippy itself is caching or rejecting changes.
+
+Test 2 — Check Sippy Permissions
+
+Login using the same account configured in BitsAuto:
+
+ssp-root
+
+Open:
+
+/c1/rates.php?i_tariff=33
+
+Can you:
+
+Upload CSV?
+See Upload Rates form?
+Add Rate manually?
+
+If not:
+
+Edit Tariff Rates permission missing
+
+and no amount of code changes will fix it.
+
+Test 3 — Upload CSV Directly in Sippy
+
+Create:
+
+Action,Id,Prefix,Country,Interval1,IntervalN,Price1,PriceN
+SA,,19230,PAKISTAN,1,1,0.02760,0.02760
+
+Upload from Sippy UI.
+
+If Sippy updates:
+
+0.02760
+
+then we know:
+
+Tariff is writable
+Prefix is correct
+CSV format is correct
+
+Only then should we debug BitsAuto.
+
+Test 4 — Check Upload Token Support
+
+Run directly against your Sippy:
+
+getDictionary(upload_types)
+
+and
+
+getUploadToken(...)
+
+We need to know if your Sippy build actually supports the upload-token API.
+
+Different Sippy versions behave differently.
+
+Biggest Red Flag
+
+Your screenshot still shows:
+
+0/1 rate(s) updated
+via portal_csv
+
+That means the system is not successfully using upload-token yet.
+
+If upload-token were working, Push History should show:
+
+Method: upload_token
+Upload Status: DONE
+Verified: YES
+
+Until you see that, assume the rate never reached Sippy.
+
+My recommendation
+
+Do not implement:
+
+Rate Notification Jobs (#326)
+Calendar enhancements
+Diagnostics page
+More Push History features
+
+until one test succeeds:
+
+Change Client Rates
+↓
+Sippy Tariff #33
+↓
+Rate visibly changes
+↓
+Verification = TRUE
+
+Once that works, then build the audit and notification layers on top of a proven write engine.
+
+Right now the most important artifact is the actual Push History record (Method, Upload Status, Verification Result, Error Message) from your latest failed attempt. That will tell us whether the failure is:
+
+Permission issue,
+Wrong upload endpoint,
+Upload-token unsupported,
+Verification mismatch,
+Prefix mapping issue.

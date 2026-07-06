@@ -1,0 +1,203 @@
+I agree with adding Reconciliation Lab. Of all the ideas discussed, this is probably the cleanest operational approach because it prevents debugging logic from leaking into customer-facing workspaces.
+
+My recommendation
+
+Don't put Sprint 1–3 work inside:
+
+Call Governance
+Finance Cockpit
+Billing Verification
+Deal Workspace
+
+Those pages should eventually consume trusted data.
+
+Instead create:
+
+Platform Operations
+└─ Reconciliation Lab
+
+Admin / Super Admin only.
+
+Reconciliation Lab Structure
+1. Recording Integrity
+
+Purpose:
+
+Can we prove recordings exist?
+
+Columns:
+
+Call ID
+Recording Path
+Expected File
+Exists
+File Size
+Duration
+Playable
+Download Test
+
+KPI:
+
+Recording Success %
+Missing Recordings
+Unreadable Recordings
+2. CDR Reconciliation
+
+Purpose:
+
+Can we link Customer CDR + Vendor CDR + P&L?
+
+View:
+
+Call
+↓
+Customer CDR
+↓
+Vendor CDR
+↓
+P&L
+
+Status:
+
+MATCHED
+PARTIAL
+MISSING
+3. Identity Audit (P2.5)
+
+Probably the most important tab.
+
+Purpose:
+
+Find the strongest identity key
+
+Matrix:
+
+Field	Customer	Vendor	P&L
+Call-ID	✓	?	?
+Conf-ID	?	?	?
+UniqueID	?	?	?
+Original CLD	✓	✓	✓
+
+Output:
+
+Recommended Reconciliation Key
+
+before building CCI.
+
+4. Vendor Cost Validation
+
+Purpose:
+
+Vendor CDR Cost
+vs
+P&L Cost
+
+Sample:
+
+20-50 production calls
+
+Output:
+
+Match %
+Variance %
+5. P&L Validation
+
+Purpose:
+
+Revenue
+Cost
+Margin
+
+per call.
+
+Columns:
+
+Revenue
+Cost
+Margin
+Sell Duration
+Buy Duration
+Vendor
+Connection
+Why I Like This Approach
+
+Instead of:
+
+Call Governance
+↓
+debugging
+
+or
+
+Finance
+↓
+debugging
+
+you get:
+
+Reconciliation Lab
+↓
+validate
+↓
+prove
+↓
+promote into production modules
+
+Much cleaner.
+
+One Addition I'd Make
+
+Add a sixth tab:
+
+Commercial Identity Audit
+
+Purpose:
+
+Product Prefix
+Product Code
+Tariff
+Rate
+
+Example:
+
+1923069306001
+↓
+FC
+↓
+FC Tariff
+↓
+0.0230
+
+This will eventually become the bridge between:
+
+Sprint 2
+(Product Registry)
+
+and
+
+Sprint 3
+(CCI + Rate Integrity)
+Current Stable Roadmap
+Sprint 1
+Recording Integrity
+CDR Reconciliation
+Identity Audit
+Sprint 2
+Vendor Cost Validation
+Product Registry Authority
+Sprint 3
+Commercial Call Identity (CCI)
+Rate Integrity Audit
+Then
+Invoice Validation
+Margin Intelligence
+Revenue Protection
+Trust Center
+
+One final note: several of the CDR exports, vendor exports, and screenshots referenced earlier have expired and are no longer available. When Sprint 1 starts, you'll need to upload fresh:
+
+Customer CDR export
+Vendor CDR export
+P&L export
+
+so the Identity Audit can be performed against current production data rather than historical samples.

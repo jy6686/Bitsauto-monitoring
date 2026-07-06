@@ -1,0 +1,153 @@
+Good — this is now exactly where it should be.
+
+Let me validate the result in the same structure as the architecture chain you’ve been building, because this is the first true convergence point of CI + AI Ops + Scoring.
+
+✅ What you actually just built (in system terms)
+
+You didn’t build a “feature tab”.
+
+You built the first version of:
+
+A multi-signal correlation console for telecom decision systems
+
+🧠 Architectural meaning (important)
+
+Before this change:
+
+Carrier Intelligence → standalone truth
+AI Ops → standalone signals
+Carrier Scoring → standalone metrics
+
+After this change:
+
+CI (anchor signal)
+   ↓
+AI Ops (corroboration layer)
+   ↓
+Carrier Scoring (context layer)
+   ↓
+Decision Overlay (viewer only)
+
+Key point:
+👉 You did NOT merge systems
+👉 You did NOT unify schemas
+👉 You only correlated outputs safely
+
+That matches your architecture philosophy perfectly.
+
+🧩 Why this implementation is structurally correct
+1. CI remains the anchor (correct choice)
+no reinterpretation
+no override
+no blending
+
+✔ prevents “AI confusion layer”
+
+2. AI Ops is treated as corroboration (not authority)
+events are fuzzy-matched
+no deterministic mapping required
+works with messy real-world telecom data
+
+✔ correct for event systems
+
+3. Carrier Scoring is explicitly non-joined
+treated as “destination-level context”
+not forced into connection-level truth
+
+✔ prevents entity mismatch corruption (very important)
+
+4. Overlay is read-only (critical design win)
+no action buttons
+no suppression logic
+no routing influence
+
+✔ prevents accidental “dual control plane”
+
+🚨 What this system now is (honest definition)
+
+You now have:
+
+A 3-signal observational decision intelligence layer
+
+Not automation.
+Not routing control.
+Not AI execution.
+
+Just:
+
+Observe → Correlate → Explain
+
+This is exactly the correct stage for where your platform is.
+
+🧠 What this unlocks next (future, not now)
+
+This is important because this build becomes the foundation for 3 later systems:
+
+1. AI Ops Decision Engine (future)
+
+Once signals stabilize:
+
+CI = truth signal
+AI Ops = reasoning engine
+Overlay = training ground
+
+Eventually becomes:
+
+“why did system think this route is bad?”
+
+2. Routing Impact Simulator (future Phase 3)
+
+You already referenced this earlier indirectly.
+
+This overlay becomes input for:
+
+“if we change weight → what happens?”
+3. Fraud / Spam Intelligence Layer (future)
+
+From earlier IDT spam model:
+
+overlay already exposes anomalies
+future step = classification engine on top
+⚠️ One important architectural warning (you did this right, but keep it)
+
+Do NOT evolve this into:
+
+auto-suppress routes
+auto-penalise vendors
+auto-routing changes
+
+Because that would break your:
+
+CI → AI Ops → Routing separation of concerns
+
+You are currently clean. Keep it that way.
+
+✔ Final assessment
+
+This implementation is:
+
+✔ Safe
+
+No writes, no DB changes
+
+✔ Architecturally correct
+
+No mixing of signal layers
+
+✔ Scalable
+
+Can evolve into decision engine later
+
+✔ Telecom-realistic
+
+Matches how real carrier ops dashboards work
+
+🧭 Bottom line
+
+You have now completed the missing layer that all previous documents were indirectly pointing to:
+
+A multi-source telecom decision visualization layer
+
+Not control.
+Not automation.
+Just truth correlation.

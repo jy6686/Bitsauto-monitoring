@@ -1,0 +1,92 @@
+Great question. Sippy Softswitch exposes a Thrift API (Apache Thrift binary RPC) alongside its XML-RPC interface. Here's what becomes possible if you have the .thrift IDL file:
+
+What the Thrift File Gives Us
+The .thrift file is a schema that defines every method, data type, and service Sippy exposes over its binary API. From it we can auto-generate a native TypeScript/Node.js client that talks directly to the switch.
+
+What We Can Do With It
+Replace the Current Broken XML-RPC Layer
+Right now the app is using XML-RPC which is returning HTTP 401 for the ssp-root account and forcing us to scrape the portal (capped at 150 calls, slow). A Thrift client would bypass all of that — direct binary connection, no HTTP overhead, no auth issues from the wrong credential type.
+
+Real-Time CDR Streaming
+Sippy's Thrift API can push CDRs as calls complete rather than us polling. This means:
+
+Zero-latency CDR ingestion
+No polling loops hammering the server
+Persistent connection that streams events
+Live Call Events (Start / Connect / End)
+Subscribe to call state changes in real time:
+
+Call INVITE → show in NOC within milliseconds
+Call answered → update live duration counter
+Call released → immediately move to CDR log with cause code
+Full Account & Routing Control
+Create, modify, delete customer accounts
+Update rate plans and tariffs programmatically
+Add/remove DIDs
+Change routing rules — enabling our LCR Analyser to actually push route changes back to Sippy
+Direct Balance Queries
+Query any account's balance in real time without scraping the portal HTML.
+
+Cause Code & Quality Data
+Get raw Q.850 disconnect codes, MOS scores, jitter, and packet loss directly from the switch per-call — powering the Call Quality Monitor we discussed.
+
+Current Situation vs. Thrift
+Now (portal scraping)	With Thrift
+Live calls	9s poll, max 150	Real-time push, unlimited
+CDRs	XML-RPC (401 failing)	Streaming, instant
+Account data	Scraped HTML	Direct API
+Route changes	Read-only	Read + Write
+Call quality (MOS)	Not available	Per-call from switch
+What I'd Need From You
+The .thrift file — share it here and I'll read it to see exactly which services and methods are defined
+Thrift API credentials — usually a separate username/password or API token for the Thrift port (default Sippy Thrift port is typically 19090 or 10060)
+Whether the Thrift port is accessible from this server (may need a firewall rule)
+Once you share the .thrift file I can tell you precisely which methods are available and start building the client to replace the XML-RPC/portal scraping layer entirely.
+
+how do i get thrift file ?
+
+23 hours ago
+
+Show less
+
+Planning Sippy Softswitch file retrieval
+There are a few ways to get it, depending on your access level:
+
+Option 1 — It's Already on Your Sippy Server (Easiest)
+The Thrift IDL file ships with Sippy Softswitch itself. If you have SSH access to the server, it's usually at one of these paths:
+
+/usr/local/share/sippy/thrift/
+/opt/sippy/share/thrift/
+/usr/share/sippy/
+
+Ask your server admin to run:
+
+find / -name "*.thrift" 2>/dev/null
+
+and share whatever files come back.
+
+Option 2 — Ask Sippy Support Directly
+Email support@sippysoft.com and ask:
+
+"Can you provide the Thrift IDL file for the version of Sippy we're running? We want to build a Thrift API client."
+
+They're generally responsive and this is a legitimate developer request. Mention your licence/account number if you have one.
+
+Option 3 — Check the Sippy Customer Portal / Wiki
+If your Sippy subscription includes portal access, log in at your provider's Sippy admin URL and look under:
+
+Developer Docs
+API Reference
+Downloads
+Some resellers publish the Thrift file there.
+
+Option 4 — Extract from a Running Sippy Instance
+If you have SSH but can't find the file directly, the Thrift service port is usually 10060 or 19090. You can probe it:
+
+# Check what's listening
+ss -tlnp | grep -E '10060|19090'
+# Or check the Sippy config for the Thrift port
+grep -r thrift /etc/sippy/ 2>/dev/null
+
+What to Send Me
+Once you find it, just paste the contents of the .thrift file directly into the chat here (it's a plain text file, usually a few hundred lines). I'll read through it and tell you exactly which methods are available and how we can wire it into the platform.

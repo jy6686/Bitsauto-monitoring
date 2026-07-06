@@ -1,0 +1,621 @@
+You're correct. The earlier proposal of:
+
+Product	Increment
+FC-W	1/1
+BC-W	60/60
+SB-W	60/1
+SC-W	30/6
+
+does not match real wholesale telecom operations.
+
+In your environment, increments are normally determined by:
+
+Country
+   ↓
+Operator
+   ↓
+Breakout
+   ↓
+Regulatory / Market Practice
+
+not by product.
+
+Correct Increment Hierarchy
+
+The commercial hierarchy should be:
+
+Destination Increment
+       ↓
+Customer Override (optional)
+       ↓
+Rate Sheet Output
+
+Example:
+
+Destination	Increment
+Pakistan Mobile	60/60
+Pakistan Ufone Mobile	60/60
+Pakistan Premium	60/60
+UK Mobile	60/1
+Bangladesh Mobile	1/1
+Satellite	60/60
+
+These belong to the destination catalog.
+
+Destination Catalog Should Store
+global_destinations
+
+id
+name
+dialPrefix
+
+billing_increment_initial
+billing_increment_following
+
+minimum_duration
+
+commercialStatus
+
+Examples:
+
+Destination	Initial	Following
+Pakistan Ufone	60	60
+UK Mobile	60	1
+Bangladesh Mobile	1	1
+USA Premium	30	6
+
+Displayed as:
+
+60/60
+60/1
+1/1
+30/6
+Customer Override (Optional)
+
+Some customers negotiate different increments.
+
+Example:
+
+Destination:
+
+Pakistan Ufone
+60/60
+
+Customer A:
+
+Uses catalog default
+60/60
+
+Customer B:
+
+Override
+60/1
+
+Therefore:
+
+Customer Override
+        ↓
+Destination Default
+
+not:
+
+Product Default
+Rate Sheet Generation Must Pull Increment From Destination
+
+When generating:
+
+Pakistan Ufone Mobile
+9233
+0.0250
+
+system should automatically add:
+
+60/60
+
+from destination catalog.
+
+Result:
+
+Pakistan Ufone Mobile
+9233
+0.0250
+60/60
+USD
+2026-07-01
+This Changes The Sprint Plan
+Destination Catalog Enforcement
+
+Should now include:
+
+commercialStatus
+isHighCost
+billingIncrementInitial
+billingIncrementFollowing
+minimumDuration
+
+because all of these are destination attributes.
+
+Revised Commercial Object
+
+The commercial object is not:
+
+Product + Rate
+
+It is:
+
+Destination
++
+Rate
++
+Increment
++
+Minimum Duration
++
+Effective Date
++
+Currency
+
+The destination drives:
+
+Prefix
+Increment
+Minimum Duration
+Regulatory treatment
+High-cost classification
+
+The product drives:
+
+Commercial tier (FC/BC/SB/SC)
+Customer visibility
+Pricing strategy
+Governance rules
+
+These are separate concerns.
+
+Architecture Freeze Update
+
+I would update the freeze document to:
+
+Destination Catalog
+    ├─ Prefix
+    ├─ Increment
+    ├─ Minimum Duration
+    ├─ High Cost Flag
+    ├─ Commercial Status
+    └─ Hierarchy
+
+Product Variant
+    ├─ FC-W
+    ├─ BC-W
+    ├─ SB-W
+    ├─ SB-R
+    ├─ SC-W
+    ├─ SC-R
+    ├─ PM-R
+    └─ BS-R
+
+Customer
+    ├─ Product Variant
+    ├─ Currency
+    ├─ Notice Period
+    ├─ Optional Increment Override
+    └─ Template Preference
+
+This aligns much more closely with how carrier rate sheets are actually built and with the legacy BitsAuto screenshots you've been sharing.
+
+Codes DataPrice list
+attached is the sheet for refernce which destiantion has what increment billing we can implemet same as it is 
+Stopped thinking
+
+This spreadsheet changes the discussion significantly.
+
+The file is not just a price list. It is already a Destination Master Catalog + Commercial Rules Catalog.
+
+The important columns are:
+
+Column	Meaning
+Destinations	Commercial destination name
+Country Code	Country prefix
+Area Code	Destination / breakout prefix
+Price/min	Commercial rate
+Billing increment	Critical field
+Billing increment Start Date	Effective date
+Price Status	Increase / Decrease / New breakout etc
+Comment	Commercial notes
+Cli	Commercial availability flag
+
+Example rows from your file:
+
+Destination	Prefix	Increment
+Afghanistan	93	1/1
+Afghanistan Mobile AWCC	70,71,711	60/1
+Afghanistan Mobile Etisalat	73,78	1/1
+Afghanistan Mobile MTN	76,77	1/1
+Afghanistan Special Services	17800, 202609	60/1
+
+This proves something important:
+
+Increment is Destination-Level
+
+You were absolutely correct.
+
+The increment is not:
+
+Product → Increment
+
+It is:
+
+Destination → Increment
+
+The same country contains:
+
+Afghanistan Mobile AWCC      60/1
+Afghanistan Mobile Etisalat   1/1
+Afghanistan Mobile MTN        1/1
+Afghanistan Special Services 60/1
+
+Therefore no product-level increment model can work.
+
+Architecture Update
+
+Destination Catalog should become:
+
+global_destinations
+
+id
+name
+countryCode
+dialPrefix
+
+billingIncrement
+billingIncrementStartDate
+
+minimumDuration
+
+commercialStatus
+
+isHighCost
+requiresApproval
+
+The increment should be stored with the destination itself.
+
+Even More Important Discovery
+
+Your file already contains:
+
+Billing increment Start Date
+
+This means increments themselves can change over time.
+
+Example:
+
+60/60
+effective 2025-01-01
+
+60/1
+effective 2026-06-01
+
+So the future architecture should not store only:
+
+billingIncrement
+
+It should eventually support:
+
+destination_increment_history
+
+or rate-sheet versioning.
+
+Not needed immediately, but important later.
+
+Destination Catalog Is Now The Source Of Truth
+
+The spreadsheet proves the Destination Catalog should own:
+
+Routing Identity
+Country
+Operator
+Breakout
+Prefix
+Commercial Identity
+Increment
+Effective Date
+High Cost
+Status
+Visibility
+Approved
+Blocked
+Pending
+What Should Happen During Import
+
+When importing destination data:
+
+Destination
+      ↓
+Prefix
+      ↓
+Increment
+      ↓
+Effective Date
+      ↓
+Commercial Status
+
+should all be loaded together.
+
+Not just:
+
+Destination + Prefix
+
+which is what most destination catalogs do.
+
+Impact On Rate Sheet Engine
+
+This spreadsheet also answers a major unanswered question.
+
+When generating customer rate sheets:
+
+Destination
+Prefix
+Rate
+Increment
+Effective Date
+
+should come directly from Destination Catalog + Product Pricing.
+
+Meaning:
+
+Destination Catalog
+    ↓
+Prefix
+Increment
+Effective Date
+
+Product Pricing
+    ↓
+Rate
+
+Customer Profile
+    ↓
+Format
+Currency
+Notice Period
+
+Then generate:
+
+Pakistan Ufone Mobile
+9233
+0.0250
+60/1
+USD
+01-Jul-2026
+Recommendation
+
+Before Product Variants, I would now create a dedicated sprint:
+
+Destination Catalog Commercial Enrichment
+
+Using this spreadsheet as the source model.
+
+Add to global_destinations:
+
+billing_increment
+billing_increment_start_date
+minimum_duration
+is_high_cost
+commercial_status
+
+Then update imports so those values are loaded automatically.
+
+Because your spreadsheet proves that the Destination Catalog is not only a routing catalog—it is also the source of commercial attributes used later by:
+
+Rate Manager
+Send Rates
+Customer Rate Sheets
+Voice Trading Desk
+Product Pricing
+Client Tariff Profiles
+
+This file is probably one of the most important legacy artifacts you've shared so far because it defines how increments should really work.
+
+but this should not be in front UI its backend workflow, also we have to give this option if in furre any destaintion increment billing would be change will be adjust acordingly, and that would be implement on all platform, and sippy soft
+
+I agree. Billing increment should not be a front-end operational setting.
+
+The increment is a regulatory/commercial attribute of a destination, similar to:
+
+Dial Prefix
+Country
+Operator
+Breakout
+Mobile/Fixed
+High Cost Flag
+
+The NOC, KAM, or Commercial user should not be manually choosing increments during rate generation.
+
+Correct Architecture
+Destination Catalog (Master Data)
+Pakistan Ufone Mobile
+Prefix: 9233
+
+Billing Increment: 60/1
+Minimum Duration: 60
+Effective From: 2025-01-01
+
+Status: Approved
+
+This lives in the backend database only.
+
+Platform Behaviour
+
+When any module requests destination information:
+
+Destination Catalog
+        ↓
+Prefix
+Increment
+Minimum Duration
+Effective Date
+        ↓
+Returned automatically
+
+The user never selects:
+
+60/1
+60/60
+30/6
+1/1
+
+The platform automatically provides it.
+
+Future Increment Change Workflow
+
+Example:
+
+Today
+
+Pakistan Ufone Mobile
+9233
+60/1
+
+Regulator changes next month
+
+Pakistan Ufone Mobile
+9233
+30/6
+Effective: 01-Aug-2026
+
+Admin updates destination catalog once.
+
+The platform automatically updates:
+
+Rate Manager
+Pakistan Ufone Mobile
+9233
+30/6
+Send Rates
+
+Generated rate sheets use:
+
+Pakistan Ufone Mobile
+9233
+Rate
+30/6
+Client Tariff Profiles
+
+Uses new increment automatically.
+
+Product Pricing
+
+Uses new increment automatically.
+
+Voice Trading Desk
+
+Uses new increment automatically.
+
+Rate Notifications
+
+Uses new increment automatically.
+
+Exports
+
+Excel / PDF show new increment automatically.
+
+Sippy Soft
+
+If Sippy tariff configuration supports increment updates:
+
+interval_1
+interval_n
+
+the synchronization layer updates Sippy automatically.
+
+What Should Be Stored
+
+I would not store increment directly in:
+
+product_rates
+rate_push_jobs
+rate_notification_templates
+client_profiles
+
+Those systems should read from:
+
+global_destinations
+
+Single source of truth.
+
+Recommended Data Model
+global_destinations
+
+id
+country
+operator
+breakout
+
+dial_prefix
+
+billing_increment
+minimum_duration
+
+effective_from
+
+commercial_status
+
+is_high_cost
+requires_approval
+
+updated_at
+updated_by
+
+Future-proof:
+
+destination_increment_history
+
+destination_id
+
+old_increment
+new_increment
+
+effective_from
+
+changed_by
+changed_at
+Important Rule
+
+The increment should be treated exactly like the destination name and prefix:
+
+Destination Catalog
+        ↓
+Master Record
+
+Everything else consumes it.
+
+Nobody should manually enter:
+
+60/1
+60/60
+30/6
+1/1
+
+inside:
+
+Rate Manager
+Send Rates
+Client Wizard
+Product Registry
+Voice Trading Desk
+
+because that creates inconsistencies.
+
+The correct design is:
+
+Destination Catalog
+      ↓
+Increment Changes
+      ↓
+Automatic Propagation
+      ↓
+All Commercial Modules
+      ↓
+Sippy Synchronization
+
+Update once in the Destination Catalog, and the entire platform follows automatically. This is exactly the kind of centralized governance that prevents rate sheet mismatches and billing disputes later.

@@ -1,0 +1,62 @@
+Here are the two suggestions — no implementation, just the plan for your review.
+
+Suggestion 1 — Auth Change Alerts (Email + WhatsApp)
+What triggers an alert:
+Any create / update / delete on a Sippy account authentication (IP auth, SIP credentials, trunk auth).
+
+How it fits into the existing stack:
+
+Layer	Approach
+Detection	Thin middleware wrapper around the existing Sippy auth API calls (createAuthentication, updateAuthentication, deleteAuthentication) in server/sippy.ts
+Email	Use the existing SMTP transport already wired for invoices (same nodemailer + settings table credentials) — no new infra
+WhatsApp	Use the existing BhaooSMS service layer (server/services/bhaoo/) — a single sendMessage() call to a configurable admin number
+Alert record	Insert a row into a new auth_change_alerts table (who, action, account_id, ip_address, changed_by, timestamp) so every alert has an audit trail
+Config	A settings row or dedicated DB table for recipient email(s) + WhatsApp number(s), toggleable per channel
+Alert content:
+
+Action: Created / Modified / Deleted
+Account name + Sippy account ID
+IP address or SIP username affected
+Changed by (platform user)
+Timestamp (UTC)
+Direct link to the account in the platform
+Recipient logic:
+
+All users with admin or management role are notified by default
+A dedicated "auth security" override number/email can be set in Settings
+Scope of work: ~3 files touched — sippy.ts wrapper, a new alert-sender helper, and a small settings UI under Security. No new external services needed.
+
+Suggestion 2 — Client Creation Wizard
+A 5-step modal wizard accessible from the Clients / Company List page.
+
+Step 1 — Client Details
+Company Name, Account (links to Sippy account if one exists), Product selection (Product 1 / 2 / 6 / 7 with readable names), CLD Rule, Allowed IP(s)
+Step 2 — Authentication Preview
+Auto-filled from Step 1: Source IP list from allowed IPs, CLD Rule, Product → IP-auth template
+User confirms or adjusts before creation
+Status defaults to Active
+Step 3 — Destination & Operator Selection
+Country cards with checkable operators exactly as specified (Pakistan / India / Bangladesh / Sri Lanka / Nepal)
+Multi-select; selections feed into Step 4
+Step 4 — Routing Preview
+Product → route template lookup:
+1 → First Class, 2 → Business Class, 6 → Bravo Special, 7 → Special Charlie
+Generates one routing entry per selected operator, shown in a review table before commit
+Step 5 — Confirm & Create
+Summary of everything about to be created
+Single "Create & Activate" button:
+Creates Sippy account (or links existing)
+Creates authentication
+Creates routing entries
+Links auth + routing to the account
+Fires the Auth Change Alert from Feature 1 for the new auth
+Company List quick-actions
+A context menu / badge popover on each client row with: Create Auth, Create Routing, View Auths, View Routes, Clone Routing Template, Edit Auth Config, Edit Routing Config
+Each action opens the relevant step of the wizard pre-filled for that client
+Scope of work
+New client-wizard.tsx page/modal (~400–500 lines)
+A wizard_drafts DB table to persist in-progress wizard state (so a browser refresh doesn't lose work)
+New backend routes: POST /api/wizard/provision (orchestrates the multi-step Sippy calls transactionally)
+Company List page: add the quick-action popover (small change to existing file)
+No new external services; all Sippy calls use the existing XML-RPC layer
+Let me know which one (or both) you'd like me to build, and I'll get started.

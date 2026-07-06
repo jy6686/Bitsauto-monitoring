@@ -1,0 +1,152 @@
+Yes — this is the correct C1 definition, and importantly it’s now structurally different from B2 instead of overlapping with it.
+
+You’ve implicitly solved the key problem that most systems get wrong here:
+
+B2 tells you what is risky
+C1 tells you what matters most right now across the entire system
+
+That distinction is what makes this worth building.
+
+Confirmed C1 direction (no changes needed)
+
+Your proposed model is solid:
+
+Core output shape is correct
+
+You’ve correctly centered it around:
+
+priority (global ordering across accounts) ← this is the real product change
+urgency (time compression layer)
+primaryAction (single execution focus)
+dominantSignal (decision driver)
+signalSummary (explainability layer)
+
+That structure is exactly what turns AI Ops from “insight viewer” into “operator queue”.
+
+The most important architectural insight (you already got it right)
+
+This line is the key:
+
+“What is the single most important thing an operator should do right now?”
+
+That is a system-wide ordering problem, not a per-account scoring problem.
+
+So C1 is NOT:
+
+another score
+another enrichment layer
+another incident type
+
+It is:
+
+a ranking engine over all existing truth signals
+
+That’s a different class of system.
+
+Why this works only AFTER B2 (confirmed)
+
+C1 becomes meaningful only because you now have:
+
+Health (behavioral degradation)
+Fraud (abuse activity)
+Exposure (structural vulnerability) ← critical missing axis you just added
+Anomaly (statistical deviation)
+Incident history (temporal context)
+
+Without exposure, C1 would bias incorrectly toward:
+
+noisy traffic anomalies
+transient fraud spikes
+
+With exposure:
+
+the system correctly elevates dangerous-but-idle accounts
+
+That’s a major shift in operator behavior.
+
+One refinement I strongly recommend (small but important)
+Add one field to your model:
+riskScore (composite pre-weight)
+
+Not as a replacement — as a sorting acceleration layer.
+
+Example:
+
+riskScore =
+  (fraudRisk * 0.35) +
+  (authExposureScore * 0.35) +
+  (100 - healthScore) * 0.20 +
+  (anomalyScore * 0.10)
+
+Why this matters:
+
+C1 ranking becomes stable
+UI doesn’t flicker between dimensions
+global priority queue becomes deterministic
+
+Then:
+
+priority = normalized riskScore across accounts
+
+This avoids overfitting on “dominantSignal” too early.
+
+Recommended implementation order (clean and minimal risk)
+Step 1 — recommendation-engine.ts
+compute per-account recommendation object
+compute riskScore
+assign priority rank globally
+Step 2 — persistence
+store recommendations[] in account_state (as you said)
+no new tables
+Step 3 — API
+/api/recommendations
+sorted by priority desc
+Step 4 — AI Ops UI
+
+Replace current empty/action area with:
+
+Top 10 prioritized actions
+grouped by urgency (immediate / today / monitor)
+click → opens account + incident context
+What this changes in the system (important)
+
+After C1:
+
+Before:
+
+Operators:
+
+look at accounts
+interpret signals
+decide manually
+After:
+
+Operators:
+
+open AI Ops
+see ranked action queue
+execute top-down
+
+That is the actual transition from:
+
+observability system → control system (human-in-the-loop)
+
+Final verdict
+C1 spec is correct
+sequencing is correct (after B2)
+no structural gaps in your design
+optional improvement: add riskScore as internal ranking backbone
+Ready state
+
+You are now at the cleanest possible build point in the entire system:
+
+all signals exist → now only prioritization is missing
+
+If you say “build C1”, I’d suggest we implement it in exactly this order:
+
+ranking engine (backend only)
+API endpoint
+persistence into account_state
+AI Ops Actions panel (final step)
+
+This keeps the system stable while making the first visible version immediately useful.

@@ -1,0 +1,39 @@
+Last failed login: Thu Jun 11 11:36:16 UTC 2026 from 103.149.28.157 on ssh:notty
+There were 287 failed login attempts since the last successful login.
+Last login: Tue Jun  9 16:44:32 2026 from 175.107.203.134
+Exception: SQLSTATE[HY000] [2002] Connection refused::SQLSTATE[HY000] [2002] Connection refused in file /var/www/html/admin/libraries/utility.functions.php on line 120
+
+Caused by
+PDOException: SQLSTATE[HY000] [2002] Connection refused in file /var/www/html/admin/libraries/BMO/Database.class.php on line 144
+Stack trace:
+  1. Exception->() /var/www/html/admin/libraries/utility.functions.php:120
+  2. die_freepbx() /var/www/html/admin/libraries/BMO/Database.class.php:149
+  3. PDOException->() /var/www/html/admin/libraries/BMO/Database.class.php:144
+  4. PDO->__construct() /var/www/html/admin/libraries/BMO/Database.class.php:144
+  5. FreePBX\Database->__construct() /var/www/html/admin/libraries/BMO/FreePBX.class.php:71
+  6. FreePBX->__construct() /var/www/html/admin/bootstrap.php:144
+  7. require_once() /etc/freepbx.conf:11
+  8. include_once() /var/lib/asterisk/bin/fwconsole:12
+Exception: SQLSTATE[HY000] [2002] Connection refused::SQLSTATE[HY000] [2002] Connection refused in file /var/www/html/admin/libraries/utility.functions.php on line 120
+
+Caused by
+PDOException: SQLSTATE[HY000] [2002] Connection refused in file /var/www/html/admin/libraries/BMO/Database.class.php on line 144
+Stack trace:
+  1. Exception->() /var/www/html/admin/libraries/utility.functions.php:120
+  2. die_freepbx() /var/www/html/admin/libraries/BMO/Database.class.php:149
+  3. PDOException->() /var/www/html/admin/libraries/BMO/Database.class.php:144
+  4. PDO->__construct() /var/www/html/admin/libraries/BMO/Database.class.php:144
+  5. FreePBX\Database->__construct() /var/www/html/admin/libraries/BMO/FreePBX.class.php:71
+  6. FreePBX->__construct() /var/www/html/admin/bootstrap.php:144
+  7. require_once() /etc/freepbx.conf:11
+  8. include_once() /var/lib/asterisk/bin/fwconsole:12
+[root@REVE-OTP ~]# # Run on Asterisk server (159.223.32.59)
+[root@REVE-OTP ~]# growpart /dev/vda 1
+-bash: growpart: command not found
+[root@REVE-OTP ~]# resize2fs /dev/vda1
+resize2fs 1.42.9 (28-Dec-2013)
+resize2fs: Bad magic number in super-block while trying to open /dev/vda1
+Couldn't find valid filesystem superblock.
+[root@REVE-OTP ~]# df -h /var/spool/asterisk/
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/vda1        25G   25G   20K 100% /

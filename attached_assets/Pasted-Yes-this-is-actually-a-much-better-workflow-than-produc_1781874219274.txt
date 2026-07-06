@@ -1,0 +1,169 @@
+Yes, this is actually a much better workflow than product membership assignment.
+
+After reviewing the old BitsAuto flow, the platform already has a mature "New Client Rate Job" process where rate notification templates are created per Client + Product combination. The screenshot shows exactly that: one client can have multiple product templates (Standard, Premium, Special Charlie, etc.).
+
+Proposed Workflow
+Step 1 — Client Wizard
+
+During Client Creation:
+
+Company Name
+↓
+Commercial Details
+↓
+Technical Details
+↓
+Select Product(s)
+
+☑ First Class Wholesale
+☑ Business Class Wholesale
+☐ Special Bravo
+☐ Special Charlie
+Step 2 — Client Provisioning Completes
+
+Instead of immediately assigning rates:
+
+Client Created
+↓
+Trunk Created
+↓
+Authentication Created
+↓
+Sippy Account Created
+↓
+Create "Pending Initial Rate Setup" Job
+New Queue
+Client Rate Activation Queue
+
+New menu:
+
+Commercial
+ └── Initial Client Rate Jobs
+
+Example:
+
+Client	Product	Status	KAM
+ABC Telecom	First Class	Pending Rate Setup	Junaid
+XYZ Voice	Business Class	Pending Rate Setup	Ali
+Voortex	FC + BC	Pending Rate Setup	Ahmed
+KAM Process
+
+KAM opens job:
+
+Client: ABC Telecom
+
+Product:
+First Class Wholesale
+
+Tariff:
+FC Wholesale
+
+Rate Sheet:
+[Select]
+
+Activation Date:
+[Today]
+
+Notification:
+☑ Create Notification Template
+☑ Send Welcome Rate Sheet
+
+Action:
+[Activate Rates]
+If Multiple Products Selected
+
+Example:
+
+Client Wizard
+
+☑ First Class
+☑ Business Class
+☑ Special Bravo
+
+System automatically creates:
+
+Job #1001 FC
+Job #1002 BC
+Job #1003 SB
+
+or
+
+Single Job
+
+Client: ABC Telecom
+
+Products Pending:
+☑ FC
+☑ BC
+☑ SB
+
+I prefer single job with multiple products.
+
+Link With Existing Rate Notification Templates
+
+Your screenshot already proves BitsAuto works product-wise:
+
+Client
+Product
+Notification Template
+
+So after provisioning:
+
+Client Wizard
+↓
+Product Selected
+↓
+Auto-create Notification Template
+(Status = Draft)
+↓
+Create Initial Rate Job
+↓
+KAM Completes Rate Assignment
+↓
+Notification Template Activated
+↓
+Client Live
+
+No manual searching through 2,497 templates later.
+
+Additional Statuses
+
+Add lifecycle:
+
+Client Created
+↓
+Awaiting Rate Assignment
+↓
+Rate Assigned
+↓
+Manager Approval
+↓
+Notification Generated
+↓
+Activated
+↓
+Live Traffic
+
+This gives NOC, Commercial, and Finance visibility.
+
+Recommendation for BitsAuto
+
+Do not use account names, customer_product_assignments, or tariff-sync logic for initial client rate governance.
+
+Use:
+
+Client Wizard
+    ↓
+Selected Product(s)
+    ↓
+Create Initial Client Rate Job
+    ↓
+KAM assigns initial rates
+    ↓
+Approval
+    ↓
+Send Rate Notification
+    ↓
+Activate
+
+This matches how the legacy BitsAuto commercial process already works and keeps product ownership with Commercial/KAM instead of trying to infer it from Sippy tariffs.

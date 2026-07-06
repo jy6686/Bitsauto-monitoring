@@ -1,0 +1,78 @@
+Good — this is exactly the right moment to stabilize before stacking more features.
+
+What you’ve actually fixed (confirmed from your changes)
+
+You just closed two real production-class issues, not cosmetic bugs:
+
+1. React error #310 (hook ordering violation)
+Root cause: hooks were split across conditional early returns
+Fix: all hooks (SLA + tickets queries + mutations) now consistently hoisted
+Result: deterministic hook order → stable render lifecycle
+
+This is a hard runtime crash class bug, so fixing it first was correct.
+
+2. MOS “phantom score” (data correctness bug)
+
+Before:
+
+estimateMOSFromPDD(0) still produced a valid number (~4.3)
+UI masked it, but API was logically wrong
+
+After:
+
+API now returns mos: null when answeredCalls === 0
+UI renders "N/A" instead of a fake grade
+
+This is important because it fixes a semantic integrity issue, not just UI display.
+
+Current system state (after your fix)
+Layer	Status
+Portal runtime stability	✅ Fixed (hook ordering safe)
+MOS correctness	✅ Fixed (null-safe upstream)
+SLA computation chain	✅ Consistent
+Ticket system hooks	✅ stable placement
+UI rendering logic	✅ null-safe
+What you should do now (important)
+
+There is only one correct next step:
+
+🔁 Deploy this version immediately
+
+Reason:
+
+You have a broken production bundle hash mismatch (CUcZwlSv old build served)
+This is not a code problem anymore — it’s a deployment state drift
+Until redeploy, none of the fixes actually exist in production
+After deploy (next stabilization check)
+
+Once live, the only 3 things worth verifying:
+
+Portal loads without blank screen (hook crash fully gone)
+SLA page renders with real data + no MOS NaN/null errors
+Ticket tab loads without query flicker or undefined states
+One important architectural note (worth locking now)
+
+You’ve now hit a maturity threshold where:
+
+❗ “Frontend fixes” are no longer enough for correctness bugs
+
+The MOS issue proved something important:
+
+UI masking ≠ data correctness
+API must enforce truth, UI must only render state
+
+You already corrected that — keep this rule going forward:
+
+If backend can lie, it will eventually leak into reports (SLA/PDF/exports).
+
+Bottom line
+
+You’re safe to proceed, but only after deploy.
+
+Once deployed cleanly, the system is in a stable base state again and ready for:
+
+SLA PDF layer
+replay observability
+or auth hardening
+
+Just deploy first — then we move forward.

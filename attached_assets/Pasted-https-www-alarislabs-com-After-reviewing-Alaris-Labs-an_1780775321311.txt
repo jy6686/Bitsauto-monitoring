@@ -1,0 +1,320 @@
+https://www.alarislabs.com/
+
+After reviewing Alaris Labs and comparing it to your current BitsAuto roadmap, I think there are some very important lessons.
+
+What Alaris Does Well
+
+Alaris is not really selling:
+
+Routing Groups
+Destination Sets
+Tariffs
+Auth Rules
+
+They are selling:
+
+Commercial Operations
+    ↓
+Rate Management
+    ↓
+Trading
+    ↓
+Profitability
+    ↓
+Automation
+
+Their voice platform (Alaris inVoice) focuses heavily on:
+
+Rate Management
+Interconnect Billing
+Customer Pricing
+Vendor Cost Management
+Routing Governance
+Margin Protection
+Reporting & Analytics
+Where BitsAuto Is Stronger
+
+Honestly, your platform is already ahead in some areas.
+
+You already have:
+
+✅ AI Ops Center
+
+✅ Route Degradation Intelligence
+
+✅ Q-Score / Carrier Intelligence
+
+✅ Incident Command Concepts
+
+✅ Confidence-Governed Telemetry
+
+✅ Product Registry
+
+✅ Deal Workspace
+
+Most voice billing/routing platforms do not have these operational intelligence layers.
+
+Where Alaris Is Ahead
+
+This is the important part.
+
+Alaris has a mature:
+
+Commercial Layer
+
+Their architecture is essentially:
+
+Vendor Rates
+      ↓
+Product Rates
+      ↓
+Customer Rates
+      ↓
+Notifications
+      ↓
+Billing
+
+while
+
+complete
+
+Continuing the comparison:
+
+Where BitsAuto Is Stronger
+
+You already have:
+
+✅ AI Ops Center
+
+✅ Route Degradation Intelligence
+
+✅ Q-Score / Carrier Intelligence
+
+✅ Confidence-Governed Telemetry
+
+✅ Incident Command Center concepts
+
+✅ Live Route Monitoring
+
+✅ Fraud/FAS Intelligence
+
+✅ Routing Simulation roadmap
+
+Most telecom commercial platforms, including Alaris, are much stronger on the commercial side than the operational intelligence side.
+
+BitsAuto is currently the opposite.
+
+You are very strong in:
+
+Operations
+NOC
+Routing Intelligence
+Quality Monitoring
+Automation Governance
+
+but weaker in:
+
+Commercial Operations
+Rate Management
+Trading
+Profitability
+Deal Lifecycle
+What Alaris Would Teach Us
+
+Looking at their product positioning, they built their platform around:
+
+Vendor
+    ↓
+Cost
+    ↓
+Destination
+    ↓
+Customer Price
+    ↓
+Margin
+
+while BitsAuto currently is:
+
+Destination
+    ↓
+Routing
+    ↓
+Quality
+    ↓
+Operations
+
+The future version of BitsAuto should combine both.
+
+The Missing Commercial Layer
+
+This is the biggest gap today:
+
+Product
+    ↓
+Rate
+
+You have already built:
+
+Destination Catalog
+Product Registry
+Customer Assignments
+Deal Workspace
+
+But you do not yet have:
+
+Product Rate Repository
+
+which is why I keep recommending Rate Manager next.
+
+If We Follow The Alaris Model
+
+The next workspace becomes:
+
+Rate Management
+Rate Management
+├ Dashboard
+├ Rate Analysis
+├ Product Rates
+├ Send Rates
+├ Notifications
+├ Vendor Impact
+├ Approvals
+├ History
+
+Notice something important:
+
+Everything is product-centric.
+
+Not prefix-centric.
+
+Future Commercial Architecture
+Layer 1 — Master Data (Built)
+Destination Catalog
+Product Registry
+Customer Assignments
+Layer 2 — Commercial Engine (Current)
+Deal Workspace
+Layer 3 — Pricing Engine (Next)
+Product Rates
+Customer Rates
+Vendor Costs
+Margin Rules
+Layer 4 — Distribution
+Rate Notifications
+7-Day Notice Queue
+Customer Distribution
+Layer 5 — Trading Intelligence
+Vendor Impact
+Price Opportunities
+Margin Optimization
+Layer 6 — AI Trading
+Recommend price increase
+Recommend vendor swap
+Recommend destination activation
+What I Would NOT Copy From Alaris
+
+I would not turn BitsAuto into a pure commercial platform.
+
+Your differentiation is:
+
+Commercial Intelligence
+        +
+Operational Intelligence
+
+Example:
+
+Alaris can tell you:
+
+Margin dropped
+
+BitsAuto should tell you:
+
+Margin dropped
+
+because:
+
+Vendor increased cost 8%
+ASR dropped 12%
+Q-Score fell from 84 → 61
+Route degradation detected
+
+That is a much stronger story.
+
+Competitive Positioning
+Sippy
+
+Strong:
+
+Switching
+Billing
+Routing
+
+Weak:
+
+Intelligence
+Commercial Workflows
+Alaris
+
+Strong:
+
+Trading
+Rate Management
+Commercial Operations
+
+Weak:
+
+Operational Intelligence
+NOC
+Automation
+BitsAuto (Target)
+
+Strong:
+
+Operations
+NOC
+AI Ops
+Routing Intelligence
+Commercial Workflows
+Rate Management
+Trading
+Governance
+
+That combination is difficult for competitors to match.
+
+My Updated Recommendation
+
+After seeing:
+
+Product Registry
+Destination Catalog
+Deal Workspace
+Legacy Rate Editor screenshots
+Alaris positioning
+
+I would prioritize:
+
+Next
+
+✅ Rate Manager
+
+with:
+
+Rate Analysis
+Product Rate Repository
+Rate Editor
+Push To Sippy
+Then
+
+✅ Rate Notifications
+
+Then
+
+✅ Vendor Cost Impact
+
+Then
+
+✅ Pricing Intelligence
+
+Then
+
+✅ Voice Trading Expansion

@@ -1,0 +1,172 @@
+Yes — and that is the correct operational design for a telecom NOC.
+
+Right now your graph is behaving more like:
+
+“historical call totals over time”
+
+But for real operations, the graph should represent:
+
+“concurrent live call state over time”
+
+That’s a very important distinction.
+
+Recommended Graph Logic
+What the graph should show
+X-axis
+
+Last 24 hours timeline
+
+Example:
+
+00:00 → 04:00 → 08:00 → 12:00 → 16:00 → NOW
+Y-axis should show:
+Concurrent LIVE calls at that moment
+
+NOT:
+
+Total calls processed today = 25,000
+
+Instead:
+
+At 14:05 → 220 active calls
+At 14:10 → 245 active calls
+At 14:15 → 198 active calls
+
+This is the correct NOC metric.
+
+Recommended 3 Lines
+1. Total Active Calls
+Currently active channels/sessions
+Example:
+Blue line
+Smooth area graph
+2. Connected Calls
+Answered/live connected calls
+Example:
+Green line
+Main operational signal
+3. Failed / Routing Calls
+Trying / failed / setup / rejected calls
+Example:
+Red/orange thin line
+Useful for detecting routing degradation
+What should NOT happen
+❌ Wrong:
+10,000 calls at 10AM
+15,000 calls at 11AM
+20,000 calls at 12PM
+
+That is cumulative traffic analytics.
+
+Good for:
+
+finance
+reporting
+revenue
+
+NOT good for:
+
+live operations
+What should happen instead
+✅ Correct:
+10AM → 220 concurrent calls
+11AM → 310 concurrent calls
+12PM → 180 concurrent calls
+
+This shows:
+
+network load
+traffic pressure
+routing saturation
+CPS spikes
+outage impact
+Best Visualization Style
+Recommended:
+“Concurrent Call Stream Graph”
+Design:
+smooth flowing line
+soft gradient fill
+animated latest-point pulse
+hover shows:
+active
+connected
+failed
+ASR
+CPS
+Important Architecture Note
+
+Because you want Sippy-safe polling:
+
+Correct implementation:
+Store snapshots every 1 minute
+
+Example:
+
+timestamp
+active_calls
+connected_calls
+failed_calls
+asr
+cps
+
+Then graph reads:
+
+historical snapshots
+
+NOT:
+
+live Sippy recalculation every graph refresh
+Recommended Retention
+Live Ops Window
+Window	Resolution
+Last 1 hour	1 min
+Last 24 hours	5 min
+Last 7 days	15 min
+
+This keeps:
+
+dashboard fast
+Sippy stable
+graph smooth
+My Strong Recommendation
+
+Split BitsEye into:
+
+LIVE MODE
+
+Concurrent active calls graph
+(real-time operations)
+
+AND
+
+ANALYTICS MODE
+
+Accumulated traffic/revenue graphs
+(reporting/business intelligence)
+
+Because mixing both on one graph confuses operators.
+
+Ideal Final Layout
+Top
+
+Live KPI strip
+
+Active: 242
+Connected: 228
+Failed: 14
+ASR: 83%
+CPS: 5.2
+Center
+
+24h Concurrent Call Graph
+(animated smooth line)
+
+Bottom
+
+Event overlay
+
+14:22 Routing change
+14:28 Carrier degradation
+14:35 FAS spike
+
+That becomes a true telecom operational intelligence surface.

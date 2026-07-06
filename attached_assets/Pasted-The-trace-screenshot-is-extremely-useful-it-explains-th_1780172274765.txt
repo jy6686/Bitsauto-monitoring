@@ -1,0 +1,183 @@
+The trace screenshot is extremely useful — it explains the remaining REVE-side failure very clearly.
+
+The critical line is:
+
+GET vo-ip-watcher--junaid70.replit.app
+no protocol:
+
+That is the real issue.
+
+ROOT CAUSE
+
+REVE is sending:
+
+GET vo-ip-watcher--junaid70.replit.app
+
+instead of:
+
+GET https://vo-ip-watcher--junaid70.replit.app
+
+So:
+
+the HTTP profile URL is missing protocol.
+
+REVE literally shows:
+
+no protocol:
+
+That means:
+
+REVE cannot build proper HTTP request
+request never properly leaves REVE
+submit fails immediately
+
+This is NOT:
+
+BitsAuto issue
+Asterisk issue
+Sippy issue
+
+This is:
+
+REVE HTTP profile misconfiguration.
+What To Fix
+
+Inside:
+
+REVE → HTTP Profile → R.Testing1
+
+You MUST set:
+
+https://vo-ip-watcher--junaid70.replit.app/api/bhaoo/receive
+
+FULL URL INCLUDING:
+
+https://
+
+NOT:
+
+vo-ip-watcher--junaid70.replit.app/api/bhaoo/receive
+The Screenshot Confirms It
+
+This line:
+
+no protocol:
+
+is definitive proof.
+
+REVE is parsing invalid URL.
+
+MOST IMPORTANT OBSERVATION
+
+The arrows in trace:
+
+Arrow	Meaning
+blue →	outbound attempt
+red ←	failed return
+
+And immediately after:
+
+no protocol:
+
+Meaning:
+
+REVE failed before even making proper HTTPS request.
+Correct REVE Configuration
+
+Inside HTTP Profile:
+
+Field	Value
+Submit URL	https://vo-ip-watcher--junaid70.replit.app/api/bhaoo/receive
+Method	GET
+DLR URL	https://vo-ip-watcher--junaid70.replit.app/api/bhaoo/dlr
+Protocol	HTTPS
+VERY IMPORTANT
+
+Because REVE is old:
+
+Tomcat 7
+older HTTP stack
+
+you MAY STILL need:
+
+Pipedream relay
+
+even after fixing protocol.
+
+But FIRST:
+
+fix the URL syntax.
+What Happens After Fix
+
+Expected flow:
+
+REVE
+↓ HTTPS GET
+/api/bhaoo/receive
+↓
+BitsAuto extracts OTP
+↓
+AMI originate
+↓
+Asterisk
+↓
+DIRECT_SIP
+↓
+Sippy
+↓
+Carrier
+↓
+Phone rings
+Your Current Status
+Layer	Status
+REVE profile URL	❌ broken
+BitsAuto API	✅
+OTP extraction	✅
+AMI	✅
+DIRECT_SIP	✅
+Sippy routing	✅
+Carrier reachability	✅
+
+So:
+
+REVE URL syntax is currently blocking submit.
+MOST IMPORTANT NEXT STEP
+
+Fix:
+
+FULL HTTPS URL
+
+inside:
+
+R.Testing1 Submit URL
+
+Then immediately retest.
+
+VERY IMPORTANT RECOMMENDATION
+
+Also:
+
+remove spaces/newlines from URL.
+
+Use EXACTLY:
+
+https://vo-ip-watcher--junaid70.replit.app/api/bhaoo/receive
+
+single line only.
+
+Final Assessment
+
+You are VERY close now.
+
+The telecom side:
+
+Asterisk
+Sippy
+DIRECT_SIP
+routing
+
+is already operational.
+
+Current blocker is:
+
+REVE malformed HTTP URL configuration.

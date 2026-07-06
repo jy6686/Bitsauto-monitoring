@@ -1,0 +1,94 @@
+This screenshot is actually very useful, and it changes the investigation.
+
+What I observe
+
+This is the Asterisk CDR Reports page on 159.223.32.59.
+
+The recent records all show:
+
+Application: Congestion
+Context: s [from-sip-external]
+Disposition: ANSWERED
+Duration: 00:12
+
+Repeated every few minutes.
+
+This is NOT normal OTP traffic
+
+If governance were handling calls, I would expect CDRs showing something like:
+
+Dial → SIP/sippy/...
+Context involving your sippy-media-anchor
+Destination numbers (Pakistan/Bangladesh)
+MixMonitor recordings
+
+Instead, these CDRs are all:
+
+Context: from-sip-external
+Application: Congestion
+Duration: 12 sec
+
+That usually means:
+
+unsolicited SIP traffic,
+failed inbound SIP attempts,
+scanners hitting your SIP port,
+or calls reaching a context that immediately ends with Congestion().
+
+This aligns with the AMI authentication scans you showed earlier. Internet-facing SIP servers routinely receive this kind of background traffic.
+
+The more important point
+
+This screenshot does not prove governance is processing production calls.
+
+In fact, it suggests the opposite:
+
+Asterisk is generating CDRs,
+but they are not your governed OTP calls.
+What I would check next
+
+Use the search form and search for one of your expected destinations.
+
+For example, if your OTP calls go to Pakistan:
+
+Search Destination for:
+
+923
+
+or, if Asterisk receives the routing prefix:
+
+2060923
+
+Also search CallerID Number for a known test CLI.
+
+If governance is working, you should find records that correspond to those calls.
+
+Verify the dialplan is being hit
+
+Run:
+
+asterisk -rvvvvv
+
+Then place one test OTP call.
+
+If the call reaches this server, you should see log lines from your dialplan, such as:
+
+NoOp(BitsAuto Governance...)
+MixMonitor(...)
+Dial(SIP/sippy/...)
+
+If none of those appear, the call is not entering sippy-media-anchor.
+
+One command I'd like you to run
+
+This will tell us whether your production calls are reaching the expected context:
+
+asterisk -rx "cdr show status"
+
+and then:
+
+grep -n "sippy-media-anchor" /var/log/asterisk/full | tail -20
+
+If there are no recent sippy-media-anchor entries, then despite the presence of CDRs, your production OTP calls are not traversing the governance dialplan.
+
+At that point, the investigation shifts from BitsAuto code to determining why Sippy is no longer sending OTP traffic into the sippy-media-anchor context.

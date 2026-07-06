@@ -1,0 +1,551 @@
+but you again forgot different product name with same identification 
+like First Class and Retail etc
+attached is the rule we can follow each account 
+
+Yes, and this screenshot actually exposes a bigger architectural issue than the prefix bug.
+
+The screenshot is not just "Client Validation Rules."
+
+It shows that the legacy BitsAuto had:
+
+Department
+    ↓
+Company
+    ↓
+Validation Rules
+
+Meaning the rules were not purely global.
+
+They could be assigned per company/account.
+
+What I think we missed
+
+Earlier #338 was implemented as:
+
+Global Vendor Rules
+Global Client Rules
+Global Commercial Rules
+
+But this legacy screen shows:
+
+Company A
+   → Rules Set A
+
+Company B
+   → Rules Set B
+
+Company C
+   → Rules Set C
+
+For example:
+
+Wholesale Carrier
+Rate Increase Notice Violation
+→ Ignore
+Retail Carrier
+Rate Increase Notice Violation
+→ Approval Required
+Strategic Customer
+Rate Increase Notice Violation
+→ Auto Adjust Effective Date
+
+Same rule.
+
+Different customer.
+
+Product Architecture Issue
+
+You are also correct about:
+
+First Class
+Business Class
+Special Bravo
+Special Charlie
+
+and
+
+Wholesale
+Retail
+
+These are different dimensions.
+
+Today the implementation treats them like:
+
+Product
+  ↓
+Segment
+
+But the legacy system suggests:
+
+Product Class
+     ↓
+Commercial Type
+     ↓
+Client Rules
+
+Example:
+
+First Class + Wholesale
+
+is not the same thing as:
+
+First Class + Retail
+
+Because:
+
+Different tariffs
+Different notifications
+Different validation policies
+Different approval thresholds
+Different KAM ownership
+Better Model
+
+Instead of:
+
+First Class
+Segment = Wholesale
+
+Use:
+
+First Class - Wholesale
+First Class - Retail
+
+Business Class - Wholesale
+Business Class - Retail
+
+Special Bravo - Wholesale
+Special Bravo - Retail
+
+Special Charlie - Wholesale
+Special Charlie - Retail
+
+These become actual products.
+
+Not labels.
+
+What this screenshot tells us
+
+I would now separate governance into 3 levels:
+
+Level 1
+
+Global Defaults
+
+Configuration Values
+Validation Rules
+
+Current #337/#338.
+
+Level 2
+
+Product Profile
+
+First Class - Wholesale
+First Class - Retail
+Business Class - Wholesale
+...
+
+Defines:
+
+Default Rules
+Default Template
+Default Notifications
+Level 3
+
+Client Override
+
+The screenshot.
+
+Company
+   ↓
+Validation Rules Override
+
+Only if needed.
+
+Most clients inherit product defaults.
+
+Special clients override.
+
+Before building more Rate Sheet logic
+
+I would ask Replit to review:
+
+Product Registry
+
+Can it support:
+
+First Class - Wholesale
+First Class - Retail
+
+as separate products?
+
+Client Wizard
+
+Can it assign:
+
+Product Variant
+
+instead of:
+
+Product + Segment
+Validation Rules
+
+Can rules inherit:
+
+Global
+   ↓
+Product
+      ↓
+Client Override
+
+This hierarchy is much closer to what your legacy screenshots are showing.
+
+The screenshot is important because it proves the legacy platform already supported account-specific validation governance, while the current #338 implementation is only global. I would not remove the current governance engine, but I would mark:
+
+#338B
+Validation Profiles & Client Overrides
+
+as a future sprint, because the legacy system clearly had that capability.
+
+First Class - Wholesale
+Premium
+
+Business Class - Wholesale
+Business
+
+Special Bravo - Wholesale
+Special Bravo - Retail
+same we need to update entire platform  to sync accordingly 
+
+
+Special Charlie - Wholesale
+Special Charlie - Retail
+
+I agree. Based on everything you've shown from the legacy platform, the current Product + Segment approach is becoming a source of inconsistency.
+
+Your business model is actually:
+
+Product Variant	Legacy Commercial Name
+First Class - Wholesale	Premium
+Business Class - Wholesale	Business
+Special Bravo - Wholesale	Special Bravo Wholesale
+Special Bravo - Retail	Special Bravo Retail
+Special Charlie - Wholesale	Special Charlie Wholesale
+Special Charlie - Retail	Special Charlie Retail
+
+These should be treated as first-class products, not as a product plus a segment label.
+
+Recommended Platform Standard
+Remove
+Product = First Class
+Segment = Wholesale
+Replace with
+Product Variant = First Class - Wholesale
+Product Registry
+
+Current:
+
+First Class
+Business Class
+Special Bravo
+Special Charlie
+
+Target:
+
+First Class - Wholesale
+Business Class - Wholesale
+Special Bravo - Wholesale
+Special Bravo - Retail
+Special Charlie - Wholesale
+Special Charlie - Retail
+
+Each variant gets:
+
+Product Code
+Trunk Prefix
+Tariff Profile
+Notification Template
+Validation Profile
+Rate Sheet Template
+Governance Profile
+Client Wizard
+
+Instead of:
+
+Step 1
+Product = First Class
+
+Step 2
+Segment = Wholesale
+
+Use:
+
+Product Variant
+
+○ First Class - Wholesale
+○ Business Class - Wholesale
+○ Special Bravo - Wholesale
+○ Special Bravo - Retail
+○ Special Charlie - Wholesale
+○ Special Charlie - Retail
+
+One selection only.
+
+Validation Rules
+
+The screenshot you shared suggests:
+
+Global Rules
+      ↓
+Product Variant Rules
+      ↓
+Client Overrides
+
+Example:
+
+First Class - Wholesale
+    ↓
+Ignore Suspect Increase
+
+Special Bravo - Retail
+    ↓
+Approval Required
+
+Different products can have different governance.
+
+Rate Manager
+
+All screens should display:
+
+Current:
+
+First Class
+
+Target:
+
+First Class - Wholesale
+
+Current:
+
+Special Bravo
+
+Target:
+
+Special Bravo - Retail
+
+This affects:
+
+Send Rate
+Rate Analysis
+Push History
+Product Rates
+Notifications
+Rate Sheet Templates
+
+The legacy screenshots strongly suggest templates were product-specific.
+
+Example:
+
+Template A
+→ First Class - Wholesale
+
+Template B
+→ Special Bravo - Retail
+
+Not:
+
+Template A
+→ First Class + Segment
+Reporting
+
+All reports should aggregate by Product Variant:
+
+Revenue
+Margin
+Rate Notifications
+Push History
+Traffic
+Invoices
+
+Example:
+
+First Class - Wholesale
+
+Revenue: $50,000
+Margin: $7,000
+
+instead of mixing Retail and Wholesale together.
+
+Before Updating the Entire Platform
+
+I would ask Replit to perform a dependency audit.
+
+Identify every table, API, and page that currently references:
+
+product_id
+product_name
+segment
+
+and produce:
+
+Module	Uses Product	Uses Segment	Migration Needed
+Client Wizard	✓	✓	Yes
+Product Registry	✓	✓	Yes
+Rate Manager	✓	✓	Yes
+Push History	✓	✓	Yes
+Notifications	✓	✓	Yes
+Governance	✓	✓	Yes
+Reporting	✓	✓	Yes
+
+Only after the audit should the migration begin.
+
+This is not a small UI change. It is a platform-wide Product Variant Architecture migration, and it should be executed as a dedicated sprint so every module remains synchronized.
+
+when ever new product creating all the rule and other implementation would be set already 
+
+Yes. If you move to a proper Product Variant Architecture, then creating a new product should automatically create all required governance, notification, rate, and workflow records.
+
+Today the platform is becoming dependent on many modules:
+
+Product Registry
+Client Wizard
+Destination Catalogue
+Rate Manager
+Rate Notifications
+Validation Rules
+Configuration Values
+Governance Review
+Reporting
+Finance
+Approval Policies
+Sippy Mapping
+
+If these are created manually every time, the platform will eventually become inconsistent.
+
+Recommended Architecture
+Create Product Template
+
+Example:
+
+Create Product:
+
+Name: First Class
+Code: FC
+Trunk Prefix: 1
+Type: Wholesale
+
+System automatically creates:
+
+Product Variant:
+First Class - Wholesale
+
+and auto-provisions:
+
+Governance
+Validation Rules Profile
+Configuration Values Profile
+Notification Profile
+Rate Management
+Rate Sheet Template
+Rate Push Settings
+Default Notification Type
+Destination Mapping
+Client Management
+Client Wizard Product Option
+Client Tariff Profile Template
+Default Commercial Policies
+Reporting
+Revenue Reports
+Margin Reports
+Traffic Reports
+Finance Reports
+Sippy Integration
+Product Prefix Mapping
+Tariff Mapping
+Routing Mapping
+Better Model
+
+Instead of:
+
+Create Product
+↓
+Configure 20 screens manually
+
+Use:
+
+Create Product
+↓
+Apply Product Blueprint
+↓
+Everything created automatically
+Product Blueprint Concept
+
+Example:
+
+Wholesale Blueprint
+Validation Rules:
+  Default Wholesale Rules
+
+Notification:
+  Full Sheet Allowed
+
+Governance:
+  Standard Wholesale Profile
+
+Rate Template:
+  Wholesale Template
+
+Reporting:
+  Wholesale KPIs
+Retail Blueprint
+Validation Rules:
+  Retail Rules
+
+Notification:
+  Changes Only
+
+Governance:
+  Retail Profile
+
+Rate Template:
+  Retail Template
+
+Reporting:
+  Retail KPIs
+Future Example
+
+If tomorrow you create:
+
+Enterprise Plus
+Code: EP
+Trunk Prefix: 8
+Type: Wholesale
+
+System should automatically generate:
+
+Enterprise Plus - Wholesale
+
+✓ Validation Rules
+✓ Configuration Values
+✓ Rate Template
+✓ Notification Template
+✓ Client Wizard Integration
+✓ Reporting Configuration
+✓ Governance Profile
+✓ Sippy Mapping
+✓ Finance Mapping
+
+with zero manual work.
+
+I would not allow product creation until the platform can guarantee:
+
+Product Created
+     =
+Governance Created
+Rate Templates Created
+Notification Templates Created
+Client Wizard Updated
+Reporting Updated
+Sippy Mapping Updated
+
+Otherwise every new product will require developers to revisit multiple modules and the same synchronization problems will keep reappearing. This should become a mandatory Product Provisioning Engine inside BitsAuto, not a manual setup process.

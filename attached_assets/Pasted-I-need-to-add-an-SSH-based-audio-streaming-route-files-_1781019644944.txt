@@ -1,0 +1,60 @@
+I need to add an SSH-based audio streaming route (files live on the Asterisk box at 159.223.32.59) and a play button in the UI. Let me check the current state first:
+
+
+3 actions
+No SSH package yet. Let me check the governance page and schema simultaneously:
+
+
+13 actions
+I need to read the rest of the governance page and check the AMI service for connection details before building the streaming route:
+
+
+3 actions
+Now I have everything I need. The plan:
+
+Install ssh2 to SFTP the WAV files from the Asterisk box
+Add /api/call-governance/recordings/stream route
+Replace the "Copy path" button with an inline ▶ Play button that opens an <audio> player
+Let me do all three in parallel:
+
+
+3 actions
+Good, ssh2 installed. Now let me read the end of the routes file so I know exactly where to insert the new streaming route:
+
+
+2 actions
+Now I'll add the streaming route to the backend and the audio player to the frontend simultaneously:
+
+
+2 actions
+Now add the streaming route and update the frontend simultaneously:
+
+
+2 actions
+Now update the frontend — add an inline audio player component and wire play buttons into both the Recordings tab and the Recent Calls table:
+
+
+2 actions
+Now add the AudioPlayer component and wire the play buttons into both the Recordings tab and Recent Calls table:
+
+
+2 actions
+Now replace the "Copy path" buttons in both the Recordings tab and the Recent Calls table with the new AudioPlayer:
+
+
+2 actions
+Now update the Recordings tab to use AudioPlayer instead of just showing the path:
+
+
+2 actions
+Now I need to set the ASTERISK_SSH_PASSWORD env var so the streaming route actually works. Let me check the logs and set it simultaneously:
+
+
+2 actions
+The governance is firing perfectly — calls 1–7 all showing Enabled rules found: 1 with timers set.
+
+Now the play button needs the SSH password to stream files. Let me set that env var:
+
+
+2 actions
+The recording player needs SSH access to the Asterisk box (159.223.32.59) to stream WAV files. Please provide the root SSH password for that server.

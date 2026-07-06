@@ -1,0 +1,120 @@
+Client Creation Wizard Enhancement Requirements
+
+We would like to enhance the Client Creation Wizard so that authentication and routing can be automatically created and linked during the client onboarding process.
+
+Step 1: Client Creation
+
+When creating a new client, the following information should be configured:
+
+* Company Name
+* Account Details
+* Product Selection
+    * Product 1 = First Class
+    * Product 2 = Business Class
+    * Product 6 = Bravo Special
+    * Product 7 = Special Charlie
+* CLD Rule
+* Allowed IP Address(es)
+
+Step 2: Authentication Creation
+
+Once the CLD Rule and Allowed IPs have been configured, the system should automatically proceed to Authentication Creation.
+
+The authentication should be created using:
+
+* Source IP (automatically populated from the allowed IP list)
+* CLD Rule (automatically populated)
+* Product (based on the selected product)
+* Status (Active by default)
+
+Step 3: Destination and Operator Selection
+
+The wizard should provide predefined destination templates with clickable country and operator selections.
+
+Pakistan
+
+* Jazz
+* Ufone
+* Zong
+* Telenor
+
+India
+
+* Airtel
+* Vodafone Idea
+* Reliance Jio
+* BSNL
+
+Bangladesh
+
+* Grameenphone
+* Banglalink
+* Robi
+* Teletalk
+
+Sri Lanka
+
+* Dialog
+* Mobitel
+* Airtel
+
+Nepal
+
+* Ncell
+* Nepal Telecom
+
+The user should be able to select one or multiple destinations and operators during client creation.
+
+Step 4: Automatic Routing Creation
+
+The system should automatically create routing entries based on predefined routing templates.
+
+Routing templates should be mapped to products as follows:
+
+* Product 1 → First Class Route
+* Product 2 → Business Class Route
+* Product 6 → Bravo Special Route
+* Product 7 → Special Charlie Route
+
+Examples:
+
+* Pakistan → Jazz → Product 1 → First Class Route
+* India → Airtel → Product 2 → Business Class Route
+* Bangladesh → Banglalink → Product 6 → Bravo Special Route
+
+Step 5: Automatic Linking
+
+After authentication and routing are created, the system should automatically:
+
+* Link the authentication to the client account
+* Link the routing to the client account
+* Activate the required configurations
+* Eliminate the need for manual routing and authentication setup
+
+Company List Integration
+
+From the Company List page, clicking on the client badge/widget should provide quick-access actions such as:
+
+* Create Authentication
+* Create Routing
+* View Existing Authentications
+* View Existing Routes
+* Clone Routing from Template
+* Edit Routing Configuration
+* Edit Authentication Configuration
+
+Desired Workflow
+
+1. Create Client
+2. Assign CLD Rule
+3. Assign Allowed IPs
+4. Select Product
+5. Select Destination(s) and Operator(s)
+6. Automatically Create Authentication
+7. Automatically Create Routing
+8. Automatically Link Authentication and Routing to the Client
+9. Client becomes ready for testing and traffic
+
+Expected Outcome
+
+The objective is to automate the complete client onboarding process. When a new client is created, authentication and routing should be generated automatically using predefined templates based on the selected product, destination, and operator. This will significantly reduce manual configuration steps, minimize human errors, and enable the client to become traffic-ready within minutes.

@@ -1,0 +1,31 @@
+[root@REVE-OTP ~]# grep -E "Executing|MixMonitor|BitsAuto|Unhandled" /var/log/asterisk/full | tail -30
+[2026-06-09 09:51:41] VERBOSE[6095][C-0000d8c1] pbx.c: Executing [2060923093463613@sippy-media-anchor:4] Dial("PJSIP/sippy-endpoint-0000d870", "SIP/sippy/22211923093463613,3600,Tt") in new stack
+[2026-06-09 09:51:41] VERBOSE[6096][C-0000d8c1] app_mixmonitor.c: Begin MixMonitor Recording PJSIP/sippy-endpoint-0000d870
+[2026-06-09 09:51:41] VERBOSE[6097][C-0000d8c2] pbx.c: Executing [2060923020686750@sippy-media-anchor:1] NoOp("PJSIP/sippy-endpoint-0000d871", "BitsAuto Governance: product=9 dest=923020686750 uid=1780998701.110897") in new stack
+[2026-06-09 09:51:41] VERBOSE[6097][C-0000d8c2] pbx.c: Executing [2060923020686750@sippy-media-anchor:2] Set("PJSIP/sippy-endpoint-0000d871", "GOV_PRODUCT=9") in new stack
+[2026-06-09 09:51:41] VERBOSE[6097][C-0000d8c2] pbx.c: Executing [2060923020686750@sippy-media-anchor:3] MixMonitor("PJSIP/sippy-endpoint-0000d871", "/var/spool/asterisk/monitor/1780998701.110897.wav,r") in new stack
+[2026-06-09 09:51:41] VERBOSE[6097][C-0000d8c2] pbx.c: Executing [2060923020686750@sippy-media-anchor:4] Dial("PJSIP/sippy-endpoint-0000d871", "SIP/sippy/22211923020686750,3600,Tt") in new stack
+[2026-06-09 09:51:41] VERBOSE[6098][C-0000d8c2] app_mixmonitor.c: Begin MixMonitor Recording PJSIP/sippy-endpoint-0000d871
+[2026-06-09 09:51:41] VERBOSE[6099][C-0000d8c3] pbx.c: Executing [2060923045015750@sippy-media-anchor:1] NoOp("PJSIP/sippy-endpoint-0000d872", "BitsAuto Governance: product=9 dest=923045015750 uid=1780998701.110899") in new stack
+[2026-06-09 09:51:41] VERBOSE[6099][C-0000d8c3] pbx.c: Executing [2060923045015750@sippy-media-anchor:2] Set("PJSIP/sippy-endpoint-0000d872", "GOV_PRODUCT=9") in new stack
+[2026-06-09 09:51:41] VERBOSE[6099][C-0000d8c3] pbx.c: Executing [2060923045015750@sippy-media-anchor:3] MixMonitor("PJSIP/sippy-endpoint-0000d872", "/var/spool/asterisk/monitor/1780998701.110899.wav,r") in new stack
+[2026-06-09 09:51:41] VERBOSE[6100][C-0000d8c3] app_mixmonitor.c: Begin MixMonitor Recording PJSIP/sippy-endpoint-0000d872
+[2026-06-09 09:51:41] VERBOSE[6099][C-0000d8c3] pbx.c: Executing [2060923045015750@sippy-media-anchor:4] Dial("PJSIP/sippy-endpoint-0000d872", "SIP/sippy/22211923045015750,3600,Tt") in new stack
+[2026-06-09 09:51:41] VERBOSE[6101][C-0000d8c4] pbx.c: Executing [2060923212728004@sippy-media-anchor:1] NoOp("PJSIP/sippy-endpoint-0000d873", "BitsAuto Governance: product=9 dest=923212728004 uid=1780998701.110901") in new stack
+[2026-06-09 09:51:41] VERBOSE[6101][C-0000d8c4] pbx.c: Executing [2060923212728004@sippy-media-anchor:2] Set("PJSIP/sippy-endpoint-0000d873", "GOV_PRODUCT=9") in new stack
+[2026-06-09 09:51:41] VERBOSE[6101][C-0000d8c4] pbx.c: Executing [2060923212728004@sippy-media-anchor:3] MixMonitor("PJSIP/sippy-endpoint-0000d873", "/var/spool/asterisk/monitor/1780998701.110901.wav,r") in new stack
+[2026-06-09 09:51:41] VERBOSE[6101][C-0000d8c4] pbx.c: Executing [2060923212728004@sippy-media-anchor:4] Dial("PJSIP/sippy-endpoint-0000d873", "SIP/sippy/22211923212728004,3600,Tt") in new stack
+[2026-06-09 09:51:41] VERBOSE[6102][C-0000d8c4] app_mixmonitor.c: Begin MixMonitor Recording PJSIP/sippy-endpoint-0000d873
+[2026-06-09 09:51:41] VERBOSE[6078][C-0000d8ba] pbx.c: Executing [2060923259188370@sippy-media-anchor:5] Hangup("PJSIP/sippy-endpoint-0000d868", "") in new stack
+[2026-06-09 09:56:35] VERBOSE[8389][C-0000dc8b] app_mixmonitor.c: End MixMonitor Recording PJSIP/sippy-endpoint-0000dc38
+[2026-06-09 09:56:36] VERBOSE[8582][C-0000dcdb] pbx.c: Executing [2060923099631373@sippy-media-anchor:1] NoOp("PJSIP/sippy-endpoint-0000dc88", "BitsAuto Governance: product=9 dest=923099631373 uid=1780998996.112993") in new stack
+[2026-06-09 09:56:36] VERBOSE[8582][C-0000dcdb] pbx.c: Executing [2060923099631373@sippy-media-anchor:2] Set("PJSIP/sippy-endpoint-0000dc88", "GOV_PRODUCT=9") in new stack
+[2026-06-09 09:56:36] VERBOSE[8582][C-0000dcdb] pbx.c: Executing [2060923099631373@sippy-media-anchor:3] MixMonitor("PJSIP/sippy-endpoint-0000dc88", "/var/spool/asterisk/monitor/1780998996.112993.wav,r") in new stack
+[2026-06-09 09:56:36] VERBOSE[8582][C-0000dcdb] pbx.c: Executing [2060923099631373@sippy-media-anchor:4] Dial("PJSIP/sippy-endpoint-0000dc88", "SIP/sippy/22211923099631373,3600,Tt") in new stack
+[2026-06-09 09:56:36] VERBOSE[8583][C-0000dcdb] app_mixmonitor.c: Begin MixMonitor Recording PJSIP/sippy-endpoint-0000dc88
+[2026-06-09 09:56:36] VERBOSE[8441][C-0000dca2] app_mixmonitor.c: End MixMonitor Recording PJSIP/sippy-endpoint-0000dc4f
+[2026-06-09 09:56:36] VERBOSE[8584][C-0000dcdc] pbx.c: Executing [2060923092551840@sippy-media-anchor:1] NoOp("PJSIP/sippy-endpoint-0000dc89", "BitsAuto Governance: product=9 dest=923092551840 uid=1780998996.112995") in new stack
+[2026-06-09 09:56:36] VERBOSE[8584][C-0000dcdc] pbx.c: Executing [2060923092551840@sippy-media-anchor:2] Set("PJSIP/sippy-endpoint-0000dc89", "GOV_PRODUCT=9") in new stack
+[2026-06-09 09:56:36] VERBOSE[8584][C-0000dcdc] pbx.c: Executing [2060923092551840@sippy-media-anchor:3] MixMonitor("PJSIP/sippy-endpoint-0000dc89", "/var/spool/asterisk/monitor/1780998996.112995.wav,r") in new stack
+[2026-06-09 09:56:36] VERBOSE[8584][C-0000dcdc] pbx.c: Executing [2060923092551840@sippy-media-anchor:4] Dial("PJSIP/sippy-endpoint-0000dc89", "SIP/sippy/22211923092551840,3600,Tt") in new stack
+[2026-06-09 09:56:36] VERBOSE[8585][C-0000dcdc] app_mixmonitor.c: Begin MixMonitor Recording PJSIP/s

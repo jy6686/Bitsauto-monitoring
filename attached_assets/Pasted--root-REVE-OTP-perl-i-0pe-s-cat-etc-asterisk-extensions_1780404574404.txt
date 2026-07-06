@@ -1,0 +1,56 @@
+[root@REVE-OTP ~]# perl -i -0pe 's/^cat > \/etc\/asterisk\/extensions_custom\.conf << .EOF.\n//m; s/^EOF\n//m' /etc/asterisk/extensions_custom.conf
+[root@REVE-OTP ~]# grep -n "" /etc/asterisk/extensions_custom.conf
+1:[otp-playback]
+2:exten => s,1,Answer()
+3:same  => n,Wait(1)
+4:same  => n,Playback(custom/your_otp_is)
+5:same  => n,SayDigits(${CALLERID(name)})
+6:same  => n,Wait(1)
+7:same  => n,SayDigits(${CALLERID(name)})
+8:same  => n,Hangup()
+9:
+10:; ── BitsAuto: Media recording anchor ─────────────────────────────────────────
+11:[sippy-media-anchor]
+12:exten => _2060X.,1,NoOp(BitsAuto Governance: product=${EXTEN:4:1} dest=${EXTEN:4} uid=${UNIQUEID})
+13: same => n,Set(GOV_PRODUCT=${EXTEN:4:1})
+14: same => n,MixMonitor(/var/spool/asterisk/monitor/${UNIQUEID}.wav,r)
+15: same => n,Dial(SIP/sippy/22211${EXTEN:4},3600,Tt)
+16: same => n,Hangup()
+17:
+18:exten => _1.,1,NoOp(OTP call: ${EXTEN})
+19: same => n,Answer()
+20: same => n,StopMixMonitor()
+21: same => n,Goto(otp-playback,s,1)
+22:
+23:exten => _X.,1,NoOp(Unhandled call in anchor: ${EXTEN})
+24: same => n,Hangup()
+25:
+26:; ── BitsAuto: Post-cut playback to customer ──────────────────────────────────
+27:[gov-playback]
+28:exten => s,1,NoOp(Governance playback: ${GOV_PLAYBACK_FILE})
+29: same => n,Answer()
+30: same => n,StopMixMonitor()
+31: same => n,Wait(1)
+32: same => n,Playback(${GOV_PLAYBACK_FILE})
+33: same => n,Hangup()
+34:
+35:[gov-hangup]
+36:exten => s,1,Hangup()
+37:
+[root@REVE-OTP ~]# asterisk -rx "dialplan reload"
+Dialplan reloaded.
+[root@REVE-OTP ~]# asterisk -rx "dialplan show sippy-media-anchor"
+[ Context 'sippy-media-anchor' created by 'pbx_config' ]
+  '_1.' =>          1. NoOp(OTP call: ${EXTEN})                   [extensions_custom.conf:18]
+                    2. Answer()                                   [extensions_custom.conf:19]
+                    3. StopMixMonitor()                           [extensions_custom.conf:20]
+                    4. Goto(otp-playback,s,1)                     [extensions_custom.conf:21]
+  '_2060X.' =>      1. NoOp(BitsAuto Governance: product=${EXTEN:4:1} dest=${EXTEN:4} uid=${UNIQUEID}) [extensions_custom.conf:12]
+                    2. Set(GOV_PRODUCT=${EXTEN:4:1})              [extensions_custom.conf:13]
+                    3. MixMonitor(/var/spool/asterisk/monitor/${UNIQUEID}.wav,r) [extensions_custom.conf:14]
+                    4. Dial(SIP/sippy/22211${EXTEN:4},3600,Tt)    [extensions_custom.conf:15]
+                    5. Hangup()                                   [extensions_custom.conf:16]
+  '_X.' =>          1. NoOp(Unhandled call in anchor: ${EXTEN})   [extensions_custom.conf:23]
+                    2. Hangup()                                   [extensions_custom.conf:24]
+
+-= 3 extensions (11 priorities) in 1 context. =-

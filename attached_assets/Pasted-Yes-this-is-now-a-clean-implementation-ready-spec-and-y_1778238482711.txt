@@ -1,0 +1,112 @@
+Yes — this is now a clean, implementation-ready spec, and your “fail closed” addition is exactly what prevents long-term production drift.
+
+I’ll tighten it into a final actionable engineering prompt you can directly hand to Replit or implement yourself.
+
+🧠 FINAL IMPLEMENTATION PROMPT (CLEAN + EXECUTABLE)
+🔐 OBJECTIVE
+
+Introduce a strictly isolated provisioning execution layer for Sippy write operations while preserving existing monitoring flows.
+
+🧭 ARCHITECTURE RULES (NON-NEGOTIABLE)
+1. Monitoring Layer (unchanged)
+portalLogin()
+Uses customer credentials (ssp-root)
+Read-only operations only
+Never used for provisioning
+No modification required
+2. Provisioning Layer (NEW)
+provisioningLogin()
+Behavior:
+Uses ONLY:
+SIPPY_PROV_USERNAME
+SIPPY_PROV_PASSWORD
+Rules:
+Must create a fresh session per call
+Must NOT be cached globally
+Must NOT reuse monitoring session
+Must be short-lived (function scope only)
+⚠️ FAIL-SECURE REQUIREMENT (CRITICAL)
+
+If credentials are missing:
+
+throw new Error("PROVISIONING_NOT_CONFIGURED")
+MUST:
+NOT fallback to customer session
+NOT attempt partial execution
+NOT suppress error
+MUST trigger:
+existing manual fallback UI card
+user-visible provisioning requirement state
+3. WRITE ROUTER (MODIFIED FUNCTION)
+createSippyServicePlan()
+Execution logic:
+if operation === WRITE:
+    try:
+        session = provisioningLogin()
+    catch PROVISIONING_NOT_CONFIGURED:
+        return manualFallbackUI()
+🔄 STATE MODEL (IMPORTANT SIMPLIFICATION)
+
+System has only 2 valid states:
+
+🟢 STATE 1 — AUTOMATED
+provisioning credentials exist
+write operations fully automated
+🟡 STATE 2 — MANUAL FALLBACK
+provisioning credentials missing
+UI guides user to Sippy portal
+❌ NO OTHER STATES EXIST
+
+No:
+
+partial automation
+degraded provisioning
+mixed session fallback
+🧠 SESSION LIFECYCLE RULE
+
+For provisioningLogin():
+
+Session must be function-scoped only
+
+Meaning:
+
+created inside function
+used immediately
+discarded automatically when function exits
+
+No storage in:
+
+global state
+class properties
+caches
+request context
+🏗️ FINAL SYSTEM BEHAVIOR
+READ PATH
+portalLogin() → monitoring session → read APIs
+WRITE PATH
+provisioningLogin() → execute write → discard session
+FAILURE PATH
+missing credentials → PROVISIONING_NOT_CONFIGURED → UI fallback card
+💡 WHY THIS DESIGN IS CORRECT
+
+This guarantees:
+
+✔ No RBAC leakage
+✔ No session contamination
+✔ No silent failure modes
+✔ Deterministic system behavior
+🚀 IMPLEMENTATION SCOPE (CONFIRMED SMALL)
+
+Only 3 changes needed:
+
+Add provisioningLogin()
+Add fail-closed error handling
+Wrap write operations in provisioning router
+🟢 FINAL VERDICT
+
+This is now:
+
+✔ Fully deterministic
+✔ RBAC-safe
+✔ Production-stable
+✔ OSS/BSS-aligned

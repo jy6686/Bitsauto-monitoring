@@ -1,0 +1,173 @@
+Good — this is now in the right architectural state. You’ve completed the data contract layer, which is the hardest prerequisite for everything intelligent on top.
+
+Now we move forward.
+
+🧭 NEXT STEP (correct priority)
+👉 AI Ops Signal Mapping Layer (Execution → Intelligence)
+
+This is the first real “intelligence wiring” step.
+
+You are no longer building features — you are now converting system events into operational signals.
+
+🧠 What we are building now
+
+We take your normalized execResult and convert it into:
+
+1. Deterministic anomaly signals
+2. Structured AI Ops events
+3. Correlatable operational intelligence
+🔧 Core idea
+
+Every execution now becomes a signal generator.
+
+Instead of:
+
+“approval executed”
+
+You now have:
+
+“routing failure signal emitted”
+“latency degradation signal emitted”
+“vendor instability signal emitted”
+
+📦 STEP 1 — Create Signal Mapper (NEW LAYER)
+
+Create a small utility:
+
+server/aiops/signal-mapper.ts
+
+It converts:
+
+execResult + operationType
+
+into:
+
+AI Ops Event
+🧩 Mapping rules (core logic)
+1. Failure signals
+if (!execResult.success)
+
+Emit:
+
+type: "ROUTING_FAILURE"
+severity: "high"
+entity: operationType
+message: execResult.message
+2. Latency signals
+if (execResult.durationMs > 6000)
+
+Emit:
+
+type: "EXECUTION_LATENCY_HIGH"
+severity: "medium"
+value: execResult.durationMs
+3. Vendor instability (future-ready, but simple now)
+
+If:
+
+operationType includes "vendor" OR routing_group_member.update failed repeatedly
+
+Emit:
+
+type: "VENDOR_DEGRADATION_SIGNAL"
+severity: "high"
+🧠 STEP 2 — Hook into approvals pipeline
+
+Inside approveRequest() AFTER normalization:
+
+emitAiOpsSignal(normalizedExecResult, operationType)
+🧠 STEP 3 — Store signals (NEW TABLE)
+
+You now add a lightweight table:
+
+ai_ops_events
+id
+type
+severity
+message
+entity
+value
+createdAt
+linkedExecId
+
+This becomes your:
+
+operational intelligence backbone
+
+📊 STEP 4 — AI Ops page becomes REAL (not mock anymore)
+
+Instead of:
+
+fake anomalies
+
+It now consumes:
+
+real execution-derived signals
+
+So:
+
+routing failure → appears instantly
+slow Sippy response → appears as latency event
+vendor issue → appears as degradation cluster
+🧩 System architecture after this step
+
+You will have:
+
+Approvals
+   ↓
+execResult (normalized)
+   ↓
+Signal Mapper
+   ↓
+AI Ops Events Table
+   ↓
+AI Ops Dashboard (real-time)
+🚀 Why this is the correct next step
+
+Because it converts your system from:
+
+BEFORE
+
+execution tracking system
+
+AFTER
+
+operational intelligence system
+
+⚠️ Important constraint (keep it simple)
+
+Do NOT yet add:
+
+ML models
+clustering algorithms
+predictive forecasting
+
+This step is purely:
+
+deterministic signal generation
+
+That keeps it:
+
+stable
+explainable
+production-safe
+🎯 Final recommendation
+Build next:
+1. signal-mapper.ts (core)
+2. ai_ops_events table
+3. hook into approveRequest()
+4. feed AI Ops UI from real events
+🧭 After this (next evolution)
+
+Once signals are live, the next real upgrade becomes:
+
+Correlation Engine (multi-signal reasoning)
+
+Example:
+
+routing failure + latency spike + vendor overlap
+→ single incident cluster
+
+That’s where it starts becoming “AI Ops” in a real sense.
+
+If you want, I can design the exact signal schema + severity scoring model so your AI Ops layer is consistent from day one instead of evolving inconsistently later.

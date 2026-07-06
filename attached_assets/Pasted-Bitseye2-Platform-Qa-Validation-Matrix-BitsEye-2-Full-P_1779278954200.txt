@@ -1,0 +1,301 @@
+Bitseye2 Platform Qa Validation Matrix
+BitsEye 2 — Full Platform QA & Stabilization Validation Matrix
+Goal
+
+Validate that the entire BitsAuto / BitsEye 2 operational platform behaves correctly under:
+
+Live traffic
+Zero traffic
+Historical replay
+Restart/reconnect scenarios
+Long-running uptime
+Notification escalation
+Concurrent telemetry persistence
+UI hydration
+Recording playback
+Incident lifecycle management
+
+This document is designed as the stabilization freeze checklist before new feature expansion.
+
+Priority Levels
+Priority	Meaning
+P0	Critical operational failure
+P1	Core NOC functionality
+P2	Important operational UX
+P3	Cosmetic / non-blocking
+SECTION 1 — Snapshot Engine Stability (P0)
+1.1 Live Snapshot Polling
+Validate
+snapshotActiveCalls runs every 45s
+mutex prevents overlap
+no duplicate poll execution
+no empty snapshot corruption
+Expected
+Poll interval stable
+No entity disappearance
+No history resets
+No memory spikes
+Test
+Start live calls
+Observe 10+ poll cycles
+Restart backend during traffic
+Confirm graphs continue
+1.2 Zero Continuity
+Validate
+
+Idle entities continue receiving zero snapshots.
+
+Expected
+Graph remains flat at 0
+No disappearing lines
+No collapsed Recharts series
+Test
+Generate calls
+Stop all traffic
+Wait 20 minutes
+Confirm charts still visible
+1.3 Concurrent Snapshot Persistence
+Validate
+
+Rows written into concurrent_snapshots continuously.
+
+Expected
+New rows every 45s
+Correct dim/entity grouping
+No timestamp drift
+SQL
+SELECT COUNT(*) FROM concurrent_snapshots;
+SELECT *
+FROM concurrent_snapshots
+ORDER BY ts DESC
+LIMIT 20;
+SECTION 2 — Historical Graph Integrity (P0)
+2.1 LIVE Graph
+Expected
+4h rolling window
+smooth continuity
+no jumps
+no resets
+max value matches live concurrent sessions
+Validate
+
+If max live calls = 8:
+
+graph max must remain near 8
+never 800+
+2.2 DAILY Graph
+Expected
+72h visible history
+hourly bucket aggregation
+values sourced ONLY from concurrent_snapshots
+Must NOT
+use CDR totals
+reuse live buffer
+truncate to recent points
+2.3 WEEKLY Graph
+Expected
+7-day continuity
+6h bucket aggregation
+persisted DB history
+Validate
+graph does not reset after restart
+old history survives reloads
+2.4 NOC Overview Graph
+Expected
+continuous aggregate operational timeline
+no isolated spikes
+no long empty gaps during active traffic
+Validate
+graph remains populated during 24h runtime
+historical continuity maintained
+SECTION 3 — Entity Panels (P1)
+3.1 Client Panel
+Validate
+counts match live traffic
+entity selection stable
+sidebar counts accurate
+sparkline continuity correct
+3.2 Vendor Panel
+Validate
+vendors update correctly
+routing states visible
+connect rate stable
+3.3 Country & Destination Panels
+Validate
+proper aggregation
+correct grouping
+no duplicate entities
+SECTION 4 — Alert Engine (P0)
+4.1 Threshold Detection
+Validate
+incidents trigger correctly
+cooldown logic works
+resolved incidents can re-fire
+4.2 Escalation Scheduler
+Validate
+Severity	Expected
+critical	every 15m
+high	every 60m
+medium	no repeat
+low	no repeat
+Test
+Trigger incident
+Leave unresolved
+Confirm resend cadence
+4.3 Notification Emails
+Validate
+SMTP timeout handling
+retry behavior
+audit ring buffer logging
+HTML email rendering
+SECTION 5 — Incident Ownership UX (P1)
+5.1 Acknowledge Flow
+Validate
+incident state updates
+auto-owner assignment works
+timeline updated
+5.2 Reassignment Flow
+Validate
+assignment history appended
+no overwrite corruption
+timeline merges correctly
+5.3 Escalation Visibility
+Validate
+countdown updates
+owner pill correct
+unassigned warnings visible
+SECTION 6 — Call Recording System (P1)
+6.1 Recording Discovery
+Validate
+endpoint returns real data
+durations accurate
+codecs displayed
+storage estimation correct
+6.2 Audio Playback
+Validate
+waveform animates correctly
+play/pause works
+progress sync correct
+6.3 Recording Status
+Expected
+State	Meaning
+available	playable
+processing	active call
+expired	retention exceeded
+SECTION 7 — Dashboard Stability (P1)
+7.1 Total Traffic Graph
+Validate
+LIVE/Daily/Weekly transitions
+no flicker
+no empty hydration gaps
+7.2 Top Entities
+Validate
+top clients/vendors/routes accurate
+sparklines populated
+counts match live traffic
+7.3 Loading Skeletons
+Validate
+no blank white chart area
+smooth replacement after hydration
+SECTION 8 — Performance & Memory (P0)
+8.1 Runtime Stability
+Required Observation
+24h uptime minimum
+no memory explosion
+no query slowdown
+8.2 Poll Timing Logs
+Validate
+
+Performance logs appear:
+
+snapshotActiveCalls
+refreshCdrCache
+runBitsEyeThresholdEngine
+8.3 DB Growth
+Validate
+
+concurrent_snapshots pruning works.
+
+SQL
+SELECT MIN(ts), MAX(ts)
+FROM concurrent_snapshots;
+
+Old rows should disappear automatically.
+
+SECTION 9 — Restart Recovery (P0)
+Validate
+
+After backend restart:
+
+graphs recover
+entities restore
+incidents survive
+historical timelines remain intact
+no graph resets
+SECTION 10 — Final Freeze Criteria
+
+BitsEye 2 can be considered stabilization-complete only when:
+
+No disappearing graphs
+No entity resets
+Historical windows stable
+24h uptime clean
+No polling overlap
+No frontend hydration gaps
+No 800-vs-8 semantic mismatch
+Incident escalation verified
+Notifications reliable
+Dashboard continuity stable
+Recording playback operational
+Recommended Next Monitoring Window
+Minimum
+
+24 hours
+
+Ideal
+
+72 hours live runtime with:
+
+real traffic
+backend restart
+idle periods
+traffic bursts
+incident generation
+SMTP delivery
+recording playback
+
+Only after that should the platform move into:
+
+advanced automation
+AI routing decisions
+closed-loop remediation
+predictive anomaly systems
+
+I cannot truly execute and validate the whole platform end-to-end from here like a real QA environment with:
+
+authenticated browser sessions
+SIP traffic generation
+Sippy live integration
+DB inspection access
+SMTP delivery confirmation
+recording playback servers
+long-runtime monitoring
+
+But I created a complete carrier-grade QA/stabilization validation matrix for BitsEye 2 and the overall platform.
+
+It covers:
+
+live telemetry
+historical graph retention
+zero continuity
+incident escalation
+notification reliability
+ownership workflow
+recordings
+dashboard hydration
+memory/runtime stability
+restart recovery
+DB growth/pruning
+polling integrity
+
+This is the exact checklist you should now use as the official stabilization freeze process before moving into new features.

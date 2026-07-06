@@ -1,0 +1,187 @@
+Based on everything you've shared over the last few days, I would not say the issue is fully resolved yet.
+
+There are three different issues, and they are at different stages.
+
+Issue	Status	Confidence
+Disk full / MariaDB outage	✅ Resolved	High
+Dashboard "Refreshed X ago"	✅ Fixed	Medium (needs observation)
+Call Governance showing 0 live calls	❌ Not proven resolved	Low
+1. Disk outage
+
+This one is resolved.
+
+Evidence:
+
+Disk went from 100% → 43%
+MariaDB recovered
+Asterisk recovered
+Cleanup cron is running
+
+I would consider this closed.
+
+2. Dashboard timestamp
+
+Changing the dashboard to use the newest update timestamp instead of only statsUpdatedAt is a reasonable UI fix.
+
+If it now updates correctly over the next day, I'd close that issue.
+
+3. Governance zero calls
+
+This is where I disagree with declaring the root cause found.
+
+The conclusion was:
+
+"Sippy is not routing through our governance Asterisk."
+
+That is plausible, but I don't think the evidence is yet sufficient to make it the root cause.
+
+Evidence that supports it
+
+You observed:
+
+Asterisk
+
+0 channels
+0 bridges
+0 SIP dialogs
+
+If those commands were run against the same server that BitsAuto connects to, then yes, governance cannot see calls there.
+
+But there is contradictory evidence
+
+Earlier you reported:
+
+Dashboard shows 11 active calls
+Bangladesh/Pakistan traffic
+asterisk(n) connection
+
+That means somewhere in the system traffic exists.
+
+The remaining question is:
+
+Is 159.223.32.59 the same Asterisk instance that Sippy uses for OTP today?
+
+That has not yet been proven.
+
+Before changing Sippy routing, I would verify these four things
+1. AMI target
+
+Verify BitsAuto connects to:
+
+manager.conf server
+
+and confirm its IP.
+
+2. SIP target
+
+From Sippy:
+
+Pakistan
+↓
+Gateway
+↓
+IP
+
+Is it
+
+159.223.32.59
+
+or another Asterisk?
+
+3. Live packet capture
+
+During a live OTP call:
+
+tcpdump port 5060
+
+on the governance Asterisk.
+
+If no INVITE arrives,
+
+then yes:
+
+Sippy isn't routing through this server.
+
+4. Asterisk CLI
+
+During the same call:
+
+core show channels
+
+If still zero,
+
+that's definitive.
+
+About the zombie calls
+
+This statement:
+
+"300-minute active calls are zombies."
+
+is reasonable.
+
+Those calls could absolutely exist because:
+
+BYE lost
+crash
+restart
+dialog cleanup failure
+
+However I'd verify:
+
+SIP Call-ID
+
+against:
+
+governed_calls.vendor_call_id
+
+before concluding they're the same incident.
+
+One thing I do agree with
+
+The globToRegex("^SIP/") issue.
+
+If your testing proved:
+
+Before
+
+^SIP/
+
+↓
+
+/\^SIP\//
+
+instead of
+
+/^SIP\//
+
+that's a genuine bug.
+
+That fix should stay.
+
+My conclusion
+
+I would classify the current situation like this:
+
+✅ Resolved
+Disk exhaustion
+Recording retention
+Watchdog
+Dashboard refresh timestamp
+globToRegex anchor handling (assuming it has been tested)
+❓ Still requires proof
+
+The statement:
+
+"Sippy is not routing OTP traffic through the governance Asterisk."
+
+This is a strong architectural conclusion. Before accepting it, I would capture one live OTP call end-to-end and verify:
+
+Sippy selected gateway 159.223.32.59 (or did not).
+An INVITE reached that Asterisk (or did not).
+core show channels reflected the call (or did not).
+BitsAuto's AMI listener saw (or did not see) the corresponding Bridge events.
+
+If those four checks all indicate that the governance Asterisk never sees the call, then the root cause is confirmed. Until then, I would describe it as the leading hypothesis, not yet a proven resolution.
+
+That distinction is important because it prevents another round of production changes based on an assumption rather than verified evidence.

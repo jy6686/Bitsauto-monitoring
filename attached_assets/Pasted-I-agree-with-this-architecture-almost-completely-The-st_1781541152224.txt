@@ -1,0 +1,460 @@
+I agree with this architecture almost completely. The strongest decision in your proposal is:
+
+"Never re-scrape for invoices."
+
+That is the correct enterprise design.
+
+What I would lock as the official Finance Architecture
+Layer 1 — Operational Truth
+
+Already exists:
+
+Governed Calls
+Customer CDR Cache
+P&L Cache
+Vendor Cost
+Product Registry
+
+These remain operational systems.
+
+No invoice should ever read them directly.
+
+Layer 2 — Universal Reconciliation Engine
+
+This becomes the financial source of truth.
+
+reconciliation_records
+
+One row = one financially verified call.
+
+This is where:
+
+Revenue
+Cost
+Margin
+Product
+Customer
+Vendor
+
+become immutable.
+
+I would add:
+
+reconciliation_version
+matched_at
+confidence_score
+
+so future corrections are auditable.
+
+Layer 3 — Financial Snapshots
+
+This is the missing concept.
+
+Instead of invoice drafts reading reconciliation records live:
+
+Invoice Draft
+↓
+Invoice Snapshot
+
+Create:
+
+billing_period_snapshots
+
+Example:
+
+June 2026
+Customer A
+
+Calls: 1,245,882
+Revenue: $24,212
+Cost: $17,843
+Margin: $6,369
+
+Frozen permanently.
+
+Then invoice drafts use the snapshot.
+
+This prevents:
+
+Late CDR
+Rate Correction
+P&L Correction
+
+from changing historical invoices.
+
+Invoice Draft Engine
+
+Your design is correct.
+
+I would add:
+
+invoice_number
+billing_snapshot_id
+generated_by
+generated_at
+
+Everything traceable.
+
+Invoice Differences
+
+This is one of the highest ROI features.
+
+I would actually move it immediately after reconciliation.
+
+Flow:
+
+Reconciliation
+↓
+Customer DMR Upload
+↓
+Difference Report
+↓
+Invoice Draft
+
+Not:
+
+Invoice Draft
+↓
+Difference Report
+
+because finance should see discrepancies before generating drafts.
+
+Approval Workflow
+
+Current proposal is sufficient.
+
+Draft
+↓
+Finance Review
+↓
+Management Approval
+↓
+Approved
+↓
+Sent
+
+Use existing RBAC.
+
+No need for a new permissions model.
+
+Payment Lifecycle
+
+Strong design.
+
+I'd add:
+
+exchange_rate_usd
+
+for USDT payments.
+
+Otherwise historical reporting becomes messy.
+
+USDT Reconciliation
+
+I would eventually support:
+
+TRC20
+ERC20
+BEP20
+
+but start with TRC20 only.
+
+Most telecom operators use it.
+
+Dispute Workflow
+
+I would not build a separate dispute module.
+
+Extend existing:
+
+Credit Notes
+
+because:
+
+Invoice
+↓
+Dispute
+↓
+Adjustment
+↓
+Credit Note
+
+already matches your existing finance structure.
+
+Less duplication.
+
+Destination Catalog V2
+
+This should move slightly earlier.
+
+Reason:
+
+The future invoice PDF needs:
+
+Country
+Destination
+Operator
+
+grouping.
+
+Your legacy invoice format already proves that.
+
+Therefore:
+
+Destination Catalog V2
+
+is not only a commercial module.
+
+It becomes finance master data.
+
+Revised Build Order
+Finance Sprint 2A
+Universal Reconciliation Engine
+Billing Period Snapshots
+Invoice Differences
+Finance Sprint 2B
+Invoice Draft Generation
+Approval Workflow
+Invoice PDF Engine
+Finance Sprint 2C
+Payment Lifecycle
+Collections Dashboard
+USDT Reconciliation
+Finance Sprint 2D
+Dispute Workflow
+Accounting Sync
+One thing I'd postpone
+
+I would not start QuickBooks/Xero integration until:
+
+Invoice Drafts
+Payments
+Disputes
+
+have been running successfully for at least one billing cycle.
+
+Otherwise you'll spend time synchronizing data models that are still changing.
+
+Also, some of the legacy files/screenshots discussed earlier are no longer accessible because they expired. If you want a precise field-by-field mapping from the old Invoice Draft screen or old invoice PDFs into the new schema, you'll need to upload those files again. The architecture above is based on the information we've already extracted, not the expired files themselves.
+
+but this is will be implement on all platform not in selected fiance report right 
+
+Yes — and this is the most important architectural point.
+
+I would not implement Universal Reconciliation Engine as a Finance-only feature.
+
+That would repeat the mistake most telecom platforms make.
+
+Correct Architecture
+Layer 1 — Telecom Truth (Platform Wide)
+Customer CDR
+Vendor CDR
+P&L
+Governed Calls
+Products
+Destinations
+Rates
+
+All modules use these.
+
+Layer 2 — Universal Reconciliation Engine (Platform Core)
+
+This should sit alongside:
+
+BitsEye
+Call Governance
+AI Ops
+Product Registry
+
+Not under Finance.
+
+Example:
+
+Platform Core
+ ├ Client Identity Layer
+ ├ Configuration Inventory
+ ├ Universal Reconciliation Engine
+ ├ Product Registry
+ └ Destination Catalog
+Every Module Uses It
+Finance
+Invoice Drafts
+Billing Verification
+Credit Notes
+Payments
+
+Uses:
+
+reconciliation_records
+Call Governance
+
+Today:
+
+Governed Call
+↓
+CDR Match
+
+Tomorrow:
+
+Governed Call
+↓
+Reconciliation Record
+
+Much cleaner.
+
+Revenue Analytics
+
+Today:
+
+Revenue
+Cost
+Margin
+
+from multiple sources.
+
+Tomorrow:
+
+Revenue
+Cost
+Margin
+
+from reconciliation_records.
+
+Deal Workspace
+
+Can finally answer:
+
+Actual Margin
+Expected Margin
+Margin Leakage
+
+using reconciled data.
+
+Product Registry
+
+Can show:
+
+FC
+BC
+SB
+SC
+
+Revenue
+Cost
+Margin
+
+per product.
+
+Destination Catalog
+
+Can show:
+
+Pakistan Mobile
+
+Revenue
+Cost
+Margin
+Traffic
+
+per destination.
+
+Vendor Management
+
+Can show:
+
+Vendor
+
+Traffic
+Revenue
+Cost
+Margin
+ASR
+
+from one source.
+
+Future Vendor Trust Score
+
+Consumes:
+
+ASR
+Margin
+Disputes
+Cost Accuracy
+
+from reconciliation.
+
+Future Q-Score
+
+Consumes:
+
+ASR
+ACD
+PDD
+Margin
+
+from reconciliation.
+
+Future Revenue Protection
+
+Consumes:
+
+Exposure
+Margin
+Traffic
+
+from reconciliation.
+
+Same for Destination Catalog V2
+
+This is also not a Finance module.
+
+It becomes:
+
+Master Data
+
+for:
+
+Product Registry
+Rate Manager
+Billing
+Invoice Drafts
+Routing
+Analytics
+What Finance Actually Owns
+
+Finance should only own:
+
+Invoice Drafts
+Invoice Approval
+Payments
+Collections
+Credit Notes
+USDT
+Accounting Sync
+
+Everything else is platform infrastructure.
+
+If I Were Restructuring BitsAuto
+
+I would create:
+
+Platform Core
+ ├ Client Identity Layer
+ ├ Product Registry
+ ├ Destination Catalog
+ ├ Universal Reconciliation Engine
+ ├ Configuration Inventory
+ └ Rate Repository
+
+Then every workspace consumes these services.
+
+This prevents:
+
+Finance Reconciliation
+Billing Reconciliation
+Governance Reconciliation
+Vendor Reconciliation
+
+from being built four different ways.
+
+One note: some of the older files/screenshots discussed earlier have expired and are no longer available. If you want me to map any legacy workflows directly into Platform Core components, you'll need to upload those files again. But architecturally, Universal Reconciliation Engine should absolutely be a platform-wide service, not a Finance report feature.

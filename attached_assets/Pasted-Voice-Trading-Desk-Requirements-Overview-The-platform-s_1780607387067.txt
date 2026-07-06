@@ -1,0 +1,350 @@
+Voice Trading Desk Requirements
+
+Overview
+
+The platform should include a dedicated Voice Trading Desk module to manage voice wholesale operations, vendor negotiations, customer pricing, routing decisions, quality monitoring, and commercial performance from a single interface.
+
+The Voice Trading Desk should act as the operational hub between:
+
+* Vendors
+* Customers
+* Routing Team
+* NOC Team
+* Billing Team
+* Management
+
+⸻
+
+1. Trading Dashboard
+
+A real-time dashboard displaying:
+
+Commercial KPIs
+
+* Revenue
+* Cost
+* Profit
+* Margin %
+* Minutes
+* ASR
+* ACD
+* CPS
+* Concurrent Calls
+
+Operational KPIs
+
+* Active Routes
+* Route Quality Status
+* Rate Changes Pending
+* Customer Requests
+* Vendor Requests
+* Open Tickets
+
+⸻
+
+2. Vendor Management
+
+Maintain a complete vendor database.
+
+Vendor Profile
+
+* Company Name
+* Contact Details
+* NOC Contacts
+* Commercial Contacts
+* Billing Contacts
+* Test Numbers
+* SIP Information
+* IP Addresses
+* Payment Terms
+* Currency
+* Credit Limit
+
+Vendor Documents
+
+* Agreement
+* Rate Sheets
+* KYC Documents
+* Tax Documents
+
+⸻
+
+3. Customer Management
+
+Maintain a complete customer profile.
+
+Customer Profile
+
+* Company Name
+* Trading Name
+* Technical Contacts
+* Billing Contacts
+* Account Manager
+* Product Assignments
+* Tariffs
+* Credit Limits
+* Payment Terms
+
+⸻
+
+4. Route Inventory Management
+
+A central route repository.
+
+Route Details
+
+* Destination
+* Product
+* Vendor
+* Cost
+* Selling Price
+* Margin
+* Route Status
+
+Examples:
+
+* First Class
+* Business Class
+* Special Bravo
+* Special Charlie
+
+The trading team should instantly see:
+
+* Available routes
+* Best routes
+* Backup routes
+* Quality score
+
+⸻
+
+5. Rate Management Integration
+
+Integrated with the Rate Management module.
+
+Features
+
+* Vendor rate imports
+* Product-specific rates
+* Historical rates
+* Margin calculations
+* Customer pricing generation
+* Rate comparison
+
+⸻
+
+6. Route Trading Board
+
+A live trading board showing:
+
+Vendor Side
+
+* Current Cost
+* Previous Cost
+* Increase/Decrease
+* Effective Date
+
+Customer Side
+
+* Current Selling Price
+* Previous Selling Price
+* Margin Impact
+
+This allows traders to make immediate pricing decisions.
+
+⸻
+
+7. Deal Management
+
+Track commercial negotiations.
+
+Deal Record
+
+* Customer
+* Destination
+* Product
+* Requested Rate
+* Offered Rate
+* Approved Rate
+* Status
+
+Statuses:
+
+* New
+* Negotiating
+* Approved
+* Rejected
+* Implemented
+
+⸻
+
+8. Testing & Route Qualification
+
+Integrated testing workflow.
+
+Testing Requests
+
+* Send Test
+* Receive Test Results
+* Route Qualification
+
+Track:
+
+* ASR
+* ACD
+* PDD
+* CLI Delivery
+* Audio Quality
+
+⸻
+
+9. Quality Monitoring
+
+Monitor route quality in real time.
+
+KPIs
+
+* ASR
+* ACD
+* PDD
+* SIP Errors
+* False Answer Supervision
+* Short Duration Calls
+
+Alerts
+
+* ASR Drop
+* ACD Drop
+* Quality Degradation
+* Traffic Loss
+
+⸻
+
+10. Margin Protection Engine
+
+Prevent commercial losses.
+
+Rules
+
+* Minimum Margin %
+* Minimum Markup
+* Negative Margin Block
+* Approval Workflow
+
+Example:
+
+Cost = $0.020
+
+Attempted Sell Rate = $0.015
+
+Result:
+Blocked automatically.
+
+⸻
+
+11. Opportunity Management
+
+Track trading opportunities.
+
+Opportunities
+
+* New Customer
+* New Vendor
+* New Destination
+* Price Improvement
+* Traffic Growth
+
+Expected:
+
+* Revenue
+* Margin
+* Minutes
+
+⸻
+
+12. Traffic Analysis
+
+Identify business trends.
+
+Reports
+
+* Top Customers
+* Top Vendors
+* Top Destinations
+* Margin Analysis
+* Revenue Analysis
+* Growth Trends
+
+⸻
+
+13. NOC & Trading Collaboration
+
+Shared workflow between NOC and Trading.
+
+Trading Team
+
+* Commercial decisions
+* Pricing
+* Negotiations
+
+NOC Team
+
+* Quality
+* Routing
+* Testing
+* Monitoring
+
+All activities should be visible in a shared timeline.
+
+⸻
+
+14. Vendor & Customer Communication Hub
+
+Maintain communication history.
+
+Store
+
+* Emails
+* WhatsApp Messages
+* Tickets
+* Notes
+* Rate Discussions
+* Commercial Agreements
+
+Everything should be searchable.
+
+⸻
+
+15. AI-Based Trading Recommendations (Future Phase)
+
+The platform should analyze:
+
+* Vendor Costs
+* Customer Pricing
+* Route Quality
+* Traffic Trends
+
+And automatically recommend:
+
+* Best vendor
+* Best route
+* Price increase opportunities
+* Price decrease opportunities
+* Margin optimization
+
+⸻
+
+Expected Outcome
+
+The Voice Trading Desk should become the central command center for wholesale voice operations, combining:
+
+* Trading
+* Routing
+* Pricing
+* Testing
+* Quality Monitoring
+* Customer Management
+* Vendor Management
+* Margin Protection
+* Commercial Reporting
+
+into a single integrated platform.

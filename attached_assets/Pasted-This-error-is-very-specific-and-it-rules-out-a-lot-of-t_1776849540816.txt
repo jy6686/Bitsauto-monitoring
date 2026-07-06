@@ -1,0 +1,122 @@
+This error is very specific — and it rules out a lot of things:
+
+auth_failed: HTTP 401 — credentials rejected for user "RTST1"
+
+That means:
+👉 Sippy is reachable
+👉 API is working
+❌ BUT authentication is failing at login level
+
+🧠 1. What’s actually wrong (based on Sippy behavior)
+
+You are still using:
+
+❌ Account name (RTST1)
+instead of
+✅ API username created inside that account
+
+⚠️ Critical rule in Sippy
+
+XML-RPC API does NOT accept account names as login
+
+Even if:
+
+You log in to UI with RTST1
+Callback is enabled
+
+👉 API will still reject it
+
+✅ 2. Correct way (this is where people get stuck)
+
+You must use:
+
+✔ API User (NOT account name)
+
+Example:
+
+Wrong	Correct
+login: RTST1	❌
+login: rtst1_api	✅
+🔧 3. Fix checklist (do exactly this)
+Step 1 — Verify API user exists
+
+Login as RTST1 → check:
+
+API user created?
+Username looks like:
+rtst1_api
+api_user
+anything custom
+Step 2 — Reset password (important)
+
+Even if correct, reset it:
+
+Set simple password temporarily:
+
+Test@123
+Step 3 — Use this exact request
+{
+  "login": "rtst1_api",
+  "password": "Test@123",
+  "function": "make2WayCallback",
+  "cli_first": "923001234567",
+  "cld_second": "923009876543"
+}
+🧪 4. Test outside your system (VERY IMPORTANT)
+
+Before Replit / Antigravity:
+
+Use Postman
+
+If it fails here:
+👉 Problem = Sippy credentials
+NOT your code
+
+🔍 5. If still 401 → 100% one of these
+❌ Case 1 — API access not enabled
+
+Check:
+
+XML-RPC / API permission ON
+❌ Case 2 — Wrong endpoint
+
+Make sure you're hitting:
+
+https://your-sippy-domain/xmlrpc
+
+NOT:
+
+/login
+/admin
+/portal
+❌ Case 3 — IP restriction
+
+Some Sippy setups restrict API by IP
+
+Ask Sippy:
+
+“Is API access restricted by IP?”
+
+❌ Case 4 — Using admin credentials
+
+Admin login will also fail for customer-level API
+
+🧠 6. Hidden issue (very common in your case)
+
+Based on your conversation:
+
+👉 You might be using:
+
+UI login credentials
+OR billing account login
+
+But Sippy wants:
+
+Dedicated API user inside that account
+
+🧪 7. Quick debug trick
+
+Try wrong password intentionally:
+
+If response is SAME → user not recognized
+If response changes → user exists but password wrong

@@ -1,0 +1,165 @@
+Good — this is the right direction for BitsEye. Keep it simple, operational, and Sippy-safe.
+
+I’ll break it into what to implement (core) + 2–3 graph layout options (you choose).
+
+✅ What you should implement in BitsEye (final recommendation)
+
+BitsEye should become a Live Telecom Intelligence Graph Dashboard with 3 core layers:
+
+1. LIVE CALL GRAPH (Top Priority)
+Must show:
+Total Calls (incoming volume)
+Connected Calls (answered calls)
+Failed Calls (busy / no answer / error)
+Active Calls (optional real-time)
+Best visual:
+
+👉 Dual-line + stacked area hybrid graph
+
+Line 1: Total Calls
+Line 2: Connected Calls
+Background area: Failed calls (stacked or red overlay)
+
+This gives instant answer:
+
+“Are calls increasing and are they actually connecting?”
+
+2. QUALITY GRAPH (Network Health)
+Must show:
+ASR %
+NER %
+MOS
+PDD (inverse scale)
+ACD
+Best visual:
+
+👉 Multi-line trend graph (normalized scale)
+
+Each metric has its own line over time (5min / 15min / 1hr toggle)
+
+3. BUSINESS IMPACT GRAPH
+Must show:
+Revenue trend
+Cost trend
+Margin trend
+Top KAM contribution
+Best visual:
+
+👉 Stacked area chart
+
+Revenue (green)
+Cost (red)
+Margin overlay line
+📊 NOW — 3 DASHBOARD PREVIEW OPTIONS (choose one)
+🟦 OPTION A — “NOC OPERATIONS VIEW” (Recommended)
+
+Best for engineers / live monitoring
+
+┌──────────────────────────────────────────────┐
+│ LIVE CALLS                                   │
+│ Total: 12,480   Connected: 9,210            │
+│ [ LINE GRAPH: Total vs Connected ]           │
+│                                              │
+│ Failed Calls (red area overlay)              │
+└──────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────┐
+│ NETWORK QUALITY                             │
+│ ASR ─ MOS ─ NER ─ PDD                       │
+│ [ multi-line trend graph ]                  │
+└──────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────┐
+│ INCIDENT + ALERT STREAM                     │
+│ real-time list                              │
+└──────────────────────────────────────────────┘
+✔ Best for:
+NOC operators
+Real-time monitoring
+Sippy safety (low refresh pressure)
+🟩 OPTION B — “BUSINESS INTELLIGENCE VIEW”
+
+Best for management / KAM / finance
+
+┌──────────────────────────────────────────────┐
+│ REVENUE & TRAFFIC                           │
+│ Revenue: $34,000                            │
+│ Cost: $22,000                               │
+│ [ stacked area graph ]                      │
+└──────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────┐
+│ LIVE CALL PERFORMANCE                       │
+│ Total vs Connected                          │
+│ [ dual line graph ]                         │
+└──────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────┐
+│ TOP KAM PERFORMANCE                        │
+│ table + mini bars                           │
+└──────────────────────────────────────────────┘
+✔ Best for:
+KAM team
+Sales
+Finance reporting
+🟨 OPTION C — “GRAPH-FIRST BITSEYE (ADVANCED)”
+
+This is your “wow” version
+
+           [ TOTAL CALLS ]
+                 ●
+          ●──────────────●
+   CLIENT A               CLIENT B
+      ●                       ●
+   (Connected calls thickness edges)
+
+Edge thickness = traffic volume
+Node size = revenue contribution
+Color = ASR health
+Below graph:
+LIVE CALLS
+Total vs Connected (mini chart)
+
+QUALITY METRICS
+ASR / MOS / PDD trend
+✔ Best for:
+Deep investigation
+KAM drilldown
+“Why is traffic dropping?”
+🧠 MY STRONG RECOMMENDATION (IMPORTANT)
+
+Do NOT overbuild graph system.
+
+Start with this:
+👉 IMPLEMENT THIS FIRST:
+✔ 1. Live Calls Graph (Required)
+Total Calls (line)
+Connected Calls (line)
+Failed Calls (area overlay)
+✔ 2. Toggle:
+5 min / 15 min / 1 hour
+✔ 3. One KPI strip above graph:
+ASR
+MOS
+PDD
+ACD
+⚠️ IMPORTANT SIPPY SAFETY RULE (you already identified correctly)
+Refresh interval: 60 seconds minimum
+NO 5–10 sec polling
+Use cached aggregation only
+Graph should use precomputed bucket data, not live XML-RPC
+🚀 FINAL DECISION PATH
+
+If you want clean evolution:
+
+Phase 1 (NOW)
+
+✔ Live Calls graph (Total vs Connected vs Failed)
+
+Phase 2
+
+✔ Quality graph (ASR/MOS/PDD)
+
+Phase 3
+
+✔ Graph-based KAM network (Option C)

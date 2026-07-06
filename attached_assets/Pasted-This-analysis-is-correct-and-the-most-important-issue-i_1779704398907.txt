@@ -1,0 +1,153 @@
+This analysis is correct and the most important issue is now clearly identified:
+
+Critical Conflict To Resolve Before Final Navigation Freeze
+Path	Current Label	Problem
+/company-profile	Rate Plan	semantic mismatch
+
+This is dangerous long-term because:
+
+path meaning and UI meaning diverge
+
+and later causes:
+
+permission confusion
+wrong menu placement
+wrong API ownership
+wrong portal visibility
+onboarding/billing conflicts
+Correct Resolution
+
+You should decide which this ACTUALLY is:
+
+OPTION A — Company Profile
+
+If the page contains:
+
+organization info
+business details
+branding
+contacts
+company settings
+
+Then:
+
+Property	Final Value
+Label	Company Profile
+Domain	COMPANY
+Path	/company-profile
+Purpose	organization management
+
+This is MOST LIKELY correct based on the route name.
+
+OPTION B — Rate Plan
+
+If the page contains:
+
+pricing plans
+tariffs
+service packages
+billing rates
+commercial charging
+
+Then:
+
+Property	Final Value
+Label	Rate Plan
+Domain	FINANCE & BILLING
+Path	/rate-plan
+Purpose	billing/commercial management
+
+In this case:
+
+the route should be renamed
+
+because /company-profile would become misleading.
+
+My Recommendation
+
+Based on:
+
+route naming
+telecom architecture
+your navigation model
+onboarding separation
+
+I strongly believe:
+
+/company-profile should remain Company Profile
+
+under:
+
+COMPANY
+
+and:
+
+Rate Plan should become a separate Finance entity later
+
+because:
+
+onboarding
+company lifecycle
+reseller management
+client profile
+white-label organization
+
+all naturally connect there.
+
+Final COMPANY Structure Recommended
+COMPANY
+- Companies
+- Accounts
+- DID Management
+- Recordings
+- Client Portal
+- Reseller Management
+- Company Profile
+- Create Account Wizard
+- Onboarding Wizard
+
+This is now operationally clean.
+
+Final FINANCE Structure Recommended
+FINANCE & BILLING
+- Billing
+- Rate Cards
+- Products
+- Revenue Analytics
+- Margin Analytics
+- Payments
+- Invoices
+- Vendor Balances
+
+Then later you may add:
+
+Rate Plans
+Billing Plans
+Service Plans
+
+as dedicated commercial entities.
+
+IMPORTANT TELECOM ARCHITECTURE RULE
+
+Keep separated:
+
+Domain	Responsibility
+COMPANY	customer/business lifecycle
+FINANCE	pricing/revenue/billing
+OPERATIONS	routing/execution
+INTELLIGENCE	analysis/recommendations
+
+If these mix early:
+
+enterprise telecom platforms become extremely hard to maintain
+
+especially with:
+
+reseller logic
+KAM portal
+white-labeling
+approval workflows
+routing governance
+billing automation
+
+Your current direction is now becoming properly enterprise-grade.

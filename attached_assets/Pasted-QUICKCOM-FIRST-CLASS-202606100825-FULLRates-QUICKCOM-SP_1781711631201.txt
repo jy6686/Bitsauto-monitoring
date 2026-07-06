@@ -1,0 +1,711 @@
+QUICKCOM FIRST CLASS 202606100825 FULLRates
+QUICKCOM SPECIAL CHARLIE 202606161002 FULLRates
+attached are the Sample Screen shots how it looks and works, rate attached for your reference when rate send and client resived if you wan t ask some thing please feel free to ask
+
+RatePlanDetail 2026 06 17
+
+Unable to display visualization
+23Rates
+22Rates
+20Rates
+16 (1)Rates
+13Rates
+12Rates
+11Rates
+10Rates
+read all and make a complete rate sheet send foramt to client some clietn has there own requeiremnt how they need rate sheet
+main page 
+
+This screenshot is actually very important because it shows the real architecture of the legacy rate-sheet system.
+
+The previous screenshots showed the Template Editor, but this screen shows the Template Library.
+
+Existing Templates Found
+
+From your screenshot, the legacy system already had 13 templates:
+
+ID	Template
+22	Billing Increment
+13	Default - A2Z Rate Sheet
+23	Rate Sheet - Billing Interval
+15	Rate Sheet - iBasis
+20	Rate Sheet - TATA
+16	Rate Sheet - BTS
+14	Rate Sheet - T-Mobile
+19	Rate Sheet - TIS
+18	Rate Sheet - Level3
+11	Default - Rate Changes
+17	Rate Sheet - OLD_BitsAuto
+12	Dial Code Changes
+10	Default Rate Sheet - FULL
+
+This tells us something important:
+
+Clients were not using one common rate sheet.
+
+Each major carrier had its own format:
+
+TATA
+iBasis
+Level3
+T-Mobile
+BTS
+TIS
+
+which means BitsAuto already solved a real telecom problem:
+
+"Every carrier wants rates in their own format."
+
+What BitsAuto V2 Should Become
+
+Instead of:
+
+Rate Manager
+ └── Export Excel
+
+Build:
+
+Rate Management
+    ├── Rate Repository
+    ├── Rate Changes
+    ├── Rate Push to Sippy
+    ├── Client Tariff Profiles
+    ├── Rate Sheet Templates
+    ├── Rate Notifications
+    ├── Email Delivery
+    ├── Scheduled Releases
+    └── Rate History
+New Module Structure
+Rate Sheet Templates
+Settings
+ └── Rate Sheet Templates
+
+List:
+
+Default Full
+Default Compact
+Default Changes
+TATA
+iBasis
+Level3
+T-Mobile
+BTS
+TIS
+Custom
+Template Designer
+
+Like your old screen:
+
+Tabs:
+
+Header
+Attachment
+Dial Code Format
+Date Format
+Status Mapping
+Preview
+Client Profile
+
+Add:
+
+Commercial
+   └── Rate Sheet Template
+
+Example:
+
+Quickcom
+  Template = TATA
+
+Tata Communications
+  Template = TATA
+
+iBasis
+  Template = iBasis
+
+BICS
+  Template = BICS
+Rate Change Workflow
+
+When NOC changes a rate:
+
+Rate Change
+    ↓
+Approval
+    ↓
+Push to Sippy
+    ↓
+Generate Rate Sheet
+    ↓
+Send Email
+    ↓
+Archive
+Additional Templates Worth Building
+
+Based on wholesale market requirements:
+
+Default Full
+
+Entire tariff
+
+Country
+Destination
+Prefix
+Rate
+Status
+Effective Date
+Rate Changes Only
+
+Only changed rows
+
+Destination
+Old Rate
+New Rate
+Status
+Billing Increment Template
+Destination
+Prefix
+Rate
+Increment
+
+Example:
+
+60/60
+60/1
+1/1
+30/6
+Dial Code Change Template
+Old Prefix
+New Prefix
+Status
+Block List Template
+Destination
+Prefix
+Blocked
+Effective Date
+Missing Features from Current Platform
+
+Compared to old BitsAuto, I still see these missing:
+
+Template Library
+
+Current Status:
+❌ Missing
+
+Template Designer
+
+Current Status:
+❌ Missing
+
+Client Template Assignment
+
+Current Status:
+❌ Missing
+
+Status Mapping Engine
+N
+NC
+I
+D
+PI
+PD
+B
+R
+DC
+
+Current Status:
+❌ Missing
+
+Prefix Compression Engine
+9230-9234
+
+Current Status:
+❌ Missing
+
+Rate Notification Engine
+
+Current Status:
+❌ Missing
+
+Scheduled Rate Release
+Send on June 25
+Effective July 1
+
+Current Status:
+❌ Missing
+
+Approval Workflow
+NOC
+ → Commercial
+ → Management
+ → Release
+
+Current Status:
+❌ Missing
+
+Recommended Placement in BitsAuto
+
+Do not build this under Finance.
+
+Build a top-level domain:
+
+Commercial
+ ├── Product Registry
+ ├── Rate Repository
+ ├── Rate Manager
+ ├── Client Tariff Profiles
+ ├── Rate Sheet Templates
+ ├── Rate Notifications
+ └── Rate History
+
+Because this is a commercial/routing operation, not a finance operation.
+
+One more thing: some of the Excel files you uploaded earlier are no longer accessible in this session (they've expired). If you want me to reverse-engineer the exact TATA, iBasis, Level3, BTS, T-Mobile, and TIS template layouts and produce the full database schema + workflow for BitsAuto V2, upload those Excel files again and I can map every column, status code, date format, and delivery rule.
+
+This screenshot reveals another major piece of the legacy commercial system.
+
+What this page actually is
+
+This is not Rate Manager.
+
+This is the Client Tariff Assignment Registry.
+
+Every row represents:
+
+Client
+    ↓
+Assigned Product
+    ↓
+Assigned Tariff
+    ↓
+Assigned Template
+    ↓
+Assigned Billing Prefix
+
+Example:
+
+Client	Product	Prefix
+Sorifuae	First Class Retail	1
+Sorifuae	Business Class Retail	2
+Bw_Test	Special Bravo	6
+Arshad-Tel	Special Charlie	7
+
+Which is exactly the FC / BC / SB / SC architecture you already use today.
+
+What Legacy BitsAuto Was Doing
+
+Workflow was:
+
+Rate Import
+    ↓
+Rate Change Detection
+    ↓
+Client Tariff Assignment
+    ↓
+Generate Client-Specific Rate Sheet
+    ↓
+Email Notification
+    ↓
+Push To Sippy
+
+The current platform has:
+
+✅ Product Registry
+
+✅ Rate Manager
+
+✅ Rate Push Jobs
+
+✅ Client Accounts
+
+✅ Product Prefixes
+
+But is missing:
+
+❌ Client Tariff Profiles
+
+❌ Template Assignment
+
+❌ Rate Sheet Generator
+
+❌ Notification Engine
+
+What This Means For New BitsAuto
+
+You should not create one rate sheet for everyone.
+
+You should create:
+
+Client
+    ↓
+Tariff Profile
+    ↓
+Template
+    ↓
+Notification Policy
+
+Example:
+
+Quickcom
+  Template = TATA
+
+TIS
+  Template = TIS
+
+BTS
+  Template = BTS
+
+Wholesale Client
+  Template = Default Full
+Missing Commercial Data Model
+
+You already have:
+
+clients
+products
+rates
+rate_push_jobs
+
+Need:
+
+client_tariff_profiles
+id
+client_id
+product_id
+template_id
+billing_prefix
+technical_prefix
+rate_plan
+status
+Rate Sheet Templates
+rate_sheet_templates
+id
+name
+template_type
+excel_layout
+pdf_layout
+dialcode_format
+status_mapping
+
+Examples:
+
+Default Full
+Default Compact
+Rate Changes
+TATA
+iBasis
+Level3
+BTS
+TIS
+T-Mobile
+Client Template Assignment
+client_template_assignments
+client_id
+template_id
+effective_from
+effective_to
+Commercial Workflow
+
+Today:
+
+Rate Manager
+   ↓
+Push To Sippy
+
+Should become:
+
+Rate Manager
+   ↓
+Rate Change Review
+   ↓
+Generate Client Sheets
+   ↓
+Approve
+   ↓
+Email
+   ↓
+Push To Sippy
+   ↓
+Archive
+The Most Valuable Legacy Feature Missing
+
+Looking at all screenshots so far, the highest-value missing feature is not the PDF export.
+
+It is:
+
+Client Tariff Profile Engine
+
+Because it drives:
+
+Which destinations client receives
+Which template client receives
+Which prefixes appear
+Which rate changes are included
+Which email format is used
+
+Without that engine, Rate Sheet automation cannot work properly.
+
+Recommended Commercial Roadmap
+Phase 1
+Client Tariff Profiles
+Template Library
+Template Assignment
+Phase 2
+Rate Change Detection Engine
+Status Mapping Engine (N / NC / I / D / PI / PD / B / R / DC)
+Phase 3
+Excel Generator
+PDF Generator
+Email Delivery
+Phase 4
+Scheduled Releases
+Approval Workflow
+Client Portal Rate Downloads
+
+This sits under Commercial Operations, alongside Product Registry and Rate Manager, not under Finance. Finance consumes rates later for billing, but rate-sheet distribution is fundamentally a commercial/customer-management workflow.
+
+This screen is actually one of the most valuable discoveries from the old BitsAuto system.
+
+It shows the Client Validation Rules Engine, which sits between:
+
+Rate Import
+    ↓
+Rate Analysis
+    ↓
+Client Validation Rules
+    ↓
+Approval Workflow
+    ↓
+Rate Sheet Generation
+    ↓
+Email Delivery
+    ↓
+Push To Sippy
+What This Screen Was Doing
+
+Per client, BitsAuto could enforce different commercial policies.
+
+Example:
+
+Client A (strict)
+Reject Country = YES
+Reject Destination = YES
+Approval Required = YES
+
+Meaning:
+
+If Pakistan Mobile rate changes unexpectedly:
+
+Import
+    ↓
+Validation Fails
+    ↓
+Rate Sheet Blocked
+    ↓
+Manager Approval Needed
+Client B (relaxed)
+Ignore = YES
+Auto Adjust Effective Date = YES
+
+Meaning:
+
+Import
+    ↓
+Fix date automatically
+    ↓
+Generate Rate Sheet
+    ↓
+Send
+
+No manual intervention.
+
+The Validation Categories Found
+Rate Changes
+Rule
+Rate Increase Notice Violation
+Suspect Rate Increase
+Suspect Rate Decrease
+Suspicious Changes
+Rule
+Too Many Pending Increases
+Effective Date Greater Than Allowed
+Effective Date Older Than Allowed
+The Hidden Architecture
+
+This means old BitsAuto had:
+
+Rate Validation Engine
+
+before:
+
+Rate Notification Engine
+
+which means the workflow was not:
+
+Import → Send
+
+It was:
+
+Import
+   ↓
+Validate
+   ↓
+Approve
+   ↓
+Generate
+   ↓
+Send
+This Is Missing In Current Platform
+
+Current platform has:
+
+✅ Rate Repository
+
+✅ Rate Push
+
+✅ Product Registry
+
+✅ Deal Workspace
+
+✅ Approval Queue
+
+But missing:
+
+❌ Commercial Validation Engine
+
+What Should Be Built
+Client Validation Policies
+
+New table:
+
+client_rate_policies
+client_id
+
+min_notice_days
+
+max_allowed_increase_pct
+
+max_allowed_decrease_pct
+
+max_pending_increases
+
+auto_adjust_dates
+
+approval_required
+
+reject_country_change
+
+reject_destination_change
+
+enabled
+Example
+Quickcom
+Notice Required = 7 days
+
+Max Increase = 20%
+
+Max Decrease = 20%
+
+Approval Required = YES
+Test Client
+Notice Required = 0
+
+Max Increase = Unlimited
+
+Approval Required = NO
+Validation Engine Output
+
+When rates imported:
+
+Pakistan Mobile Jazz
+
+Old Rate = 0.0300
+
+New Rate = 0.0500
+
+Increase:
+
+66.67%
+
+Policy:
+
+Max Allowed = 20%
+
+Result:
+
+VALIDATION FAILED
+New Status Flow
+
+Current:
+
+Draft
+Testing
+Commercial
+Deprecated
+
+Rate Workflow should become:
+
+Imported
+    ↓
+Validated
+    ↓
+Approval Required
+    ↓
+Approved
+    ↓
+Generated
+    ↓
+Sent
+    ↓
+Pushed
+Where This Belongs
+
+Not Finance.
+
+Not NOC.
+
+Create:
+
+Commercial
+ ├── Rate Repository
+ ├── Rate Changes
+ ├── Client Tariff Profiles
+ ├── Rate Sheet Templates
+ ├── Client Validation Policies
+ ├── Rate Notifications
+ ├── Scheduled Releases
+ └── Rate History
+What I Have Learned From All Screens So Far
+
+The legacy BitsAuto commercial workflow had five major layers:
+
+Layer 1
+
+Rate Repository
+
+Layer 2
+
+Client Tariff Profiles
+
+(what client receives)
+
+Layer 3
+
+Rate Sheet Templates
+
+(how client receives)
+
+Layer 4
+
+Client Validation Rules
+
+(whether client should receive)
+
+Layer 5
+
+Notification & Delivery
+
+(send/download/email)
+
+This validation layer is actually more important than the PDF generator because it controls commercial governance and prevents bad rate changes from being distributed automatically.
+
+At this point, the old system architecture is becoming very clear: it wasn't just a rate sender—it was a complete Commercial Rate Governance Platform sitting between supplier rate updates and customer tariff publication.

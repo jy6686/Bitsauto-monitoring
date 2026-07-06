@@ -1,0 +1,42 @@
+[root@REVE-OTP ~]# sed -i 's|same => n,Playback(\${GOV_PLAYBACK_FILE})| same => n,Wait(86400)|' /etc/asterisk/extensions_custom.conf
+sed: couldn't open temporary file /etc/asterisk/sedLW7nQN: No space left on device
+[root@REVE-OTP ~]# sed -i '/\[gov-playback\]/,/\[gov-hangup\]/{/ same => n,Hangup()/d}' /etc/asterisk/extensions_custom.conf
+sed: couldn't open temporary file /etc/asterisk/sedFzfWQI: No space left on device
+[root@REVE-OTP ~]# sed -i 's|exten => s,1,Hangup()|exten => s,1,Wait(3600)\n same => n,Hangup()|' /etc/asterisk/extensions_custom.conf
+sed: couldn't open temporary file /etc/asterisk/sedED87jB: No space left on device
+[root@REVE-OTP ~]# grep -A6 "\[gov-playback\]\|\[gov-hangup\]" /etc/asterisk/extensions_custom.conf
+[gov-playback]
+exten => s,1,NoOp(Governance playback: ${GOV_PLAYBACK_FILE})
+ same => n,StopMixMonitor()
+ same => n,Wait(1)
+ same => n,Playback(${GOV_PLAYBACK_FILE})
+ same => n,Hangup()
+
+[gov-hangup]
+exten => s,1,Hangup()
+[root@REVE-OTP ~]# asterisk -rx "dialplan reload"
+Dialplan reloaded.
+[root@REVE-OTP ~]# asterisk -rx "dialplan show gov-playback"
+[ Context 'gov-playback' created by 'pbx_config' ]
+  's' =>            1. NoOp(Governance playback: ${GOV_PLAYBACK_FILE}) [extensions_custom.conf:28]
+                    2. StopMixMonitor()                           [extensions_custom.conf:29]
+                    3. Wait(1)                                    [extensions_custom.conf:30]
+                    4. Playback(${GOV_PLAYBACK_FILE})             [extensions_custom.conf:31]
+                    5. Hangup()                                   [extensions_custom.conf:32]
+
+-= 1 extension (5 priorities) in 1 context. =-
+[root@REVE-OTP ~]# 1. NoOp(...)
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# 2. StopMixMonitor()
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# 3. Wait(1)
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# 4. Wait(86400)        ← caller sits in silence indefinitely
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]#                        (no Hangup — they decide when to disconnect)
+-bash: no: command not found
+[root@REVE-OTP ~]# 1. Wait(3600)          ← vendor B-leg waits 1 hour before Asterisk cleans it up
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# 2. Hangup()
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# 

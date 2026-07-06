@@ -1,0 +1,192 @@
+This is actually a very good outcome.
+
+The biggest fear was:
+
+2923xxxx  (BC)
+↓
+1923xxxx  (FC)
+
+meaning Sippy was reclassifying products and causing billing disputes.
+
+Your investigation shows that's not what's happening.
+
+What is now proven
+2 + 060 + 923xxxxxxxxx
+
+is the dialed string.
+
+Sippy strips:
+
+2060
+
+and logs:
+
+1923xxxxxxxxx
+
+The important part:
+
+923xxxxxxxxx
+
+remains identical.
+
+Vendor routing confirms:
+
+BC traffic
+↓
+BC routes
+↓
+PTCL / SB7 vendors
+
+So routing decisions are being made correctly.
+
+What this changes
+
+Before:
+
+Commercial Identity Risk = Critical
+
+After:
+
+Commercial Identity Risk = Medium
+
+because:
+
+Product routing works
+Destinations are preserved
+Revenue extraction works
+Vendor cost extraction works
+
+The remaining issue is auditability, not routing.
+
+The Remaining Question
+
+You correctly identified the only unresolved item:
+
+2060
+
+What is it?
+
+Most likely one of:
+
+Possibility	Probability
+Trunk access code	High
+Product access code	High
+Routing group code	Medium
+LCR destination-set prefix	Medium
+Customer account translation	Low
+What I would check in Sippy
+1. Product Registry
+
+You already know:
+
+2 = BC
+
+Now find:
+
+060
+
+Look in:
+
+Routing Groups
+Destination Sets
+LCR Rules
+Translation Rules
+
+Search literally for:
+
+2060
+060
+2. Tariff Association
+
+For a BC call:
+
+Check:
+
+Customer
+↓
+Assigned Tariff
+↓
+Assigned Routing Group
+
+If Routing Group contains:
+
+060
+
+then mystery solved.
+
+3. Route Translation Rules
+
+Many Sippy installations do:
+
+2060923xxxx
+↓
+1923xxxx
+
+before LCR processing.
+
+Check:
+
+Translations
+CLD Manipulation
+Pre-routing Rules
+Bigger Architectural Conclusion
+
+The investigation changes the roadmap.
+
+I would not build Commercial Call Identity (CCI) yet.
+
+Because:
+
+Routing identity
+=
+already preserved
+
+The problem is not identity loss.
+
+The problem is:
+
+Product metadata
+not persisted
+
+Those are different things.
+
+Revised Priority
+Highest
+
+P3.2 Vendor Cost Validation
+
+Because now:
+
+Revenue ✓
+Cost ✓
+Margin ✓
+
+are available on fresh calls.
+
+Then
+
+Determine:
+
+2060 = ?
+
+inside Sippy.
+
+That closes Commercial Identity Audit.
+
+Then
+
+Evaluate whether CCI is still necessary.
+
+My guess right now:
+
+Full CCI
+
+may shrink into:
+
+Store Product Code
+Store Product Prefix
+Store Routing Group
+
+instead of building an entirely new identity system.
+
+One more thing: a file was uploaded in this conversation (Pasted text.txt), but I haven't inspected its contents. If that file contains the command outputs, Sippy routing configuration, or the 2060 translation details, I can analyze it directly. Also, some earlier uploaded files have expired, so if the relevant routing screenshots were among those, please re-upload them.

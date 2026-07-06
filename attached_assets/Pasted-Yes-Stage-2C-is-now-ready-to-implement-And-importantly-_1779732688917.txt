@@ -1,0 +1,237 @@
+Yes — Stage 2C is now ready to implement.
+
+And importantly:
+
+the platform is finally mature enough for it
+
+because:
+
+navigation stabilized (2A)
+governance boundaries defined (2B)
+semantic conflicts resolved (2B.5)
+
+Without those three, the Explainability Layer would have become:
+
+another floating analytics feature
+
+Now it can become:
+
+governance-aware operational intelligence
+What 2C SHOULD Implement
+
+(Final Scope)
+
+1. Governance-Aware Explainability Drawer
+
+(Core Feature)
+
+The drawer should now become:
+
+role-aware
+
+NOT:
+
+same detail for everyone
+Visibility Model
+Role	Drawer Depth
+NOC	executive summary only
+Destination Manager	full evidence + projection
+Routing Admin	execution impact + rollback
+Compliance	audit lifecycle only
+Viewer/KAM/Portal	hidden entirely
+
+This is the single most important architectural rule for 2C.
+
+2. Final Drawer Structure
+SECTION 1 — Executive Verdict
+
+Must read:
+
+like an operational briefing
+
+Example:
+
+Callntalk BD-Mobile lost 17 ASR points over 6 hours with concurrent FAS increase affecting 42% of active portfolio traffic.
+
+NOT:
+
+ASR degradation + FAS increase
+
+Very important UX distinction.
+
+SECTION 2 — What Changed?
+
+Final table format:
+
+Metric	Previous (24h avg)	Current (2h avg)	Delta
+
+Metrics:
+
+ASR
+ACD
+PDD
+FAS
+Stability
+Margin
+SECTION 3 — Blast Radius
+
+(Most operationally important section)
+
+Large KPI:
+
+42% OF ACTIVE PORTFOLIO AT RISK
+
+Supporting:
+
+affected prefixes
+countries
+vendor overlap
+traffic share
+revenue share
+
+Powered by:
+
+prefix exposure resolver
+SECTION 4 — Projection Summary
+
+(Precomputed, read-only)
+
+Example:
+
+Recommended:
+Shift 20% → CarrierX
+
+Projected:
++9% ASR
++6% margin
+-38% FAS exposure
+
+Important:
+
+this is NOT the sandbox
+
+This is:
+
+recommendation projection summary
+3. Explainability Timeline Layer
+
+Must include:
+
+degradation windows
+incident correlation
+stability trajectory
+recommendation creation event
+operator override event
+simulation validation event
+
+This becomes:
+
+operational narrative timeline
+
+Very important for trust.
+
+4. Role-Based Data Suppression
+
+(CRITICAL)
+
+Explicitly hide from:
+
+Client Portal
+Reseller
+Viewer
+KAM
+Hidden Data
+confidence internals
+override rationale
+vendor scoring internals
+simulation evidence
+concentration analysis
+recommendation lifecycle
+failover readiness
+
+This must be:
+
+backend-enforced
+
+NOT just hidden in UI.
+
+5. Explainability Engagement Telemetry
+
+(VERY IMPORTANT)
+
+Before 2D:
+you need:
+
+trust telemetry
+
+Track:
+
+drawer opened
+sections expanded
+recommendation accepted
+override rationale entered
+decision latency
+simulation requested
+
+This becomes:
+
+operational trust measurement
+6. Recommended Feature Flags
+Flag	Default
+explainability_v2	ON internal only
+explainability_timeline	ON
+explainability_projection	ON
+explainability_blast_radius	ON
+explainability_external_visibility	OFF
+MOST IMPORTANT THING
+
+2C is NOT:
+
+analytics enhancement
+
+It is:
+
+trust infrastructure
+
+That is the key architectural mindset.
+
+Recommendation Before Implementation
+
+Before coding:
+
+verify one thing first
+
+Confirm:
+
+destination_manager
+routing_admin
+
+already exist in:
+
+auth system
+DB roles
+session payload
+frontend role guards
+
+because:
+2C depends entirely on:
+
+role-aware explainability depth
+
+Without that:
+the drawer architecture breaks immediately.
+
+FINAL ANSWER
+YES — implement Stage 2C now
+
+because the prerequisite stabilization work is now complete.
+
+And:
+
+2C is the correct next maturity step
+
+BEFORE:
+
+simulation enforcement
+intelligent failover
+automation execution.

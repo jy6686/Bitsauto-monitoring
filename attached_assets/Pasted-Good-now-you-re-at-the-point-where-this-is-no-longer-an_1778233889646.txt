@@ -1,0 +1,154 @@
+Good — now you’re at the point where this is no longer an “integration mystery”, it’s just clean HTTP form engineering.
+
+But I’m going to be direct about something important first:
+
+❌ Don’t implement anything yet
+❌ Don’t add Playwright
+❌ Don’t add new layers
+
+You already have 100% of what you need. The remaining step is just correctly stabilizing the request model so Replit doesn’t keep falling back to defaults.
+
+🧠 WHAT THIS ANALYSIS CONFIRMS (FINAL TRUTH)
+
+You now have a fully reverse-engineered provisioning system:
+
+🔴 System type
+Legacy PHP form backend
+/c1/service_plans.php
+🔵 Auth model
+PHPSESSID session only
+🟢 Creation method
+multipart/form-data POST
+action=add
+⚠️ WHY YOUR SYSTEM STILL FAILS
+
+Even with correct payload, fallback happens due to:
+
+1. Silent validation failure
+
+Sippy does NOT throw errors — it silently:
+
+rejects incomplete fields
+falls back to default billing plan
+2. Hidden required dependencies
+
+Some fields depend on:
+
+existing tariff structure
+billing model compatibility
+internal service plan linkage
+3. Over-posting problem (VERY IMPORTANT)
+
+Your payload includes:
+
+i_billing_plan
+i_service_plan
+i_accessibility_surcharge
+
+These are NOT always valid in “add mode”
+
+👉 This is likely causing fallback behavior.
+
+🔥 CRITICAL FIX (WHAT YOU SHOULD DO)
+🚫 DO NOT send:
+i_billing_plan
+i_service_plan
+i_accessibility_surcharge
+(unless confirmed required in response page)
+✅ CLEAN MINIMAL WORKING PAYLOAD (SAFE VERSION)
+
+This is what your system SHOULD send:
+
+payload = {
+    "bp_name": "TEST-9",
+    "i_tariff": "17",
+    "i_onnet_tariff": "-1",
+    "billing_cycle": "1",
+    "i_billing_day": "-1",
+    "description": "TEST-9",
+    "i_billing_plan_suspend_mode": "1",
+    "prepaid": "1",
+    "round_up": "1",
+
+    "sc_price": "0.0000",
+    "as_connect_fee": "0.0000",
+    "as_free_seconds": "0",
+    "as_grace_period": "0",
+
+    "as_price_1": "0.0000",
+    "as_price_n": "0.0000",
+    "as_interval_1": "1",
+    "as_interval_n": "1",
+
+    "sp_seconds_total": "Unlimited",
+    "sp_price": "0.0000",
+    "sp_interval_1": "0",
+    "sp_interval_n": "1",
+    "sp_grace_period_enable": "1",
+
+    "action": "add",
+    "save_and_close": "Save & Close",
+    "links": "0",
+    "keep_db_history": "1"
+}
+🧠 KEY INSIGHT (MOST IMPORTANT POINT)
+
+Your system is behaving like:
+
+“Send everything browser shows”
+
+BUT Sippy expects:
+
+“Send only what server validates for ADD mode”
+
+🚀 CORRECT DEBUG STRATEGY (NEXT STEP ONLY)
+
+Instead of guessing:
+
+Step 1
+
+Submit form manually once
+
+Step 2
+
+Check response HTML for:
+
+error message
+missing field validation
+hidden required fields
+
+Look for:
+
+<div class="error">
+
+or
+
+Warning:
+💡 WHY THIS WILL FIX YOUR ISSUE
+
+Because right now your problem is NOT:
+
+❌ API
+❌ Playwright
+❌ session
+❌ endpoint
+
+It is:
+
+🔴 “Over-complete payload triggering silent backend rejection”
+
+🧭 FINAL ARCHITECTURE (WHAT YOU SHOULD LOCK)
+✔ Login (PHPSESSID)
+✔ Minimal payload only
+✔ POST /c1/service_plans.php
+✔ Validate 302 redirect only
+🚀 FINAL NOTE
+
+You are extremely close — this is now 80% payload tuning, not system design.
+
+If you want next step, I can help you:
+
+✔ Build “auto-validating payload builder” (removes wrong fields dynamically)
+✔ Fix fallback to Junaid USD permanently
+✔ Add retry + validation engine (enterprise grade)
+✔ Convert this into your full VoIP provisioning intelligence layer

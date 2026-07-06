@@ -1,0 +1,199 @@
+Agreed. The architecture is now stable enough that SLA Reporting can be built cleanly instead of becoming another overloaded analytics page.
+
+A few implementation principles should stay locked before coding starts:
+
+SLA Reporting must remain a business narrative layer, not a diagnostic surface.
+
+Everything shown should answer:
+
+“Is the service stable, responsive, and professionally managed?”
+
+Nothing should expose:
+routing behavior
+vendor performance
+SIP engineering detail
+internal remediation logic
+AI Ops reasoning
+Final Recommended SLA V1 Architecture
+Backend
+
+Single aggregation helper:
+
+computeSlaSummary({
+  cdrs,
+  tickets,
+  alerts,
+  period,
+})
+
+Internally composes:
+
+computePortalQuality()
+computeDestinations()
+ticket responsiveness metrics
+incident summarization
+
+Returns one normalized payload for:
+
+portal rendering
+PDF generation later
+CSV export
+future scheduled email delivery
+
+That prevents duplicate SLA logic later.
+
+Important Design Constraint — Incident Language Layer
+
+This is the one area that deserves deliberate handling.
+
+Raw alerts today likely look like:
+
+ASR degradation
+RTP timeout spike
+Vendor instability
+PDD threshold breach
+
+Clients should never see those directly.
+
+Instead, build a translation layer:
+
+summarizeIncident(alert)
+
+Example mapping:
+
+Internal Signal	Client Text
+ASR drop	Temporary call completion degradation
+RTP timeout spike	Temporary voice quality degradation
+Capacity alert	Elevated traffic conditions
+Routing failover	Traffic optimization applied
+
+This becomes extremely important later when Alert Correlation arrives.
+
+Ticket Responsiveness Logic
+
+This should be mathematically strict from day one.
+
+Recommended Metrics
+First Response Time
+first operator reply - ticket createdAt
+Resolution Time
+resolvedAt - createdAt
+Reopen Count
+
+Important later for SLA credibility.
+
+Resolution %
+resolved / total
+
+These metrics become:
+
+account review material
+enterprise sales collateral
+operational accountability metrics
+Strong Recommendation — SLA Grades
+
+Do not show only percentages.
+
+Add human-readable grades:
+
+Metric	Grade
+ASR 78%	Good
+MOS 4.2	Excellent
+NER 92%	Stable
+
+Enterprise users understand:
+
+Excellent
+Good
+Fair
+Attention Required
+
+much faster than telecom KPIs.
+
+Unified Operations Console — Clarification
+
+This is not another dashboard.
+
+It is:
+
+“One screen operators stay on during incidents.”
+
+It should eventually combine:
+
+Live Traffic
+Active Alerts
+Open Tickets
+Entity Verdicts
+Fraud/FAS events
+Quick Actions
+Escalation status
+System health
+
+The value is:
+
+reduced tab switching
+reduced cognitive fragmentation
+faster incident response
+
+This becomes your:
+
+NOC wallboard
+overnight operations surface
+incident cockpit
+Alert Correlation Intelligence — Clarification
+
+This is the most advanced future layer.
+
+Today:
+
+the platform detects symptoms
+
+Later:
+
+the platform explains causality
+
+Example:
+
+Root Cause:
+Vendor instability affecting Pakistan Mobile
+
+Impact:
+4 connections degraded
+ASR dropped from 71% → 42%
+12 enterprise accounts affected
+
+System Actions:
+Failover activated
+Traffic redistributed
+Quality normalized in 11 minutes
+
+That transforms the platform from:
+
+monitoring software
+
+into:
+
+operational intelligence infrastructure
+Recommended Roadmap From Here
+Immediate
+Executive SLA Reporting
+PDF export
+White-label branding hooks
+Next
+Unified Operations Console refinement
+NOC wallboard mode
+Ticket escalation overlays
+Advanced Layer
+Alert correlation engine
+Root-cause timelines
+Automated incident narratives
+AI-assisted remediation suggestions
+
+The platform direction is now coherent across:
+
+operator workflows
+client transparency
+executive reporting
+operational intelligence
+
+That’s the right trajectory.

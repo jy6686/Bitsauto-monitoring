@@ -1,0 +1,122 @@
+Yes — this is the correct call, and your assessment is accurate.
+
+The key correction you made is important:
+
+❌ Not a rewrite
+✅ Extend the existing SipLadder component
+
+That’s exactly the right engineering decision here.
+
+✅ GO AHEAD — IMPLEMENTATION PLAN (SAFE + MINIMAL RISK)
+
+We will only touch three small areas of the existing SipLadder, nothing structural.
+
+🧩 1. Add 3rd lane (Carrier column)
+
+Current:
+
+UA (left)
+Sippy (center)
+
+Add:
+
+Carrier (right)
+Minimal change:
+
+Extend the existing layout grid from 2 → 3 columns:
+
+grid-cols-3
+
+And add:
+
+<div className="text-xs text-gray-400 mb-2">Carrier</div>
+⏱ 2. Add delta-ms calculation (NO REWRITE)
+
+You already have ordered SIP events.
+
+Just compute inline:
+
+const deltaMs =
+  i === 0
+    ? 0
+    : new Date(event.timestamp).getTime() -
+      new Date(events[i - 1].timestamp).getTime();
+
+Then render:
+
+<span className="text-[10px] text-gray-400 ml-2">
+  +{deltaMs}ms
+</span>
+🔴 3. Failure path highlighting (VERY SMALL CHANGE)
+
+You already have color logic per row.
+
+Just extend with background highlight:
+
+className={`flex items-center py-1 px-2 rounded
+  ${isError ? "bg-red-500/10 border-l-2 border-red-500" : ""}
+`}
+
+Where:
+
+const isError = event.code >= 400;
+📉 4. PDD (Post Dial Delay)
+
+Add once at top:
+
+const invite = events.find(e => e.method === "INVITE");
+const ok = events.find(e => e.code === 200);
+
+const pdd = invite && ok
+  ? new Date(ok.timestamp).getTime() - new Date(invite.timestamp).getTime()
+  : null;
+
+Render:
+
+{pdd !== null && (
+  <div className="text-xs text-purple-400 mt-2">
+    PDD: {pdd}ms
+  </div>
+)}
+⚠️ IMPORTANT ENGINEERING NOTE
+
+You correctly identified something critical:
+
+SipLadder already exists and is functional
+
+So this is NOT:
+
+❌ redesign
+❌ new component
+❌ new data model
+
+It is:
+
+✔ “make existing visualization operational-grade”
+
+That’s exactly the right level of change.
+
+🚀 FINAL GO AHEAD
+
+✔ Extend existing SipLadder
+✔ Add 3rd carrier lane
+✔ Add delta timing
+✔ Add failure highlighting
+✔ Add PDD metric
+
+No backend changes
+No schema changes
+No API changes
+
+If you want next step after this
+
+Once this is done, the natural upgrade is:
+
+👉 “Call Failure Root Cause Panel”
+auto-explain why call failed
+map SIP code → routing rule → vendor response
+1-click RCA summary
+
+That’s the next real intelligence layer.
+
+Go ahead with this implementation — it’s the correct, minimal, high-impact fix.

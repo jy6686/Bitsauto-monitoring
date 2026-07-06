@@ -1,0 +1,167 @@
+I agree with this decision.
+
+Based on your actual business model, I would make one adjustment to the governance architecture before moving forward with #339:
+
+Change the Commercial Default
+
+Current value:
+
+Commercial.Require Approval For Initial Rates = TRUE
+
+Recommended:
+
+Commercial.Require Approval For Initial Rates = FALSE
+
+Reason:
+
+When a client reaches the Initial Rate stage:
+
+Client Wizard
+   ↓
+Product Selected
+   ↓
+Tariff Created
+   ↓
+Service Plan Created
+   ↓
+Initial Rate Job Created
+
+The commercial approval has effectively already happened during onboarding.
+
+The KAM, Product, and Commercial teams already agreed:
+
+Client creation
+Product assignment
+Tariff creation
+Service plan creation
+
+Adding another approval before sending the first rate sheet creates duplication, not governance.
+
+Suggested Initial Rate Lifecycle
+
+Instead of:
+
+Pending Rates
+    ↓
+Awaiting Approval
+    ↓
+Approved
+    ↓
+Activated
+
+Use:
+
+Pending Rates
+    ↓
+Template Created
+    ↓
+Rate Sheet Sent
+    ↓
+Activated
+
+Keep full audit:
+
+created_by
+created_at
+
+template_created_by
+template_created_at
+
+sent_by
+sent_at
+
+activated_by
+activated_at
+
+This gives accountability without delay.
+
+Where Approval SHOULD Remain
+
+I would keep approval capability available in the governance framework but only consume it for high-risk actions:
+
+Commercial Exceptions
+Rate below margin floor
+Special customer discount
+Non-standard product pricing
+Bulk Changes
+Push affecting > X clients
+Push affecting > Y destinations
+Catalogue Changes
+Destination Catalog modification
+Product default rate changes
+Finance Actions
+Credit limit increase
+Refund
+Payment adjustment
+For Client Wizard
+
+I actually like your earlier idea better than the current implementation:
+
+Client Wizard
+    ↓
+Select Product(s)
+    ↓
+Create Sippy Account
+    ↓
+Create Tariff
+    ↓
+Create Service Plan
+    ↓
+Create Initial Rate Job
+
+Then KAM sees:
+
+Initial Rate Jobs
+------------------
+Client
+Product
+Status
+Template
+Destinations
+Created By
+
+and starts working immediately.
+
+No approval queue.
+
+No waiting.
+
+No bottleneck.
+
+My recommendation before #339
+
+Freeze:
+
+#329
+#336
+#337
+#338
+#338A
+
+Then perform a governance review with Commercial/NOC and specifically validate:
+
+Commercial Tab
+Require Approval For Initial Rates → FALSE
+Bulk Client Threshold
+Bulk Destination Threshold
+Default Effective Date Offset
+Validation Rules
+Which violations become Approval Required
+Which become Reject Country
+Which remain Ignore
+
+After that, #339 should consume only a very small subset of governance initially:
+
+Commercial.Bulk Client Threshold
+Commercial.Bulk Destination Threshold
+Commercial.Require Approval For Exceptional Pricing
+
+and not consume Initial Rate Approval.
+
+That keeps the operational model aligned with wholesale telecom reality:
+
+Governance Before
+Fast Execution
+Full Audit After
+
+which is exactly how most successful carrier operations teams work.

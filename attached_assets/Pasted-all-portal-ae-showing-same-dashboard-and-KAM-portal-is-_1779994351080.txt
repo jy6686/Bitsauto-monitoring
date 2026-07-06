@@ -1,0 +1,243 @@
+all portal ae showing same dashboard and KAM portal is missing 
+
+
+
+Yes — the screenshot confirms the architecture problem immediately.
+
+Right now:
+
+all portals are only changing labels,
+
+NOT:
+
+changing workspace composition.
+
+That is why:
+
+NOC,
+Analytics,
+Finance,
+Operations,
+Security
+
+all show:
+
+same Live Operations dashboard
+
+This means:
+
+portal switching UI exists,
+but portal adapters/layout routing is NOT connected yet.
+
+And:
+
+KAM portal is completely missing
+
+from the workspace registry.
+
+What Is Wrong Technically
+
+Current behavior:
+
+workspace switcher
+    ↓
+changes portal name only
+    ↓
+loads same dashboard component
+
+Instead it should:
+
+workspace switcher
+    ↓
+loads portal-specific layout
+    ↓
+loads portal-specific dashboard
+    ↓
+loads portal-specific sections
+    ↓
+loads portal-specific sidebar
+
+Huge difference.
+
+What Should Happen
+NOC Portal
+
+Should open:
+
+/noc/dashboard
+
+Dashboard:
+
+live telemetry,
+incidents,
+degraded routes,
+SIP failures,
+jitter,
+MOS,
+carrier outages,
+realtime graphs.
+
+Dense.
+Operational.
+Dark-blue theme.
+
+Finance Portal
+
+Should open:
+
+/finance/cockpit
+
+Dashboard:
+
+DMR status,
+invoice readiness,
+collections queue,
+margin alerts,
+reconciliation drift,
+AI assurance queue.
+
+Green theme.
+No live calls.
+
+KAM Portal (missing completely)
+
+Should open:
+
+/kam/dashboard
+
+Dashboard:
+
+account health,
+top client risk,
+balance warnings,
+ASR quality,
+commercial notices,
+disputes,
+client activity feed.
+
+Purple theme.
+Commercial language.
+
+Analytics Portal
+
+Should open:
+
+/analytics/overview
+
+Dashboard:
+
+trends,
+BI,
+revenue heatmaps,
+forecasting,
+QoS intelligence,
+AI insights.
+Security Portal
+
+Should open:
+
+/security/overview
+
+Dashboard:
+
+fraud alerts,
+firewall,
+IP abuse,
+MFA events,
+suspicious sessions,
+audit events.
+ROOT CAUSE
+
+Right now the switcher likely only changes:
+
+activePortal
+
+But NOT:
+
+layout registry,
+route registry,
+dashboard resolver,
+section resolver.
+
+So:
+
+same component renders everywhere.
+Correct Architecture Needed
+portal_registry
+{
+  key: "noc",
+  dashboard: "/noc/dashboard",
+  sections: [...],
+  theme: "noc",
+  sidebarMode: "contextual",
+}
+portal_dashboard_resolver
+switch(activePortal) {
+  case "noc":
+    return <NOCDashboard />
+
+  case "finance":
+    return <FinanceCockpit />
+
+  case "kam":
+    return <KAMDashboard />
+}
+Missing KAM Portal
+
+The screenshot proves:
+
+KAM is not registered in workspace switcher.
+
+Likely:
+
+seeded in DB partially,
+but not included in:
+WORKSPACE_ITEMS,
+portal registry,
+top-nav switcher source.
+Current State
+Portal	Status
+NOC	UI exists, dashboard not isolated
+Finance	partial
+Security	placeholder
+Analytics	placeholder
+KAM	missing
+Partner	separate auth flow only
+Real Next Task
+
+NOT:
+
+add more menus
+
+Instead:
+
+implement true portal workspace isolation.
+Priority Order
+T001 — KAM Portal
+
+(missing completely)
+
+Most business-visible.
+
+T002 — Finance Cockpit
+
+(already mostly built backend-wise)
+
+Fastest to complete.
+
+T003 — NOC Cockpit Isolation
+
+(existing widgets reused)
+
+T004 — Security Workspace
+Most Important Strategic Point
+
+Right now:
+
+portals are cosmetic.
+
+Next phase:
+
+portals become operational workspaces.
+
+That is the critical transition still remaining.

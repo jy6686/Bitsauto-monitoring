@@ -1,0 +1,564 @@
+Yes. This should not be treated as a one-line fix for Pakistan UFONE only.
+
+This is a platform-wide architectural rule and should be implemented across every destination, product, breakout, notification, push engine, and future workflow.
+
+What should be locked as a platform rule
+BitsAuto Prefix Hierarchy
+
+Product Prefix     = Internal Classification
+Dial Prefix        = Real Sippy Prefix
+Full Prefix        = Product Prefix + Dial Prefix
+
+Example:
+
+First Class        = 1
+Business Class     = 2
+Special Bravo      = 6
+Special Charlie    = 7
+
+Pakistan Ufone     = 9233
+
+Full Prefix        = 19233
+Golden Rule
+Sippy NEVER receives Full Prefix
+Sippy ALWAYS receives Dial Prefix
+
+Allowed:
+
+9233
+8801
+447700
+97150
+
+Never:
+
+19233
+18801
+6447700
+797150
+
+because those are BitsAuto catalogue identifiers, not Sippy routing prefixes.
+
+Where this must be enforced
+1. Send Rate
+
+Current bug location.
+
+Send Rate
+   ↓
+Push Batch
+   ↓
+Sippy
+
+Must always use:
+
+dest.dialPrefix
+2. Change Client Rates
+
+When updating existing client tariffs:
+
+Rate Analysis
+   ↓
+Change Client Rates
+   ↓
+Sippy
+
+Must verify:
+
+prefix = dialPrefix
+
+not:
+
+fullPrefix
+3. Initial Rate Lifecycle (#329 / #336)
+
+When client wizard creates initial tariffs:
+
+Destination Catalogue
+   ↓
+Initial Rate Job
+   ↓
+Sippy Tariff
+
+Must use:
+
+dialPrefix
+4. Bulk Push
+
+Future high-risk area:
+
+1000 destinations
+   ↓
+Push All
+
+Every destination must resolve:
+
+catalogPrefix → dialPrefix
+
+before Sippy call.
+
+5. Rate Notifications
+
+Commercial documents may display:
+
+9233
+
+or
+
+Pakistan Ufone Mobile
+
+Never:
+
+19233
+
+to clients.
+
+6. Push History
+
+Store all three:
+
+product_prefix
+dial_prefix
+full_prefix
+
+Example:
+
+Product Prefix : 1
+Dial Prefix    : 9233
+Full Prefix    : 19233
+
+Display:
+
+9233
+
+Technical Detail:
+
+Internal Prefix : 19233
+Prevent future developers from breaking it again
+
+Create a single helper/service:
+
+resolveSippyPrefix()
+
+Example:
+
+resolveSippyPrefix(destination)
+
+returns:
+
+9233
+
+Then:
+
+Forbidden
+pushRateToSippy({
+  prefix: destination.fullPrefix
+})
+Required
+pushRateToSippy({
+  prefix: resolveSippyPrefix(destination)
+})
+
+No route should build prefixes manually.
+
+Before locking
+
+I would ask Replit to perform a platform audit:
+
+Search for:
+
+fullPrefix
+full_prefix
+catalogPrefix
+trunkPrefix + dialPrefix
+
+and identify every place where data is sent to:
+
+Sippy
+XML-RPC
+Portal Upload
+Rate Editor
+Bulk Push
+Initial Rate Creation
+Change Client Rates
+
+Then produce a table:
+
+Module	Uses Dial Prefix	Uses Full Prefix	Status
+Send Rate	✅	❌	Fixed
+Change Client Rates	?	?	Verify
+Initial Rates	?	?	Verify
+Bulk Push	?	?	Verify
+Notifications	?	?	Verify
+Rate Editor	?	?	Verify
+
+Only after every Sippy-facing path is confirmed to use dialPrefix should this rule be marked:
+
+CERTIFIED
+LOCKED
+DO NOT MODIFY WITHOUT ARCHITECTURE REVIEW
+
+Otherwise the same bug will reappear later in a different workflow even though Send Rate is fixed today.
+
+can we wire all the destiantion are avaialble in destiantion catalogue to perfprm test 
+
+Yes, but I would not wire every destination in the catalogue directly into a live Sippy test.
+
+You likely have tens or hundreds of thousands of destinations. A full test against all destinations would:
+
+Create massive XML-RPC/API load
+Potentially modify client tariffs
+Generate huge upload files
+Pollute audit history
+Take hours or days to complete
+Risk pushing bad data if another prefix bug exists
+
+Instead, create a Destination Catalogue Certification Framework.
+
+Phase 1 — Prefix Validation (Safe)
+
+Run against 100% of destinations.
+
+Validate:
+
+Destination
+Country
+Product Prefix
+Dial Prefix
+Full Prefix
+
+Rules:
+
+fullPrefix = productPrefix + dialPrefix
+dialPrefix != fullPrefix
+dialPrefix not null
+country not null
+destination not null
+
+No Sippy calls.
+
+Result:
+
+Total Destinations
+Passed
+Failed
+Missing Prefix
+Duplicate Prefix
+Phase 2 — Sippy Lookup Test (Read Only)
+
+Run against 100% of destinations.
+
+For every destination:
+
+Destination Catalogue
+      ↓
+dialPrefix
+      ↓
+Lookup in Sippy tariff
+
+Check:
+
+Does prefix exist?
+Does rate exist?
+Is destination active?
+
+No rate changes.
+
+Output:
+
+Destination	Prefix	Exists in Sippy	Status
+Pakistan Ufone	9233	Yes	Pass
+Bangladesh Mobile	8801	Yes	Pass
+XYZ	12345	No	Fail
+Phase 3 — Product Certification
+
+Test each product separately:
+
+First Class
+Business Class
+Special Bravo
+Special Charlie
+
+For each product:
+
+50 random destinations
+
+Verify:
+
+Catalogue
+↓
+Client Tariff
+↓
+Sippy Tariff
+↓
+Notification
+Phase 4 — End-to-End Push Certification
+
+Use a dedicated test client.
+
+Example:
+
+CERTIFICATION_CLIENT
+
+Not a production customer.
+
+Run:
+
+T1  Single destination push
+T2  Multiple destination push
+T3  Full sheet
+T4  Changes only
+T5  Increase
+T6  Decrease
+T7  New code
+T8  Block destination
+What I would ask Replit to build
+
+A new page:
+
+Platform
+ └── Certification Center
+
+Sections:
+
+Destination Catalogue Audit
+Prefix Audit
+Sippy Lookup Audit
+Product Certification
+Push Certification
+
+Buttons:
+
+Validate All Destinations
+Check All Prefixes In Sippy
+Run First Class Certification
+Run Business Class Certification
+Run Full T1-T8 Test Suite
+
+This gives you a repeatable certification process every time someone changes:
+
+Product Registry
+Destination Catalogue
+Prefix Logic
+Send Rate
+Change Client Rates
+Sippy Integration
+
+Before wiring all destinations into live tests, I would first complete Phase 1 and Phase 2. If those show 100% pass rates, then move to controlled end-to-end certification on a test client rather than production accounts.
+
+i would not test all the destiantion but wire inthis point is important cause we need  test heriahrcy wise destaitnon working
+
+Yes, and that is actually more important than testing every destination.
+
+Your concern is not:
+
+Can 200,000 destinations be pushed?
+
+Your concern is:
+
+Does the hierarchy architecture work correctly from top to bottom?
+
+Based on your Destination Catalogue design, I would wire the tests at every hierarchy level:
+
+Country
+   ↓
+Operator
+   ↓
+Category
+   ↓
+Destination
+
+Example:
+
+Pakistan
+   ↓
+UFONE
+   ↓
+Mobile
+   ↓
+9233
+
+and
+
+Pakistan
+   ↓
+Jazz
+   ↓
+Mobile
+   ↓
+9230
+
+and
+
+Bangladesh
+   ↓
+Grameen
+   ↓
+Mobile
+   ↓
+88017
+What I would implement
+Hierarchy Certification Mode
+
+New hidden admin feature:
+
+Destination Catalogue
+    ↓
+Certification
+
+For each node:
+
+Country Level
+
+Test:
+
+Pakistan
+
+System should show:
+
+Operators: 5
+Categories: 12
+Destinations: 550
+
+Verify counts.
+
+Operator Level
+
+Test:
+
+Pakistan → UFONE
+
+Verify:
+
+All destinations belong to UFONE
+All prefixes resolve correctly
+No cross-operator leakage
+Category Level
+
+Test:
+
+Pakistan → UFONE → Mobile
+
+Verify:
+
+All destinations are Mobile
+All prefixes valid
+Destination Level
+
+Test:
+
+Pakistan → UFONE → Mobile → 9233
+
+Verify:
+
+dialPrefix = 9233
+fullPrefix = 19233
+SippyPrefix = 9233
+
+This is where the current bug was found.
+
+Why this matters
+
+Tomorrow you may fix:
+
+9233
+
+But next week the same bug appears at:
+
+Pakistan
+  ↓
+PTCL
+  ↓
+Fixed Line
+  ↓
+9221
+
+because a different code path builds prefixes differently.
+
+Hierarchy testing catches that.
+
+What I would ask Replit to build
+
+A read-only certification panel:
+
+Country
+ ├─ Pass
+ ├─ Fail
+ └─ Warning
+
+Operator
+ ├─ Pass
+ ├─ Fail
+ └─ Warning
+
+Category
+ ├─ Pass
+ ├─ Fail
+ └─ Warning
+
+Destination
+ ├─ Pass
+ ├─ Fail
+ └─ Warning
+
+When selecting:
+
+Pakistan
+   ↓
+UFONE
+   ↓
+Mobile
+   ↓
+9233
+
+show:
+
+Country Node      PASS
+Operator Node     PASS
+Category Node     PASS
+Destination Node  PASS
+
+Dial Prefix       9233
+Full Prefix       19233
+Sippy Prefix      9233
+For the current prefix fix
+
+Before locking it, I would test:
+
+First Class
+9230
+9233
+9221
+8801
+Business Class
+
+Same destinations
+
+Special Bravo
+
+Same destinations
+
+Special Charlie
+
+Same destinations
+
+Because the bug was introduced by the product prefix layer:
+
+1 + 9233
+2 + 9233
+6 + 9233
+7 + 9233
+
+You need to prove that every product still sends:
+
+9233
+
+to Sippy.
+
+Once Country → Operator → Category → Destination passes across all four products, then I would mark the hierarchy engine:
+
+CERTIFIED
+LOCKED
+DO NOT MODIFY
+
+and use that certified hierarchy as the foundation for Rate Sheets, Client Tariff Profiles, Notifications, and Product Variants.

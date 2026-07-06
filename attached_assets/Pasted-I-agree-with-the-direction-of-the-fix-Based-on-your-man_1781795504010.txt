@@ -1,0 +1,234 @@
+I agree with the direction of the fix. Based on your manual validation, this is the first proposal that aligns with how Sippy actually behaves.
+
+What your manual test proved
+Existing tariff contains IDs
+
+Downloaded tariff:
+
+ID	Prefix	Rate
+41	19230	0.0275
+44	19231	0.0350
+45	19232	0.0275
+
+BitsAuto generated:
+
+Action	ID	Prefix
+A	blank	19230
+
+That is wrong for an existing tariff entry.
+
+Correct row should be:
+
+Action	ID	Prefix
+U	41	19230
+Biggest production risk
+
+Your screenshot exposed something much more serious.
+
+Current upload file:
+
+1 row
+19230 only
+
+Downloaded tariff:
+
+8 rows
+1880
+192
+1923
+19230
+19231
+19232
+19233
+19234
+
+If Sippy interprets upload as a replacement import, uploading only one row can destroy the remaining tariff.
+
+For a live wholesale platform, that is unacceptable.
+
+The proposed fix is correct
+
+The flow should become:
+
+Fetch tariff #33
+↓
+Download all 8 rows
+↓
+Modify only requested prefixes
+↓
+Keep existing IDs
+↓
+Generate full tariff file
+↓
+Upload full tariff
+↓
+Verify rate changed
+
+That exactly matches what an engineer would do manually in Sippy.
+
+One thing I would verify before deployment
+
+The log should show:
+
+fetched 8 existing rates for full-tariff upload
+
+Then verify the generated XLSX contains:
+
+1880
+192
+1923
+19230
+19231
+19232
+19233
+19234
+
+not:
+
+19230 only
+
+because that's the critical safety check.
+
+Another improvement I strongly recommend
+
+Keep every uploaded tariff file.
+
+Structure:
+
+Rate Push History
+└── internal-ptcl
+    └── Tariff 33
+        ├── 2026-06-18_1447_before.xlsx
+        ├── 2026-06-18_1447_after.xlsx
+        ├── 2026-06-18_1502_after.xlsx
+
+Retention:
+
+90 days minimum
+
+This gives you:
+
+rollback capability
+audit trail
+proof of what was uploaded
+easier troubleshooting
+
+You specifically asked earlier for version-wise/date-wise tariff history. This is where it should be implemented.
+
+Expected next test
+
+The next upload should log something like:
+
+Fetched 8 existing rates
+Updated prefix 19230
+Preserved 7 unchanged rows
+Generated full tariff XLSX (8 rows)
+Uploaded tariff 33
+Verification passed
+
+If that happens and Sippy shows:
+
+19230 = 0.0300
+19231 = unchanged
+19232 = unchanged
+
+then the architecture is finally matching Sippy's actual tariff management model instead of trying to create a new rate record from scratch.
+
+This screenshot is actually very helpful because it shows a code error, not a Sippy permission error.
+
+The error now is:
+
+Portal CSV upload exception:
+xlsxAction is not defined
+
+This means:
+
+✅ Code reached the upload routine
+✅ Tariff #33 was found
+✅ Rate Manager generated the XLSX workflow
+✅ Permission checks passed far enough to attempt upload
+❌ JavaScript/TypeScript crashed before the XLSX was built
+
+So this is no longer:
+
+No Edit Tariff Rates permission
+
+and no longer:
+
+No upload form found
+
+and no longer:
+
+Prefix not found
+
+The application itself is throwing:
+
+ReferenceError: xlsxAction is not defined
+
+Most likely after the recent change where:
+
+A  → U
+single row → full tariff upload
+
+was introduced.
+
+What probably happened
+
+Previously code looked something like:
+
+const action = 'A';
+
+or
+
+const action = 'SA';
+
+Then during the full-tariff rewrite somebody changed to:
+
+row.Action = xlsxAction;
+
+but never defined:
+
+const xlsxAction = ...
+
+for some rows.
+
+So execution stops before file creation.
+
+What to ask Replit/Claude
+
+Tell it:
+
+Do not change any Sippy logic.
+
+Current error:
+
+Portal CSV upload exception:
+xlsxAction is not defined
+
+Please locate every reference to xlsxAction in server/services/sippy.ts.
+
+Verify:
+
+1. Where xlsxAction is declared.
+2. Whether buildFullTariffXlsx() receives xlsxAction as a parameter.
+3. Whether row generation uses xlsxAction before declaration.
+4. Whether the variable was renamed from action, uploadAction, or rateAction.
+
+Fix only the undefined variable bug.
+Do not modify upload flow, permissions, XML-RPC calls, action codes, or tariff logic.
+Current status
+
+Your troubleshooting has actually moved forward:
+
+Stage	Status
+Login to Sippy	✅
+Open Tariff 33	✅
+Download tariff	✅
+Build full tariff logic	⚠️ in progress
+Generate XLSX	❌ xlsxAction is not defined
+Upload XLSX	Not reached
+Verify rate	Not reached
+
+So the next fix is not a Sippy issue at all.
+
+It is a plain coding bug introduced during the full-tariff upload rewrite. Once xlsxAction is fixed, the next test will tell us whether the new download → modify → upload full tariff approach actually works.

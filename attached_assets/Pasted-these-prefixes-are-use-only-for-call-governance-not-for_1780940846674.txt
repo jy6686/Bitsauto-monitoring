@@ -1,0 +1,56 @@
+these prefixes are use only for call governance not for all normal traffic, because for normal traffic vendor has already assigned prefix accordingly, after imp,ementation any thing normal technical details reamin same but for call governance we use seprtate prefix which already assigned 
+
+
+
+That is correct, but there is an important distinction.
+
+The prefixes in the Prefix Registry are not intended for normal production traffic routing. Normal traffic already has its own vendor prefixes, routing logic, authentications, and Sippy configurations in place, and those should remain unchanged.
+
+The Prefix Registry prefixes should be used only for Call Governance operations, such as:
+
+Call Governance rules
+Call termination/cut-off scenarios
+Recording playback scenarios
+Time-based disconnect rules (e.g., 10-second rule)
+Test and controlled routing workflows
+Governance-specific monitoring and reporting
+
+For example:
+
+Normal Traffic
+Uses existing vendor prefixes
+Uses existing routing groups
+Uses existing authentications
+No changes required
+Call Governance Traffic
+Uses dedicated governance prefixes
+Uses governance rules
+Uses governance-specific routing associations
+Can trigger actions such as disconnect, replay, cap, or monitoring
+
+The key requirement is:
+
+After implementation, all existing technical operations must continue working exactly as they do today.
+
+The governance prefix system should be:
+
+completely separate from normal traffic,
+backward compatible,
+non-disruptive,
+and only activated when a Call Governance rule explicitly references a governance prefix.
+
+In other words:
+
+Normal client traffic → no change.
+Normal vendor routing → no change.
+Existing Sippy routing → no change.
+Existing authentications → no change.
+Existing CLD rules → no change.
+
+Only Call Governance workflows should use the newly assigned governance prefixes. This allows us to identify:
+
+which governance rule is being used,
+which vendor/product it belongs to,
+and which action (10-second cut, playback, cap, etc.) should be executed,
+
+without affecting any regular production traffic.

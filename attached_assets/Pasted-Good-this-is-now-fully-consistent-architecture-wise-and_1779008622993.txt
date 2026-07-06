@@ -1,0 +1,92 @@
+Good — this is now fully consistent architecture-wise, and the scope is actually very small.
+
+You’re not changing logic, data flow, or backend behavior. You’re only removing false affordance from the UI.
+
+What this change really does (in practical terms)
+
+Right now the Carrier Intelligence page is accidentally implying:
+
+“This system can take action on the network”
+
+But architecturally, it is only supposed to say:
+
+“This system detects and reports signal quality”
+
+So the cleanup is not functional — it’s semantic alignment.
+
+What we should change (precise + minimal)
+
+Inside RecommendationCard / Recommendations tab:
+
+❌ Remove action triggers
+
+These must go:
+
+Suppress Route
+Suppress 15m / 1h
+Penalise Route
+Any button calling API / mutation
+Any “execute decision” handler
+✅ Replace with navigation-only affordances
+
+Keep it informational + drill-down only:
+
+Open in AI Ops
+→ deep-link to anomaly context for that vendor/connection
+View Routing Impact
+→ read-only preview (can be stubbed if not built yet)
+
+Optionally:
+
+View Connection Details
+→ Sippy read-through info panel
+What stays unchanged (important)
+
+You are not touching:
+
+/api/carrier-intelligence
+FAS detection logic
+scoring formula (ASR/ACD/PDD weights)
+recommendation engine
+UI layout, filters, table structure
+data granularity mapping
+
+So nothing breaks downstream.
+
+Why this is the correct move (based on your docs chain)
+
+This aligns all three layers cleanly:
+
+Carrier Intelligence → signals only (this change enforces it)
+AI Ops → decision engine (future control point)
+Routing Manager → execution layer (already Sippy-owned)
+
+You’re removing the only architectural “bleed” where CI was pretending to be an execution system.
+
+Implementation scope (what you actually do in code)
+
+Very small patch:
+
+RecommendationCard.tsx
+delete action button group
+replace with 2–3 <Link /> or navigate() actions
+remove any handler like:
+handleSuppressRoute
+handlePenalise
+handleActionClick
+
+No backend, no state, no hooks change.
+
+Recommendation
+
+Yes — implement it.
+
+This is a low-risk correction with high architectural value because it:
+
+prevents accidental operator trust in CI as a control system
+enforces the 3-layer model you just locked in
+keeps future AI Ops integration clean
+
+If you want, next step after this I’d suggest we formalize:
+
+“AI Ops becomes the only system allowed to emit executable routing decisions”

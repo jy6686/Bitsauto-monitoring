@@ -1,0 +1,174 @@
+You’re now at the point where the platform stops being “a lot of features” and becomes a system with a spine (ledger), a brain (C1/C2), and a control surface (dashboard/NOC).
+
+So your question — “what can we do with dashboard?” — becomes much more important than it looks.
+
+1. First principle: Dashboard is NOT a feature page anymore
+
+Right now your dashboard should not behave like:
+
+a navigation hub ❌
+a list of widgets ❌
+a reporting screen ❌
+
+It should become:
+
+A real-time operational control room (single truth surface of the platform)
+
+Everything you’ve built (AI Ops, alerts, ledger, routing, carriers) should feed into it — not live inside it.
+
+2. What your dashboard should become (3 layers model)
+
+Based on everything you built, your dashboard should collapse into 3 unified layers:
+
+🔴 Layer 1 — LIVE OPERATIONS (What is happening NOW)
+
+This is your NOC view (already close to what you built)
+
+Keep ONLY real-time signals:
+
+Active Calls (global + per switch)
+ASR / ACD / PDD (last 5–15 min window)
+Carrier Health Snapshot (top 10 worst + best)
+Live Incidents (AI Ops + Alert Engine merged)
+Switch Status (UP / DEGRADED / DOWN)
+New Alerts Ticker (deduplicated via incidents table)
+
+💡 This layer replaces:
+
+multiple monitoring pages
+parts of AI Ops page
+parts of routing intelligence
+parts of alert dashboard
+🟡 Layer 2 — SYSTEM INTELLIGENCE (Why it is happening)
+
+This is where your platform becomes powerful.
+
+Use your new ledger + correlation engine here:
+
+Ledger Mutation Clusters (NEW)
+Intent breakdown (C2 + Routing combined view)
+Correlated events timeline (alerts + actions + incidents together)
+Carrier degradation trends (not raw metrics)
+Risk Index distribution (accounts + carriers)
+
+💡 This layer is your:
+
+“explain layer”
+“debug layer”
+“AI Ops brain”
+
+It replaces:
+
+separate alert engine UI
+separate routing analytics pages
+separate carrier scoring views (partially)
+🟢 Layer 3 — BUSINESS IMPACT (What changed value)
+
+This is what management cares about:
+
+Revenue (live + delta)
+Cost per carrier / route
+Margin trend
+Savings from optimization engine
+Accounts at risk (from risk_index)
+Top 10 loss drivers
+
+💡 This replaces:
+
+finance dashboard
+reporting pages
+KPI pages
+3. What you should REMOVE or MERGE (important)
+
+Now that you have ledger + correlation + C1/C2:
+
+❌ Redundant dashboards (can be removed or folded)
+Alert Engine UI (becomes part of incidents stream)
+Carrier Scoring page (becomes API provider only)
+Routing Intelligence standalone dashboard (moves into Layer 2)
+Separate AI Ops “tabs” (becomes unified timeline view)
+❌ Duplicate data views
+
+You currently compute the same metrics multiple times:
+
+ASR/ACD/PDD in:
+NOC
+Carrier Scoring
+Routing Intelligence
+
+👉 Keep ONLY ONE compute layer:
+
+/api/carrier/health (your unified service)
+
+Everything else becomes a consumer.
+
+4. What becomes the “killer dashboard”
+
+Your dashboard should now be:
+
+🧠 “NOC Intelligence Command Center”
+It has only 3 scroll sections:
+┌──────────────────────────────┐
+│  LIVE OPERATIONS             │  ← real-time truth
+├──────────────────────────────┤
+│  SYSTEM INTELLIGENCE        │  ← ledger + correlation
+├──────────────────────────────┤
+│  BUSINESS IMPACT            │  ← money + risk
+└──────────────────────────────┘
+
+No sidebar dependency needed inside it anymore.
+
+5. Now your sidebar question (important design shift)
+
+You asked earlier:
+
+“can we move sidebar to top?”
+
+Now that your system is becoming a control room, the answer becomes:
+
+❌ Don’t move sidebar to top
+
+Instead:
+
+✔ Replace sidebar with “mode switch bar”
+
+Top horizontal bar:
+
+LIVE
+INTELLIGENCE
+BUSINESS
+INCIDENTS
+LEDGER
+ROUTING
+
+👉 This is NOT navigation anymore
+It is operational context switching
+
+6. What your dashboard becomes in one sentence
+
+A real-time system that shows what is happening, why it is happening, and what it is costing — all derived from a single ledger-backed truth layer.
+
+7. If you want next step (important)
+
+I can now help you:
+
+Option A (recommended)
+
+Redesign your dashboard into:
+
+3-layer architecture (React layout)
+remove duplicate pages
+unify APIs into single data contracts
+Option B
+
+Convert sidebar → top command bar (NOC-style control strip)
+
+Option C
+
+Merge:
+
+AI Ops + Alerts + Incidents → single timeline engine UI
+
+If you want, next I can draw you:
+
+Final production-grade dashboard layout (exact UI structure matching your current system)

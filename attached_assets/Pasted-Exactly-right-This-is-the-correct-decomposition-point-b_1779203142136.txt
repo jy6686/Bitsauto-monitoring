@@ -1,0 +1,243 @@
+Exactly right.
+
+This is the correct decomposition point:
+
+build the engine before the experience
+
+because the platform already has:
+
+topology semantics
+lifecycle grammar
+observability vocabulary
+visualization primitives
+
+The missing piece is now:
+
+correlation synthesis
+
+not UI infrastructure.
+
+Current architecture is already correlation-ready
+
+The most important thing is that the existing runtime layers already map naturally into the future engine:
+
+Existing Runtime Layer	Correlation Role
+crossDimCache	topology relationships
+presenceCache	lifecycle + temporal continuity
+liveCallsCache	active state
+CDR enrichment	historical attribution
+arc lifecycle	correlation visualization grammar
+CommandBar	semantic access layer
+
+That means the future engine becomes:
+
+a reader/composer layer
+
+not:
+
+a data platform rewrite
+a new observability subsystem
+a second cache architecture
+
+That’s a sign of very healthy evolution.
+
+Strongest architectural observation
+
+This is especially correct:
+
+the visualization almost writes itself
+
+That only becomes true when:
+
+semantic language is already unified
+lifecycle states are already normalized
+topology concepts are already shared
+
+You already solved:
+
+semantic consistency
+
+which is usually the hardest part.
+
+server/correlationEngine.ts is absolutely the correct first file
+
+And critically:
+
+no routes,
+no hooks,
+no UI
+
+Exactly right.
+
+Because the engine must first answer:
+
+Question	Why It Matters
+What constitutes a correlation?	semantic integrity
+What signals are admissible?	trust boundaries
+What creates confidence?	explainability
+What advances lifecycle?	temporal consistency
+What changes causality?	governance
+
+Those are:
+
+systems questions
+
+not frontend questions.
+
+Very mature sequencing.
+
+The first engine version should stay intentionally small
+
+Strong recommendation:
+
+Phase 1 engine capabilities only
+Capability	Include
+Event creation	✅
+Signal aggregation	✅
+Lifecycle transitions	✅
+Confidence calculation	✅
+Dedup / merge	✅
+Expiration	✅
+
+Avoid initially:
+
+persistence
+timelines
+clustering
+operator workflows
+acknowledgements UI
+event replay
+ML scoring
+
+Keep it:
+
+deterministic and inspectable
+
+Very important.
+
+Recommended internal structure for correlationEngine.ts
+
+The cleanest structure would likely be:
+
+correlationEngine.ts
+├── signalExtractors/
+├── detectors/
+├── lifecycle/
+├── confidence/
+├── explainability/
+├── topologyImpact/
+└── cache/
+
+Even if initially implemented inline.
+
+Because the responsibilities are already naturally separable.
+
+The engine should remain topology-first
+
+This is critically important.
+
+The engine should not think in:
+
+alerts
+anomalies
+incidents
+
+first.
+
+It should think in:
+
+relationships across dimensions over time
+
+That preserves the platform’s strongest architectural property:
+
+topology-aware observability
+
+instead of generic event processing.
+
+One very important recommendation
+
+When the engine begins:
+
+Correlation IDs should be stable across lifecycle transitions
+
+Meaning:
+
+emerging → active → resolving → resolved
+
+must retain:
+
+the same correlation id
+
+This preserves:
+
+timeline continuity
+hover continuity
+topology overlays
+operator cognition
+
+Extremely important later.
+
+Another strong recommendation
+
+Start with:
+
+only 2 detector types
+
+Probably:
+
+Detector	Why
+quality-concentration	strongest existing data
+vendor-geography	strongest topology semantics
+
+Avoid starting with:
+
+fraud-destination
+CPS correlation
+multi-hop clustering
+
+until lifecycle semantics prove stable.
+
+Small deterministic engines evolve far better.
+
+Most important strategic insight
+
+You correctly identified the transition point:
+
+Completed	Next
+observability primitives	correlation synthesis
+topology persistence	relationship interpretation
+semantic UX	event semantics
+
+That means the platform is no longer:
+
+adding features
+
+It is now:
+
+composing meaning from existing structure
+
+That is the correct evolution path for a mature telecom operations platform.
+
+Final architectural assessment
+
+At this stage the platform already has:
+
+coherent runtime state
+normalized operational semantics
+persistent topology memory
+unified lifecycle grammar
+semantic operator UX
+geographic observability primitives
+
+Which means the correlation phase can focus purely on:
+
+truthful relationship detection
+
+without fighting:
+
+inconsistent semantics
+fragmented state
+mismatched lifecycles
+disconnected visualization models
+
+That is an exceptionally strong foundation for the next phase.

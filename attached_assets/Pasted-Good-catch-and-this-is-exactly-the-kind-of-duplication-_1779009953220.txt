@@ -1,0 +1,125 @@
+Good catch — and this is exactly the kind of duplication risk these docs were slowly drifting into.
+
+Let’s cleanly separate reality vs proposal here.
+
+What’s actually true (based on your inventory)
+
+You’re correct:
+
+The proposed “/routing-groups Sippy Control Center” already exists.
+
+Your routing-manager.tsx already has:
+
+Routing groups list (React Query → Sippy cache/API)
+Group CRUD (create / edit / delete)
+Entry-level management inside group
+Vendor/connection/destination-set integration
+shadcn UI already in place
+No ExtJS legacy dependency anymore
+
+So functionally:
+
+✔ routing-manager = already a full Sippy control surface for routing groups
+
+So what is this document really asking for?
+
+It is NOT introducing new functionality.
+
+It is only proposing:
+
+A product reframe / UI reorganization
+
+Specifically:
+
+Current reality	Document framing
+/routing page = everything mixed	Split into clean domain page
+routing groups embedded in routing UI	dedicated /routing-groups module
+routing entries + groups + policy in one view	separated control center concept
+
+So this is not an engineering gap — it’s a UX boundary proposal.
+
+The real decision you need to make
+
+This is no longer “build vs not build”.
+
+It is:
+
+Option A — Keep current architecture (recommended technically)
+/routing stays as the Sippy Control Center
+routing groups + entries remain unified
+no duplication
+no migration risk
+no second source of UI truth
+
+✔ Best for stability
+✔ No regression risk
+✔ Matches current working system
+
+Option B — Split into a dedicated /routing-groups page
+Extract group management from routing-manager
+Keep routing-manager for “execution view”
+/routing-groups becomes “configuration view”
+
+✔ Cleaner conceptual separation
+❌ Duplicates already working UI logic
+❌ Creates two surfaces touching same Sippy APIs
+❌ Increases maintenance cost for no backend gain
+
+Critical architectural truth (important)
+
+Your system already violates “separation” in a good way:
+
+Routing Manager is already both:
+
+configuration (groups)
+execution (entries)
+Sippy interface layer
+
+That is actually correct for a control-plane UI in VoIP systems.
+
+Splitting it artificially would:
+
+reduce usability (operators need context switching)
+increase cognitive load
+fragment Sippy operations across pages
+My recommendation (based on everything you’ve built)
+
+❌ Do NOT build a new /routing-groups page
+✔ Keep routing-manager as the unified Sippy Control Center
+✔ Only consider refactor, not duplication
+
+If you do want improvement (safe direction)
+
+Instead of splitting pages, do this:
+
+Phase 1 (safe UX improvement)
+
+Inside /routing:
+
+Add tab: “Groups”
+Add tab: “Entries”
+Add tab: “Policy View”
+Phase 2 (optional later)
+Lazy-load each tab
+Clean component separation internally
+
+This gives:
+
+structure improvement
+zero duplication
+zero API duplication
+no routing fragmentation
+Final answer to your question
+
+“Is the goal a second page or rename/reorganisation?”
+
+Answer:
+
+It should be a reorganisation of the existing routing-manager page, not a second page.
+
+Because:
+
+You already implemented everything the doc describes
+Sippy is already fully integrated
+The proposed page is not new capability — only rebranding/segmentation
+Splitting it would create redundancy, not value

@@ -1,0 +1,184 @@
+can we move forward and compelte other task as well?Item	Status
+Tariff Sync retail assignment bug	✅ Fixed
+Products KPI should show 8	❌ Not verified
+Countries KPI should show 352	❌ Not verified
+Send Rate should show 8 products	❌ Not fixed
+Download rate sheet	❌ Not implemented
+Push History production-ready	❌ Not implemented
+Notification templates complete	❌ Not implemented
+
+Yes, you can move forward, but I would split it into P1 (safe to continue now) and P2 (must verify first).
+
+Safe to Continue Now ✅
+
+These items are independent of the 4 vs 8 product issue:
+
+1. Download Rate Sheet
+
+Priority: High
+
+Add to:
+
+Rate Manager
+ └─ Product Rates
+
+Buttons:
+
+Download Full Sheet
+Download Changes Only
+Download By Product
+Download By Country
+
+Backend:
+
+GET /api/rate-manager/export
+GET /api/rate-manager/export?productId=1
+GET /api/rate-manager/export?country=PK
+
+Formats:
+
+CSV
+XLSX
+2. Push History Productionization
+
+Priority: High
+
+Current screenshots show:
+
+Dests = —
+Technical Details = empty
+
+Missing:
+
+Destinations pushed
+Old rate
+New rate
+Effective date
+Push method
+Verification result
+Error details
+Download XLSX
+Re-send
+
+Job Details should display:
+
+Product
+Client
+Destinations
+Rate Count
+Created By
+Created At
+Effective At
+Status
+Verification
+3. Notification Templates
+
+Priority: High
+
+Current popup is incomplete.
+
+Need:
+
+Template Name
+Subject
+Body
+Product
+Format
+Recipients
+CC
+Schedule
+
+Template types:
+
+Default
+Changes Only
+Full Sheet
+Emergency
+
+Preview:
+
+Send Test Email
+Preview Template
+4. Billing Increment Framework
+
+Priority: Critical
+
+Continue exactly from the task you documented earlier:
+
+Destination Detail → Billing Settings
+
+Add:
+
+Product
+Rate
+60/60
+60/1
+1/1
+Grace
+Free Seconds
+Connect Fee
+Start Date
+Expiry Date
+
+Approval validation:
+
+Cannot approve without:
+✓ Name
+✓ Product
+✓ Billing Settings
+Do NOT Continue Yet ⚠️
+
+These affect core routing/product logic.
+
+Products KPI = 4 vs 8
+
+Need answer first:
+
+Are Retail products supposed to appear in Rate Manager?
+
+If yes:
+
+FC
+BC
+SB
+SC
+FC-R
+BC-R
+SB-R
+SC-R
+
+should appear.
+
+If no:
+
+4 is correct
+
+and KPI should remain 4.
+
+Countries KPI = 1132 vs 352
+
+Need business definition.
+
+Current appears to count:
+
+Destinations
+
+instead of:
+
+Countries
+
+Need to verify source query before touching.
+
+Suggested Order
+Sprint A (continue immediately)
+1. Billing Settings Panel
+2. Approval Validation
+3. Download Rate Sheet
+4. Push History Detail Drawer
+5. Notification Templates
+Sprint B (verification)
+6. Product KPI 4 vs 8
+7. Countries KPI 1132 vs 352
+8. Send Rate product visibility
+
+My recommendation: finish Sprint A first. Those are real missing features and won't risk breaking tariff-sync, Send Rate, or client-product assignment logic that was just stabilized.

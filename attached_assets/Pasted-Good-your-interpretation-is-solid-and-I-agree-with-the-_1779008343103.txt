@@ -1,0 +1,169 @@
+Good — your interpretation is solid, and I agree with the architectural split you’ve identified.
+
+Now I’ll align this with your explicit requirement:
+
+“just fetch from Sippy soft donot push or keep in DB”
+
+So we lock this clearly:
+
+✅ Final Decision: Sippy is SOURCE OF TRUTH ONLY (Read-Only Mode)
+
+You are choosing:
+
+✔ Path A (Strict Read-Through Mode)
+No local DB for routing groups
+No persistence layer in Postgres
+No duplication of Sippy state
+No sync engine
+No write-back to Sippy from UI (for now)
+🧠 What this means architecturally
+
+You are building a:
+
+Live Sippy Routing Control Plane (Read-Only UI Layer)
+Sippy Softswitch (MASTER SYSTEM)
+        ↓ XML-RPC
+BitsAuto Platform (READ-ONLY FETCH LAYER)
+        ↓
+React UI (Routing Manager / Intelligence View)
+
+So your platform becomes:
+
+“A real-time observability + inspection layer on top of Sippy routing”
+
+NOT a routing database.
+
+⚠️ Important correction to your earlier design doc
+
+Everything below is now REMOVED from scope:
+
+❌ routing_groups DB table
+❌ routing_group_entries table
+❌ sync engine
+❌ local caching as source of truth
+❌ CRUD APIs for routing persistence
+
+Because those would create drift vs Sippy.
+
+🧩 What you SHOULD build instead (clean architecture)
+1. Backend API (READ ONLY)
+/api/sippy/routing-groups
+
+Fetch directly from Sippy XML-RPC:
+
+GET /api/sippy/routing-groups
+→ sippy.getRoutingGroups()
+/api/sippy/routing-group/:id
+GET /api/sippy/routing-group/:id
+→ sippy.getRoutingGroupDetails(id)
+/api/sippy/connections
+GET /api/sippy/connections
+→ sippy.listConnections()
+/api/sippy/destination-sets
+GET /api/sippy/destination-sets
+→ sippy.listDestinationSets()
+2. Frontend (NO LOCAL STATE STORAGE)
+
+You already have:
+
+conns[]
+routing_entries table
+form-based editing
+
+You should now convert it into:
+
+React Query driven model
+
+Instead of:
+
+conns.push(...)
+
+You move to:
+
+useQuery(['connections'], fetchConnectionsFromSippy)
+3. Routing Group UI becomes PURE VIEW + TEMP STATE
+Important rule:
+
+UI can edit locally, but SAVE = NOT allowed (for now)
+
+So:
+
+Allowed:
+view routing groups
+filter vendors
+expand entries
+simulate changes (UI only)
+Not allowed:
+submit form changes
+persist routing updates
+modify Sippy config
+4. Your existing initOnnetRouting() logic
+
+This becomes simplified:
+
+KEEP:
+enable/disable UI controls
+connection filtering logic
+REMOVE dependency on:
+local conns[] mutation
+static push arrays
+
+Replace with:
+
+const conns = useConnectionsFromSippy();
+🧠 Key improvement opportunity (important)
+
+Right now your UI is doing:
+
+DOM mutation + global arrays + ExtJS behavior mix
+
+You should gradually move to:
+
+Controlled data flow:
+Sippy API → React Query → UI state → filtered view
+
+NOT:
+
+conns.push → DOM update → manual filter → UI mutation
+🔥 What this unlocks immediately
+
+With read-only Sippy integration you get:
+
+✔ Real-time routing visibility
+✔ No sync bugs
+✔ No DB drift
+✔ Safe production deployment
+✔ AI Ops can still consume data safely
+🚀 Recommended implementation order (safe + fast)
+Phase 1 (NOW)
+Replace conns[] with /api/sippy/connections
+Replace routing group dropdown with Sippy fetch
+Keep UI unchanged visually
+Phase 2
+Convert routing entries table → React state view only
+Remove ExtJS tooltips dependency gradually
+Phase 3
+Add “Diff Mode” (future AI Ops feature):
+show what WOULD change if routing was modified
+but do NOT apply
+⚠️ One critical warning
+
+Do NOT mix:
+
+Sippy live config
+local caching DB
+AI Ops recommendations
+
+into the same write pipeline.
+
+That’s how routing loops and mismatched carriers happen in VoIP systems.
+
+If you want next step
+
+I can convert your current conns.push + initOnnetRouting + setConnectionsList system into:
+
+👉 React + Sippy API version (drop-in replacement design)
+
+or
+
+👉 Clean “Routing Manager v2 architecture diagram (Sippy-native)”

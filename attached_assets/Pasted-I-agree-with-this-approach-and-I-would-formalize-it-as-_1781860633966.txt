@@ -1,0 +1,194 @@
+I agree with this approach and I would formalize it as a hard project rule for BitsAuto Rate Management.
+
+Certification Boundary
+Frozen (Certified)
+
+This area is out of scope for Send Rate certification:
+
+pushRateViaPortalUpload()
+
+downloadTariffXlsxFromPortal()
+patchDownloadedTariffXlsx()
+
+action=change
+
+Sippy session discovery
+Portal authentication
+Verification read-back
+
+Reason:
+
+Already proven with real Sippy
+Real rates changed successfully
+Restore testing completed
+Multiple scenarios already validated
+
+Any modification here introduces risk without generating new evidence.
+
+Under Certification
+
+Only these layers may be changed:
+
+Send Rate Queue
+
+Destination Resolution
+
+Prefix Resolution
+
+Longest Prefix Logic
+
+Product → Tariff Mapping
+
+Batch Processing Logic
+
+Validation Layer
+
+Push History Logging
+
+rate_push_jobs Population
+
+If T1-T8 finds defects, fixes must be restricted to these layers.
+
+Product Coverage
+
+You asked:
+
+Are we implementing on all products?
+
+For certification:
+
+YES
+
+All commercial products must be tested.
+
+Based on your inventory:
+
+Product	Prefix
+First Class	1
+Business Class	2
+Special Bravo	6
+Special Charlie	7
+Fifth Product (registry shows 5 total)	verify
+
+T4 specifically exists to prove:
+
+First Class
+    ↓
+FC Tariff Only
+
+Business Class
+    ↓
+BC Tariff Only
+
+Special Bravo
+    ↓
+Bravo Tariff Only
+
+Special Charlie
+    ↓
+Charlie Tariff Only
+
+No cross-contamination.
+
+Certification Sequence
+
+Before touching anything:
+
+Capture Baseline
+
+For every product under test:
+
+Product	Tariff ID	Prefix	Current Rate
+
+Store this externally.
+
+Example:
+
+FC Tariff
+92300
+0.0245
+
+BC Tariff
+92300
+0.0260
+
+Bravo Tariff
+92300
+0.0275
+
+Charlie Tariff
+92300
+0.0280
+T1-T8 Should Use Real Products
+
+Not mock data.
+
+Not dummy products.
+
+Actual:
+
+First Class
+Business Class
+Special Bravo
+Special Charlie
+
+because the entire purpose is to certify:
+
+Send Rate
+    ↓
+Product Mapping
+    ↓
+Correct Tariff
+Additional Assertion
+
+Since inventory showed:
+
+rate_push_jobs = 0 rows
+
+I would add:
+
+A3
+
+After every certification test:
+
+Verify:
+
+rate_push_jobs
+
+contains a record.
+
+If not:
+
+Test Result = FAIL
+
+Because Push History is part of the Send Rate workflow.
+
+A successful rate push with no audit trail is not fully certified.
+
+Final Recommendation
+
+Green light:
+
+Build
+send-rate-certification.ts
+
+Target:
+
+POST /api/rate-manager/push-batch
+
+NOT:
+
+pushRateViaPortalUpload()
+
+The certification harness must test the full Send Rate workflow while treating the proven Sippy push engine as a certified black box.
+
+That gives you a true certification of:
+
+Queue
+→ Destination Resolution
+→ Product Mapping
+→ Validation
+→ Push History
+→ Proven Push Engine
+
+without risking the part that has already been successfully implemented and validated in Sippy.

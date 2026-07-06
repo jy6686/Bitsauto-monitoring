@@ -1,0 +1,252 @@
+Great — I went through the Sippy docs and updated your current scenario + UI/flow to match how Sippy actually works today (API behavior, callback logic, authentication, and testing tools).
+
+Below is the corrected + upgraded architecture based on real Sippy capabilities.
+
+🔥 KEY CORRECTIONS FROM SIPPY DOCS (IMPORTANT)
+1. Callback is NOT just a “call feature”
+It’s a dedicated module (Web Callback / 2Way Callback)
+Works as:
+Call user (CLI)
+Then bridge to destination (CLD)
+
+👉 Your current understanding is correct, but now clarified:
+
+It’s IVR / application-driven, not just a simple API call
+2. SIP / Registration is a FIRST-CLASS concept
+Accounts include:
+balance
+blocked/expired status
+registration status (active SIP device)
+
+👉 Meaning:
+
+You must check registration separately
+Not all accounts are SIP-ready
+3. Modern Sippy Testing = “Dialplan Simulation”
+New feature: Test DialPlan (v5+)
+It simulates:
+authentication
+routing
+cost
+vendor selection
+
+👉 This is BIG:
+
+Your current UI is missing this completely
+This should be part of your testing flow
+4. Authentication Modes Matter
+
+Sippy supports:
+
+Authenticated Call (SIP / account login)
+Non-authenticated call (CLI-based routing)
+
+👉 This directly maps to your UI modes:
+
+Direct Mode = Authenticated
+Callback = CLI-based / IVR
+✅ UPDATED SCENARIO (CORRECT ARCHITECTURE)
+🔷 OLD THINKING (Your Current)
+Callback vs Direct = just 2 call options
+🔷 NEW THINKING (SIPPY-ALIGNED)
+
+You now have 3-layer testing system:
+
+🧠 LAYER 1 — ACCOUNT VALIDATION
+
+Before anything:
+
+Account exists
+Not blocked / expired
+Balance / credit OK
+Routing group assigned
+
+📌 Comes from:
+
+getAccountInfo
+listAccounts
+🧠 LAYER 2 — SIP / REGISTRATION CHECK
+Is SIP allowed?
+Is device registered?
+Can softphone connect?
+
+📌 Uses:
+
+registration_status (API)
+🧠 LAYER 3 — CALL TESTING (3 MODES)
+1️⃣ Dialplan Simulation (NEW - MUST ADD)
+
+👉 No real call
+
+Input:
+
+CLI
+CLD
+Account
+
+Output:
+
+Route
+Cost
+Vendor
+Authentication result
+
+📌 Based on:
+
+Test DialPlan
+2️⃣ Callback Mode (IVR / 2-Way)
+
+👉 Real call
+
+Flow:
+
+Call CLI → Answer → Bridge → CLD
+
+📌 Uses:
+
+Callback module
+3️⃣ Direct Origination (Authenticated Call)
+
+👉 Real call
+
+Flow:
+
+SIP Account → Dial CLD directly
+
+📌 Equivalent to:
+
+Authenticated call mode
+🧩 UPDATED UI LAYOUT (FINAL VERSION)
+--------------------------------------------------------
+📞 TEST & DEBUG CENTER (SIPPY-ALIGNED)
+--------------------------------------------------------
+
+[ Account ▼ ]   [ 🔍 Validate Account ]
+
+--------------------------------------------------------
+🧪 Test Mode
+(•) Dialplan Simulation   ⭐ Recommended
+( ) Callback Test
+( ) Direct SIP Call
+--------------------------------------------------------
+
+📍 Common Inputs
+----------------------------------------
+CLD (Destination)      [__________]
+CLI (Optional)         [__________]
+----------------------------------------
+
+📍 Mode-Specific UI
+
+👉 Dialplan Mode:
+(No extra fields)
+
+👉 Callback Mode:
+CLI REQUIRED
+
+👉 Direct Mode:
+(No CLI needed)
+
+--------------------------------------------------------
+📊 Account Status
+----------------------------------------
+✅ Active
+✅ Balance OK
+✅ Routing OK
+----------------------------------------
+
+📡 SIP Status
+----------------------------------------
+✅ Registration Allowed
+❌ Not Registered
+----------------------------------------
+
+--------------------------------------------------------
+📡 SIP Credentials (Collapsible)
+[ Show ]
+----------------------------------------
+Server | Username | Password
+----------------------------------------
+
+--------------------------------------------------------
+🚀 Actions
+[ ▶ Run Simulation ]   (Dialplan)
+[ 📞 Start Call ]      (Callback / Direct)
+--------------------------------------------------------
+
+📊 Result Panel
+----------------------------------------
+Route: Vendor A
+Cost: 0.023 USD
+Auth: Passed
+Status: Success / Failed
+----------------------------------------
+🔄 UPDATED FLOW (REALISTIC)
+🔷 STEP 1 — Account Select
+Select Account
+   ↓
+getAccountInfo
+   ↓
+Show:
+- balance
+- blocked
+- routing
+- registration
+🔷 STEP 2 — Choose Test Mode
+User selects:
+- Simulation
+- Callback
+- Direct
+🔷 STEP 3 — Execute
+🧪 Simulation (NEW CORE FEATURE)
+Input CLI + CLD
+   ↓
+Dialplan Engine
+   ↓
+Return:
+- Auth result
+- Routing
+- Cost
+📞 Callback
+CLI required
+   ↓
+Trigger Callback Module
+   ↓
+Call CLI → Bridge → CLD
+📡 Direct Call
+Authenticated Account
+   ↓
+Originate Call
+   ↓
+Call CLD directly
+🚀 WHAT CHANGED (VERY IMPORTANT)
+❌ Before
+Just “make a test call”
+✅ Now
+
+You have a complete VoIP testing system:
+
+Layer	Purpose
+Validation	Is account usable?
+SIP Check	Can device connect?
+Simulation	Will call succeed?
+Execution	Actually place call
+🎯 FINAL RECOMMENDATION
+🔥 MUST IMPLEMENT (based on Sippy reality)
+✅ Add Dialplan Simulation (Suggestion upgrade)
+✅ Keep Call Mode Toggle (Suggestion 4)
+✅ Add Registration Status (Suggestion 3)
+✅ Add Pre-check (Suggestion 5)
+🧠 FINAL INSIGHT (CRITICAL)
+
+Your system is no longer just a “Test Call Page”
+
+👉 It becomes a:
+
+VoIP Debugging & Validation Console
+
+This aligns exactly with how NOC / VoIP engineers actually work:
+
+First simulate
+Then verify SIP
+Then place call

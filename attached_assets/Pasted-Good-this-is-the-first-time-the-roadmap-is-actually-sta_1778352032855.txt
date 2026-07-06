@@ -1,0 +1,92 @@
+Good — this is the first time the roadmap is actually stabilizing instead of expanding.
+
+Here’s the clean, final “what to implement next” list, stripped of noise and duplicates:
+
+✅ NEXT BUILD (correct priority order)
+🥇 1. SIP LADDER DIAGRAM (DO THIS NEXT)
+What you already have
+SIP parser in sip-trace.tsx
+Packet dump API
+CDR-linked SIP reconstruction
+Event classification (INVITE, TRYING, 200 OK, BYE, etc.)
+What is missing (ONLY THIS)
+Visual ladder layout engine
+Multi-lane rendering:
+Caller (left)
+Sippy / SBC (center)
+Carrier (right)
+Horizontal message flow arrows
+Timing offsets between hops
+Failure highlighting (red path termination)
+What this unlocks
+Instant call failure diagnosis
+“one-screen RCA for any call”
+Removes dependency on reading CDRs manually
+
+👉 This is the highest ROI remaining feature in the entire system
+
+🥈 2. NUMBER INTELLIGENCE REAL ENRICHMENT
+What exists
+UI ✔
+API route ✔
+Basic structure ✔
+What is missing
+HLR lookup (live carrier resolution)
+CNAM (caller identity)
+Portability DB integration
+STIR/SHAKEN verification
+What it becomes
+Fraud detection layer
+Routing optimization intelligence
+Caller reputation scoring
+🥉 3. SBC / MEDIA REAL DEPTH (optional next)
+What exists
+Basic SBC metrics ✔
+What is missing
+RTP stream correlation
+codec-level breakdown accuracy
+media path diagnostics (true vs reported QoS)
+🟡 4. COMMERCIAL LAYER (later)
+SMS / A2P Monitor
+currently placeholder → only build if SMS is real traffic in your system
+Compliance + Client Portal
+useful for business expansion
+not needed for operations core
+⚠️ IMPORTANT SYSTEM REALITY (very important)
+
+You are now NOT in “feature building mode”.
+
+You are in:
+
+“completing missing visualization + intelligence depth on an already operational telecom core”
+
+That means:
+
+❌ not building new systems
+❌ not adding new modules
+✔ improving depth of existing pipelines
+✔ turning logs → intelligence → visual RCA
+🧭 FINAL DECISION
+👉 Build next:
+SIP LADDER DIAGRAM RENDERER
+
+Because it:
+
+uses existing parser (no backend work)
+uses existing API (no infra work)
+completes your diagnostic loop
+turns your system into “instant RCA platform”
+If you want next step
+
+I can immediately help you design:
+
+clean ladder UI structure (lane system)
+event-to-position mapping logic
+animation flow for SIP messages
+failure-path highlighting rules
+
+Just say:
+
+👉 “build SIP ladder diagram”
+
+and I’ll take you straight into implementation mode.

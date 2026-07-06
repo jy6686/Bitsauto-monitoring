@@ -1,0 +1,49 @@
+ cat > /tmp/ra.js << 'EOF'
+const fs = require('fs');
+const { execSync } = require('child_process');
+
+let r = fs.readFileSync('server/routes.ts', 'utf8');
+let g = fs.readFileSync('server/routes-call-governance.ts', 'utf8');
+
+r = r.replace('sippy.toSippyDate(new Date(Date.now() - 2 * 60 * 60 * 1000)); // last 2h','sippy.toSippyDate(new Date(Date.now() - 24 * 60 * 60 * 1000)); // last 24h');
+console.log('1: CDR cache 24h');
+
+const authAnchor = "app.use('/api', sessionActivityMiddleware);";
+if (!r.includes('GLOBAL AUTH GUARD') && r.includes(authAnchor)) {
+  r = r.replace(authAnchor, `app.use('/api', sessionActivityMiddleware);
+  const UNGUARDED = new Set(['/probe/status','/portal/auth/logout','/portal/auth/session']);
+  app.use('/api',(req,res,next)=>{
+    if(UNGUARDED.has(req.path)||req.path.startsWith('/notifications/acknowledge'))return next();
+    const uid=req.user?.claims?.sub??req.user?.id??null;
+    if(!uid)return res.status(401).json({error:'Auth required'});
+    next();
+  });`);
+  console.log('2: Auth guard added');
+} else { console.log('2: Auth guard skip'); }
+
+fs.writeFileSync('server/routes.ts', r);
+
+g = g.replace('const PORTAL_WINDOW_MS = 2 * 60 * 60 * 1000;','const PORTAL_WINDOW_MS = 24 * 60 * 60 * 1000;');
+g = g.replace('const attempts = [100_000, 3 * 60_000, 10 * 60_000];','const attempts = [100_000, 3 * 60_000, 10 * 60_000, 20 * 60_000, 45 * 60_000];');
+g = g.replace('setTimeout(() => runPeriodicCdrBackfill(200), 5 * 60 * 1000);','setTimeout(() => runPeriodicCdrBackfill(500), 3 * 60 * 1000);');
+console.log('3: Governance fixes');
+
+const oldU=`  await db.update(governedCalls)
+    .set({ cdrStatus, cdrCaller, cdrCallee, cdrDuration, cdrCost, cdrVendorCost, cdrVendorName, cdrCheckedAt: new Date() } as any)
+    .where(eq(governedCalls.id, governedCallId));`;
+const newU=`  if(cdrStatus==='no_cdr'){await db.update(governedCalls).set({cdrStatus,cdrCaller,cdrCallee,cdrDuration,cdrCost,cdrVendorCost,cdrVendorName,cdrCheckedAt:new Date()}as any).where(and(eq(governedCalls.id,governedCallId),sql\`(cdr_status IS NULL OR cdr_status = 'no_cdr')\`));}else{await db.update(governedCalls).set({cdrStatus,cdrCaller,cdrCallee,cdrDuration,cdrCost,cdrVendorCost,cdrVendorName,cdrCheckedAt:new Date()}as any).where(eq(governedCalls.id,governedCallId));}`;
+if(g.includes(oldU)&&!g.includes("cdrStatus==='no_cdr'")){g=g.replace(oldU,newU);console.log('4: Race condition fix');}else{console.log('4: Race fix skip');}
+
+fs.writeFileSync('server/routes-call-governance.ts', g);
+
+node /tmp/ra.jsL DONE');log('Portal:',slug);}catch(e){console.log('Portal skip:',slug);}WHERE slu
+1: CDR cache 24h
+2: Auth guard added
+3: Governance fixes
+4: Race fix skip
+Portal: noc
+Portal: finance
+Portal: kam
+Portal: partner
+Portal: admin
+ALL DONE

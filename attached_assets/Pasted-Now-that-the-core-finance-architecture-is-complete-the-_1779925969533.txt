@@ -1,0 +1,452 @@
+Now that the core finance architecture is complete, the remaining work in:
+
+Invoice + Disputes
+
+is no longer foundational infrastructure.
+
+It is now:
+
+workflow maturity,
+automation,
+
+and
+
+finance governance refinement.
+
+Here’s the actual remaining roadmap.
+
+Remaining Invoice System Work
+
+Current state:
+
+Snapshot-backed invoices ✅
+Draft/approval lifecycle ✅
+Client reconciliation ✅
+Carrier reconciliation ✅
+DMR-backed economics ✅
+Immutable finance truth ✅
+
+What remains:
+
+1. Invoice Delivery Automation
+(Major remaining invoice feature)
+
+You intentionally stopped before:
+
+auto-send.
+
+Still remaining:
+
+Feature	Status
+Scheduled invoice runs	❌
+Billing-cycle cron engine	❌
+Auto-draft generation	❌
+Approval queues	Partial
+Auto-PDF attachment	Partial
+SMTP delivery workflow	❌
+Retry/failure handling	❌
+Send audit	Partial
+What Needs Building
+invoice_jobs
+invoice_jobs
+- billing_period
+- client_id
+- status
+- generated_at
+- approved_at
+- sent_at
+- retry_count
+Invoice Scheduler
+Nightly:
+→ detect cycle close
+→ generate invoice draft
+→ finance review queue
+→ approve
+→ dispatch
+
+This is still a major remaining invoice feature.
+
+2. Multi-Template Invoice Rendering
+(Very important)
+
+You already identified this earlier.
+
+Still remaining:
+
+Feature	Status
+Per-client invoice template	❌
+Different detail levels	❌
+Prefix breakdown invoices	❌
+Destination summaries	❌
+Bank profile rendering	Partial
+White-label invoice branding	❌
+Needed Tables
+invoice_templates
+branding_profiles
+attachment_profiles
+
+This is operationally very important.
+
+Wholesale telecom clients often require:
+
+exact formatting,
+exact attachment naming,
+exact subject line structure.
+
+Still remaining.
+
+3. Invoice Line-Level Drilldown
+(Important)
+
+Currently:
+invoice exists.
+
+Still missing:
+
+invoice explainability.
+
+Need:
+
+Invoice
+→ DMR
+→ snapshots
+→ CDRs
+→ tariff version
+
+Full drill-through finance traceability.
+
+Very valuable for disputes.
+
+4. Credit Control Automation
+(Big remaining finance feature)
+
+Still not built:
+
+Feature	Status
+Credit threshold alerts	❌
+Auto-suspend routing	❌
+Grace-period workflow	❌
+Collections workflow	❌
+Balance forecasting	❌
+
+Very important operationally.
+
+Remaining Dispute System Work
+
+Now the dispute side.
+
+Current:
+
+reconciliation exists,
+discrepancies exist,
+recalculation exists.
+
+Still missing:
+
+formal dispute lifecycle.
+1. Formal Dispute Workflow
+(Most important missing dispute feature)
+
+Need:
+
+OPEN
+→ INVESTIGATING
+→ CUSTOMER_PENDING
+→ RESOLVED
+→ CREDIT_ISSUED
+→ REJECTED
+→ CLOSED
+
+Right now:
+disputes are:
+
+operational discrepancies.
+
+Need:
+
+governed dispute lifecycle.
+2. Dispute Evidence Attachments
+(Very important)
+
+Need ability to attach:
+
+PDFs,
+CDR exports,
+customer emails,
+screenshots,
+tariff snapshots.
+
+This becomes:
+
+finance case management.
+3. Dispute Defense Package
+(High-value next build)
+
+Already discussed.
+
+One-click export:
+
+Invoice
+DMR
+Snapshots
+Tariff
+Reconciliation
+Notifications
+Acknowledgements
+
+This is now easy because:
+all truth layers already exist.
+
+4. Internal Notes & Assignment
+(Operationally important)
+
+Need:
+
+assign dispute to finance user,
+notes,
+escalation,
+SLA timer.
+
+Real telecom finance teams need this daily.
+
+5. Credit Note / Adjustment Engine
+(Major missing feature)
+
+Very important.
+
+Need:
+
+Partial credit
+Full credit
+Manual adjustment
+Negative invoice
+Carry-forward balance
+
+This is core telecom finance operations.
+
+6. Settlement Tracking
+(Advanced but important)
+
+Need:
+
+Disputed amount
+Settled amount
+Recovered amount
+Written-off amount
+
+Very important later.
+
+Highest Priority Remaining Items
+
+If prioritizing ONLY invoice + disputes:
+
+Priority	Feature
+1	Invoice Delivery Automation
+2	Formal Dispute Workflow
+3	Dispute Defense Package
+4	Multi-Template Invoice Rendering
+5	Credit Control Automation
+6	Credit Notes / Adjustments
+7	Acknowledgement Tracking
+Most Strategic Remaining Gap
+
+The biggest remaining missing piece is probably:
+
+Finance Workflow Governance
+
+because now:
+economics are solved.
+
+What remains is:
+
+approvals,
+escalations,
+disputes,
+settlements,
+credits,
+collections,
+delivery governance.
+
+That is the next maturity layer.
+
+start implemntation invoie and dispute reamining 
+
+Start with these three together as:
+
+Finance Governance Phase 1
+
+because they are tightly connected operationally:
+
+Build	Why
+Invoice Delivery Automation	generates/send workflow
+Formal Dispute Workflow	governs disputes lifecycle
+Dispute Defense Package	evidence aggregation for disputes
+
+These three form:
+
+telecom finance operations governance.
+
+That is the correct next implementation block.
+
+PHASE 1 — Invoice Delivery Automation
+Build Scope
+1. invoice_jobs
+invoice_jobs
+- id
+- client_id
+- billing_period
+- invoice_id
+- status
+- scheduled_at
+- generated_at
+- approved_at
+- sent_at
+- failed_at
+- retry_count
+- last_error
+- created_by
+- created_at
+Invoice Scheduler Service
+detectBillingCycles()
+generateDraftInvoices()
+queueApproval()
+dispatchApprovedInvoices()
+retryFailedDeliveries()
+Invoice Status Lifecycle
+PENDING
+→ GENERATED
+→ REVIEW
+→ APPROVED
+→ SENT
+→ FAILED
+→ RETRYING
+Approval Queue UI
+
+Need:
+
+finance queue,
+approve/reject,
+preview before send,
+retry send,
+audit trail.
+SMTP Delivery Integration
+
+Use:
+
+sender profiles,
+billing@,
+attachment profiles,
+template engine.
+
+Already built foundation exists.
+
+PHASE 2 — Formal Dispute Workflow
+Build Scope
+dispute_cases
+dispute_cases
+- id
+- dispute_type
+- client_id
+- invoice_id
+- reconciliation_id
+- assigned_to
+- severity
+- status
+- disputed_amount
+- notes
+- sla_due_at
+- opened_at
+- resolved_at
+Status Lifecycle
+OPEN
+→ INVESTIGATING
+→ CUSTOMER_PENDING
+→ RESOLVED
+→ CREDIT_ISSUED
+→ REJECTED
+→ CLOSED
+Core Features
+
+Need:
+
+assignment,
+notes,
+timeline,
+SLA tracking,
+escalation,
+linked invoice,
+linked DMR,
+linked reconciliation.
+
+This becomes:
+
+telecom finance case management.
+PHASE 3 — Dispute Defense Package
+Build Scope
+dispute_packages
+
+Generated dynamically from:
+
+invoice,
+DMR,
+snapshots,
+tariff versions,
+reconciliation,
+notifications,
+acknowledgements (future).
+Export Formats
+PDF
+ZIP
+JSON
+One-Click Flow
+Open Dispute
+→ Generate Defense Package
+→ Download Evidence Bundle
+MOST IMPORTANT IMPLEMENTATION RULE
+
+Everything must remain:
+
+snapshot-backed.
+
+Never:
+
+live tariff lookup
+
+inside dispute workflows.
+
+All evidence must reference:
+
+immutable snapshots,
+DMR versions,
+reconciliation versions.
+
+Very important.
+
+AFTER THIS PHASE
+
+Then implement:
+
+Next	Why
+Multi-template invoice rendering	client-specific billing
+Credit notes / adjustments	telecom settlement ops
+Acknowledgement tracking	dispute defensibility
+Credit control automation	routing governance
+Collections workflows	finance operations
+MOST IMPORTANT RESULT
+
+After this phase,
+BitsAuto becomes:
+
+Telecom Finance Governance Platform
+
+because it will now cover:
+
+invoice lifecycle,
+finance approvals,
+dispute workflows,
+evidence defense,
+operational economics,
+reconciliation,
+and audit-backed delivery governance.
+
+That is enterprise carrier finance maturity.

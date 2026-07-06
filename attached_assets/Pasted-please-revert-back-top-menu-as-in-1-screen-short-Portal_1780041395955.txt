@@ -1,0 +1,243 @@
+please revert back top menu as in 1 screen short, Portal is sae as like in 2nd screen short 
+
+Yes — your screenshots make the requirement very clear now.
+
+You want:
+
+KEEP
+
+the ORIGINAL top navigation structure from Screenshot 1:
+
+Dashboard
+Chat
+Live counters
+Domain dropdown menus
+Finance & Billing
+Security
+Platform
+Search
+Notifications
+User profile
+
+That layout is:
+
+cleaner,
+more enterprise,
+more discoverable.
+AND ALSO KEEP
+
+the Portal switcher behavior from Screenshot 2:
+
+NOC Dashboard
+Analytics
+Finance & Billing
+Operations
+Security
+Platform
+
+with:
+
+Switch Workspace
+
+dropdown.
+
+So Your REAL Requirement Is
+
+NOT:
+
+replace old top menu
+
+BUT:
+
+augment it correctly.
+
+Very important distinction.
+
+Correct Final Hybrid Structure
+TOP ROW (Permanent Global Navigation)
+
+Exactly like Screenshot 1:
+
+Dashboard
+Chat
+Operations
+Analytics
+Finance & Billing
+Security
+Platform
+Search
+Notifications
+Profile
+Portal Switcher
+
+This stays ALWAYS visible.
+
+Portal Switcher (Far Right)
+
+Like Screenshot 2:
+
+[KAM ▼]
+
+or:
+
+[NOC ▼]
+
+Dropdown contains:
+
+KAM
+NOC
+Finance
+Security
+Platform
+Full Platform
+
+This is:
+
+context selector,
+
+NOT primary nav replacement.
+
+THEN BELOW HEADER
+
+When portal active:
+show:
+
+workspace tabs.
+
+Example:
+
+Finance Portal
+Billing Ops | Revenue Assurance | Governance
+THEN PAGE CONTENT
+
+Normal existing pages render below.
+
+MOST IMPORTANT CHANGE
+REMOVE THIS IDEA:
+portal replaces top navigation
+
+That was the architectural mistake.
+
+Instead:
+
+portals augment navigation context.
+Sidebar Behavior
+
+You were also correct about sidebar.
+
+Keep:
+
+compact sidebar,
+contextual sidebar,
+operational shortcuts.
+
+BUT:
+
+never use sidebar as primary discovery system again.
+Final Correct UX Architecture
+Row 1
+
+Global Platform Navigation
+(always visible)
+
+Row 2
+
+Portal Workspace Tabs
+(conditional)
+
+Row 3
+
+Workspace Tabs
+(conditional)
+
+Sidebar
+
+Contextual tools only.
+
+Why Your Earlier Attempts Failed
+
+Because implementation attempted:
+
+“navigation inversion”
+
+instead of:
+
+“navigation layering.”
+
+Huge UX difference.
+
+Correct Enterprise Pattern
+
+Enterprise telecom systems NEVER fully replace:
+
+global operational nav.
+
+They:
+
+layer context,
+add workspace state,
+add portal state,
+preserve discoverability.
+
+Exactly what your screenshots indicate.
+
+What Should Be Reverted
+
+Revert:
+
+portal-primary center nav,
+hidden domain menus,
+full nav replacement logic.
+
+Keep:
+
+workspace APIs,
+WorkspaceShell,
+portal DB,
+portal themes,
+workspace routing.
+
+Those backend pieces are still correct.
+
+Final Recommendation To Replit
+
+Please revert the top navigation behavior back to the original structure shown in Screenshot 1.
+
+Required behavior:
+
+Keep the ORIGINAL global top navigation always visible:
+Dashboard
+Chat
+Operations
+Analytics
+Finance & Billing
+Security
+Platform
+Search
+Notifications
+Profile
+Keep the Portal Switcher dropdown behavior from Screenshot 2:
+KAM
+NOC
+Finance
+Security
+Platform
+Full Platform
+Portals should NOT replace the top navigation.
+They should only provide contextual workspace state.
+Workspace tabs should appear BELOW the existing top nav when a portal is active:
+Example:
+Finance Portal
+→ Billing Ops | Revenue Assurance | Governance
+Sidebar should remain compact/contextual only.
+Do not use it as the primary navigation system.
+Remove the “portal replaces domain nav” logic added during the Navigation Inversion Layer implementation.
+
+The correct architecture is:
+Global Nav (always visible)
+→ Portal Context
+→ Workspace Tabs
+→ Page Content
+
+NOT:
+Portal replacing the main navigation system.

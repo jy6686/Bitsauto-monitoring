@@ -1,0 +1,131 @@
+You’re now past “feature building” and into platform shaping. So the next step is not adding more modules — it’s tightening the system so everything you already built actually behaves like one product.
+
+Here’s the clean next direction.
+
+🚨 What you should do next (highest impact order)
+1. Build “Incident Intelligence Overlay” (P0 — DO THIS NEXT)
+
+This is the missing link between everything you already built.
+
+Why this is the next step
+
+Right now you have:
+
+Dashboard → shows what is happening
+AI Ops → shows what is wrong
+Ledger → shows what changed
+Carrier health → shows what degraded
+
+But none of them answer:
+
+“What caused this incident, end-to-end?”
+
+What this feature gives you
+
+Click any incident → open a side panel:
+
+It shows:
+Related ledger actions (freeze, routing, rate change, etc.)
+Carrier score changes ±15 min
+Alert triggers in same window
+Correlation confidence score
+First event → last impact timeline
+Result:
+
+You turn incidents from:
+
+“alerts list”
+
+into:
+
+full forensic story
+
+This is your biggest intelligence upgrade so far.
+
+2. Build “System Drift Indicator” (P1 — VERY HIGH VALUE)
+
+A simple bar on top of dashboard:
+
+Example:
+
+System Stability: ↓ Declining (−3 signals / 15 min)
+
+Computed from:
+KPI direction (ASR, MOS, PDD, etc.)
+Incident rate change
+Carrier degradation velocity
+Why it matters:
+
+It gives operators:
+
+“Something is getting worse BEFORE it becomes an incident”
+
+This is your early warning layer.
+
+3. Build “System Intelligence Hub (/intelligence)” (P1.5)
+
+This is NOT a dashboard.
+
+It’s your investigation room.
+
+It has 3 panels:
+1. Event Timeline (ledger grouped by intent_id)
+shows what the system did and why
+2. Incident Correlation View
+incidents + linked ledger + carrier changes
+3. Performance Drift Graph
+ASR/MOS/PDD over time with action markers
+This becomes:
+
+“How do I explain what happened yesterday?”
+
+4. Sidebar evolution (P2 — do not rush)
+
+Keep sidebar as-is, but upgrade it with:
+
+Context Awareness Layer
+NOC mode
+Investigation mode
+Client mode
+
+Not UI move — just smart filtering + ordering.
+
+📌 What NOT to do next
+
+Avoid these for now:
+
+Moving sidebar to top ❌
+Adding more dashboards ❌
+Creating new feature groups ❌
+Rewriting navigation system ❌
+
+You already have enough structure.
+
+🧭 The real roadmap now
+
+You are no longer in “build features” mode.
+
+You are in:
+
+Operational Intelligence Unification Phase
+
+That means:
+
+Phase 1 (NOW)
+Incident Intelligence Overlay
+Drift Indicator
+Phase 2
+/intelligence hub
+Phase 3
+Context-aware sidebar (subtle upgrade, not redesign)
+💡 Simple truth
+
+Your system is already:
+
+powerful enough
+complex enough
+feature-complete enough
+
+What it lacks now is:
+
+connective intelligence between features

@@ -1,0 +1,218 @@
+There are actually three separate issues in your message, and they should not be mixed together:
+
+1. Vendor Cost Is Still Missing
+
+I agree.
+
+Current commercial chain is:
+
+Customer
+    ↓
+Product
+    ↓
+Destination
+    ↓
+Deal
+
+Missing:
+
+Vendor
+    ↓
+Cost
+
+Without Vendor Cost Repository, the platform cannot accurately calculate:
+
+True Margin
+Margin Impact
+Negative Margin Risk
+Vendor Cost Increase Impact
+
+The next commercial addition should be:
+
+Rate Management
+    ↓
+Vendor Cost Repository
+    ↓
+Product Rate Repository
+
+before full Pricing Intelligence.
+
+2. Call Governance Page Not Updating
+
+This sounds like an implementation/runtime issue, not a feature issue.
+
+If:
+
+Live Calls
+Countdown
+Governed Calls
+Recent Calls
+
+are not refreshing automatically, then one of these is happening:
+
+Possibility A
+
+Frontend polling stopped.
+
+Example:
+
+setInterval()
+
+not firing.
+
+Possibility B
+
+AMI listener is connected but not writing updates.
+
+Example:
+
+BridgeEnter
+Hangup
+Redirect
+
+events never reach DB.
+
+Possibility C
+
+UI reading stale cache.
+
+Example:
+
+governed_calls
+
+table updated correctly,
+
+but React query never invalidates.
+
+Possibility D
+
+AMI reconnect loop.
+
+You mentioned:
+
+1 hour 8 minutes
+still same issue
+
+which sounds more like:
+
+listener connected
+but state not changing
+
+than a UI issue.
+
+3. Asterisk 2060 vs 20601 Problem
+
+This is the one that worries me.
+
+From previous conversations you've repeatedly reported:
+
+20601 expected
+2060 sent
+
+and:
+
+auth_failed
+routing mismatch
+prefix mismatch
+
+If after several days it still exists, then I would stop patching symptoms.
+
+I would audit the entire path:
+
+Client
+    ↓
+BitsAuto
+    ↓
+Sippy
+    ↓
+Asterisk
+    ↓
+Vendor
+
+and identify where:
+
+20601
+
+becomes:
+
+2060
+
+Possible places:
+
+Sippy Translation Rule
+CLD Translation
+Auth Rule Rewrite
+s/^20601/2060/
+Asterisk Dialplan
+${EXTEN}
+
+being truncated.
+
+Vendor Prefix Normalization
+
+Vendor stripping last digit.
+
+BitsAuto Push Logic
+
+Wrong route/product prefix generation.
+
+What I Recommend
+
+Before touching Asterisk configuration:
+
+Capture a complete SIP trace.
+Verify INVITE at every hop.
+
+Example:
+
+Client INVITE:
+20601XXXX
+
+Sippy receives:
+?
+
+Asterisk receives:
+?
+
+Vendor receives:
+?
+
+Once you know where it changes, the fix is usually obvious.
+
+Regarding Sippy Versions
+
+The page:
+
+Sippy Versions
+
+is useful for checking whether your deployed Sippy build contains known routing, auth, or XML-RPC fixes.
+
+But upgrading Sippy should be the last step, not the first.
+
+First identify:
+
+Where does 20601 become 2060?
+
+because:
+
+If it's a translation rule → upgrade won't help.
+If it's a route rewrite → upgrade won't help.
+If it's a dialplan bug → upgrade won't help.
+If it's a known Sippy bug → then upgrade helps.
+What I Need To Diagnose Further
+
+You uploaded a file (Pasted text.txt). If that file contains:
+
+SIP trace
+Sippy logs
+Asterisk logs
+Route configuration
+Auth configuration
+
+then I can analyze it and tell you exactly where the issue is occurring.
+
+Please tell me:
+
+"Read the uploaded file and find the 20601/2060 issue"
+
+and I'll inspect the file contents.

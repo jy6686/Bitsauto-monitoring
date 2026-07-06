@@ -1,0 +1,223 @@
+Good — now I have the full picture of Routing Group + Routing Entries + On-Net routing + connection/destination logic.
+
+I’ll give you a clean platform-level implementation design (not UI-only, but real system structure for Replit/React + backend).
+
+🧠 1. First: What you actually have (conceptually)
+
+This UI is managing 3 linked entities:
+
+1. Routing Group (Parent)
+id
+name
+description
+policy (order, weight, preference, least_cost)
+onnet settings
+timeouts
+lrn settings
+2. Routing Entries (Core mapping engine)
+
+Each row is:
+
+Routing Group → Vendor → Connection → Destination Set → Priority/Weight → Active window
+
+So this is your routing decision table
+
+3. Connections + Destination Sets (Reference data)
+
+Used for dropdowns:
+
+Connections = SIP trunks / vendors interfaces
+Destination sets = routing targets / LCR buckets
+🏗 2. Recommended Platform Architecture (IMPORTANT)
+
+You should NOT store this as HTML-driven logic.
+
+You need normalized DB + API + UI layer separation
+
+🧱 DATABASE DESIGN (CORE)
+🔹 routing_groups
+id
+name
+description
+policy_order (json)
+onnet_enabled boolean
+onnet_connection_id
+onnet_voicemail_connection_id
+onnet_scope
+timeout_100
+timeout_1xx
+timeout_2xx
+lrn_enabled
+lrn_translation_rule
+created_at
+updated_at
+🔹 routing_group_entries
+
+This is your MAIN engine table:
+
+id
+routing_group_id
+
+vendor_id
+connection_id
+destination_set_id
+
+activation_date
+expiration_date
+
+route_order
+weight
+priority_mode  -- first, last, after_x
+
+is_active
+created_at
+🔹 vendors
+id
+name
+🔹 connections
+id
+vendor_id
+name
+status (active/blocked)
+🔹 destination_sets
+id
+name
+⚙️ 3. Backend API Design (Express / Node)
+Routing Groups
+GET    /api/routing-groups
+POST   /api/routing-groups
+PUT    /api/routing-groups/:id
+DELETE /api/routing-groups/:id
+Routing Entries
+GET    /api/routing-groups/:id/entries
+POST   /api/routing-groups/:id/entries
+PUT    /api/routing-entries/:id
+DELETE /api/routing-entries/:id
+Dropdown Data
+GET /api/vendors
+GET /api/vendors/:id/connections
+GET /api/destination-sets
+🧩 4. Core Business Logic (IMPORTANT PART)
+Routing decision engine logic:
+
+When call comes:
+
+Step 1 — Load routing group
+routing_group_id → get policy + onnet rules
+Step 2 — Fetch entries
+
+Sort by:
+
+priority_mode
+route_order
+weight DESC
+activation_date
+Step 3 — Apply filtering
+
+Remove:
+
+expired entries
+inactive entries
+blocked connections
+mismatched destination set
+Step 4 — Apply policy engine
+If policy = ORDER
+
+→ top-to-bottom execution
+
+If policy = WEIGHTED
+
+→ probability-based selection
+
+If policy = LEAST COST
+
+→ need cost table join (future enhancement)
+
+🖥 5. Frontend (React Recommendation)
+
+Replace this legacy table with:
+
+🧱 Component structure
+RoutingGroupEditor
+ ├── BasicInfoPanel
+ ├── AdvancedSettingsPanel
+ ├── OnNetRoutingPanel
+ ├── PolicySelector
+ ├── RoutingEntriesTable
+ └── AddEntryDrawer
+Key UI improvements
+1. Replace dropdown dependency chain
+
+Instead of:
+
+vendor → connection (JS loop)
+
+Use:
+
+GET /vendors/:id/connections
+
+(no global JS array like conns[])
+
+2. Routing Entries table → React Table
+
+Make it:
+
+editable inline
+sortable (drag-drop optional)
+filterable by vendor / connection / status
+3. Replace ExtJS
+
+You are currently using:
+
+ExtJS DateField
+Ext.ToolTip
+Ext.ComboBox
+
+👉 Replace with:
+
+React + MUI or shadcn/ui
+React Query for API state
+Dayjs for dates
+🔁 6. Fix your current JS design issues
+❌ Problem now:
+conns.push([...]) global array
+DOM-based filtering (getElementsByTagName)
+mixed UI + logic + data
+✅ Fix:
+
+Move to:
+
+const useConnections = (vendorId) => {
+  return useQuery(["connections", vendorId], fetchConnections);
+};
+🚀 7. Suggested upgrade roadmap (practical)
+Phase 1 (MUST DO FIRST)
+Normalize DB tables
+Create API layer
+Move routing entries to backend-driven CRUD
+Phase 2
+Replace routing entries table UI (React)
+Remove ExtJS dependencies
+Phase 3
+Implement routing engine service (core logic module)
+Centralize decision making
+Phase 4 (advanced)
+Weighted routing simulator
+A/B routing testing
+AI anomaly detection on routing failures
+💡 Key insight (very important)
+
+Right now your system is:
+
+“Frontend-driven routing configuration system”
+
+You should convert it into:
+
+“Backend-driven routing engine with frontend editor”
+
+That shift will make:
+
+scaling easier
+AI ops possible
+debugging much better
+Sippy integration cleaner

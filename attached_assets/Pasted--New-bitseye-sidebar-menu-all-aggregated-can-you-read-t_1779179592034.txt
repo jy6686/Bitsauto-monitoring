@@ -1,0 +1,602 @@
+ New bitseye sidebar menu, 
+all aggregated can you read this link and check how it works 
+clicked all appers all countries 
+then click country bangladesh 
+
+Yes — that is exactly the correct direction for New BitsEye.
+
+But there’s one critical architectural refinement needed so the system scales properly.
+
+Your Suggestion (Correct Direction)
+Fetch all client/vendor names from Sippy
+When a single call hits Sippy,
+BitsEye immediately updates graphs
+
+That is the right operational model.
+
+But DON'T build it as:
+"query Sippy every time a graph changes"
+
+That would destroy performance.
+
+Correct Architecture
+Step 1 — Sync master entities from Sippy
+
+Periodically sync:
+
+clients
+vendors
+products
+destinations
+KAM mappings
+departments
+switches
+
+Store locally in:
+
+clients_cache
+vendors_cache
+routing_cache
+
+Refresh:
+
+every 5–15 minutes
+
+NOT per graph click.
+
+Step 2 — Listen to LIVE CALL STREAM
+
+As soon as a call appears in Sippy active calls:
+
+call enters liveCallsCache
+
+Example:
+
+{
+  "call_id": "abc123",
+  "client": "Centredtel",
+  "vendor": "BICS",
+  "country": "Bangladesh",
+  "destination": "Dhaka",
+  "connected": true,
+  "timestamp": "08:15:22"
+}
+Step 3 — Real-Time Bucket Engine
+
+Immediately aggregate:
+
+Country → Bangladesh → +1 concurrent
+Client → Centredtel → +1 concurrent
+Vendor → BICS → +1 concurrent
+
+Now ALL graphs update automatically.
+
+This is the Key Shift
+Old Thinking
+Graphs read from reports/CDRs
+Correct Thinking
+Graphs are generated from active call state
+What Happens When One Call Arrives
+Example
+
+New call:
+
+Client: Centredtel
+Vendor: BICS
+Country: Bangladesh
+
+Immediately:
+
+Hierarchy	Graph Updated
+Country → Bangladesh	+1
+Client → Centredtel	+1
+Vendor → BICS	+1
+All Aggregated	+1
+Product Out	+1
+KAM	+1
+
+This is exactly how telecom NOC systems behave.
+
+What Happens When Call Ends
+
+The call is removed from:
+
+liveCallsCache
+
+Then:
+
+all counters decrement automatically
+
+Graphs instantly reflect the new concurrent level.
+
+THIS is why legacy BitsEye feels "live"
+
+It is not querying history.
+
+It is continuously rebuilding:
+
+concurrent state snapshots
+Best Final Architecture
+Sippy
+
+Provides:
+
+active calls
+client/vendor master data
+Platform
+
+Owns:
+
+live aggregation
+hierarchy engine
+graph generation
+bucket history
+rendering
+analytics cache
+Recommended Backend Flow
+Sippy Active Calls
+        ↓
+liveCallsCollector
+        ↓
+liveCallsCache
+        ↓
+bucketAggregator
+        ↓
+hierarchyAggregator
+        ↓
+BitsEye Graph API
+        ↓
+React Graph Renderer
+Most Important Recommendation
+
+DO NOT wait for CDR generation.
+
+CDRs are:
+
+delayed
+historical
+billing-oriented
+
+BitsEye should react:
+
+the moment SIP traffic appears
+
+That is the correct telecom observability architecture.
+
+make a new side bar menu BITSEYE 2 we wil update and make it as per need of telecom/VoIP 
+Suggested New Sidebar Menu — BitsEye 2 (Telecom / VoIP NOC Optimized)
+
+This structure is designed specifically for:
+
+telecom operators
+VoIP wholesalers
+NOC teams
+routing teams
+KAM teams
+fraud monitoring
+live concurrent traffic analysis
+
+And keeps BitsEye focused on:
+
+LIVE OPERATIONS + CONCURRENT TRAFFIC
+
+NOT reporting.
+
+Proposed BitsEye 2 Sidebar
+1. LIVE OVERVIEW
+
+Top-level operational visibility.
+
+📡 Live Overview
+    ├── All Aggregated
+    ├── Active Calls
+    ├── CPS Monitor
+    ├── Connected Calls
+    ├── Failed Calls
+    ├── ASR Live
+    └── PDD Live
+
+Purpose:
+
+NOC wallboard
+real-time health
+overall traffic visibility
+2. CLIENTS
+👑 Clients
+    ├── All Aggregated
+    ├── All
+    ├── Client A
+    ├── Client B
+    └── ...
+
+Graphs:
+
+concurrent calls
+connected calls
+ASR trend
+routing spikes
+3. VENDORS
+📱 Vendors
+    ├── All Aggregated
+    ├── All
+    ├── BICS
+    ├── Tata
+    └── ...
+
+Purpose:
+
+carrier load
+vendor congestion
+vendor quality degradation
+4. COUNTRIES
+🌍 Countries
+    ├── All Aggregated
+    ├── All
+    ├── Bangladesh
+    ├── Pakistan
+    ├── UK
+    └── ...
+
+Purpose:
+
+geo traffic monitoring
+regional outages
+fraud spikes
+5. DESTINATIONS
+📞 Destinations
+    ├── All Aggregated
+    ├── All
+    ├── Dhaka Mobile
+    ├── Karachi Fixed
+    └── ...
+
+Purpose:
+
+destination-level quality
+routing imbalance
+FAS detection
+6. SWITCHES
+🔀 Switches
+    ├── All Aggregated
+    ├── Sm10
+    ├── Sm11
+    └── ...
+
+Purpose:
+
+SBC/switch load
+POP balancing
+concurrent capacity
+7. PRODUCTS
+
+Split telecom ingress/egress.
+
+🔁 Product In
+🔁 Product Out
+
+Purpose:
+
+ingress route analysis
+egress route monitoring
+routing engineering
+8. KAM / BUSINESS
+👤 KAM
+🏢 Department
+
+Purpose:
+
+account ownership
+commercial segmentation
+support escalation
+9. FRAUD & SECURITY
+
+Critical for telecom operations.
+
+🛡 Fraud Monitor
+    ├── IRSF Watch
+    ├── FAS Detection
+    ├── CLI Abuse
+    ├── Traffic Spikes
+    ├── Suspicious CPS
+    └── Route Hijack
+10. QUALITY MONITORING
+📈 Quality Monitor
+    ├── Low ASR
+    ├── High PDD
+    ├── SIP Errors
+    ├── RTP Loss
+    ├── MOS Drop
+    └── Carrier Failures
+11. AI OPS (Future Phase)
+
+Matches your platform roadmap.
+
+🤖 AI Ops
+    ├── Live Anomalies
+    ├── Route Recommendations
+    ├── Traffic Forecast
+    ├── Carrier Scoring
+    └── Auto-Heal Suggestions
+Recommended UI Behavior
+Click "All Aggregated"
+
+Show:
+
+ONE combined graph
+Click "All"
+
+Show:
+
+graph cards for EVERY entity
+
+Exactly like legacy BitsEye.
+
+Click Specific Entity
+
+Show:
+
+single-entity live graphs
+Recommended Graphs Per Card
+
+Each card should contain:
+
+Graph	Source
+Concurrent Calls	LIVE
+Connected Calls	LIVE
+CPS	LIVE
+ASR Trend	LIVE rolling
+PDD Trend	LIVE rolling
+SIP Errors	LIVE
+Avg Duration	LIVE
+Recommended Top Toolbar
+Graph Type:
+    Calls
+    CPS
+    ASR
+    PDD
+    SIP Errors
+    Revenue (future)
+
+Graph Span:
+    15m
+    1h
+    6h
+    24h
+    Weekly
+    Monthly
+
+Refresh:
+    Live
+    30s
+    60s
+Most Important Recommendation
+
+Keep BitsEye strictly:
+
+LIVE + CONCURRENT + OPERATIONAL
+
+And move ALL:
+
+CDR reports
+billing
+finance
+historical analytics
+revenue
+
+to:
+
+Reports module
+
+That separation is the correct telecom-grade architecture.
+
+This structure is designed specifically for:
+
+operators 
+wholesale
+KAM team
+fraud monitoring 
+live concurrent traffic analysis
+
+Yes — then the sidebar and architecture should be designed around the actual operational roles inside a telecom/VoIP company, not generic analytics menus.
+
+BitsEye 2 — Telecom Operations Structure
+
+This becomes:
+
+Telecom Live Operations Command Center
+
+focused on:
+
+operators
+wholesale teams
+routing teams
+KAM
+fraud/security
+NOC
+carrier management
+
+using:
+
+LIVE concurrent traffic
+Final Recommended Sidebar Structure
+📡 NOC / Operators
+
+For live traffic monitoring.
+
+📡 NOC Overview
+    ├── All Aggregated
+    ├── Active Calls
+    ├── CPS Monitor
+    ├── Connected Calls
+    ├── Failed Calls
+    ├── ASR Live
+    ├── PDD Live
+    └── SIP Errors
+
+Purpose:
+
+monitor switch health
+traffic spikes
+outages
+live concurrency
+👑 Wholesale / Clients
+👑 Wholesale Clients
+    ├── All Aggregated
+    ├── All Clients
+    ├── Client Wise Graphs
+    ├── Top Traffic Clients
+    ├── Low ASR Clients
+    └── Traffic Spike Clients
+
+Purpose:
+
+customer traffic monitoring
+client quality monitoring
+operational support
+📱 Vendors / Carriers
+📱 Vendors & Carriers
+    ├── All Aggregated
+    ├── All Vendors
+    ├── Carrier Load
+    ├── Congestion Monitor
+    ├── Failed Routes
+    ├── Low ASR Vendors
+    └── Capacity Alerts
+
+Purpose:
+
+vendor management
+carrier engineering
+routing quality
+🌍 Countries & Destinations
+🌍 Countries
+📞 Destinations
+
+Purpose:
+
+regional traffic analysis
+fraud spikes
+geo outages
+destination congestion
+🔁 Routing Operations
+🔁 Routing
+    ├── Product In
+    ├── Product Out
+    ├── Routing Groups
+    ├── LCR Live
+    ├── Overflow Routes
+    ├── Backup Routes
+    └── Route Imbalance
+
+Purpose:
+
+routing team operations
+LCR monitoring
+overflow analysis
+👤 KAM Operations
+👤 KAM Operations
+    ├── KAM Wise Clients
+    ├── High Revenue Clients
+    ├── Complaining Clients
+    ├── Quality Alerts
+    ├── Client Stability
+    └── Traffic Trends
+
+Purpose:
+
+customer management
+escalation handling
+proactive support
+🛡 Fraud Monitoring
+
+Very important for VoIP.
+
+🛡 Fraud Monitoring
+    ├── IRSF Watch
+    ├── FAS Detection
+    ├── CLI Abuse
+    ├── Traffic Spike Alerts
+    ├── CPS Abuse
+    ├── Route Hijack
+    ├── SIMBOX Detection
+    └── Suspicious Countries
+
+Purpose:
+
+fraud operations
+security monitoring
+live anomaly detection
+📈 Quality Monitoring
+📈 Quality Monitor
+    ├── Low ASR
+    ├── High PDD
+    ├── RTP Loss
+    ├── SIP Failures
+    ├── MOS Drops
+    ├── One-Way Audio
+    └── Packet Loss
+
+Purpose:
+
+telecom QoS monitoring
+live quality degradation detection
+🔀 Infrastructure / Switches
+🔀 Infrastructure
+    ├── Switches
+    ├── SBC Load
+    ├── POP Capacity
+    ├── Server Health
+    ├── RTP Nodes
+    └── Media Capacity
+
+Purpose:
+
+infra monitoring
+SBC balancing
+capacity management
+🤖 AI Ops (Future Phase)
+
+Matches your platform roadmap.
+
+🤖 AI Ops
+    ├── Live Anomalies
+    ├── Auto Route Suggestions
+    ├── Carrier Scoring
+    ├── Traffic Forecast
+    ├── Auto-Heal Alerts
+    └── Risk Predictions
+Critical Design Rule
+BitsEye 2 ONLY handles:
+LIVE operational traffic
+
+including:
+
+concurrent calls
+active calls
+CPS
+live quality
+fraud spikes
+live routing
+Reports Module handles:
+historical + CDR + billing analytics
+
+including:
+
+ASR/ACD reports
+SLA
+QBR
+revenue
+finance
+margins
+reconciliations
+Final Product Positioning
+
+BitsEye 2 becomes:
+
+Telecom Real-Time Operations Intelligence Layer
+
+not just:
+
+a graph page
+
+That is the correct evolution path for a carrier-grade VoIP platform.

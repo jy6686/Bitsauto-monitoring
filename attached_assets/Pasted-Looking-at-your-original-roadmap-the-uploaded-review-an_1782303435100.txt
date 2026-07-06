@@ -1,0 +1,307 @@
+Looking at your original roadmap, the uploaded review, and what has actually been implemented in BitsAuto, I would separate it into Implemented / Partial / Pending.
+
+🟢 Fully Implemented / Largely Complete
+Send Rate Core
+✅ Product-aware rate push
+✅ FC / BC / SB / SC segregation
+✅ New destination creation
+✅ Effective date support
+✅ Push History
+✅ Retry push
+✅ Client filtering
+✅ Product filtering
+✅ Sippy integration
+✅ Certified push engine
+✅ Background push UX improvements
+✅ Download generation
+✅ Operator Type hierarchy cleanup
+Destination Catalogue Core
+✅ 4-level hierarchy
+✅ Country
+✅ Operator Type
+✅ Network/Carrier
+✅ Destination
+✅ Product assignment
+✅ CRUD
+✅ Search
+✅ Sippy mapping
+✅ Send Rate integration
+Notifications Infrastructure
+✅ SMTP profiles
+✅ Sender profiles
+✅ Invoice email engine
+✅ Internal alert engine
+✅ Email transport layer
+✅ Notification tables
+🟡 Partial / Needs Completion
+Rate Analysis
+
+Current:
+
+Basic working
+Can view rates
+Can drill into destinations
+
+Missing:
+
+Live Sippy comparison
+Margin intelligence
+Carrier summary grid
+Destination health
+Rate history
+Activation date visibility
+Expiration date visibility
+Billing increment visibility
+
+Completion:
+~50%
+
+Destination Catalogue
+
+Current:
+
+Operational
+
+Missing:
+
+Coverage matrix
+Dependency view
+Audit history
+Bulk XLSX import
+Merge destinations
+Product coverage dashboard
+
+Completion:
+~60-70%
+
+Push History
+
+Current:
+
+Functional
+
+Missing:
+
+Commercial view
+KAM view
+Notification status
+Delivery status
+Full audit trail
+
+Completion:
+~70%
+
+Notifications
+
+Current:
+
+Infrastructure exists
+
+Missing:
+
+Recipient registry
+Notification queue
+Partner notifications
+Delivery tracking
+Templates
+Commercial announcements
+
+Completion:
+~40%
+
+🔴 Not Started
+1. Billing Increment Framework
+
+Very important.
+
+Missing:
+
+interval_1
+interval_n
+grace_period
+free_seconds
+connect_fee
+
+Commercial governance around billing.
+
+Completion:
+0%
+
+2. Billing Push Engine
+
+Separate from rate push.
+
+Need:
+
+Billing change approval
+Billing push
+Verification
+
+Completion:
+0%
+
+3. Rate Sheet Template Manager
+
+Need:
+
+Telstra template
+BWT template
+Custom column mapping
+Custom branding
+Subject templates
+
+Completion:
+0%
+
+4. Notification Policy Engine
+
+Need:
+
+Company
+→ Notification Type
+→ Recipient Rules
+
+Examples:
+
+rates@company.com
+
+billing@company.com
+
+noc@company.com
+
+Completion:
+0%
+
+5. Approval Workflow
+
+Commercial governance.
+
+Need:
+
+Draft
+→ Pending
+→ Approved
+→ Published
+
+Four-eye approval
+
+Completion:
+0%
+
+6. Margin Intelligence
+
+Need:
+
+Before push:
+
+Revenue impact
+Margin impact
+Client exposure
+Cost increase alert
+
+Completion:
+0%
+
+7. Version Control & Rollback
+
+Need:
+
+Version 1
+Version 2
+Version 3
+
+Rollback
+
+Audit
+
+Completion:
+0%
+
+8. Scheduled Push Engine
+
+Using Sippy:
+
+getUploadToken()
+getUploadStatus()
+
+Completion:
+0%
+
+9. Vendor Rate Management
+
+You intentionally postponed this.
+
+Need:
+
+Vendor upload
+Vendor analysis
+Vendor push
+Vendor notifications
+Vendor templates
+
+Completion:
+0%
+
+10. Customer Self-Service Rate Portal
+
+Client:
+
+View rates
+Download rates
+View history
+Request changes
+
+Completion:
+0%
+
+My Recommended Build Order
+Phase A (Highest ROI)
+Rate Analysis Completion
+Carrier Summary Grid
+Live Sippy Verification
+Rate History
+Billing fields
+Notification Center Foundation
+Recipient Registry
+Queue Engine
+Delivery Tracking
+Partner Rate Emails
+Automatic after push
+Phase B
+Destination Catalogue Completion
+Coverage Matrix
+Dependency View
+Audit History
+Bulk Import
+Billing Increment Framework
+Billing Push Engine
+Phase C
+Approval Workflow
+Margin Intelligence
+Versioning & Rollback
+Phase D
+Vendor Rate Management
+Scheduled Pushes
+Customer Self-Service Portal
+Current Overall Status
+Module	Status
+Send Rate	90-95%
+Rate Analysis	50%
+Destination Catalogue	65%
+Notifications Infrastructure	80%
+Notification Center	20%
+Billing Framework	0%
+Billing Push Engine	0%
+Approval Workflow	0%
+Margin Intelligence	0%
+Versioning & Rollback	0%
+Vendor Rate Management	0%
+Scheduled Push	0%
+
+If the goal is to make BitsAuto a true carrier-grade commercial rate management platform (IDT / Huawei / Tata / BICS level), the next three modules that create the most business value are:
+
+1. Rate Analysis Completion
+2. Notification Center + Partner Email Automation
+3. Billing Increment Framework + Billing Push Engine
+
+Those three close the largest operational gaps remaining.

@@ -1,0 +1,102 @@
+ou’re right — the implementation side is already essentially complete at the algorithm level. What’s left now is truth alignment in the UI, not more engineering.
+
+And this is actually the most important “last mile” in telecom dashboards.
+
+What you should do next (and only next)
+✅ Yes — apply the labeling changes
+
+This is the correct next step, and it should be strictly UI-only.
+
+Rule to enforce across the platform:
+1. Probe / RTP-based MOS
+Source: computeMOS()
+Inputs: latency, jitter, packet loss, codec
+Label:
+MOS (or “Network MOS” if you want extra clarity)
+2. CDR / PDD-based MOS
+Source: estimateMOSFromPDD()
+Inputs: signalling only (PDD)
+Label:
+Est. MOS
+
+Add tooltip:
+
+Estimated MOS derived from signalling delay (PDD). Does not measure RTP media quality.
+
+Where this must change (important)
+
+You should apply it consistently in:
+
+✔ Vendor Scorecard
+replace “MOS” → “Est. MOS”
+✔ Carrier Quality Table
+replace “MOS” → “Est. MOS”
+✔ LCR / Routing Analysis Views
+replace “MOS” → “Est. MOS”
+✔ Any tooltip / export / CSV output
+ensure labeling matches UI (otherwise reporting mismatch will come later)
+Why this change actually matters (operationally)
+
+Right now you’ve solved the hard engineering problem:
+
+correct E-Model
+deterministic outputs
+unified MOS engine
+
+But without labeling separation:
+
+Risk that remains
+
+Operators will assume:
+
+vendor MOS = real RTP MOS
+
+That leads to:
+
+wrong carrier decisions
+incorrect SLA conclusions
+disputes with providers (“your MOS is low” → when it’s actually PDD-based)
+Important design principle (now enforced)
+
+From this point forward:
+
+MOS is not a single metric anymore — it is a family of metrics with different trust levels.
+
+You now have:
+
+Type	Trust Level	Usage
+MOS (computeMOS)	High	routing, probes, diagnostics
+Est. MOS (PDD)	Medium/low	vendor scoring, CDR analytics
+My recommendation (clean final state)
+
+Do this and stop:
+
+UI-only change:
+Rename all PDD-based MOS → “Est. MOS”
+Add tooltip once globally reusable component
+No backend changes needed
+
+Everything else is already correctly implemented.
+
+Optional (but smart later step)
+
+If you want to go one level further later:
+
+Add a small badge system:
+
+🟢 “Measured”
+🟡 “Estimated”
+
+That gives instant visual trust classification in NOC screens.
+
+Bottom line
+
+Yes — this is exactly the right next action.
+
+No more algorithm changes are needed right now.
+
+What remains is:
+
+making sure humans reading the dashboard don’t misinterpret the type of MOS they are looking at.
+
+That’s the final 10% that makes the whole system production-grade.

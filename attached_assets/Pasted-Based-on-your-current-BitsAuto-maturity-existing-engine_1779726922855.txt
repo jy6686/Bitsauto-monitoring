@@ -1,0 +1,150 @@
+Based on your current BitsAuto maturity, existing engines, and implementation overlap, these are the items that should be implemented together in ONE GO because they share the same intelligence/data foundation.
+
+BEST “ONE GO” IMPLEMENTATION BUNDLE
+Telecom Intelligence Optimisation Suite
+
+Implement these 3 together:
+
+Feature	Why Together
+Automated Route Optimisation Recommendations	Uses Q-score + routing intelligence
+Geographic Revenue Heatmap V2	Uses same prefix + margin + routing data
+Traffic Steering Suggestions	Natural action layer from recommendations
+
+These three share:
+✅ same APIs
+✅ same prefix intelligence
+✅ same carrier scoring
+✅ same recommendation engine
+✅ same revenue analytics
+✅ same routing intelligence
+✅ same UI surfaces
+
+So this becomes:
+
+one coherent intelligence release
+
+instead of scattered features.
+
+WHY THESE 3 FIT PERFECTLY TOGETHER
+1. Automated Route Optimisation Recommendations
+
+Engine decides:
+
+which carrier should receive traffic
+
+based on:
+
+ASR
+ACD
+NER
+PDD
+Margin
+FAS
+Stability
+2. Geographic Revenue Heatmap V2
+
+Visualises:
+
+where profit and degradation exist geographically
+
+Examples:
+
+Bangladesh Mobile → poor margin
+UK Mobile → excellent Q + margin
+Pakistan UAN → high fraud risk
+3. Traffic Steering Suggestions
+
+Converts recommendations into:
+
+actionable routing guidance
+
+Example:
+
+Shift 15% BD Mobile traffic:
+Callntalk → Carrier X
+Expected:
++11% ASR
++7% margin
+-42% FAS exposure
+
+This becomes:
+
+operational telecom intelligence
+
+NOT:
+
+just monitoring dashboards
+THIS SHOULD BE ONE RELEASE
+Recommended Release Name
+Intelligence Optimisation Suite
+
+or
+
+Telecom Decision Intelligence Layer
+WHAT SHOULD NOT BE INCLUDED IN THIS RELEASE
+
+Do NOT combine:
+
+Zero Trust
+Threat Intelligence
+CALEA/GDPR
+SOC2
+
+Those belong to:
+
+Security Governance Phase
+
+Different architecture.
+Different workflows.
+Different users.
+
+IMPLEMENTATION STRUCTURE
+RELEASE 1
+Intelligence Optimisation Suite
+
+Implement together:
+✅ Automated Route Optimisation
+✅ Geographic Revenue Heatmap V2
+✅ Traffic Steering Suggestions
+
+High business value.
+Fastest ROI.
+Uses existing engines.
+
+RELEASE 2
+Enterprise Security Layer
+
+Implement together:
+✅ Zero Trust Access Model
+✅ Threat Intelligence Feed
+✅ Session Governance
+✅ Device Trust
+
+Shared security architecture.
+
+RELEASE 3
+Compliance & Governance
+
+Implement together:
+✅ SOC2 Checklist
+✅ ISO27001 Controls
+✅ GDPR Export
+✅ CALEA Reporting
+
+Shared audit/compliance architecture.
+
+MOST IMPORTANT INSIGHT
+
+Your platform is now ready to move from:
+
+telecom monitoring
+
+to:
+
+telecom decision intelligence
+
+That transition starts with:
+
+Route Optimisation + Steering + Revenue Intelligence
+
+Those 3 should absolutely be implemented together in one go.

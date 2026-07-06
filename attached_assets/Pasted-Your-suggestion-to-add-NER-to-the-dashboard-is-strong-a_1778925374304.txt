@@ -1,0 +1,139 @@
+Your suggestion to add NER to the dashboard is strong and operationally valuable, especially for telecom and VoIP monitoring. Based on the current codebase and available Sippy CDR data, here’s what makes the most sense conceptually before implementation:
+
+Recommended Direction
+
+The best approach would be to show ASR and NER together in the same dashboard card instead of creating a completely separate standalone KPI.
+
+This gives immediate operational insight:
+
+High NER + Low ASR → network is healthy, users are not answering
+Low NER + Low ASR → routing/network/carrier issue
+High ASR + High NER → healthy traffic
+
+This becomes much more actionable for:
+
+NOC teams
+Carrier management
+Routing analysis
+Vendor quality comparison
+Suggested Dashboard Layout
+
+Current:
+
+Active Calls
+ASR
+Traffic Score
+MOS
+
+Suggested:
+
+Active Calls
+ASR / NER Combined
+Traffic Score
+MOS
+PDD (optional)
+Suggested ASR / NER Card Example
+Writing
+
+Network Effectiveness
+
+NER: 94%
+ASR: 61%
+Gap: 33%
+
+Status:
+Network delivery is healthy.
+Low ASR is likely caused by user behavior (busy / no answer / rejected calls).
+
+Why This Is Better Than Only ASR
+
+ASR alone can be misleading.
+
+Example:
+
+Carrier A → ASR 45%
+Carrier B → ASR 45%
+
+Without NER:
+Both look equally bad.
+
+With NER:
+
+Carrier A → NER 91%
+Carrier B → NER 48%
+
+Now you know:
+
+Carrier A is actually healthy
+Carrier B has serious routing/network problems
+Strong Suggestion: Add “Estimated NER”
+
+Since Sippy maps SIP codes internally and not all SIP causes are directly exposed, the dashboard should display:
+
+“Estimated NER”
+or
+“eNER”
+
+This keeps the reporting transparent and technically accurate.
+
+Suggested Future Enhancements (Do Not Implement Yet)
+1. Vendor-wise NER
+
+Very powerful for:
+
+carrier comparison
+least-cost routing optimization
+fraud detection
+quality scoring
+2. NER Trend Graph
+
+Compare:
+
+ASR vs NER over time
+day/night patterns
+route degradation windows
+
+This becomes extremely valuable for call center traffic analysis.
+
+3. Use NER in Traffic Score Formula
+
+Current formula heavily relies on ASR.
+
+A better quality formula would weight:
+
+NER (network quality)
+MOS (media quality)
+PDD (signaling speed)
+ASR (commercial success)
+
+This separates:
+
+network problems
+from
+customer behavior
+
+much more accurately.
+
+Important Technical Suggestion
+
+Do not fabricate NER using random logic or guessed values.
+
+The current approach using:
+
+connected calls
+subscriber rejection
+no answer
+switched off
+
+is acceptable as a telecom-grade estimated NER model if clearly labeled.
+
+That is far better than artificial/random MOS-style calculations.
+
+My Overall Recommendation
+Keep one canonical MOS engine
+Add Estimated NER beside ASR
+Use NER for network-quality evaluation
+Keep ASR for business/commercial visibility
+Avoid random KPI generation completely
+
+This would move the dashboard much closer to a real carrier-grade telecom monitoring platform rather than a generic VoIP statistics panel.

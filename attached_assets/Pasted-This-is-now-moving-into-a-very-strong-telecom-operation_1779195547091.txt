@@ -1,0 +1,417 @@
+This is now moving into a very strong telecom operational UX.
+
+The expandable live tree was the correct implementation choice instead of old-style cascading hover menus.
+
+What you now have is essentially:
+
+live telecom traffic lineage navigation
+
+which is extremely valuable operationally.
+
+What became powerful after this change
+
+Now an operator can visually trace:
+
+Client
+ → Country
+   → Vendor
+     → Destination
+
+directly from the sidebar without:
+
+changing pages
+opening reports
+losing context
+
+That is exactly how carrier/NOC operators think.
+
+Example operational flow now
+Callntalk (42)
+ ├── Bangladesh (18)
+ ├── Pakistan (9)
+ ├── UAE (7)
+
+Then:
+
+Expand:
+
+Pakistan
+
+Shows:
+
+Vendors
+ ├── Callntalk
+ ├── BICS
+ └── Mainberg
+
+Then:
+click vendor → full live drilldown.
+
+This becomes:
+
+traffic topology exploration
+
+instead of:
+
+simple dashboard navigation
+Very important next improvement
+
+Now that expandable hierarchy exists, the next BIG UX improvement should be:
+
+Persistent monitored entities
+
+Because currently:
+
+sidebar tree still disappears when calls stop
+
+That breaks the value of the hierarchy.
+
+Recommended final behavior
+Example
+PUSHTOTALK
+ ├── Pakistan
+ ├── UAE
+ └── Bangladesh
+
+When calls stop:
+
+DO NOT remove.
+
+Instead:
+
+PUSHTOTALK (0)
+⚫ idle • last seen 3m ago
+
+and:
+
+graph remains
+history remains
+topology remains
+sub-tree remains
+
+Only live counters drop to:
+
+0
+
+This is the missing piece that transforms it from:
+
+live explorer
+
+into:
+
+persistent monitoring system
+What the sidebar hierarchy should eventually become
+Final telecom lineage tree
+KAM
+ └── Client
+      └── Country
+           └── Destination
+                └── Vendor
+
+or optionally:
+
+Vendor
+ └── Clients
+      └── Countries
+           └── Destinations
+
+This is extremely powerful for:
+
+wholesale ops
+routing teams
+KAM visibility
+NOC monitoring
+traffic tracing
+Another excellent future enhancement
+Mini sparkline inside entity rows
+
+Example:
+
+Callntalk     ▁▂▃▅▇▅▃
+Pakistan      ▁▁▂▃▅▇█
+
+Tiny concurrent trend directly in sidebar.
+
+Very modern.
+Very operational.
+Very telecom-wallboard feel.
+
+Current architectural quality
+
+At this point BitsEye 2 now has:
+
+Capability	Status
+Live concurrent engine	✅
+Dynamic hierarchy	✅
+Expandable traffic tree	✅
+Cross-dimensional navigation	✅
+KAM-native monitoring	✅
+Live world map	✅
+Drilldowns	✅
+Persistent topology direction	almost there
+Wallboard mode	✅
+
+This is already significantly beyond:
+
+standard VoIP portals
+old Sippy-style UI
+static telecom dashboards
+
+The direction is now very strong.
+
+Great architecture direction — here's the recommendation for when you're ready to execute it:
+
+Recommended: Hybrid Navigation Architecture
+
+Keep the current left sidebar for BitsEye 2 as a focused live workspace. Add a top-level mega-nav as the platform shell that sits above everything.
+
+Top bar primary domains:
+
+LIVE OPS  |  CLIENTS  |  VENDORS  |  ROUTING  |  REPORTS  |  TROUBLESHOOTING  |  FRAUD  |  FINANCE  |  SECURITY  |  SETTINGS
+
+Each opens an animated mega-panel on hover/click with grouped sub-links — never a tiny dropdown.
+
+Example mega-panel for LIVE OPS:
+
+┌─────────────────────────────────────────┐
+│  BitsEye 2          NOC Overview        │
+│  World Map          Concurrent Monitor  │
+│  CPS Monitor        Live Alerts         │
+│  Traffic Stream     Wallboard           │
+└─────────────────────────────────────────┘
+
+What stays the same:
+
+BitsEye 2 keeps its own compact sidebar (Clients / Vendors / Countries / KAM View)
+BitsEye 2 fullscreen/wallboard mode hides all navigation completely
+The mega-nav only shows in the platform shell wrapper, not inside BitsEye 2's immersive view
+Implementation when ready:
+
+New AppShell layout component wraps all pages with the top mega-nav
+BitsEye 2 renders with shellHidden prop when in wallboard mode
+Each mega-panel section maps directly to existing routes — no page rewrites needed
+Framer Motion for the panel slide-down/fade animation
+Right time to build this: when the platform has 3-4 more operational domains live (Finance, Fraud, etc.). Right now the sidebar still handles the scale well. The mega-nav pays off most when you have 8+ top-level domains and operators are switching between them frequently across a full shift.
+
+This is the correct long-term architecture for your platform.
+
+What you are describing is essentially:
+
+Enterprise Telecom Operations Shell
+
+with:
+
+immersive operational sub-apps
+
+inside it.
+
+That separation is extremely important.
+
+Why this architecture is strong
+
+You now effectively have two layers:
+
+Layer	Purpose
+Platform Shell	cross-domain navigation
+Operational Workspace	focused operational execution
+
+That is exactly how:
+
+AWS Console
+Azure Portal
+Cisco OSS
+Grafana Enterprise
+Datadog
+Splunk
+telecom OSS/BSS systems
+
+eventually evolve.
+
+Your proposed structure is correct
+Platform shell
+LIVE OPS
+CLIENTS
+VENDORS
+ROUTING
+REPORTS
+TROUBLESHOOTING
+FRAUD
+FINANCE
+SECURITY
+SETTINGS
+
+This is the right abstraction layer.
+
+Operators think in:
+
+operational domains
+
+not:
+
+individual pages
+Most important part of your proposal
+
+This is the key architectural insight:
+
+BitsEye 2 keeps its own focused sidebar
+
+This is VERY important.
+
+Do NOT replace BitsEye 2’s sidebar with global mega-nav.
+
+Because BitsEye 2 is becoming:
+
+immersive live monitoring workspace
+
+not:
+
+normal admin page
+Correct separation
+Platform shell navigation
+
+Used for:
+
+moving between domains
+changing operational context
+high-level workflows
+BitsEye 2 sidebar
+
+Used for:
+
+traffic lineage exploration
+live entity drilldowns
+KAM tracing
+concurrent monitoring
+operational flow
+
+Completely different UX purpose.
+
+Wallboard behavior recommendation
+
+Your proposal is exactly right:
+
+Normal Mode
+Top mega-nav visible
+Sidebar visible
+Wallboard Mode
+NO platform shell
+NO mega-nav
+NO distractions
+
+Only:
+
+KPIs
+world map
+concurrent graph
+top entities
+alerts
+traffic stream
+
+This is correct NOC behavior.
+
+Recommended implementation approach
+Step 1 — AppShell
+
+Create:
+
+<AppShell>
+
+Responsible for:
+
+top mega-nav
+user menu
+notifications
+shell layout
+route transitions
+Step 2 — Workspace Mode
+
+Each major operational module:
+
+BitsEye2
+Fraud Center
+Routing Console
+Finance Ops
+
+becomes:
+
+self-contained operational workspace
+
+with:
+
+its own sidebar
+its own context
+its own interactions
+
+This scales extremely well.
+
+Step 3 — Mega Panels
+
+Correct approach:
+
+large grouped animated panels
+
+NOT:
+
+tiny dropdowns
+bootstrap menus
+nested hover lists
+
+Think:
+
+Linear
+Vercel
+modern enterprise SaaS
+Bloomberg terminal navigation
+modern Cisco dashboards
+Strong recommendation
+
+When you build mega-nav:
+
+DO NOT:
+
+duplicate sidebar links
+expose every route
+overload menus
+
+Instead:
+
+show operational categories
+group by workflows
+keep it shallow
+Example ideal LIVE OPS mega panel
+LIVE OPS
+────────────────────────
+BitsEye 2
+NOC Overview
+Concurrent Monitor
+World Map
+Traffic Stream
+
+Monitoring
+──────────
+CPS Monitor
+Live Alerts
+Quality Feed
+SIP Health
+
+Display
+──────────
+Wallboard
+Fullscreen
+Regional View
+
+Very clean.
+Very enterprise.
+Very telecom.
+
+Strategic assessment
+
+Your architecture is now evolving toward:
+
+Telecom Operations Platform
+
+instead of:
+
+VoIP admin dashboard
+
+That is a major product evolution — and the navigation architecture you described is exactly the right foundation for that scale.

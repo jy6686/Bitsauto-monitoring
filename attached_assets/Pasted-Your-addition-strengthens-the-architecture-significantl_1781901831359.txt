@@ -1,0 +1,585 @@
+Your addition strengthens the architecture significantly. After reading everything, I would make one important adjustment before any Product Blueprint sprint starts.
+
+Product Variants Should Be Fixed, Not User-Created
+
+Based on your actual business model, these are not generic products:
+
+Product Class	Commercial Type	Variant
+FC	Wholesale	First Class - Wholesale
+BC	Wholesale	Business Class - Wholesale
+SB	Wholesale	Special Bravo - Wholesale
+SB	Retail	Special Bravo - Retail
+SC	Wholesale	Special Charlie - Wholesale
+SC	Retail	Special Charlie - Retail
+PM	Wholesale	Premium
+BS	Wholesale	Business
+
+These are effectively platform products, not customer-created products.
+
+Therefore I would not build a flexible product blueprint engine first.
+
+Instead:
+
+Platform Product Catalog
+        ↓
+Fixed Product Variants
+        ↓
+Inherited Rules
+        ↓
+Client Assignment
+
+This is much simpler and matches your current operation.
+
+Product Creation Should Mean Something Different
+
+Today Replit is thinking:
+
+Create Product
+      ↓
+Create Rules
+      ↓
+Create Templates
+      ↓
+Create Profiles
+
+I think that's the wrong abstraction.
+
+Instead:
+
+Create Product Variant
+      ↓
+System automatically provisions:
+  ✓ Validation Profile
+  ✓ Notification Profile
+  ✓ Tariff Profile
+  ✓ Governance Profile
+  ✓ Reporting Profile
+
+But for your business, product variants will rarely change.
+
+What changes daily is:
+
+Client
+   ↓
+Assign Product Variant
+
+That is the real operational workflow.
+
+Client Rules Screenshot Confirms Level 3
+
+The screenshot you shared is actually more important than the current #338 implementation.
+
+Legacy hierarchy:
+
+Global Rules
+      ↓
+Product Rules
+      ↓
+Client Rules
+
+Current platform:
+
+Global Rules only
+
+That means #338 is good as a foundation, but it is not yet equivalent to the legacy platform.
+
+The future roadmap should become:
+
+#338
+
+Global Validation Rules
+
+#338B
+
+Product Validation Profiles
+
+Example:
+
+Special Bravo - Retail
+    Suspect Increase
+        → Approval Required
+
+First Class - Wholesale
+    Suspect Increase
+        → Ignore
+#338C
+
+Client Validation Overrides
+
+Example:
+
+Customer A
+    Override:
+        Effective Date Greater Than Limit
+        → Approval Required
+
+Customer B
+    Uses Product Default
+
+That matches the legacy screenshot exactly.
+
+Product Class vs Commercial Type
+
+I strongly agree with separating:
+
+productClass
+commercialType
+
+instead of:
+
+segment
+
+Example:
+
+{
+  "productClass": "SB",
+  "commercialType": "Retail"
+}
+
+This is far more useful than:
+
+{
+  "segment": "Retail"
+}
+
+because:
+
+Routing
+    uses productClass
+
+Finance
+    uses commercialType
+
+Governance
+    uses both
+
+Notifications
+    uses both
+One Additional Field Missing
+
+I would add:
+
+product_family
+
+Example:
+
+Variant	product_family
+First Class - Wholesale	FC
+Business Class - Wholesale	BC
+Special Bravo - Wholesale	SB
+Special Bravo - Retail	SB
+Special Charlie - Wholesale	SC
+Special Charlie - Retail	SC
+
+Then reporting becomes easy:
+
+Revenue by Family
+Revenue by Variant
+ASR by Family
+ASR by Variant
+Margin by Family
+Margin by Variant
+Recommended Freeze Point
+
+Before building Tariff Profile, Notification Engine, or Client Tariff Profile modernization:
+
+Lock These First
+
+✅ Prefix Architecture
+
+fullPrefix = audit only
+dialPrefix = Sippy only
+
+✅ Product Architecture
+
+productClass
+commercialType
+product_family
+
+✅ Fixed Product Variants
+
+FC-W
+BC-W
+SB-W
+SB-R
+SC-W
+SC-R
+Premium
+Business
+
+✅ Rule Hierarchy Roadmap
+
+Level 1 = Global
+Level 2 = Product Variant
+Level 3 = Client Override
+
+Only after these are locked would I continue with:
+
+Client Tariff Profile
+Rate Sheet Templates
+Notification Engine
+Status Code Engine (N/NC/I/D/PI/PD/B/R/DC)
+
+because those features will depend heavily on the product identity model and rule inheritance model being stable. Right now the biggest risk is not the push engine anymore; it's building commercial workflows before the product hierarchy is finalized.
+
+Product Variants Should Be Fixed, Not User-Created
+
+Based on your actual business model, these are not generic products:
+
+Product Class	Commercial Type	Variant
+FC	Wholesale	First Class - Wholesale
+BC	Wholesale	Business Class - Wholesale
+SB	Wholesale	Special Bravo - Wholesale
+SB	Retail	Special Bravo - Retail
+SC	Wholesale	Special Charlie - Wholesale
+SC	Retail	Special Charlie - Retail
+PM	Retail	Premium
+BS	Retail	Business
+
+Special Bravo - Retail
+    Suspect Increase
+        → Ignore
+
+First Class - Wholesale
+    Suspect Increase
+        → Ignore
+
+Special Bravo - Retail
+    Suspect Decrease 50%
+        → Reject
+
+First Class - Wholesale
+    SuspectDecrease 50%
+        → Reject
+
+Yes, and this is exactly why I would not hardcode rules at the product level.
+
+Your example proves that the future architecture must be:
+
+Global Rule
+    ↓
+Product Variant Rule
+    ↓
+Client Override
+
+Because today your examples happen to be the same:
+
+Variant	Rule	Action
+First Class - Wholesale	Suspect Increase	Ignore
+Special Bravo - Retail	Suspect Increase	Ignore
+First Class - Wholesale	Suspect Decrease >50%	Reject
+Special Bravo - Retail	Suspect Decrease >50%	Reject
+
+But tomorrow Commercial may decide:
+
+Variant	Rule	Action
+First Class - Wholesale	Suspect Increase	Ignore
+Special Bravo - Retail	Suspect Increase	Approval Required
+Special Charlie - Retail	Suspect Increase	Reject Country
+Premium	Suspect Increase	Approval Required
+
+If rules are embedded into code, every change becomes a development project.
+
+Recommended Product Variant Matrix
+Fixed Product Variants
+FC-W  = First Class - Wholesale
+BC-W  = Business Class - Wholesale
+
+SB-W  = Special Bravo - Wholesale
+SB-R  = Special Bravo - Retail
+
+SC-W  = Special Charlie - Wholesale
+SC-R  = Special Charlie - Retail
+
+PM-R  = Premium
+BS-R  = Business
+
+These should be seeded platform records and not user-created.
+
+Validation Profile Layer
+
+Instead of storing rules directly on products:
+
+Product Variant
+      ↓
+Validation Profile
+
+Example:
+
+Wholesale Profile
+Suspect Increase
+    → Ignore
+
+Suspect Decrease >50%
+    → Reject
+
+Effective Date > Limit
+    → Reject Country
+Retail Profile
+Suspect Increase
+    → Approval Required
+
+Suspect Decrease >50%
+    → Reject
+
+Effective Date > Limit
+    → Reject Country
+
+Then:
+
+First Class - Wholesale
+Business Class - Wholesale
+Special Bravo - Wholesale
+Special Charlie - Wholesale
+
+can all inherit:
+
+Wholesale Profile
+
+while:
+
+Special Bravo - Retail
+Special Charlie - Retail
+Premium
+Business
+
+can inherit:
+
+Retail Profile
+Why this matters
+
+Without profiles:
+
+8 Variants
+×
+18 Rules
+=
+144 rule records
+
+With profiles:
+
+Wholesale Profile
+Retail Profile
+
+and products simply reference them.
+
+Much easier to maintain.
+
+Long-Term Structure
+Global Rules
+       ↓
+Validation Profile
+       ↓
+Product Variant
+       ↓
+Client Override
+
+Example:
+
+Global:
+Suspect Increase
+    → Ignore
+
+Retail Profile:
+Suspect Increase
+    → Approval Required
+
+Special Bravo - Retail
+    → inherits Retail Profile
+
+Client XYZ
+    → override
+    → Reject Country
+
+This matches the legacy screenshots much better than putting rules directly on products.
+
+My recommendation
+
+Lock the product variants as:
+
+FC-W
+BC-W
+SB-W
+SB-R
+SC-W
+SC-R
+PM-R
+BS-R
+
+Then introduce:
+
+validation_profiles
+notification_profiles
+governance_profiles
+
+and let product variants inherit from those profiles.
+
+That gives you:
+
+Fixed commercial products
+Minimal duplication
+Product-specific behavior
+Client overrides later
+Clean migration path from the legacy BitsAuto governance model.
+| Variant                  | Rule             | Action            |
+| ------------------------ | ---------------- | ----------------- |
+| First Class - Wholesale  | Suspect Increase | Ignore            |
+| Special Bravo - Retail   | Suspect Increase | Approval Required |
+| Special Charlie - Retail | Suspect Increase | Reject Country    |
+| Premium                  | Suspect Increase | Approval Required |
+
+then you give option Approval on/off 
+
+Exactly. That is why I would separate Rule Action from Approval Policy.
+
+Today you are discussing:
+
+Suspect Increase
+
+but there are actually two decisions:
+
+Decision 1: What happens?
+Ignore
+Reject Country
+Reject Destination
+Reject Rate Sheet
+Auto Adjust Effective Date
+Decision 2: Does it require approval?
+Yes
+No
+
+Instead of this:
+
+Variant	Rule	Action
+SB-R	Suspect Increase	Approval Required
+
+Use:
+
+Variant	Rule	Action	Approval Required
+FC-W	Suspect Increase	Ignore	No
+SB-R	Suspect Increase	Ignore	Yes
+SC-R	Suspect Increase	Reject Country	No
+PM-R	Suspect Increase	Ignore	Yes
+
+This is much more flexible.
+
+Example 1
+Special Bravo - Retail
+Suspect Increase
+
+Action:
+
+Ignore
+
+Approval:
+
+Yes
+
+Workflow:
+
+Rate arrives
+      ↓
+System ignores violation
+      ↓
+Manager approval required
+      ↓
+Process continues
+Example 2
+Special Charlie - Retail
+Suspect Increase
+
+Action:
+
+Reject Country
+
+Approval:
+
+No
+
+Workflow:
+
+Rate arrives
+      ↓
+Country rejected immediately
+      ↓
+No approval
+Example 3
+Premium
+Suspect Increase
+
+Action:
+
+Ignore
+
+Approval:
+
+Yes
+
+Workflow:
+
+Rate arrives
+      ↓
+Keep destination
+      ↓
+Approval queue
+Better Validation Rule Structure
+
+Instead of:
+
+selected_action
+
+I would eventually move to:
+
+selected_action
+approval_required
+
+Example:
+
+{
+  "rule": "suspect_increase",
+  "action": "ignore",
+  "approvalRequired": true
+}
+
+or
+
+{
+  "rule": "suspect_increase",
+  "action": "reject_country",
+  "approvalRequired": false
+}
+Why This Fits Your Business Better
+
+Because your earlier decision was:
+
+Initial Rates
+NO approval
+
+But later you may want:
+
+Exceptional pricing
+Approval
+
+or
+
+Rate decrease > 50%
+Approval
+
+or
+
+Margin below floor
+Approval
+
+without changing the actual validation action.
+
+Recommended Future Matrix
+Rule	Action	Approval
+Suspect Increase	Ignore	On/Off
+Suspect Decrease	Reject Country	On/Off
+Effective Date Greater Than Limit	Reject Country	On/Off
+Effective Date Older Than Limit	Ignore	On/Off
+Pending Increase Exceeded	Ignore	On/Off
+
+This gives Commercial complete control without requiring developers to change logic every time a policy changes.
+
+For your platform, I think Action + Approval Toggle is a better long-term design than treating "Approval Required" as an action itself.

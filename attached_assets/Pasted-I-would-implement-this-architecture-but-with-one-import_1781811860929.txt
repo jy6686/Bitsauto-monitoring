@@ -1,0 +1,96 @@
+I would implement this architecture, but with one important condition:
+
+The new approach is much better than rebuilding XLSX from XML-RPC
+
+Your manual testing already proved:
+
+Download Tariff from Sippy
+↓
+Modify rate
+↓
+Upload same file
+↓
+Sippy updates correctly
+
+While the reconstruction approach keeps hitting issues:
+
+XML-RPC
+↓
+Missing Country
+Missing hidden fields
+Missing Sippy-specific metadata
+↓
+Generate new XLSX
+↓
+Sippy accepts upload but ignores update
+
+So:
+
+Download Original XLSX
+↓
+Patch Existing Row(s)
+↓
+Re-upload Same XLSX
+
+is the correct long-term design.
+
+But before proceeding further
+
+I would verify the downloaded XLSX first.
+
+The implementation claims it can now:
+
+downloadTariffXlsxFromPortal()
+↓
+patchDownloadedTariffXlsx()
+↓
+upload same workbook
+
+Before another live push:
+
+Download the generated test file:
+
+/api/rate-manager/download-test-xlsx?tariffId=33&prefix=19230&rate=0.027
+Compare it against the manually successful Sippy file.
+
+Check:
+
+Action = U
+IDs unchanged
+Country preserved
+Interval1 preserved
+IntervalN preserved
+Grace preserved
+Forbidden preserved
+Activation dates preserved
+Only Price1/PriceN changed
+
+If they are identical except for the changed rate, then the architecture is finally aligned with Sippy.
+
+One thing I still want to see
+
+The logs should explicitly show:
+
+[Sippy] downloadTariffXlsx: SUCCESS
+filename=internal-ptcl_Rates.xlsx
+rows=8
+
+and:
+
+[Sippy] patchDownloadedTariffXlsx:
+patched prefix=19230
+oldRate=0.0274
+newRate=0.0270
+
+That confirms we're modifying Sippy's own workbook rather than generating one from scratch.
+
+About the files
+
+I can no longer access some of the XLSX files that were uploaded earlier in this conversation because they have expired from the file session.
+
+If you want me to compare the actual spreadsheets:
+
+Upload the manual working tariff XLSX again.
+Upload the generated download-test XLSX.
+
+Then I can compare them row-by-row and tell you exactly whether the generated workbook now matches the successful Sippy workbook. That comparison is likely more valuable than another blind upload test.

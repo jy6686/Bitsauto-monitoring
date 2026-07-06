@@ -1,0 +1,142 @@
+I agree with the approach, but I would make one adjustment before building #338A.
+
+Build #338A only if it becomes the formal sign-off page
+
+Otherwise it risks becoming another reporting screen that nobody uses.
+
+Instead, define it as:
+
+Governance Review Dashboard
+Status: Draft / Approved / Locked
+
+Section 1
+Configuration Values (#337)
+
+Section 2
+Validation Rules (#338)
+
+Section 3
+Approval Summary
+
+And add:
+
+Reviewed By
+Reviewed At
+Comments
+Lock Governance
+
+Even if the first version is read-only, design it as the future sign-off page.
+
+What I would review before locking
+Commercial
+
+Initial Rate Lifecycle (#336)
+
+Require Approval For Initial Rates
+
+This is now the most important control because it directly affects:
+
+Client Wizard
+→ Pending Rate Job
+→ Approval
+→ Activation
+
+If Commercial says:
+
+No approval required
+
+then half of #336 becomes optional.
+
+Rate Change Governance
+
+Current examples:
+
+Rate Increase > 50%
+→ Approval Required
+
+Rate Decrease
+→ Ignore
+
+These should be challenged.
+
+Many wholesalers approve:
+
+Any increase > 10%
+Any decrease > 25%
+
+not 50%.
+
+The values may be placeholders rather than operational policies.
+
+NOC
+
+Review:
+
+Future Effective Date
+Old Effective Date
+Pending Increases
+Destination Limits
+
+These directly impact:
+
+Vendor imports
+Client notifications
+Rate processing
+
+once #339 starts consuming rules.
+
+Phase 1 Consumer Recommendation (#339)
+
+I strongly agree with your scope control:
+
+Only consume:
+
+Commercial.Require Approval For Initial Rates
+
+inside:
+
+#336 Initial Rate Lifecycle
+
+Nothing else.
+
+Meaning:
+
+Pending Rates
+    ↓
+Submit
+    ↓
+IF approval_required = true
+    Awaiting Approval
+ELSE
+    Approved
+
+That's a safe first consumer.
+
+What I would NOT connect yet
+
+Leave these untouched until after governance sign-off:
+
+Vendor Rate Imports
+Rate Validation
+Send Rate
+Push Batch
+Rate Notification Sending
+Sippy Upload Engine
+
+Those areas are already working and certified.
+
+Recommended next sequence
+#338A Governance Review Dashboard
+        ↓
+Commercial/NOC Sign-off
+        ↓
+Governance Locked
+        ↓
+#339 Phase 1
+(Initial Rate Approval Consumption Only)
+        ↓
+Review Results
+        ↓
+Additional Consumers Later
+
+At this point BitsAuto has moved beyond feature-building and into governance-building. The next mistakes are more likely to be business-rule mistakes than technical mistakes, so getting Commercial and NOC sign-off before enabling enforcement is the right move.

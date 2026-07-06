@@ -1,0 +1,172 @@
+REVE-OTP*CLI> asterisk -rx "pjsip show endpoint sippy-endpoint"
+No such command 'asterisk -rx "pjsip show endpoint sippy-endpoint"' (type 'core show help asterisk -rx' for other possible commands)
+REVE-OTP*CLI> asterisk -rx "pjsip show identify sippy-identify"
+No such command 'asterisk -rx "pjsip show identify sippy-identify"' (type 'core show help asterisk -rx' for other possible commands)
+Reliably Transmitting (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK5258ab9a;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as09fce8b2
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 3790240e144fdf44430de50457d9edf5@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Mon, 01 Jun 2026 13:59:32 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+Retransmitting #1 (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK5258ab9a;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as09fce8b2
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 3790240e144fdf44430de50457d9edf5@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Mon, 01 Jun 2026 13:59:32 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+Retransmitting #2 (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK5258ab9a;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as09fce8b2
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 3790240e144fdf44430de50457d9edf5@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Mon, 01 Jun 2026 13:59:32 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+Retransmitting #3 (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK5258ab9a;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as09fce8b2
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 3790240e144fdf44430de50457d9edf5@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Mon, 01 Jun 2026 13:59:32 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+Retransmitting #4 (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK5258ab9a;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as09fce8b2
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 3790240e144fdf44430de50457d9edf5@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Mon, 01 Jun 2026 13:59:32 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+Really destroying SIP dialog '3790240e144fdf44430de50457d9edf5@159.223.32.59:5160' Method: OPTIONS
+Reliably Transmitting (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK564dfddd;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as219834f2
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 370efa573117466d308892fc0e8ac391@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Mon, 01 Jun 2026 13:59:46 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+Retransmitting #1 (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK564dfddd;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as219834f2
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 370efa573117466d308892fc0e8ac391@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Mon, 01 Jun 2026 13:59:46 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+Retransmitting #2 (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK564dfddd;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as219834f2
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 370efa573117466d308892fc0e8ac391@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Mon, 01 Jun 2026 13:59:46 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+Retransmitting #3 (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK564dfddd;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as219834f2
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 370efa573117466d308892fc0e8ac391@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Mon, 01 Jun 2026 13:59:46 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+Retransmitting #4 (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK564dfddd;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as219834f2
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 370efa573117466d308892fc0e8ac391@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Mon, 01 Jun 2026 13:59:46 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0

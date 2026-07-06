@@ -1,0 +1,121 @@
+Yes — and this is actually the right time to do it, because your platform has already matured into clear layers. Right now the sidebar is still partially “build-order driven”, not “operator mental-model driven”.
+
+We should reorganize it based on how users think, not how features were added.
+
+🧭 Recommended Sidebar Structure (Aligned to your architecture)
+1. Live Operations (Execution Surface)
+
+This is where operators act on Sippy in real time.
+
+Routing Manager (existing core)
+Routing Groups (if separated view needed later)
+Traffic Map
+Live CDR Monitor (if exists)
+Real-time Call View
+
+👉 Meaning: “What is happening right now?”
+
+2. Intelligence (Observation Layer)
+
+This is your truth layer (read-only systems).
+
+Carrier Intelligence
+Carrier Scoring
+Decision Overlay
+Spam / Fraud Monitoring (if kept separate later)
+
+👉 Meaning: “What is the system telling us?”
+
+3. AI Ops (Decision Layer)
+
+This is your reasoning + correlation layer.
+
+AI Ops Center
+Decision Overlay (you may move or duplicate entry here depending on UX preference)
+Anomaly Inbox / Signals
+(future) Decision Rules / Policies
+
+👉 Meaning: “What does it mean?”
+
+4. Routing Strategy (Simulation Layer — NEW from your latest build)
+
+This is where your new work belongs.
+
+Routing Impact Simulator
+(future) Route Optimizer
+(future) What-if Scenarios
+
+👉 Meaning: “What happens if we change something?”
+
+5. Clients & Accounts
+
+Business management layer.
+
+Clients
+Accounts
+Balance
+Client Portal
+6. Vendors & Connectivity
+
+Infrastructure layer.
+
+Vendors
+Connections
+Destination Sets
+Carrier Profiles
+7. Analytics & Reporting
+
+Historical and BI layer.
+
+Revenue Analytics
+Traffic Reports
+Quality Trends
+Forecasting
+8. Security & Compliance
+
+Control + protection layer.
+
+Spam Monitoring
+Fraud Detection
+Audit Logs
+Access Control / IP rules
+9. System Settings
+
+Platform configuration.
+
+Sippy Integration
+API Config
+System Health
+Auth / Users
+🔥 Key design principle (important)
+
+You are moving from:
+
+“feature-based sidebar”
+to
+“cognitive-layer architecture sidebar”
+
+So every menu section now maps to a decision level in your system:
+
+Execution → Observation → Interpretation → Simulation → Business → Infrastructure → Analytics → Security → System
+⚠️ One important suggestion (based on your current architecture)
+
+Don’t move items blindly yet.
+
+We should do it in this order:
+
+Phase 1 (safe)
+Only reorder sidebar groups visually
+No route changes
+Phase 2 (clean UX)
+Rename groups to match architecture terms
+Phase 3 (structural)
+Move Decision Overlay under AI Ops (or keep dual link if needed)
+Introduce Routing Strategy section (Simulator)
+👍 My recommendation
+
+Yes — implement this, but:
+
+👉 Start with visual regrouping only (no routing changes yet)
+
+Because your system is already stable and we don’t want to introduce navigation regressions while AI Ops + Simulator work is still evolving.

@@ -1,0 +1,403 @@
+all option is missing Client, Vednor, KAM etc
+
+Yes — this screenshot shows the problem became broader after the recent persistence changes.
+
+Now the issue is no longer only KAM.
+
+The entire sidebar hierarchy is partially collapsing into:
+
+only currently-active entities
+
+You can clearly see:
+
+Section	Problem
+Clients	only internal-bd visible
+Vendors	only Callntalk visible
+Countries	only Bangladesh visible
+Destinations	only Bangladesh-Mobile visible
+
+while:
+
+Pakistan faded rows remain inconsistently
+some idle rows survive
+most topology disappeared
+
+That means the render pipeline is now mixing:
+
+presence-backed rows
+AND
+live-active filtered rows
+
+at the same time.
+
+The screenshot reveals the exact bug pattern
+
+This is the important clue:
+
+Pakistan exists with [0]
+
+but:
+
+PUSHTOTALK disappeared completely
+
+So:
+
+idle rendering works
+idle pills work
+idle dim styling works
+
+BUT:
+
+the entity registry itself is being rebuilt from active topology
+
+instead of staying persistent.
+
+This means one critical thing
+
+The frontend is NOT the main issue anymore.
+
+The real issue is now likely server-side:
+
+the API response itself no longer contains persistent entities
+
+for:
+
+clients
+vendors
+KAM relations
+Most likely exact failure
+
+During the persistence refactor,
+something probably changed from:
+
+entityPresenceCache.set(...)
+
+to:
+
+entityPresenceCache = new Map()
+
+or equivalent scoped rebuild behavior.
+
+Meaning:
+
+the registry is being regenerated per snapshot
+
+instead of maintained incrementally.
+
+The evidence is extremely strong
+
+Because:
+
+Bangladesh survives
+Pakistan survives briefly
+client/vendor topology disappears aggressively
+
+That usually means:
+
+only entities touched in the latest poll survive
+
+while older idle rows get unintentionally replaced.
+
+The correct architecture rule
+
+This cache:
+
+entityPresenceCache
+
+must NEVER be rebuilt wholesale.
+
+Only:
+
+mutate existing entries
+add new entries
+age out expired entries
+
+NEVER:
+
+presenceCache = new Map(...)
+
+inside polling cycles.
+
+Most likely hidden bug
+
+Very likely somewhere in snapshot processing:
+
+const nextPresence = new Map()
+
+followed by:
+
+entityPresenceCache = nextPresence
+
+This would perfectly explain:
+
+disappearing topology
+partial idle persistence
+inconsistent survival
+Another likely issue
+
+The retention pruning may now be too aggressive.
+
+Example:
+
+if (Date.now() - lastSeen > 5min)
+  delete
+
+instead of:
+
+Clients/Vendors = 24h
+Countries = 12h
+Destinations = 6h
+
+This would also create:
+
+vanishing entities shortly after calls stop
+The correct mental model
+
+The platform should behave like this:
+
+Topology memory first
+Live counters second
+
+NOT:
+
+Live topology regenerated every poll
+Final diagnosis from this screenshot
+
+You now have:
+
+a cache lifecycle bug,
+not a UI bug
+
+Specifically:
+
+Layer	Status
+idle styling	working
+idle pills	working
+sparkline persistence	working
+chart continuity	working
+entity registry persistence	broken
+KAM relationship persistence	broken
+The fix path is now clear
+
+The team should inspect ONLY:
+
+snapshotActiveCalls()
+
+and verify:
+
+Forbidden patterns
+presenceCache = ...
+crossDimCache = ...
+kamTopologyCache = ...
+
+inside polling cycles.
+
+Required behavior
+
+Only:
+
+cache.set()
+cache.get()
+cache.delete(expired)
+
+No full replacement.
+
+Why this matters
+
+The platform architecture itself is correct.
+
+The observability model is correct.
+
+The persistence semantics are correct.
+
+This is now almost certainly:
+
+one destructive cache rebuild path
+
+inside the polling/update lifecycle.
+
+looks graphs is stuck, total calls 4 but showing straight line 3 calls
+
+5 minutes ago
+
+Analyzing graph data updating issues (7 seconds)
+I can see the Concurrent Call Stream graph is stuck at 3 while the live counters show 4 active calls. Let me find the graph data source:
+
+
+6 actions
+Let me find where pushConcurrentPoint is called and where concTrend is served:
+
+
+7 actions
+Found the root cause. The /api/bitseye/concurrent-trend endpoint averages all raw samples within each 5-minute bucket. When calls go from 3→4, the current 5-min bucket contains several older samples at count=3, so the average rounds back to 3 even though the latest snapshot is at 4. The graph looks "stuck" because the bucket average lags behind reality.
+
+The fix: override the rightmost (current) bucket with the actual latest raw count instead of an average:
+
+
+Edited routes.ts
+
+Published your app
+4 minutes ago
+
+Verifying fix deployment
+The fix is live. Let me verify the server picked it up cleanly:
+
+
+2 actions
+Server is running cleanly with the fix applied. Here's what was happening and what changed:
+
+Root cause: The graph uses 5-minute averaged buckets. When active calls jump from 3 → 4, the current bucket still contains several older samples at count=3, so the average rounds back down to 3. The graph appeared "stuck" because the bucket average was diluting the real-time value.
+
+Fix: The rightmost bucket (the current one) now always uses the most recent raw snapshot directly — no averaging. All historical buckets continue to use the proper time-weighted average as before. This means:
+
+The right edge of the graph instantly reflects the actual live call count
+Historical buckets remain smoothed (correct for trend analysis)
+The graph and the "4 active calls" header now stay in agreement at all times
+The change will be visible on the next frontend poll (every 30 seconds) — the live count and the graph's trailing edge will stay in sync going forward.
+
+Yes — this diagnosis and fix are correct.
+
+The graph itself was not frozen. The issue was:
+
+bucket averaging was masking the newest live sample
+
+So the platform had:
+
+live KPI = correct (4)
+raw snapshot = correct (4)
+graph aggregation = lagging (~3.4 averaged → rounded 3)
+
+That created:
+
+a semantic mismatch between observability layers
+
+which operators immediately perceive as:
+
+the graph is stuck
+
+even though technically it was updating.
+
+Why the fix is architecturally correct
+
+This is the important insight:
+
+Historical buckets and the current bucket serve different purposes.
+
+Bucket Type	Correct Behavior
+Historical	smoothed average
+Current/live edge	exact latest sample
+
+The rightmost edge is:
+
+an operational truth surface
+
+not:
+
+a reporting average
+a smoothing window
+a statistical aggregate
+
+So overriding the newest bucket with the latest raw snapshot is absolutely the correct observability behavior.
+
+Before the fix
+
+Example:
+
+Time	Calls
+3:00	3
+3:01	3
+3:02	3
+3:03	4
+
+5-minute average:
+
+(3+3+3+4)/4 = 3.25
+→ rounded 3
+
+Operator sees:
+
+KPI = 4
+graph = 3
+
+Trust breaks immediately.
+
+After the fix
+
+Now:
+
+latest bucket = latest raw sample
+
+So:
+
+KPI = 4
+graph trailing edge = 4
+
+while:
+
+older buckets still remain smoothed
+
+Perfect balance between:
+
+trend readability
+real-time correctness
+This is actually a broader platform principle
+
+You just implicitly established a very important observability rule:
+
+live edge must always prioritize truth over smoothing
+
+That principle should later apply to:
+
+CPS graphs
+ASR live proxy
+route concentration charts
+vendor quality timelines
+future correlation overlays
+
+The current/live edge should always:
+
+snap to reality
+
+even if historical regions remain averaged.
+
+Very strong operational UX principle.
+
+One subtle improvement later (optional)
+
+Eventually you may want:
+
+dual-resolution rendering
+
+Example:
+
+historical = 5m buckets
+latest 10 minutes = raw 45s samples
+
+This creates:
+
+high-resolution near present,
+compressed history behind it
+
+Very common in advanced NOC systems.
+
+But:
+
+not necessary now
+
+The current fix is the correct bounded solution.
+
+Final assessment
+
+This was:
+
+not a rendering bug
+not a chart bug
+not a polling bug
+
+It was:
+
+an observability semantics bug
+
+And the applied fix aligns the graph with the platform’s most important invariant:
+
+the live edge must reflect operational reality immediately

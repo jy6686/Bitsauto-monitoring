@@ -1,0 +1,224 @@
+Yes — and this is now the correct implementation path.
+
+At this point, the architecture is mature enough that the remaining work is about:
+
+signal trust, causal accuracy, and explainability
+
+—not adding more modules.
+
+Your prioritization is correct, and the sequence matters. Here’s the refined implementation roadmap I would follow from this exact state.
+
+✅ Phase 1 — Execution Reliability Layer (mandatory foundation)
+
+This is still the most important thing in the system.
+
+What should be implemented
+1. Retry middleware
+
+Wrap all Sippy synthetic executions with:
+
+maxAttempts: 2
+backoff: 5s → 10s
+retry ONLY on:
+timeout
+XML-RPC transport failure
+auth/session failure
+network unreachable
+
+Do NOT retry:
+
+SIP 4xx
+SIP 5xx from carrier
+user busy / invalid destination
+2. Failure classification engine
+
+Every execution becomes one of:
+
+Type	Meaning
+carrier_failure	Telecom failure from vendor/carrier
+infra_failure	Your infrastructure / Sippy / network issue
+success	Valid answered or accepted path
+
+This classification should be attached directly to:
+
+synthetic_test_runs
+ai_ops_events
+route_decision_traces
+3. Baseline protection
+
+Critical rule:
+
+infra_failure NEVER updates:
+- ASR
+- baseline
+- carrier score
+- anomaly thresholds
+
+But still:
+
+log it
+expose it in AI Ops
+mark low confidence
+
+This single rule massively improves signal integrity.
+
+✅ Phase 2 — Truth Layer for AI Ops (very high leverage)
+
+This is the strongest addition from the latest document.
+
+Add to ai_ops_events
+New fields
+Field	Purpose
+confidence	0–1 evidence strength
+source	synthetic / live_traffic / manual_test
+dedupe_key	carrier+signal+window
+classification	carrier_failure / infra_failure
+Confidence model (simple but powerful)
+
+Example:
+
+Event	Confidence
+single synthetic failure	0.35
+repeated synthetic failures	0.55
+live traffic degradation	0.75
+live + synthetic aligned	0.95
+
+This lets:
+
+incidents become weighted
+UI prioritize serious issues
+future AI reasoning become reliable
+Deduplication layer
+
+Before insert:
+
+same carrier
++ same signal type
++ within 15 min
+= merge/update existing event
+
+This prevents:
+
+alert storms
+duplicate incidents
+noisy AI Ops feed
+✅ Phase 3 — Cross-Campaign Carrier Correlation
+
+This is now a backend intelligence upgrade.
+
+Current state
+
+You correlate:
+
+campaign → incident
+Correct next state
+
+You correlate:
+
+carrier → systemic incident
+What to group
+
+Across ALL campaigns:
+
+SYNTHETIC_FAILURE
+ROUTE_DEGRADATION_SIGNAL
+HIGH_PDD
+
+Grouped by:
+
+selectedCarrier
+rolling 15m window
+Output
+
+Single incident:
+
+Carrier X degradation
+├── ASR drop
+├── High PDD
+├── 3 campaigns impacted
+└── Confidence: 0.87
+
+This is real NOC-grade behavior.
+
+✅ Phase 4 — Baseline Model Upgrade
+
+You correctly identified:
+10-run rolling average is statistically weak.
+
+Recommended approach
+Use:
+
+24h rolling baseline
+
+This matches telecom traffic patterns better than EMA alone.
+
+Then optionally:
+
+EMA overlay for responsiveness
+Correct baseline inputs
+
+ONLY include:
+
+successful executions
+carrier_failures
+
+NEVER include:
+
+infra_failures
+✅ Phase 5 — Replay Snapshot Layer
+
+This is the final explainability piece.
+
+Add to route_decision_traces
+carrier_scores_snapshot: {
+  "carrierA": 82,
+  "carrierB": 74,
+  "carrierC": 41
+}
+
+captured:
+
+at execution time
+before routing decision finalization
+Why this matters
+
+Without snapshotting:
+
+replay lies historically
+scores mutate over time
+
+With snapshots:
+You can answer:
+
+“Why did the system choose Carrier X at 14:03 yesterday?”
+
+with exact historical truth.
+
+🚫 Still correct NOT to build
+
+You are still right to avoid:
+
+RTP correlation
+new dashboards
+Teams/Zoom integrations
+more UI modules
+self-healing routing (until confidence model exists)
+🎯 Final recommendation
+
+Yes — implement all five.
+
+But in this exact order:
+
+Execution Reliability
+Truth Layer (confidence + dedupe)
+Cross-campaign correlation
+Baseline upgrade
+Replay snapshots
+
+That sequence turns your platform from:
+
+“advanced telecom monitoring”
+
+into:
+
+trusted telecom decision intelligence system

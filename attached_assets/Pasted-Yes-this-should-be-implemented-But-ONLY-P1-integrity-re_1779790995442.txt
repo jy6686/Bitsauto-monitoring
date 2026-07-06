@@ -1,0 +1,162 @@
+Yes — this should be implemented.
+
+But ONLY:
+
+P1 integrity restoration
+
+NOT:
+
+intelligence expansion
+fallback optimization
+cosmetic analytics work
+
+because this is now:
+
+core telemetry integrity remediation
+
+—not feature development.
+
+Correct Scope
+
+Implement ONLY these two items:
+
+Priority	Action
+P1-A	Restore native Sippy /asr_acd.php authentication
+P1-B	Add explicit fallback degradation warning
+
+That is the minimum safe correction.
+
+Why This Is Safe To Implement Immediately
+
+Because:
+
+no routing logic changes
+no governance changes
+no simulation logic changes
+no failover behavior changes
+no automation changes
+
+You are only restoring:
+
+authoritative data provenance
+
+which every existing intelligence layer already assumes exists.
+
+Correct Implementation Order
+Step 1 — Verify credentials OUTSIDE the platform
+
+MOST IMPORTANT.
+
+Before touching code:
+
+manually login to Sippy admin portal
+confirm credentials work
+confirm /asr_acd.php accessible
+confirm same account sees 20,232-call report
+
+This prevents:
+
+debugging wrong credentials inside application code
+Step 2 — Update platform settings
+
+Ensure:
+
+portalUsername
+portalPassword
+admin auth path
+
+use:
+
+actual working Sippy admin credentials
+
+The investigation already showed:
+
+trying 1 cred pair(s)
+
+which strongly suggests:
+
+fallback credential logic collapsed
+OR
+duplicate incorrect credentials configured
+Step 3 — HARD FAIL before fallback
+
+Very important architectural correction.
+
+Current behavior:
+
+portal auth fails
+→ silently fallback
+→ operator sees fake-normal analytics
+
+New behavior should be:
+
+portal auth fails
+→ analytics enters DEGRADED mode
+→ warning banner displayed
+→ audit log written
+→ fallback explicitly labeled
+Step 4 — Add degradation banner
+
+Required.
+
+Something like:
+
+WARNING:
+Running in fallback scrape mode.
+Native Sippy aggregation unavailable.
+Analytics accuracy degraded.
+
+This should appear on:
+
+ASR/ACD
+Traffic Analytics
+Revenue Heatmap
+Route Optimisation inputs
+
+Anywhere sampled/fallback telemetry is consumed.
+
+Step 5 — Validate parity
+
+After auth restored:
+
+Compare:
+
+Metric	Sippy	BitsAuto
+total calls	match	
+billable calls	match	
+ASR	match	
+ACD	match	
+vendor grouping	match	
+
+ONLY after parity:
+
+stabilization mode resumes safely
+MOST IMPORTANT RULE
+
+Do NOT:
+
+tune recommendation engines
+calibrate confidence
+optimize simulations
+evaluate trust analytics
+
+until:
+
+telemetry provenance restored
+
+Because right now:
+
+the intelligence stack is reasoning over incomplete reality
+Final Recommendation
+
+YES — implement:
+
+P1 auth restoration + degradation visibility immediately
+
+Then:
+
+validate parity
+resume stabilization
+continue telemetry accumulation
+
+That is the correct and safest path forward.

@@ -1,0 +1,129 @@
+Your sequencing is correct, and more importantly your constraint judgment is right: this is no longer “fixing broken logic,” it’s “standardizing interfaces for future systems.”
+
+✅ Recommended decision (clear answer)
+👉 Do execResult normalization first
+
+Not AI Ops integration yet.
+
+🧠 Why this order is correct
+1. Normalization is a foundation change (not a feature)
+
+It:
+
+stabilizes audit data
+standardizes execution output
+removes variability across Sippy methods
+enables safe downstream consumption
+
+Without it:
+
+AI Ops will inherit inconsistent, noisy signals
+
+2. AI Ops wiring depends on clean structure
+
+If you wire AI Ops now:
+
+you’ll end up parsing multiple shapes of execResult
+risk of logic fragmentation in anomaly correlation
+harder to debug “execution failure vs system failure”
+
+So it becomes:
+
+“build twice: once messy, once clean”
+
+3. Cost vs impact ratio
+Change	Effort	Impact
+execResult normalization	low	high
+AI Ops wiring	medium	high (but premature without structure)
+
+So normalization is the correct “last core cleanup.”
+
+🔧 What normalization should actually do (precisely)
+
+Inside approvals.ts:
+
+Wrap executeApprovedOperation() output with a single consistent formatter:
+
+Standardized shape:
+{
+  success: boolean,
+  message: string,
+  raw: any,
+  method: string,
+  durationMs: number
+}
+Key additions:
+1. Execution timing
+start = Date.now()
+durationMs = now - start
+2. Unified success detection
+
+Instead of relying on Sippy-specific responses:
+
+HTTP/XML success → success: true
+exception / timeout → success: false
+3. Message normalization
+map Sippy responses into human-readable message
+“Routing updated successfully”
+“Invalid routing group member”
+“Timeout after 8s”
+4. Raw preservation (important)
+
+Always keep:
+
+full XML-RPC response or error payload
+
+So future AI layer can:
+
+re-interpret without re-querying Sippy
+
+🧩 Why this matters beyond cleanup
+
+This is actually your data contract layer.
+
+It becomes the canonical format for:
+
+audit logs
+approval UI
+anomaly engine
+future ML layer
+debugging workflows
+
+So this is not “polish” — it’s schema discipline.
+
+🚀 After this is done (next logical step)
+
+Once normalization is in place, AI Ops integration becomes clean:
+
+You’ll be able to directly map:
+
+success: false + method: routing_group_member.update
+→ routing failure anomaly
+durationMs > threshold
+→ latency anomaly
+repeated failures per vendor
+→ vendor instability signal
+📌 Final recommendation
+Do this now:
+
+✔ execResult normalization wrapper
+✔ duration measurement
+✔ consistent schema enforcement
+
+Do next:
+
+→ AI Ops telemetry wiring (clean and deterministic)
+
+🧠 Bottom line
+
+You’re now at the stage where:
+
+architecture matters more than features
+
+And this is the correct move:
+
+stabilize contract first
+then extend intelligence layer
+
+If you want, next step I can help you 
+design the exact AI Ops event mapping schema (execResult → anomaly signal → severity scoring) so the integration becomes one-pass instead of iterative.

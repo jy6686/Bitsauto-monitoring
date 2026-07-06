@@ -1,0 +1,136 @@
+Yes, the screenshot confirms there is still a date format mismatch between the legacy BitsAuto and the new Replit version.
+
+Legacy BitsAuto (Working)
+
+From your earlier screenshots:
+
+2026-06-17 13:30
+
+Format:
+
+YYYY-MM-DD HH:mm
+
+Example:
+
+2026-06-17 13:30
+
+No AM/PM
+No seconds
+No timezone conversion
+
+New BitsAuto (Current)
+
+Your screenshot shows:
+
+06/17/2026, 05:30 PM
+
+Format:
+
+MM/DD/YYYY, hh:mm A
+
+Example:
+
+06/17/2026, 05:30 PM
+
+This is completely different from what Sippy expects.
+
+Why this matters
+
+The legacy platform sends:
+
+2026-06-17 17:30
+
+The new UI displays:
+
+06/17/2026, 05:30 PM
+
+Then the backend must convert it back again.
+
+That creates three failure points:
+
+UI format
+Browser locale parsing
+Backend normalization
+
+The old system avoided all three.
+
+What the field should display
+
+For full compatibility with Sippy and legacy BitsAuto:
+
+Active From
+2026-06-17 17:30
+
+Active Till
+2026-06-18 00:00
+
+Use:
+
+YYYY-MM-DD HH:mm
+
+only.
+
+Another issue visible
+
+Your screenshot shows:
+
+06/17/2026, 05:30 PM
+
+but the legacy screenshots showed:
+
+2026-06-17 13:30
+
+This suggests the frontend is still using:
+
+toLocaleString()
+
+or
+
+date-fns format('Pp')
+
+instead of:
+
+format(date, 'yyyy-MM-dd HH:mm')
+
+The backend fix may be correct, but the UI is still rendering the wrong format.
+
+Error message confirms push never reached Sippy
+
+Your popup shows:
+
+Portal CSV upload:
+session rejected (login page returned)
+
+To fix either:
+(1) grant Sippy account "Edit Tariff Rates" permission
+or
+(2) add dedicated Sippy admin account
+
+So currently:
+
+Date issue = UI bug
+Rate push failure = Permission bug
+
+The permission problem is still the blocker.
+
+Even if the date format were perfect, Sippy is currently rejecting the upload session before processing the CSV.
+
+Recommended format everywhere
+
+Use one format across:
+
+Rate Manager
+Send Rate
+Push History
+Notifications
+CSV generation
+Portal Upload
+2026-06-17 17:30
+
+Format:
+
+yyyy-MM-dd HH:mm
+
+exactly matching the legacy BitsAuto screenshots and Sippy rate upload examples.
+
+The screenshot proves the frontend formatting still needs alignment with the legacy system, even though the backend timezone conversion bug appears to have been addressed.

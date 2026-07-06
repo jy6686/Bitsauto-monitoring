@@ -1,0 +1,305 @@
+Yes — the screenshots make the real gap very clear.
+
+The current BitsEye 2 graph system is still operating like:
+
+live observability dashboard
+
+while old BitsEye behaves like:
+
+traffic intelligence timeline system
+
+That is the missing layer.
+
+Your current BitsEye 2 only shows:
+
+short rolling live snapshots
+45s buckets
+recent concurrent trend
+current entity state
+
+But old BitsEye shows:
+
+Daily + Weekly + Monthly history
+Aggregated traffic intelligence
+Alive / Inactive toggles
+Calls / Minutes / Cost / Profit dimensions
+Historical persistence
+Multiple grouped graph blocks
+Entity aggregation views
+Operational comparison over time
+
+That is why the new graphs feel “empty” even though the UI is modern.
+
+The real architectural gap
+
+Current BitsEye 2 graph source:
+
+entityConcurrentHistory
+
+which is:
+
+in-memory
+short-lived
+live-only
+45s polling
+not historical analytics
+
+Old BitsEye graph source is effectively:
+
+time-series warehouse
+
+with:
+
+hourly buckets
+daily buckets
+weekly buckets
+persisted historical aggregates
+alive/inactive filtering
+aggregation layers
+What actually needs to be built now
+
+Not prettier charts.
+
+A proper:
+
+Historical Metrics Engine
+
+for BitsEye 2.
+
+Correct architecture direction
+Layer 1 — Live cache (already exists)
+
+You already have:
+
+Component	Status
+liveCallsCache	✅
+presenceCache	✅
+crossDimCache	✅
+entityConcurrentHistory	✅
+
+This powers:
+
+sidebar
+live graphs
+arcs
+hover cards
+live state
+
+Keep it.
+
+Layer 2 — Historical aggregation engine (missing)
+
+Need new persistent metrics tables:
+
+entity_metrics_5m
+entity_metrics_hourly
+entity_metrics_daily
+
+Each row:
+
+{
+  dim: 'client',
+  entity: 'internal-bd',
+  ts: unix,
+  totalCalls,
+  connectedCalls,
+  asr,
+  acd,
+  pdd,
+  cps,
+  revenue,
+  cost,
+  profit
+}
+
+This is what old BitsEye was fundamentally using.
+
+Why current graphs feel wrong
+
+Current graph:
+
+3:42 PM → 3 calls
+3:43 PM → 4 calls
+3:44 PM → 2 calls
+
+Operator cannot learn anything meaningful from this.
+
+Old BitsEye graph:
+
+last 7 days
+traffic rise pattern
+hourly collapse
+vendor instability
+peak windows
+weekday trend
+profit drop
+
+That is operational intelligence.
+
+Your screenshots reveal 5 critical missing capabilities
+1. Graph span selector
+
+Missing:
+
+LIVE
+HOURLY
+DAILY
+WEEKLY
+MONTHLY
+
+Current BitsEye 2:
+
+only live window
+2. Graph type selector
+
+Missing:
+
+CALLS
+ASR & NER
+MINUTES
+COST
+PROFIT
+ACD & PDD
+
+Current:
+
+only concurrent calls
+3. Alive / Inactive filtering
+
+Old system:
+
+All
+Active
+Inactive
+
+Current:
+
+only active live entities
+4. Aggregated hierarchy
+
+Old:
+
+All Aggregated
+Business
+Premium
+Standard
+Department
+KAM
+Country
+
+Current:
+
+single entity drilldown only
+5. Historical persistence
+
+Old:
+
+May 13 → May 20
+
+Current:
+
+last few minutes only
+
+This is the biggest missing layer.
+
+Recommended next implementation phase
+
+This is now the correct roadmap.
+
+Phase A — Historical Metrics Storage
+
+Build:
+
+metrics aggregation pipeline
+
+Every 5 minutes:
+
+liveCallsCache
+        ↓
+aggregateMetrics()
+        ↓
+entity_metrics_5m
+
+Then hourly rollups.
+
+This unlocks everything else.
+
+Phase B — Graph Span System
+
+Add selectors:
+
+LIVE | HOURLY | DAILY | WEEKLY | MONTHLY
+
+Query switches table automatically.
+
+Phase C — Metric Type System
+
+Add:
+
+Calls
+Connected
+ASR
+ACD
+PDD
+Revenue
+Cost
+Profit
+Phase D — Aggregated Groups
+
+Add synthetic entities:
+
+All Clients
+All Vendors
+Premium
+Business
+Department
+KAM
+
+using aggregation queries.
+
+What NOT to do
+
+Do NOT keep extending:
+
+entityConcurrentHistory
+
+trying to emulate historical analytics.
+
+Wrong abstraction.
+
+That cache is for:
+
+live rendering
+sparklines
+sidebar trends
+
+NOT:
+
+weekly analytics
+historical reporting
+business intelligence
+Your screenshots actually define the next architecture milestone
+
+BitsEye 2 already surpassed old BitsEye in:
+
+Area	Winner
+live observability	BitsEye 2
+topology visibility	BitsEye 2
+cross-dimensional navigation	BitsEye 2
+map intelligence	BitsEye 2
+operational UX	BitsEye 2
+
+But old BitsEye still wins in:
+
+Area	Winner
+historical intelligence	Old BitsEye
+traffic analytics	Old BitsEye
+long-window trends	Old BitsEye
+aggregation views	Old BitsEye
+
+So the next milestone is:
+
+merge old historical intelligence
+with new live observability
+
+That becomes the real BitsEye 2 platform.

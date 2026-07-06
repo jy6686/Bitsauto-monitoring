@@ -1,0 +1,2094 @@
+Pasted text.txt
+Document
+Pasted text.txt
+Document
+Rate Management & Automation Requirements
+
+1. Rate Sheet Reception & Parsing
+
+A centralized Rate Management module should be implemented to automate vendor rate sheet processing.
+
+Required Features
+
+* Dedicated email address for receiving vendor rate sheets (e.g., rates@company.com).
+* Automatic monitoring of incoming rate sheet emails.
+* Support for multiple formats:
+    * XLS/XLSX
+    * CSV
+    * TXT
+    * Vendor-specific custom formats
+* Intelligent parser to convert vendor formats into the platform’s standard rate format.
+* Validation checks before import.
+* Preview screen showing:
+    * New destinations
+    * Updated destinations
+    * Increased rates
+    * Decreased rates
+    * Invalid records
+
+Missing Features
+
+* Automatic email retrieval and parsing.
+* Format conversion engine.
+* Vendor-specific parsing templates.
+* Automated destination matching.
+
+⸻
+
+2. Vendor Rate Update Automation
+
+When a vendor rate sheet is approved:
+
+* Automatically update all destination sets linked to the vendor.
+* Update all routes and connections using the same destination set.
+* Generate audit logs showing:
+    * Previous rate
+    * New rate
+    * User
+    * Date & Time
+
+⸻
+
+3. Historical Rate Repository
+
+The platform should maintain a complete history of all rates.
+
+Features
+
+* Store all previous rate sheets.
+* Track rate changes over time.
+* Display:
+    * Current Rate
+    * Previous Rate
+    * Difference
+    * Percentage Increase/Decrease
+    * Effective Date
+
+Benefits
+
+When preparing a quote for a client, the system should instantly show:
+
+* Last offered rate.
+* Current cost.
+* Margin analysis.
+* Increase or decrease compared to previous pricing.
+
+⸻
+
+4. Client Rate Generation Module
+
+A pricing engine should be available for generating customer rate sheets.
+
+Features
+
+* Generate rates from:
+    * Wholesale pricing tables
+    * Retail pricing tables
+    * Custom pricing plans
+* Save generated pricing templates.
+* Reuse existing pricing plans for future customers.
+* Export to:
+    * Excel
+    * CSV
+    * PDF
+
+⸻
+
+5. Pricing Protection & Loss Prevention Rules
+
+To avoid accidental losses, pricing validation rules should be enforced.
+
+Example
+
+If cost = $1.00
+
+The system should not allow:
+
+* $0.01
+* $0.05
+
+Without management approval.
+
+Required Rules
+
+Rate Decrease Validation
+
+* New rate cannot be reduced by more than 50%.
+* If exceeded:
+    * Import fails.
+    * Approval workflow is triggered.
+
+Rate Increase Validation
+
+* Rate increase should be scheduled.
+* Effective date must be at least 7 days in the future.
+* Customers receive advance notification.
+
+Margin Protection
+
+* Minimum margin rules.
+* Cost + minimum markup validation.
+* Hard stop if margin becomes negative.
+
+⸻
+
+6. Email Routing Configuration
+
+A centralized Email Configuration page should be created.
+
+Examples
+
+Billing
+
+billing@company.com
+
+Invoices
+
+invoice@company.com
+
+Vendor Rates
+
+rates@company.com
+
+Retail Pricing
+
+pricing@company.com
+
+Notifications
+
+alerts@company.com
+
+Features
+
+* Configure sender addresses.
+* Configure recipient groups.
+* Define workflows per mailbox.
+
+⸻
+
+7. Approval Workflow
+
+Before implementing rate changes:
+
+Auto Approve
+
+* Small changes within allowed threshold.
+
+Manual Approval
+
+Required when:
+
+* Rate decreases exceed configured limits.
+* Margin falls below minimum threshold.
+* Large destination volume is affected.
+
+⸻
+
+8. Reporting & Audit Trail
+
+Provide complete visibility into pricing changes.
+
+Reports
+
+* Rate Increase Report
+* Rate Decrease Report
+* Margin Impact Report
+* Vendor Update History
+* Customer Pricing History
+
+Audit Logs
+
+Track:
+
+* User
+* Date
+* Previous Value
+* New Value
+* Approval Status
+
+⸻
+
+Expected Outcome
+
+The platform should provide a fully automated rate lifecycle management system that:
+
+* Receives vendor rates automatically.
+* Parses and validates incoming rate sheets.
+* Prevents pricing mistakes and revenue loss.
+* Maintains historical pricing records.
+* Generates client pricing automatically.
+* Updates all linked routes and destination sets.
+* Provides approval workflows and audit trails.
+* Centralizes billing, pricing, invoice, and rate management emails.
+
+Pasted text.txt
+Document
+Multi-Server Architecture & Synchronization Requirements
+
+Currently, the platform supports linking multiple servers, but only one server can be designated as the Primary server while all others operate as Secondary servers.
+
+We would like to evaluate whether the platform can support a Multi-Primary architecture, where three or four IPs/servers can operate simultaneously as Primary nodes.
+
+Current Operational Model
+
+Our environment typically consists of multiple servers with different responsibilities:
+
+Core Traffic Server
+
+* Main production server.
+* Handles inbound and outbound traffic.
+* Primary routing and switching point.
+
+DID Management Server
+
+* Dedicated server for DID services.
+* Handles DID provisioning.
+* Processes DID inbound and outbound traffic separately from the core traffic server.
+
+Testing Server
+
+* Dedicated testing environment.
+* Test calls originate from the testing server IP.
+* Traffic may be routed through vendor testing IPs.
+* Calls can terminate on the Core Traffic Server for validation purposes.
+
+Additional Services Server
+
+* Used for future expansion, redundancy, monitoring, analytics, or specialized services.
+
+Required Enhancements
+
+Multi-Primary Server Support
+
+The platform should allow:
+
+* Multiple Primary servers.
+* Active-Active architecture.
+* Shared traffic processing.
+* Shared routing configuration.
+* Shared customer database.
+* Shared rate management.
+
+Instead of:
+
+* 1 Primary
+* Multiple Secondary
+
+We need:
+
+* Multiple Active Primary Servers
+* Real-time synchronization between all nodes
+
+⸻
+
+Data Synchronization Requirements
+
+When multiple servers are active simultaneously:
+
+Customer Synchronization
+
+If a customer is created on one server:
+
+* Automatically replicate to all active servers.
+* Maintain identical configurations.
+
+Rate Synchronization
+
+If a rate update is imported:
+
+* Apply changes across all active servers.
+* Ensure all routing engines receive the same rates.
+* Prevent inconsistent pricing between servers.
+
+Routing Synchronization
+
+Routing changes should automatically propagate across:
+
+* Core servers
+* DID servers
+* Testing servers
+* Additional production nodes
+
+Authentication Synchronization
+
+Changes to:
+
+* IP Authentication
+* SIP Authentication
+* Username/Password
+* CLD Rules
+
+Should be replicated instantly across all active servers.
+
+⸻
+
+Traffic Aggregation & Reporting
+
+If traffic is running simultaneously on multiple servers:
+
+Example
+
+Server A
+
+* 100,000 minutes
+
+Server B
+
+* 150,000 minutes
+
+Server C
+
+* 75,000 minutes
+
+The platform should provide:
+
+Consolidated Reporting
+
+* Combined traffic statistics.
+* Combined ASR.
+* Combined ACD.
+* Combined revenue.
+* Combined margin analysis.
+
+Per-Server Reporting
+
+* Traffic by server.
+* Revenue by server.
+* Quality metrics by server.
+
+⸻
+
+Monitoring Requirements
+
+The monitoring module should support:
+
+Multi-IP Monitoring
+
+Monitor all active IPs simultaneously.
+
+Track:
+
+* Traffic
+* CPS
+* Concurrent Calls
+* ASR
+* ACD
+* SIP Errors
+* Server Health
+
+Unified Dashboard
+
+Provide a single dashboard showing:
+
+* Overall platform statistics.
+* Individual server statistics.
+* Cluster health status.
+
+⸻
+
+High Availability & Failover
+
+In an Active-Active environment:
+
+* If one server becomes unavailable:
+    * Traffic should automatically shift to remaining servers.
+    * No manual intervention required.
+* Once restored:
+    * Configuration should automatically synchronize.
+    * Traffic should rebalance automatically.
+
+⸻
+
+Recommended Architecture
+
+For long-term scalability, the platform should support:
+
+* Multi-Primary (Active-Active) deployment.
+* Centralized Database Cluster.
+* Real-time configuration synchronization.
+* Shared Rate Management Engine.
+* Shared Customer Repository.
+* Distributed Traffic Processing.
+* Unified Monitoring and Reporting.
+
+This architecture will enable the platform to scale across multiple servers while maintaining configuration consistency, synchronized rates, centralized management, and high availability.
+Pasted text.txt
+Document
+Pasted text.txt
+Document
+Voice Trading Desk Requirements
+
+Overview
+
+The platform should include a dedicated Voice Trading Desk module to manage voice wholesale operations, vendor negotiations, customer pricing, routing decisions, quality monitoring, and commercial performance from a single interface.
+
+The Voice Trading Desk should act as the operational hub between:
+
+* Vendors
+* Customers
+* Routing Team
+* NOC Team
+* Billing Team
+* Management
+
+⸻
+
+1. Trading Dashboard
+
+A real-time dashboard displaying:
+
+Commercial KPIs
+
+* Revenue
+* Cost
+* Profit
+* Margin %
+* Minutes
+* ASR
+* ACD
+* CPS
+* Concurrent Calls
+
+Operational KPIs
+
+* Active Routes
+* Route Quality Status
+* Rate Changes Pending
+* Customer Requests
+* Vendor Requests
+* Open Tickets
+
+⸻
+
+2. Vendor Management
+
+Maintain a complete vendor database.
+
+Vendor Profile
+
+* Company Name
+* Contact Details
+* NOC Contacts
+* Commercial Contacts
+* Billing Contacts
+* Test Numbers
+* SIP Information
+* IP Addresses
+* Payment Terms
+* Currency
+* Credit Limit
+
+Vendor Documents
+
+* Agreement
+* Rate Sheets
+* KYC Documents
+* Tax Documents
+
+⸻
+
+3. Customer Management
+
+Maintain a complete customer profile.
+
+Customer Profile
+
+* Company Name
+* Trading Name
+* Technical Contacts
+* Billing Contacts
+* Account Manager
+* Product Assignments
+* Tariffs
+* Credit Limits
+* Payment Terms
+
+⸻
+
+4. Route Inventory Management
+
+A central route repository.
+
+Route Details
+
+* Destination
+* Product
+* Vendor
+* Cost
+* Selling Price
+* Margin
+* Route Status
+
+Examples:
+
+* First Class
+* Business Class
+* Special Bravo
+* Special Charlie
+
+The trading team should instantly see:
+
+* Available routes
+* Best routes
+* Backup routes
+* Quality score
+
+⸻
+
+5. Rate Management Integration
+
+Integrated with the Rate Management module.
+
+Features
+
+* Vendor rate imports
+* Product-specific rates
+* Historical rates
+* Margin calculations
+* Customer pricing generation
+* Rate comparison
+
+⸻
+
+6. Route Trading Board
+
+A live trading board showing:
+
+Vendor Side
+
+* Current Cost
+* Previous Cost
+* Increase/Decrease
+* Effective Date
+
+Customer Side
+
+* Current Selling Price
+* Previous Selling Price
+* Margin Impact
+
+This allows traders to make immediate pricing decisions.
+
+⸻
+
+7. Deal Management
+
+Track commercial negotiations.
+
+Deal Record
+
+* Customer
+* Destination
+* Product
+* Requested Rate
+* Offered Rate
+* Approved Rate
+* Status
+
+Statuses:
+
+* New
+* Negotiating
+* Approved
+* Rejected
+* Implemented
+
+⸻
+
+8. Testing & Route Qualification
+
+Integrated testing workflow.
+
+Testing Requests
+
+* Send Test
+* Receive Test Results
+* Route Qualification
+
+Track:
+
+* ASR
+* ACD
+* PDD
+* CLI Delivery
+* Audio Quality
+
+⸻
+
+9. Quality Monitoring
+
+Monitor route quality in real time.
+
+KPIs
+
+* ASR
+* ACD
+* PDD
+* SIP Errors
+* False Answer Supervision
+* Short Duration Calls
+
+Alerts
+
+* ASR Drop
+* ACD Drop
+* Quality Degradation
+* Traffic Loss
+
+⸻
+
+10. Margin Protection Engine
+
+Prevent commercial losses.
+
+Rules
+
+* Minimum Margin %
+* Minimum Markup
+* Negative Margin Block
+* Approval Workflow
+
+Example:
+
+Cost = $0.020
+
+Attempted Sell Rate = $0.015
+
+Result:
+Blocked automatically.
+
+⸻
+
+11. Opportunity Management
+
+Track trading opportunities.
+
+Opportunities
+
+* New Customer
+* New Vendor
+* New Destination
+* Price Improvement
+* Traffic Growth
+
+Expected:
+
+* Revenue
+* Margin
+* Minutes
+
+⸻
+
+12. Traffic Analysis
+
+Identify business trends.
+
+Reports
+
+* Top Customers
+* Top Vendors
+* Top Destinations
+* Margin Analysis
+* Revenue Analysis
+* Growth Trends
+
+⸻
+
+13. NOC & Trading Collaboration
+
+Shared workflow between NOC and Trading.
+
+Trading Team
+
+* Commercial decisions
+* Pricing
+* Negotiations
+
+NOC Team
+
+* Quality
+* Routing
+* Testing
+* Monitoring
+
+All activities should be visible in a shared timeline.
+
+⸻
+
+14. Vendor & Customer Communication Hub
+
+Maintain communication history.
+
+Store
+
+* Emails
+* WhatsApp Messages
+* Tickets
+* Notes
+* Rate Discussions
+* Commercial Agreements
+
+Everything should be searchable.
+
+⸻
+
+15. AI-Based Trading Recommendations (Future Phase)
+
+The platform should analyze:
+
+* Vendor Costs
+* Customer Pricing
+* Route Quality
+* Traffic Trends
+
+And automatically recommend:
+
+* Best vendor
+* Best route
+* Price increase opportunities
+* Price decrease opportunities
+* Margin optimization
+
+⸻
+
+Expected Outcome
+
+The Voice Trading Desk should become the central command center for wholesale voice operations, combining:
+
+* Trading
+* Routing
+* Pricing
+* Testing
+* Quality Monitoring
+* Customer Management
+* Vendor Management
+* Margin Protection
+* Commercial Reporting
+
+into a single integrated platform.
+Pasted text.txt
+Document
+Commercial Workspace UI & Navigation Requirements
+
+Overview
+
+All newly developed commercial features should be organized into dedicated workspace modules rather than being added as individual top-level menu items or dropdown menus.
+
+The objective is to create a clean, scalable, and business-focused user experience where each department operates from its own workspace.
+
+⸻
+
+Voice Trading Workspace
+
+A dedicated top-level menu should be created:
+
+Voice Trading
+
+When users click on Voice Trading, they should enter a dedicated commercial workspace containing tab-based navigation.
+
+The Voice Trading workspace should be fully commercial-focused and separate from routing, NOC, and technical operations.
+
+⸻
+
+Voice Trading Dashboard (Default Tab)
+
+The landing page should display:
+
+Commercial Metrics
+
+* Revenue
+* Cost
+* Margin
+* Minutes
+* ASR
+* ACD
+
+Live Trading Information
+
+* Current Vendor Rates
+* Customer Rates
+* Active Routes
+* Route Names
+* Top Destinations
+* Rate Change Alerts
+* Vendor Notifications
+
+Trading Windows
+
+* Pending Deals
+* Pending Rate Approvals
+* Vendor Increases
+* Customer Notifications Due
+* Margin Risk Alerts
+
+⸻
+
+Trading Authorization & Approval Workflow
+
+Traders should only be able to offer rates within approved margin limits.
+
+Standard Workflow
+
+The Trading Manager or Department Head defines:
+
+* Minimum Margin
+* Allowed Discount Range
+* Product Pricing Rules
+
+The system automatically calculates:
+
+* Cost
+* Suggested Sell Rate
+* Minimum Allowed Rate
+* Margin %
+
+Aggressive Pricing Requests
+
+If a trader wants to offer a rate below the approved margin threshold:
+
+* Submit Approval Request
+* Manager receives notification
+* Manager reviews request
+* Manager approves or rejects
+
+Only approved requests can be offered to customers.
+
+⸻
+
+Rate Management Workspace
+
+A separate commercial workspace should be created for rate operations.
+
+Main Menu
+
+Rates
+
+or
+
+Rate Management
+
+or
+
+Pricing Management
+
+⸻
+
+Tab 1 – Rate Dashboard
+
+Displays:
+
+* Vendor Rate Changes
+* Customer Rate Changes
+* Pending Notifications
+* Product-Based Pricing Summary
+* Margin Analysis
+* Recent Updates
+
+⸻
+
+Tab 2 – Rate Editor
+
+Used for viewing and editing pricing.
+
+Features:
+
+* Search Destination
+* Search Product
+* Search Customer
+* Compare Current vs Previous Rates
+* Compare Vendor vs Customer Rates
+
+Rate Editor Limitations
+
+The Rate Editor should support:
+
+* Single Destination Rate
+* Single Product Rate
+* Breakout Rate
+* Flat Rate
+
+It should not be used for mass customer distributions.
+
+⸻
+
+Tab 3 – Send Rates
+
+Used for customer rate distribution.
+
+Filters
+
+* Customer
+* Multiple Customers
+* Product
+* Active Customers
+* Inactive Customers
+* Dormant Customers
+* Region
+* Destination
+
+Features
+
+* Send rates to multiple customers simultaneously.
+* Send multiple destinations simultaneously.
+* Product-based rate sheet generation.
+* Email distribution.
+* Scheduled delivery.
+
+⸻
+
+Tab 4 – Rate Notifications
+
+A complete notification and audit center.
+
+Displays:
+
+* All sent rate sheets
+* Sender
+* Date & Time
+* Customer
+* Product
+* Status
+
+Status Examples
+
+* Draft
+* Pending Approval
+* Scheduled
+* Sent
+* Delivered
+* Opened
+* Failed
+
+⸻
+
+Tab 5 – Vendor Cost Impact Analysis
+
+Displays:
+
+* Vendor Rate Increase
+* Effective Date
+* Margin Impact
+* Affected Customers
+* Affected Products
+
+Automatically identifies customers requiring updates.
+
+⸻
+
+Tab 6 – 7-Day Notice Queue
+
+Displays:
+
+* Customers requiring notice
+* Destinations affected
+* Current Sell Rate
+* New Recommended Rate
+* Effective Date
+* Days Remaining
+
+This becomes the operational work queue for traders.
+
+⸻
+
+Tab 7 – Product Rate History
+
+Displays:
+
+Product
+
+* First Class
+* Business Class
+* Special Bravo
+* Special Charlie
+
+History
+
+* Previous Rates
+* Current Rates
+* Increase/Decrease Analysis
+* Effective Dates
+* Customer Pricing History
+
+⸻
+
+Tab 8 – Approval Center
+
+Displays:
+
+* Aggressive Pricing Requests
+* Margin Exception Requests
+* Manual Overrides
+* Approval History
+
+⸻
+
+Tab 9 – Reports & Analytics
+
+Reports include:
+
+* Revenue Analysis
+* Margin Analysis
+* Customer Pricing History
+* Vendor Rate History
+* Product Performance
+* Trader Activity
+
+⸻
+
+UI Design Standard
+
+All future commercial modules should follow the same structure.
+
+Instead of creating multiple top-level menus:
+
+Recommended Structure
+
+Voice Trading
+├── Dashboard
+├── Deals
+├── Route Board
+├── Notifications
+├── Reports
+
+Rate Management
+├── Dashboard
+├── Rate Editor
+├── Send Rates
+├── Notifications
+├── Vendor Impact Analysis
+├── 7-Day Notice Queue
+├── Product History
+├── Approvals
+├── Reports
+
+Customer Management
+├── Dashboard
+├── Customers
+├── Pricing
+├── Notifications
+├── Reports
+
+This approach keeps the platform organized, scalable, and easy to use while ensuring that all commercial functions remain grouped within dedicated workspaces rather than being scattered across multiple dropdown menus.
+
+
+I agree with both of your adjustments, and I would actually make them platform doctrine.
+
+1. Margin Visibility — Do NOT Show True Margin To KAM
+
+This is absolutely the correct commercial governance model.
+
+Management View
+
+Can see:
+
+Vendor Cost
+Customer Rate
+Gross Margin
+Net Margin
+Margin %
+Monthly Profit
+Trading Manager
+
+Can see:
+
+Vendor Cost
+Customer Rate
+Margin %
+
+but maybe not full profitability.
+
+KAM (Key Account Manager)
+
+Should NOT see:
+
+Vendor Cost
+True Margin
+Vendor Identity
+
+Instead show:
+
+Commercial Health
+Pricing Band
+Offer Flexibility
+Discount Authority
+
+Example:
+
+Role	What They See
+Management	24.3% margin
+Trading Manager	Margin Healthy
+KAM	Pricing Band A
+Better KAM Model
+
+Instead of:
+
+Margin = 24%
+
+Show:
+
+Offer Window
+
+Minimum Offer: 0.024
+Target Offer: 0.026
+Premium Offer: 0.028
+
+The KAM can negotiate inside the approved window without ever seeing the underlying vendor economics.
+
+This is how many wholesale carriers operate.
+
+2. Global Destination Catalog
+
+This is one of the strongest proposals you've made.
+
+I would place this ABOVE Product Registry.
+
+Because everything depends on destinations:
+
+Routing
+Pricing
+Trading
+Products
+Notifications
+Rates
+Reporting
+Current Problem
+
+Today most telecom systems store:
+
+Pakistan Mobile
+Pakistan Jazz
+9230
+92300
+923001
+
+in multiple places.
+
+Result:
+
+Routing says one thing
+Pricing says another
+Vendor sheet says another
+
+Eventually chaos.
+
+Recommended Architecture
+Level 1
+Pakistan
+India
+Bangladesh
+UK
+USA
+Level 2
+Pakistan
+ ├ Fixed
+ └ Mobile
+Level 3
+Pakistan Mobile
+ ├ Jazz
+ ├ Zong
+ ├ Ufone
+ └ Telenor
+Level 4 (Optional)
+Jazz
+ ├ Prepaid
+ ├ Postpaid
+ └ Enterprise
+
+Unlimited depth.
+
+Most Important Addition
+
+Add:
+
+Commercial Status
+
+Every destination should have:
+
+Commercially Approved
+Commercially Blocked
+Testing Only
+Deprecated
+Under Review
+
+This is more valuable than simply:
+
+Active
+Inactive
+Destination Catalog Becomes Master Data
+
+Everything references:
+
+destination_id
+
+NOT:
+
+destination_name
+
+This is critical.
+
+Example
+
+Today:
+
+Pakistan Mobile
+Pakistan Mob
+PK Mobile
+Pakistan Cellular
+
+all appear in different systems.
+
+Future:
+
+destination_id = 112
+
+Everything references that.
+
+Approved Destination Workspace
+
+I strongly like your:
+
+Left Tree
+Right Approved Panel
+
+design.
+
+Left
+Global Catalog
+
+All destinations.
+
+Right
+Commercial Portfolio
+
+Only approved destinations.
+
+Very clean.
+
+What I Would Add
+Product Availability Matrix
+
+Example:
+
+Destination	First Class	Business	Bravo	Charlie
+Pakistan Jazz	✓	✓	✓	✗
+Pakistan Zong	✓	✓	✗	✗
+
+This becomes extremely useful for Trading and Pricing.
+
+Destination Approval Workflow
+
+I fully agree.
+
+Example:
+
+Search:
+Pakistan Warid
+
+Not approved.
+
+Click:
+
+Request Approval
+
+Workflow:
+
+Trader
+    ↓
+Manager
+    ↓
+Approved
+    ↓
+Available Everywhere
+
+Very strong governance.
+
+Market Pricing Intelligence
+
+I would NOT show raw margin here either.
+
+Instead:
+
+Management
+Cost
+Sell
+Margin
+KAM
+Market Position
+Competitive
+Premium
+Aggressive
+Trader
+Cost Trend
+Rate Trend
+Pricing Health
+
+Role-based visibility.
+
+Multi-Server Architecture
+
+I agree with your correction.
+
+The earlier "sync everything everywhere" model is unnecessary.
+
+For your environment:
+
+Core Server
+DID Server
+Testing Server
+Future Servers
+
+I would use:
+
+Selective Synchronization
+
+Example:
+
+Core
+
+Owns:
+
+Customers
+Auth
+Routing
+Products
+Rates
+DID Server
+
+Sync:
+
+DID Customers
+DID Routing
+DID Rates
+
+Only.
+
+Testing Server
+
+Sync:
+
+Selected Accounts
+Selected Routes
+Selected Vendors
+
+Only.
+
+Sync Policy
+
+Instead of:
+
+Auto Replicate All
+
+Use:
+
+Publish
+    ↓
+Select Nodes
+    ↓
+Sync
+
+Example:
+
+Publish Rate Change
+
+Checkboxes:
+
+☑ Core
+☑ DID
+☐ Test
+
+Very practical.
+
+Cluster Management Workspace
+
+Later create:
+
+Cluster Management
+├ Nodes
+├ Sync Jobs
+├ Drift Detection
+├ Deployment History
+├ Health
+
+instead of trying to make every node equal.
+
+My Priority Ranking Now
+
+After all these discussions, I would rank future commercial architecture as:
+
+Tier 1
+Routing Control Plane Completion
+Provisioning Studio Stabilization
+Global Destination Catalog
+Tier 2
+Product Registry
+Pricing & Rate Intelligence
+Voice Trading Workspace
+Tier 3
+Cluster Management
+Selective Multi-Node Synchronization
+AI Trading Recommendations
+The Biggest Architectural Insight
+
+The Global Destination Catalog is becoming the master data layer for the entire commercial side of BitsAuto.
+
+Destination Catalog
+        ↓
+Products
+        ↓
+Pricing
+        ↓
+Trading
+        ↓
+Customer Offers
+        ↓
+Routing
+        ↓
+Reporting
+
+If built correctly, it becomes the equivalent of a telecom "Chart of Accounts" — a foundational system that every other commercial workspace depends on.
+
+One note: I see references to uploaded files, but some previously uploaded files are no longer available in the conversation. If you want me to review or compare any specific document again, please upload it once more.
+
+RATE NOTIFICATION (FULL) _ QUICKCOM _ FIRST CLASS _ June 4, 2026.eml
+File
+attached is the rate sheet for your reference 
+
+
+
+I reviewed the attached rate notification email and its Excel attachment.
+
+What this rate sheet tells us
+
+This is not a simple vendor rate file.
+
+It is already very close to the type of commercial workflow BitsAuto should eventually manage.
+
+The sheet contains:
+
+Field	Example
+Company Name	quickcom
+Product Name	first class
+Send Date	04-Jun-2026
+Technical Prefix	59471
+KAM	Junaid Qadeer
+Country	Afghanistan
+Destination	AFGHANISTAN - MOBILE AWCC
+Prefix	9370
+Rate	0.19600
+Change Type	NC / I / D / PI / PD
+Billing Interval	60/1
+Effective Date	Stored per row
+
+Most importantly:
+
+N  = New
+NC = No Change
+I  = Increase
+D  = Decrease
+PI = Pending Increase
+PD = Pending Decrease
+B  = Block
+R  = Removed
+DC = Destination Change
+
+This is exactly the type of intelligence that a future Pricing & Rate Intelligence module should understand.
+
+What I Learned From This Sheet
+
+The biggest realization is:
+
+Products are already the commercial unit
+
+The email is not saying:
+
+Vendor Rate Sheet
+
+It is saying:
+
+QUICKCOM
+FIRST CLASS
+
+which means your commercial workflow is already:
+
+Customer
+    ↓
+Product
+    ↓
+Destination
+    ↓
+Rate
+
+not:
+
+Prefix
+    ↓
+Rate
+
+This strongly reinforces the need for:
+
+Product Registry
+
+before building a large Pricing Intelligence platform.
+
+How I Would Model This
+Product
+First Class
+Business Class
+Bravo Special
+Special Charlie
+Destination
+Pakistan Mobile Jazz
+Pakistan Mobile Zong
+UK Mobile O2
+Product Rate
+Product: First Class
+Destination: Pakistan Jazz
+Rate: 0.024
+Status: Increase
+
+This becomes the commercial source of truth.
+
+Very Important Observation
+
+The sheet already contains:
+
+KAM Name
+KAM Email
+
+This is huge.
+
+Because it means:
+
+KAM owns distribution
+
+but
+
+KAM should NOT own margin visibility
+
+I agree with your earlier statement.
+
+Recommended Role Visibility
+Management
+
+Can see:
+
+Vendor Cost
+Customer Rate
+Margin
+Profit
+Trading Manager
+
+Can see:
+
+Cost
+Sell
+Margin Band
+KAM
+
+Can see:
+
+Customer Rate
+Approved Offer Window
+Rate Change Status
+
+but NOT:
+
+Vendor Cost
+True Margin
+
+This should be enforced in the future Rate Workspace.
+
+What This Means For The Rate Management Workspace
+
+I would now structure it as:
+
+Pricing & Rates
+├ Dashboard
+├ Incoming Vendor Sheets
+├ Product Rates
+├ Customer Rates
+├ Rate Distribution
+├ Vendor Impact
+├ Notice Queue
+├ Product History
+├ Approvals
+├ Reports
+
+Notice:
+
+Product Rates
+
+becomes the center of the system.
+
+Not vendor rates.
+
+Not customer rates.
+
+Products.
+
+Global Destination Catalog
+
+After seeing this sheet, I am even more convinced this should be built.
+
+Because this row:
+
+AFGHANISTAN - MOBILE AWCC
+
+should not exist as free text.
+
+Instead:
+
+Country:
+Afghanistan
+
+Type:
+Mobile
+
+Operator:
+AWCC
+
+Destination ID:
+12345
+
+Everything references the destination ID.
+
+This will dramatically simplify:
+
+pricing
+routing
+trading
+reports
+notifications
+What I Would Build Before Any Large Rate Automation
+Phase 1
+
+Global Destination Catalog
+
+Country
+    ↓
+Type
+    ↓
+Operator
+Phase 2
+
+Product Registry
+
+First Class
+Business Class
+Bravo
+Charlie
+Phase 3
+
+Product Rate Repository
+
+Store:
+
+Current Rate
+Previous Rate
+Status
+Effective Date
+Phase 4
+
+Vendor Import Engine
+
+Process files like the one you uploaded.
+
+Phase 5
+
+Customer Distribution Engine
+
+Generate and send customer-specific sheets.
+
+Multi-Server Comment
+
+I also agree with your correction.
+
+I would NOT sync every customer/account to every node.
+
+Your model is much more practical:
+
+Core Server
+    ↓
+Master Customer Data
+
+Then:
+
+Publish Routing
+Publish Rates
+Publish Products
+
+to selected servers only.
+
+Example:
+
+☑ Core
+☑ DID
+☐ Test
+☐ Analytics
+
+This is simpler, safer, and aligns with how telecom operations are usually run.
+
+My biggest takeaway from this sample
+
+This rate sheet confirms that Product Management + Global Destination Catalog should come before a large-scale Rate Management build.
+
+Without those two foundations, you'll spend years managing rate sheets.
+
+With those foundations, BitsAuto can evolve into a true Pricing Intelligence Platform where rates, products, destinations, trading, and customer communications all reference the same master data.
+
+Deal TempDeal
+Madiha 002 16 10 2019Sheet1
+attached deal sheet are for your reference please read all TABs 
+
+I read both Excel files and they are actually much more valuable than they first appear.
+
+These sheets reveal how your business has historically managed voice trading, deal approval, profitability analysis, customer offers, and product pricing. They strongly support the idea of a dedicated Voice Trading Workspace.
+
+What I Learned From The Deal Sheets
+File 1 — Deal Temp.xlsx
+
+This is not a rate sheet.
+
+It is a trader deal model.
+
+The tabs contain:
+
+Deal Tab
+
+Two commercial pricing methodologies:
+
+Percentage Wise
+
+Example:
+
+Product	Rate
+Premium	0.028
+Standard	0.031
+
+and
+
+Volume Wise
+
+Example:
+
+Product	Volume
+Premium	655
+
+This means traders are negotiating deals based on:
+
+volume commitments
+percentage splits
+blended average rates
+
+This is a true trading function, not routing.
+
+New Format Tab
+
+This is extremely interesting.
+
+Contains:
+
+KAM
+Profit
+Total Revenue
+Account Pay/Rec
+Grace Period
+Expiry Date
+
+and
+
+Destination
+Trunk
+Volume
+Selling
+Revenue
+Target Profit
+Revenue Ratio
+
+This is effectively:
+
+Commercial Deal Workspace
+
+You already had the business logic years ago.
+
+It simply never became a platform module.
+
+Data Tab
+
+Contains:
+
+Destination	Selling	Buying	Product	Client/Vendor
+Afghanistan AWCC	0.196		Business Class	1Global
+Afghanistan Etisalat	0.196		First Class	4B-Gentle
+Bahrain Mobile	0.107		Premium	Airtel
+Bangladesh Mobile	0.0198	0.0190		Annecto
+
+This is extremely important.
+
+Because it confirms:
+
+Products already exist operationally
+
+Examples:
+
+Business Class
+First Class
+Premium
+Standard
+Gold
+Silver
+Platinum
+
+Your platform should formalize this.
+
+File 2 — Madiha-002
+
+This is even more revealing.
+
+Contains:
+
+Profitability Analysis
+
+Example:
+
+Destination	Volume	Sell Rate	Amount
+Pakistan Mobile Telenor	2,000,000	0.0385	77,000
+
+Compared against:
+
+Market Rate
+
+and calculates:
+
+Profit/Loss
+
+Example:
+
+Profit:
+9,000 USD
+
+This is pure Voice Trading Desk functionality.
+
+Biggest Architectural Discovery
+
+The spreadsheets prove that your organization already operates around:
+
+Destination
+Product
+Volume
+Selling Rate
+Buying Rate
+Profitability
+KAM
+Customer
+
+NOT around:
+
+Routing Group
+Destination Set
+Authentication Rule
+
+Those are technical implementation objects.
+
+What This Means For BitsAuto
+
+I would now slightly adjust the roadmap.
+
+New Priority
+Tier 1
+Routing Control Plane Completion
+Provisioning Studio Stabilization
+Global Destination Catalog
+Tier 2
+Product Registry
+Voice Trading Workspace
+Pricing & Rate Intelligence
+Tier 3
+Product Pricing Intelligence
+Deal Management
+Cluster Synchronization
+Voice Trading Workspace Should Now Include
+Dashboard
+
+Revenue
+
+Cost
+
+Profitability
+
+Active Deals
+
+Expiring Deals
+
+Deals
+
+This comes directly from your Excel files.
+
+Fields:
+
+Customer
+Product
+Destination
+Volume
+Buy Rate
+Sell Rate
+Target Profit
+Expiry Date
+KAM
+Status
+Profitability
+
+The Madiha sheet should become:
+
+Destination
+Volume
+Market Rate
+Sell Rate
+Profit/Loss
+
+interactive.
+
+Product Performance
+
+Example:
+
+First Class
+Revenue
+Profit
+Minutes
+Customers
+Deal Simulator
+
+This is where the Excel logic moves into BitsAuto.
+
+Example:
+
+Volume:
+2,000,000
+
+Buy:
+0.034
+
+Sell:
+0.0385
+
+Platform calculates:
+
+Revenue
+Profit
+Margin
+
+before approval.
+
+Margin Visibility
+
+The deal sheets strengthen your earlier recommendation.
+
+I agree completely.
+
+Management
+
+Can see:
+
+Buy Rate
+Sell Rate
+Margin
+Profit
+Trading Manager
+
+Can see:
+
+Buy Rate
+Sell Rate
+Margin Band
+KAM
+
+Should see:
+
+Approved Rate
+Target Rate
+Offer Window
+
+Only.
+
+Never:
+
+Vendor Cost
+Actual Margin
+Profit
+
+This is standard commercial governance.
+
+One Very Important Addition
+
+The Excel files show:
+
+KAM
+Expiry Date
+Grace Period
+
+Therefore Voice Trading should have:
+
+Deal Lifecycle
+Draft
+Negotiating
+Approved
+Active
+Expiring
+Expired
+Renewed
+
+This is currently missing from most of the proposals.
+
+Final Conclusion
+
+The spreadsheets confirm three things:
+
+1. Global Destination Catalog is mandatory
+
+Everything in the sheets revolves around destinations.
+
+2. Product Registry is mandatory
+
+Your business already trades:
+
+First Class
+Business Class
+Premium
+Standard
+Gold
+Silver
+Platinum
+
+as products.
+
+3. Voice Trading Workspace is not optional
+
+The Excel files are effectively a manual Voice Trading Desk.
+
+What traders are doing today in spreadsheets should eventually become:
+
+Voice Trading
+├ Dashboard
+├ Deals
+├ Profitability
+├ Product Performance
+├ Deal Simulator
+├ Approvals
+├ Reports
+
+inside BitsAuto.
+
+The strongest insight from these files is that the future commercial side of BitsAuto should be built around:
+
+Destination
+    ↓
+Product
+    ↓
+Deal
+    ↓
+Customer
+    ↓
+Profitability
+
+while Routing, Authentication, and Destination Sets remain implementation details managed by the operational workspaces.

@@ -1,0 +1,186 @@
+Yes, at this point I would stop creating new roadmap documents and turn this into an execution plan.
+
+For BitsAuto, based on everything we've discussed, I'd slightly refine Sprint 1 because it contains the items causing pain today.
+
+Sprint 1 (Must Start Here)
+1. Recording Integrity
+
+Success criteria:
+
+Governed Call
+↓
+Recording File Created
+↓
+File Exists
+↓
+Duration > 0
+↓
+Playable in UI
+↓
+Download Works
+
+Dashboard:
+
+Call ID
+Recording Path
+Exists
+Size
+Duration
+Status
+
+Target:
+
+100% governed calls have verified recordings
+2. Universal Reconciliation Engine
+
+Not a Call Governance feature.
+
+Core platform service:
+
+Customer CDR
++
+Vendor CDR
++
+P&L
+↓
+Reconciled Record
+
+Future modules consume this:
+
+Billing Verification
+Finance
+Revenue Assurance
+Deal Workspace
+Margin Intelligence
+3. Call Identity Audit (Most Important Discovery Task)
+
+Before building CCI:
+
+Check:
+
+Call-ID
+Conf-ID
+UniqueID
+Original CLD
+
+Across:
+
+Customer CDR
+Vendor CDR
+P&L
+
+Deliverable:
+
+Identity Matrix
+
+Example:
+
+Field	Customer	Vendor	P&L
+Call-ID	✓	?	?
+Conf-ID	?	?	?
+UniqueID	?	?	?
+
+This may save a lot of future development.
+
+Sprint 2
+Vendor Cost Validation
+
+Take 20–50 real calls.
+
+Verify:
+
+Vendor CDR Cost
+=
+P&L Cost
+
+Document results.
+
+Product Registry Authority
+
+Finish:
+
+Pricing Templates
+Routing Templates
+Product Assignments
+Prefix Definitions
+Rate Repository
+
+Because:
+
+1923
+2923
+6923
+7923
+
+must become authoritative commercial objects.
+
+Sprint 3
+Commercial Call Identity (CCI)
+
+Only after Identity Audit.
+
+Fields:
+
+call_uuid
+product_code
+product_prefix
+original_cld
+normalized_cld
+customer_id
+vendor_id
+Rate Integrity Audit
+
+Per call:
+
+Expected Product
+Expected Rate
+Actual Product
+Actual Revenue
+Variance
+
+Output:
+
+PASS
+WARNING
+FAIL
+Freeze List (Still Agree)
+
+Do not spend development time on:
+
+Trust Center
+Route Certification
+QA Workspace
+Security Scoring
+Voice Escalation
+Config Governance
+
+until the commercial truth layer is complete.
+
+One additional thing I'd add
+
+Given your repeated issues with:
+
+Recording
+CDR matching
+Vendor cost
+P&L
+Product identity
+
+I would create a temporary internal workspace:
+
+Platform Operations
+└─ Reconciliation Lab
+
+Visible only to Admin/Super Admin.
+
+Tabs:
+
+Recording Integrity
+CDR Reconciliation
+P&L Validation
+Identity Audit
+Vendor Cost Validation
+
+This becomes the place where all Sprint 1–3 validation happens instead of scattering diagnostics across Call Governance, Finance, and Billing pages.
+
+One final note: several of the customer/vendor CDR exports and screenshots referenced earlier have expired and are no longer available. When Sprint 1 starts, re-upload the latest Customer CDR export, Vendor CDR export, and P&L export so the Call Identity Audit can be performed against current production data rather than old samples.

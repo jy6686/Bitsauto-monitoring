@@ -1,0 +1,331 @@
+# POST-NAVIGATION ROADMAP — OPERATIONAL INTELLIGENCE EVOLUTION PROMPT
+
+Goal:
+Navigation architecture is COMPLETE.
+
+DO NOT continue large navigation restructures.
+
+The platform is now transitioning from:
+
+* UX architecture work
+  to:
+* operational intelligence maturity
+
+The next phase focuses on:
+
+* adaptive operational prioritization
+* operator personalization
+* RCA maturity
+* traffic steering intelligence
+* AI operational search
+
+====================================================
+CURRENT STATE (ALREADY COMPLETE)
+================================
+
+Completed:
+
+* enterprise top navigation
+* cascading telecom workflow menus
+* contextual sidebar rail
+* workspace homes
+* operational card grids
+* command palette operational search
+* multi-context navigation
+* live operational badges
+
+DO NOT:
+
+* redesign navigation again
+* re-expand sidebar
+* create duplicate menu systems
+* add decorative dashboard behavior
+
+Navigation is now stable.
+
+====================================================
+NEXT PHASE PRIORITIES
+=====================
+
+# PRIORITY 1 — ADAPTIVE OPERATIONAL PRIORITIZATION
+
+Goal:
+Make workspace cards and sidebar rails dynamically reorder themselves based on live operational urgency.
+
+Examples:
+
+If:
+
+* vendor degradation active
+* FAS spike detected
+* RCA severity critical
+* recommendations urgent
+
+Then:
+
+* Vendor RCA rises to top
+* Recommendations rise above utility tools
+* Degradation cards gain visual emphasis
+
+Implementation:
+
+* derive urgency score from existing APIs
+* no new polling systems
+* use live incidents + degradation + recommendations
+
+Apply to:
+
+* workspace cards
+* sidebar rail ordering
+* command palette ranking
+
+DO NOT:
+
+* animate excessively
+* create unstable layouts
+* reorder constantly
+
+Changes should feel:
+“operationally intelligent”
+NOT:
+“chaotic”
+
+====================================================
+PRIORITY 2 — OPERATOR PERSONALIZATION
+=====================================
+
+Goal:
+Allow operators to customize operational workflows.
+
+Features:
+
+* pin cards
+* reorder cards
+* favorite shortcuts
+* hide low-priority tools
+* workspace-specific layouts
+
+Persistence:
+
+* per-user preferences
+* stored in DB/user settings
+
+Different operator roles need different workflows:
+
+* NOC
+* Routing
+* Finance
+* Fraud
+* KAM
+* Admin
+
+DO NOT:
+
+* break default layouts
+* overcomplicate configuration
+
+====================================================
+PRIORITY 3 — INCIDENT COMMAND CENTER MATURITY
+=============================================
+
+Goal:
+Turn incidents into operational investigation hubs.
+
+Add:
+
+* RCA evidence chains
+* recommendation linkage
+* degradation timeline
+* correlated incidents
+* routing impact
+* affected destinations
+* operator action history
+
+Incident page should answer:
+
+* what happened
+* why
+* where
+* how severe
+* what changed
+* what should be done
+
+Use existing:
+
+* degradation engine
+* recommendation engine
+* incident lifecycle
+* vendor intelligence
+* prefix intelligence
+
+NO duplicate engines.
+
+====================================================
+PRIORITY 4 — TRAFFIC STEERING RECOMMENDATIONS
+=============================================
+
+Goal:
+Convert telecom intelligence into routing decision support.
+
+Examples:
+
+“Shift 20% Bangladesh traffic to Vendor B”
+“Projected ASR improvement: +8%”
+“FAS risk reduced by 14%”
+
+Inputs:
+
+* Q-score
+* Prefix Intelligence
+* Stability Timeline
+* Recommendation Engine
+* Cost Optimization
+* Vendor RCA
+
+Outputs:
+
+* quantified routing guidance
+* confidence score
+* projected improvement
+
+DO NOT:
+
+* auto-change routes
+* write directly to Sippy
+* bypass approval flow
+
+Recommendations remain:
+“decision support”
+NOT:
+“autonomous routing”
+
+====================================================
+PRIORITY 5 — AI OPERATIONAL SEARCH
+==================================
+
+Goal:
+Upgrade command palette into operational intelligence search.
+
+Examples:
+
+* show unstable pakistan routes
+* vendors with rising FAS
+* degraded carriers today
+* low margin routes
+* active fraud incidents
+
+Requirements:
+
+* natural-language operational search
+* live operational entities
+* context-aware ranking
+* scoped search
+
+Use:
+
+* existing command palette
+* existing operational APIs
+* existing incidents/recommendations
+
+DO NOT:
+
+* create fake AI
+* hallucinate routing advice
+* generate unsupported operational claims
+
+====================================================
+PRIORITY 6 — CONTEXTUAL RANKING
+===============================
+
+Goal:
+Improve relevance everywhere.
+
+Examples:
+
+If current workspace:
+Vendors
+
+Then prioritize:
+
+* Vendor RCA
+* Prefix Intelligence
+* Stability Timeline
+* Recommendations
+
+Above:
+
+* Finance
+* Security
+* Client operations
+
+Apply to:
+
+* command palette
+* workspace cards
+* sidebar rail
+* operational feeds
+
+====================================================
+PRIORITY 7 — VALIDATION & TRUST LAYER
+=====================================
+
+Goal:
+Ensure operational engines remain trustworthy.
+
+Expand:
+
+* Validation Console
+* recommendation audit
+* RCA traceability
+* degradation evidence
+* incident attribution
+
+Operators must always understand:
+
+* why a recommendation appeared
+* why a degradation triggered
+* why an RCA conclusion was reached
+
+DO NOT:
+
+* hide evidence
+* create black-box operational logic
+
+====================================================
+ARCHITECTURAL RULES
+===================
+
+1. Preserve dense telecom operational pages
+2. Preserve enterprise navigation hierarchy
+3. Preserve multi-context navigation
+4. Preserve real operational data only
+5. No fake/simulated intelligence
+6. No decorative enterprise theater
+7. Operational clarity > visual effects
+8. Decision support > automation
+9. Explainability > AI branding
+10. Workflow-first UX remains primary
+
+====================================================
+FINAL TARGET
+============
+
+The platform should evolve into:
+
+“carrier-grade telecom operational intelligence platform”
+
+with:
+
+* enterprise workflow UX
+* operational prioritization
+* explainable recommendations
+* routing decision support
+* adaptive operational surfaces
+* telecom-native intelligence workflows
+
+NOT:
+
+* admin dashboard
+* analytics portal
+* generic AI wrapper
+* visual-only modernization

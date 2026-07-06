@@ -1,0 +1,233 @@
+You should implement:
+
+1. Commercial Notifications
+
+FIRST.
+
+Not because it is the most technically important —
+but because it is:
+
+immediately usable,
+visible to clients,
+operationally valuable,
+architecturally aligned,
+and independent from the rating-engine roadmap.
+
+It is the perfect:
+
+Phase 0 Enterprise Feature
+
+before the heavy telecom finance foundation work starts.
+
+Why This Should Be First
+
+Because you already have:
+
+email infrastructure,
+recipient infrastructure,
+audit logs,
+company invoice emails,
+notification history,
+Sippy tariff visibility,
+and operational use cases (Morocco).
+
+Meaning:
+
+low effort + high visible value.
+What It Immediately Gives You
+Operational Benefits
+proactive customer communication
+fewer billing disputes
+tariff transparency
+enterprise professionalism
+routing advisory capability
+Strategic Benefits
+establishes BitsAuto as control plane
+validates orchestration architecture
+creates governance workflows
+introduces telecom event automation
+builds communication framework
+Most Important Reason
+
+This feature validates the:
+
+“BitsAuto governs operations”
+
+strategy
+
+WITHOUT touching:
+
+rating engine,
+invoice engine,
+reconciliation,
+or finance calculations yet.
+
+That is excellent sequencing.
+
+Recommended Immediate Build Scope
+Module Name
+Commercial Notifications
+
+NOT:
+
+bulk email
+announcement sender
+rate blast
+
+Keep it enterprise-grade.
+
+V1 Scope (Perfect Initial Version)
+1. Compose Notification
+
+Fields:
+
+Type:
+- Interval Change
+- Rate Change
+- QoS Advisory
+- Maintenance Notice
+- Fraud Advisory
+
+Destination
+Prefix
+Old Value
+New Value
+Effective Date
+Subject
+Body
+2. Audience Targeting
+
+Support:
+
+All Clients
+Clients with Traffic
+Manual Selection
+Internal Team
+Vendors
+3. Email Preview
+
+Use:
+
+{{client_name}}
+{{destination}}
+{{effective_date}}
+4. Dispatch Engine
+
+Use existing:
+
+/api/email/bulk-send
+5. Audit Timeline
+
+Store:
+
+sent
+failed
+recipient
+timestamp
+operator
+template used
+Recommended Database Tables
+commercial_notifications
+id
+type
+destination
+prefix
+old_value
+new_value
+effective_date
+subject
+body
+created_by
+created_at
+status
+commercial_notification_recipients
+id
+notification_id
+company_id
+email
+delivery_status
+sent_at
+failed_reason
+THEN AFTER THIS
+
+The correct next implementation is:
+
+2. Sippy Service Layer Refactor
+
+This is VERY important before:
+
+rating engine,
+tariff versioning,
+invoice orchestration.
+
+Because currently Sippy logic is likely scattered.
+
+You want:
+
+server/services/sippy/
+
+centralized.
+
+That becomes:
+
+telecom middleware layer.
+Correct Future Sprint Order
+Phase 0
+Commercial Notifications
+
+(quick operational win)
+
+Sprint 1
+Sippy Service Layer Refactor
+
+(clean architecture foundation)
+
+Sprint 2
+Rating Verification Engine
+
+(reproduce + verify Sippy economics)
+
+Sprint 3
+Tariff Versioning + Interval Management
+Sprint 4
+Immutable Finance Snapshots
+Sprint 5
+Invoice Automation
+Sprint 6
+Reconciliation & Revenue Assurance
+MOST IMPORTANT THING TO AVOID NOW
+
+Do NOT jump directly into:
+
+invoice PDFs,
+reconciliation,
+or finance dashboards.
+
+Without:
+
+service-layer discipline,
+tariff versioning,
+and snapshot governance,
+
+you will create technical debt quickly.
+
+Your Best Immediate Move
+
+Implement:
+
+Commercial Notifications V1
+
+because:
+
+architecture already supports it,
+business immediately benefits,
+clients see value,
+and it introduces:
+telecom event workflows,
+approval concepts,
+auditability,
+and orchestration patterns
+
+that future modules will reuse.
+
+That is the highest ROI next step.

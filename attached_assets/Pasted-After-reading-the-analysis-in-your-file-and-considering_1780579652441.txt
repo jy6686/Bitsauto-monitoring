@@ -1,0 +1,270 @@
+After reading the analysis in your file and considering where BitsAuto already stands (AI Route Copilot, Voice OTP, Fraud/FAS, Finance Cockpit, Audit Log, Q-Score, Call Governance), I would NOT follow the exact priority list as-is.
+
+I would prioritize based on strategic value + competitive differentiation.
+
+Priority 1 — SIP OPTIONS Probe
+
+⭐⭐⭐⭐⭐
+
+This is the fastest win.
+
+Why:
+
+No call cost
+No test numbers
+No carrier charges
+No CLI issues
+No regulatory concerns
+Feeds AI Route Copilot immediately
+
+This becomes your:
+
+Vendor Reachability Intelligence
+
+instead of traditional route testing.
+
+Priority 2 — CDR Route Intelligence
+
+⭐⭐⭐⭐⭐
+
+This is probably the most important telecom intelligence feature.
+
+You already have:
+
+CDR cache
+ASR
+ACD
+PDD
+SIP codes
+
+Just aggregate them by:
+
+Vendor
+Route
+Prefix
+Destination
+
+Every 5–15 minutes.
+
+This becomes the foundation for:
+
+Vendor Health Score
+Route Health Score
+AI Route Copilot v2
+Priority 3 — SIP Error Intelligence
+
+⭐⭐⭐⭐⭐
+
+I would actually add this immediately after CDR aggregation.
+
+Track:
+
+503
+486
+480
+404
+403
+408
+
+Then Copilot recommendations become:
+
+Vendor A:
+503 increased from 2% to 18%
+
+Recommendation:
+Shift 30% traffic to Vendor C
+
+Confidence:
+91%
+
+This is where BitsAuto starts looking like Oculeus-level intelligence.
+
+Priority 4 — Account Session / CPS Cap Alerts
+
+⭐⭐⭐⭐
+
+This is pure NOC value.
+
+Most operators only notice after:
+
+Calls failing
+↓
+Investigate
+↓
+Find session cap reached
+
+Instead:
+
+90% reached
+↓
+Proactive alert
+
+Very valuable.
+
+Priority 5 — SSL Expiry Alerting
+
+⭐⭐⭐⭐
+
+Easy implementation.
+
+High operational value.
+
+Perfect fit for:
+
+Fix Button
+NOC Alerts
+Compliance Dashboard
+Priority 6 — Balance Threshold Alerts
+
+⭐⭐⭐⭐
+
+Carriers care about this daily.
+
+Examples:
+
+Balance < $100
+Balance < $50
+Balance < $10
+
+Should trigger:
+
+Email
+WhatsApp (future)
+NOC alert
+Priority 7 — Billing Reconciliation Export
+
+⭐⭐⭐
+
+Needed.
+
+But not a differentiator.
+
+Mostly operational convenience.
+
+Priority 8 — Invoice Email Delivery
+
+⭐⭐⭐
+
+Complete the workflow.
+
+Useful but not strategic.
+
+Priority 9 — Sippy Staff Audit Viewer
+
+⭐⭐⭐
+
+Good compliance feature.
+
+But you already have your own Audit Ledger.
+
+Lower urgency.
+
+Features I Would Delay
+CLI Verification
+
+Build later as:
+
+Route Certification
+
+Manual operator action.
+
+Not continuous monitoring.
+
+Voucher Management
+
+Low strategic value.
+
+Password Policy Editor
+
+Useful but not currently a competitive advantage.
+
+My Revised Roadmap
+Telecom Intelligence Layer
+Sprint 1
+
+SIP OPTIONS Probe
+
+Sprint 2
+
+CDR Route Intelligence
+
+Sprint 3
+
+SIP Error Intelligence
+
+Sprint 4
+
+Vendor Health Score
+
+Sprint 5
+
+Route Health Score
+
+Sprint 6
+
+Copilot Integration
+
+Operations Layer
+Sprint 7
+
+Session/CPS Alerts
+
+Sprint 8
+
+SSL Expiry Alerts
+
+Sprint 9
+
+Balance Threshold Alerts
+
+Finance Layer
+Sprint 10
+
+Billing Reconciliation Export
+
+Sprint 11
+
+Invoice Email Delivery
+
+The One Feature I Would Add
+
+Not listed in the analysis:
+
+Unified Vendor Health Engine
+
+Combine:
+
+ASR
+ACD
+PDD
+SIP Errors
+OPTIONS Latency
+Fraud Score
+Margin
+Q-Score
+
+into:
+
+Vendor Health Score
+0-100
+
+Example:
+
+Vendor A
+Health: 84/100
+
+Quality: 88
+Fraud: 95
+Margin: 72
+Reachability: 91
+
+Trend: Declining
+
+That score then powers:
+
+AI Route Copilot
+Route Intelligence
+Vendor Operations
+NOC Dashboard
+
+This is the feature that moves BitsAuto beyond monitoring and into a true Telecom Operations Intelligence Platform.

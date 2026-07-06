@@ -1,0 +1,204 @@
+can we add clickable?
+
+Yes — absolutely.
+In fact:
+
+everything on the Live Ops dashboard SHOULD be clickable.
+
+Right now your dashboard is visually improving, but it still behaves too much like:
+
+static monitoring widgets
+
+The correct enterprise telecom behavior is:
+
+dashboard as operational command center
+
+Meaning:
+every panel becomes:
+
+investigation entry point
+workflow shortcut
+operational drilldown
+What SHOULD Be Clickable
+KPI Cards
+
+Example:
+
+Active Calls
+
+Click →
+
+/calls?filter=active
+Active Alerts
+
+Click →
+
+/alerts?severity=active
+Degraded Carriers
+
+Click →
+
+/carrier-intelligence?filter=degraded
+Pending Approvals
+
+Click →
+
+/approvals?status=pending
+Smart Priority Cards
+
+Each incident/recommendation card:
+Click →
+
+/incident/:id
+
+OR:
+
+/vendor-rca?vendor=callntalk
+
+This is VERY important.
+
+The dashboard should directly launch investigations.
+
+Traffic Graph
+
+VERY important to make interactive.
+
+Click Graph
+
+→ opens:
+
+/traffic-analytics
+Drag Time Range
+
+→ updates:
+
+live calls
+top vendors
+ASR panels
+route quality
+Hover Point
+
+Show:
+
+ASR
+ACD
+CPS
+Q-score
+incidents in that window
+
+This becomes:
+
+operational telemetry explorer
+Top Vendors Panel
+
+Each vendor row clickable:
+
+/vendor-rca/:vendor
+
+Hover actions:
+
+investigate
+route quality
+prefix intelligence
+recommendations
+Top Routes Panel
+
+Each route:
+
+/routing-intelligence?prefix=880
+
+OR:
+
+/vendor-prefix-intelligence
+Live Calls Table
+
+VERY important.
+
+Each row clickable:
+→ Call Drilldown Drawer
+
+Contains:
+
+SIP ladder
+codec
+routing path
+vendor
+ASR context
+fraud signals
+RTP quality
+timeline
+
+This becomes:
+
+telecom troubleshooting entry point
+Quick Actions
+
+Should directly trigger workflows:
+
+Action	Opens
+Create Alert	alert modal
+Check Balance	finance drawer
+Add Route	routing wizard
+Generate Report	analytics export
+Test Route	route tester
+Risk Destinations
+
+Each destination clickable:
+
+/vendor-prefix-intelligence?country=Pakistan
+
+Then drill:
+
+vendors
+Q-score
+degradation
+FAS
+recommendations
+
+VERY powerful routing workflow.
+
+Most Important UX Principle
+
+The dashboard should behave like:
+
+operational surface
+
+NOT:
+
+read-only dashboard
+
+Every widget should answer:
+
+“What happens if I click this?”
+
+And the answer should always be:
+
+operational investigation or action
+Strong Recommendation
+
+Add:
+
+hover affordances
+
+Examples:
+
+subtle hover elevation
+arrow icon
+“View details”
+cursor pointer
+
+So operators instinctively understand:
+
+this is interactive
+Correct Final Architecture
+Layer	Behavior
+Dashboard	operational overview
+Widget Click	drilldown
+Drawer/Page	investigation
+Action	workflow
+
+This becomes:
+
+carrier-grade telecom command center UX
+
+—which is exactly the right direction now.

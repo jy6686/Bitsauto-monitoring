@@ -1,0 +1,42 @@
+Here's the exact process I follow, step by step:
+
+Phase 1 — Understand the Problem
+Read the reported symptom carefully — I note what the user says is wrong (wrong output, crash, missing feature, visual bug).
+Classify the type of problem:
+Runtime error (crash/exception) → go to logs first
+Wrong data / wrong display → trace the data from source to screen
+Missing feature → locate where similar features live and mirror the pattern
+Build/compile error → read the exact error message
+Phase 2 — Gather Evidence
+Read the relevant logs — I pull the latest server logs and browser console logs. I look for stack traces, 4xx/5xx errors, and any warning patterns near the time of the issue.
+Read the affected files — I read the full relevant file(s), not just the line mentioned in an error. Context around the problem is critical.
+Trace the data flow — I follow the path: where does the data come from (API/DB/external), how is it transformed (backend routes, storage layer), and how is it rendered (frontend component). I look at each handoff point.
+Search for related code — I search for the function, variable, or pattern mentioned in the error across the codebase to understand all usages.
+Phase 3 — Identify Root Cause
+Form a hypothesis — Based on evidence, I state exactly what I believe is wrong and why (e.g., "this function doesn't strip the product prefix before looking up the country, so 7880... matches Russia instead of Bangladesh").
+Validate before touching code — I re-read the code to confirm my hypothesis is correct. I do not guess or try random fixes.
+Identify all affected call sites — I search for every place the broken function/pattern is used so the fix is complete, not partial.
+Phase 4 — Fix
+Make the minimal targeted change — I change only what is necessary. I do not refactor unrelated code, rename things, or restructure files unless that is the stated goal.
+Fix all call sites at once — If three places in the code use the broken function, I fix all three in one pass.
+Update exports/interfaces if the fix changes a type — I check if the changed function's signature or return type is used elsewhere and update those too.
+Update exports — If a new component/function is added, I ensure it is imported and registered in every place it needs to be (routing, sidebar, App.tsx, etc.).
+Phase 5 — Verify
+Restart the server — Any backend change, new import, or schema change requires a restart to take effect.
+Check logs after restart — I confirm no new errors appear in the server log or browser console.
+Take a screenshot — I visually confirm the fix worked from the user's perspective.
+Test edge cases mentally — I think through: what if the data is null? What if the list is empty? What if the user has a different role? I read the code again with fresh eyes looking for these gaps.
+My Fixed Rules (Always)
+Never change something I haven't read first — I always read the file before editing it.
+Never guess at file paths — I list or search before reading.
+Never make multiple overlapping edits to the same file in the same response — I plan all edits to a file before touching it.
+Never use mock/placeholder data — every fix uses real fields from the actual API response.
+Never silence errors — I never add try/catch that swallows exceptions without logging.
+Critical project rule: Never use isAuthenticated directly in routes.ts — always use the requireRole() lambda pattern.
+You can predefine steps for me by specifying any of the following constraints:
+
+Which logs to always check first (e.g., always check server logs before touching any backend file)
+Which files are off-limits (e.g., never modify vite.config.ts, package.json)
+Fix scope (e.g., minimal change only, or full refactor of the affected module)
+Verification requirement (e.g., always restart + screenshot before marking done)
+Preferred pattern for specific things (e.g., always use lookupCLD for destination lookups, never lookupDialCode)

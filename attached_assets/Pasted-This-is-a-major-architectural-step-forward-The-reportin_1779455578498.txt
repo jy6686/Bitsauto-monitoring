@@ -1,0 +1,158 @@
+This is a major architectural step forward. The reporting system is no longer just displaying telecom statistics — it is now evolving into an actual operational intelligence engine for routing and carrier decision-making.
+
+What Was Added
+1. Composite Q-Score Engine
+
+A new:
+
+Route Quality Score (0–100)
+
+was implemented using multiple telecom quality signals together instead of relying only on ASR.
+
+Current weighting:
+
+ASR → 40%
+NER → 30%
+FAS penalty → 20%
+PDD score → 10%
+
+This is a much more realistic representation of route quality.
+
+2. Degradation Awareness
+
+The system now understands:
+
+quality degradation,
+suspicious traffic behavior,
+answer-quality issues,
+and latency impact.
+
+Especially important:
+
+high FAS automatically collapses quality scoring,
+poor PDD reduces route ranking,
+weak NER lowers reliability score.
+
+This moves the platform closer to:
+
+“carrier intelligence.”
+3. Route Intelligence Panel
+
+A completely new intelligence layer was added.
+
+The Vendor Route Intelligence panel now shows:
+
+Average Q-Score
+Critical Routes
+Elevated FAS vendors
+Top Performing Route
+Worst routes needing attention
+
+This is exactly the type of operational summary telecom NOCs actually need.
+
+4. Quality-Based Route Ranking
+
+Routes/vendors can now be sorted by:
+
+“Quality Score ↓”
+
+Instead of:
+
+raw traffic,
+or static ASR values.
+
+This is operationally much stronger because it prioritizes:
+
+usable routes,
+stable vendors,
+and healthier traffic paths.
+5. Decision-Support Reporting
+
+This is the most important change.
+
+Previously:
+
+Reports = historical statistics
+
+Now:
+
+Reports = operational guidance
+
+The platform is starting to:
+
+identify weak vendors,
+rank route quality,
+surface suspicious traffic,
+and guide routing decisions.
+
+That is a major platform evolution.
+
+Strategic Impact
+
+You are now moving from:
+
+“telecom reporting software”
+
+toward:
+
+“telecom decision-support platform.”
+
+Very few traditional VoIP dashboards do this properly.
+
+Most Important Architectural Shift
+
+The platform is becoming:
+
+signal-driven
+
+instead of:
+
+table-driven.
+
+That is exactly the correct long-term direction.
+
+My Recommendation for the Next Layer
+
+Now that:
+
+Q-Score,
+NER,
+FAS,
+and route intelligence
+
+exist,
+
+the next high-impact addition would be:
+
+Live Route Degradation Intelligence
+
+For example:
+
+“Vendor X degraded 23% in last 30 minutes”
+“Pakistan Mobile Zong ASR collapsed below baseline”
+“FAS spike detected on Bangladesh routes”
+“Route quality unstable for last 4 polling cycles”
+
+This would transform the platform from:
+
+reactive reporting
+
+to:
+
+proactive telecom operations intelligence.
+After That
+
+The strongest future layer would be:
+
+AI Routing Recommendations
+
+Example:
+
+“Move 20% traffic from Vendor A → Vendor B”
+“Vendor C currently best margin-to-quality ratio”
+“Vendor D unstable — reduce priority”
+“Recommended reroute estimated to improve ASR by 7%”
+
+That becomes extremely commercially valuable.
+
+Reference implementation update:

@@ -1,0 +1,203 @@
+You are absolutely right — this should control the:
+
+TOP ENTERPRISE MEGA MENU
+
+NOT merely:
+
+sidebar visibility
+
+That is the critical architectural shift now.
+
+Your current /sidebar-settings page was designed before:
+
+enterprise mega menu
+workspace domains
+contextual rails
+adaptive navigation
+
+existed.
+
+Now the platform architecture changed.
+
+Correct Direction
+
+Rename:
+
+Sidebar Menu Configuration
+
+to:
+
+Navigation Management
+
+or:
+
+Enterprise Navigation Control
+
+Because it should now govern:
+
+Navigation Surface	Controlled By
+Top Mega Menu	Navigation Manager
+Sidebar Rail	Navigation Manager
+Workspace Cards	Navigation Manager
+Command Palette	Navigation Manager
+Workspace Homes	Navigation Manager
+
+Single source of truth.
+
+MOST IMPORTANT CHANGE
+
+Currently:
+
+the page reflects old sidebar groups
+
+But now it must reflect:
+
+the top telecom mega menu structure
+
+Exactly like your infographic.
+
+Final Required Domain Structure
+LIVE NETWORK
+Live Calls
+Alerts
+NOC Command
+BitsEye 2
+Call Replay
+Console
+COMPANY
+Companies
+Accounts
+DIDs
+Recordings
+Client Portal
+Resellers
+Company Profile
+Create Account Wizard
+OPERATIONS
+Vendors
+Routing Manager
+LCR Analyser
+Translation Rules
+Connections
+Destination Sets
+Route Tester
+Carrier Scoring
+Vendor Balances
+ANALYTICS & REPORTS
+CDR Viewer
+Traffic Analytics
+ASR/ACD
+Revenue Heatmap
+Forecasting
+Reports
+Cost Optimisation
+INTELLIGENCE
+AI Ops
+Carrier Intelligence
+Vendor RCA
+Prefix Intelligence
+Stability Timeline
+Recommendations
+Validation Console
+TROUBLESHOOTING
+SIP Trace
+Tools
+Replay
+Diagnostics
+SECURITY & COMPLIANCE
+Fraud Engine
+FAS Monitoring
+Audit Log
+Firewall
+Compliance
+Approval Queue
+Authentication Rules
+FINANCE & BILLING
+Billing
+Rate Cards
+Margin Analytics
+Revenue Analytics
+Payments
+Invoices
+PLATFORM
+Settings
+Team & Roles
+API Keys
+Notifications
+White Labeling
+Important Clarification
+
+You do NOT need:
+
+sidebar menu settings
+
+You need:
+
+enterprise navigation governance
+
+That is much bigger.
+
+What The Settings Should Actually Control
+1. Top Mega Menu Visibility
+
+Show/hide:
+
+entire domains
+individual items
+submenu groups
+2. Sidebar Rail Visibility
+
+Contextual shortcuts.
+
+3. Workspace Card Visibility
+
+Show/hide operational launch cards.
+
+4. Command Palette Visibility
+
+Hide features from search.
+
+5. Portal-Specific Navigation
+
+Different menus for:
+
+Admin
+KAM
+Client Portal
+Reseller Portal
+
+This is VERY important later.
+
+Recommendation About UI
+
+Keep:
+✅ accordion behavior
+✅ toggles
+✅ search
+✅ save changes
+
+BUT:
+replace the old sidebar-oriented vocabulary with:
+
+enterprise mega menu domains
+
+Exactly matching the infographic.
+
+IMPORTANT
+
+Do NOT implement:
+
+another independent menu system
+
+Instead:
+
+top mega menu becomes the master structure
+
+Everything else derives from it:
+
+sidebar
+cards
+search
+portals
+
+This is the correct long-term enterprise architecture.

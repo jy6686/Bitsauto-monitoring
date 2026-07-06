@@ -1,0 +1,306 @@
+Based on the inventory and database evidence you collected, I would not implement approval on all 151,741 destinations equally.
+
+The data tells a different story.
+
+What You Actually Have
+Item	Count
+Products	5
+Global Destinations	151,741
+Product Prefixes	4
+Product Rates	0
+Product Destination Assignments	0
+Rate Card Entries	0
+
+This means:
+
+Destination Catalog = Built
+Commercial Layer = Not Built
+
+You have a huge destination repository but almost no commercial governance layer on top of it.
+
+Recommended Commercial Workflow
+
+Do NOT expose 151,741 destinations directly.
+
+Instead create:
+
+Layer 1 — Master Catalog
+
+Table:
+
+global_destinations
+
+Purpose:
+
+Raw telecom catalog
+Never exposed directly to customers
+
+Contains:
+
+Pakistan
+Pakistan Mobile
+Pakistan Jazz
+Pakistan Fixed
+India Mobile
+USA Fixed
+...
+
+151k+ rows
+
+Layer 2 — Commercial Review
+
+New workflow:
+
+Imported
+     ↓
+Pending Review
+     ↓
+Approved
+     ↓
+Assigned To Product
+     ↓
+Offerable
+Destination Lifecycle
+Stage 1
+
+Imported
+
+Status:
+
+pending
+
+Nobody can sell it.
+
+Nobody can push rates to it.
+
+Stage 2
+
+Commercial Review
+
+Review:
+
+naming
+hierarchy
+duplicates
+operator quality
+routing availability
+margin opportunity
+
+Decision:
+
+Approve
+Reject
+Block
+Stage 3
+
+Product Assignment
+
+Destination becomes linked to:
+
+First Class
+
+Prefix:
+
+1
+Business Class
+
+Prefix:
+
+2
+Special Bravo
+
+Prefix:
+
+6
+Special Charlie
+
+Prefix:
+
+7
+Important Discovery
+
+Currently:
+
+product_destination_assignments = 0
+
+This means no destination is formally attached to any product.
+
+This is actually the biggest gap.
+
+Not approval.
+
+Not notifications.
+
+Not Send Rate.
+
+Because commercial products cannot exist without product-destination assignment.
+
+Recommended Approval Model
+
+Instead of:
+
+151,741 destinations approved
+
+Use:
+
+Global Status
+
+On catalog:
+
+approved
+blocked
+deprecated
+Product Status
+
+Separate table:
+
+product_destination_assignments
+
+Fields:
+
+product_id
+destination_id
+status
+
+Status:
+
+offerable
+hidden
+testing
+deprecated
+blocked
+
+This is where commercial control should live.
+
+Example
+
+Destination:
+
+Pakistan Jazz
+92300
+
+Global Catalog:
+
+approved
+
+First Class:
+
+offerable
+
+Business Class:
+
+offerable
+
+Special Bravo:
+
+testing
+
+Special Charlie:
+
+blocked
+
+Same destination.
+
+Different commercial treatment.
+
+Destination Approval Center
+
+I would create a dedicated module:
+
+Destination Governance Center
+
+Sections:
+
+Pending Review
+New imports
+Approved Catalog
+Commercially available
+Product Assignment
+Assign destination to products
+Routing Availability
+
+Check:
+
+Vendor routes
+QoS
+ASR
+Margin
+Rate Availability
+
+Check:
+
+Buy rate exists?
+Sell rate exists?
+Relationship With Send Rate
+
+Send Rate should NEVER work directly from:
+
+global_destinations
+
+Instead:
+
+Send Rate
+    ↓
+Approved Destination
+    ↓
+Assigned Product
+    ↓
+Mapped Tariff
+    ↓
+Proven Push Engine
+
+This prevents commercial teams from accidentally pushing rates to unapproved destinations.
+
+What I Would Build First
+
+Given everything you've discovered:
+
+Priority 1
+
+Send Rate Certification (T1–T8)
+
+Priority 2
+
+Destination Governance
+
+Pending
+Approved
+Blocked
+Priority 3
+
+Product Destination Assignment
+
+Populate:
+
+product_destination_assignments
+
+This table is currently empty and is more important than notifications.
+
+Priority 4
+
+Notification Center
+
+Using account profile contacts:
+
+Billing Email
+Commercial Email
+NOC Email
+Dispute Email
+Management Email
+Priority 5
+
+Commercial Approval Workflow
+
+Audit history
+
+Approver
+
+Reason
+
+Status changes
+
+My biggest takeaway from your database analysis is not the approval process itself.
+
+It is that 151,741 destinations exist, but 0 destinations are formally assigned to products.
+
+That is the commercial governance layer that BitsAuto needs before scaling rate management, client rate sheets, partner portals, and automated Send Rate campaigns.

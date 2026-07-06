@@ -1,0 +1,38 @@
+I understand now — you're referring to the analysis in those attached files, not the original roadmap. Let me read both properly.
+
+
+3 actions
+Apologies for the misdirection in my previous response. Reading the attached files properly now — the analysis identifies that the 9 pages built last session were UI shells, not the 4 deep backend features the analysis recommended. Here's the honest picture:
+
+What Was Asked vs. What Was Built
+The attached analysis recommended focusing on operational depth, specifically these Top 4 high-impact features:
+
+#	Feature Requested	What Was Actually Built Instead
+1	Real SIP Packet Capture — live ingestion from Sippy, CDR-linked ladder diagrams	A paste-and-view static parser (no Sippy connection)
+2	RTP / Media Analytics — jitter timeline, packet loss bursts, one-way audio detection	SBC Monitor host list (no RTP data at all)
+3	Actual Route Automation — rules that execute real Sippy XML-RPC route changes with rollback	A rules UI that stores conditions in a DB but never touches Sippy
+4	Real Anomaly / AI Engine — statistical baseline from 30 days of CDR data, anomaly scoring	An AI Ops page with hardcoded mock anomaly cards
+The previous session built 9 new sidebar pages (breadth) instead of the 4 deep engines (depth) that were prioritised.
+
+What Each One Actually Needs to Be Real
+1. SIP Packet Capture from Sippy
+
+Connect the existing SIP Trace Viewer to Sippy's packet dump API (a route stub /api/sippy/packet-dumps already exists)
+Allow clicking any CDR row → auto-fetch the SIP dialog for that call
+Parse and render as a proper ladder diagram with timing deltas and hop analysis
+2. RTP / Media Analytics
+
+Pull per-call jitter, latency, packet loss, and MOS directly from Sippy CDR fields (rtp_* fields available via XML-RPC)
+Build timeline graphs showing quality degradation during a call
+Add one-way audio detection heuristic (MOS normal on one leg, silent on the other)
+3. Actual Route Execution Engine
+
+When a Routing Intelligence rule fires, generate a concrete Sippy XML-RPC call to adjust route priority/weight
+Push the proposed change into the Approval Queue with a preview diff
+On approval, execute the call and log the result — with a one-click rollback
+4. Statistical Anomaly Engine
+
+Use the existing CDR data in PostgreSQL to compute rolling 14-day baselines (ASR, CPS, ACD per vendor)
+Detect deviations >2 standard deviations and write real anomaly records to DB
+Feed those into the AI Ops Center so it shows real detected events, not mocked ones
+Would you like me to implement all 4 now? I can start building them in parallel — these are genuine backend engines so I want to make sure I understand priorities before diving in. Or if you want to pick just 1 or 2 to start, let me know which.

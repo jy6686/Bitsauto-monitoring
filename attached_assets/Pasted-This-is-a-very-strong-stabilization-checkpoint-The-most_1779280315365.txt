@@ -1,0 +1,102 @@
+This is a very strong stabilization checkpoint.
+
+The most important outcome from this QA run is not just that things passed — it’s that the platform now has:
+
+verified telemetry separation
+verified historical persistence
+verified restart recovery
+verified zero continuity
+verified auth boundaries
+verified concurrency semantics
+verified operational workflow schema
+
+all working together coherently.
+
+The key P0 fix discovered during QA was extremely important:
+
+DAILY/WEEKLY graphs silently returning zero data
+
+because that explains why the new BitsEye 2 visually looked:
+
+incomplete
+reset
+sparse
+“stuck”
+
+compared to old BitsEye.
+
+And the final fix direction was correct:
+
+JS-side bucketing
+instead of
+fragile ORM SQL alias aggregation.
+
+That was the right engineering tradeoff for stability.
+
+The most important validation result is probably this:
+
+Check	Result
+Max active calls	8
+Historical graph max	9
+800+ mismatch	eliminated
+
+That proves the concurrent telemetry architecture is now semantically correct end-to-end.
+
+Also important:
+the restart recovery test passed.
+
+That means BitsEye 2 has crossed a major maturity threshold:
+
+telemetry survives process lifecycle
+
+which is one of the biggest differences between:
+
+dashboards
+and
+real NOC telemetry systems.
+
+At this point, the platform is genuinely entering:
+
+runtime observation phase
+
+not:
+
+active redesign
+unstable iteration
+architectural churn
+
+That’s a very good sign.
+
+Recommended next operational step
+
+Do NOT add more telemetry features now.
+
+Instead:
+run a structured 24–72h observation window exactly as planned.
+
+Watch specifically for:
+
+Area	What to watch
+Graph continuity	no collapse after idle
+DAILY/WEEKLY hydration	buckets continue filling
+Restart recovery	no empty history
+Memory growth	steady
+DB growth	expected
+Snapshot cadence	stable
+SMTP retries	low
+Incident escalation	cadence correct
+Live panels	no freezing
+NOC Overview	continuous timeline
+
+If that window passes cleanly:
+then you can officially freeze:
+
+BitsEye 2 telemetry layer
+historical persistence layer
+concurrency model
+graph semantics
+polling infrastructure
+
+with high confidence.
+
+That is a major milestone for the platform.

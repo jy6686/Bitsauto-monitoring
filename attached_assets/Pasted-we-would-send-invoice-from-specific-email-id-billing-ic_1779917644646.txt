@@ -1,0 +1,237 @@
+we would send invoice from specific email id
+billing@ichbaanlogic.com
+rates send: rates@ichibaanlogic.com, pricing@ichibaanlogic.com
+https://portal.ixlink.com/XLink/Home/Dashboard
+
+Excellent — this confirms you now need:
+
+Multi-Channel Billing & Commercial Identity Management
+
+because telecom operators typically separate:
+
+billing communication,
+rate announcements,
+commercial negotiations,
+and operational notices
+
+using different sender identities.
+
+That is enterprise-grade practice.
+
+Recommended Communication Identity Architecture
+Billing Communications
+
+Use:
+
+billing@ichibaanlogic.com
+
+For:
+
+invoices
+payment reminders
+credit/debit notes
+reconciliation notices
+overdue notices
+finance approvals
+Rate / Tariff Communications
+
+Use:
+
+rates@ichibaanlogic.com
+pricing@ichibaanlogic.com
+
+For:
+
+rate changes
+interval changes
+pricing updates
+routing advisories
+commercial notices
+
+This is exactly correct operational separation.
+
+Recommended New Architecture Component
+communication_sender_profiles
+
+Create:
+
+id
+name
+email_address
+reply_to
+smtp_profile_id
+communication_type
+is_default
+created_at
+Example Profiles
+BILLING
+→ billing@ichibaanlogic.com
+
+RATES
+→ rates@ichibaanlogic.com
+
+PRICING
+→ pricing@ichibaanlogic.com
+
+SUPPORT
+→ support@ichibaanlogic.com
+
+NOC
+→ noc@ichibaanlogic.com
+VERY IMPORTANT FUTURE RULE
+
+Notifications should automatically choose sender identity based on:
+
+communication type.
+
+Example:
+
+IF type = INVOICE
+→ billing@ichibaanlogic.com
+
+IF type = RATE_CHANGE
+→ pricing@ichibaanlogic.com
+
+IF type = ROUTING_ADVISORY
+→ rates@ichibaanlogic.com
+
+This becomes:
+
+enterprise communication governance.
+IXLink Portal Observation
+
+The IXLink Portal Dashboard confirms another important industry pattern:
+
+Wholesale telecom partners expect:
+
+professional portals
+branded communications
+operational transparency
+structured billing workflows
+automated commercial updates
+
+This aligns perfectly with the direction you are taking.
+
+Recommended Future BitsAuto Communication Categories
+1. Billing
+
+Sender:
+
+billing@ichibaanlogic.com
+
+Includes:
+
+invoices
+statements
+payment notices
+disputes
+2. Commercial / Pricing
+
+Sender:
+
+pricing@ichibaanlogic.com
+
+Includes:
+
+rate changes
+interval updates
+surcharge notices
+commercial campaigns
+3. Routing / QoS
+
+Sender:
+
+rates@ichibaanlogic.com
+
+Includes:
+
+route advisories
+QoS changes
+maintenance alerts
+degradation notices
+4. Support / NOC
+
+Future:
+
+noc@ichibaanlogic.com
+support@ichibaanlogic.com
+
+Includes:
+
+outages
+emergency notices
+operational incidents
+IMPORTANT IMPLEMENTATION RECOMMENDATION
+
+Do NOT hardcode sender emails in:
+
+frontend,
+templates,
+or notification modules.
+
+Instead:
+
+sender profiles must be configurable.
+Recommended Schema Addition
+commercial_notifications
+
+Add:
+
+sender_profile_id
+Recommended UI Flow
+Compose Notification
+Notification Type:
+Rate Change
+
+Sender Profile:
+☑ pricing@ichibaanlogic.com
+
+Audience:
+☑ Clients with Morocco traffic
+HIGH VALUE FUTURE FEATURE
+Communication Policies
+
+Example:
+
+IF notification_type = RATE_CHANGE
+THEN sender = pricing@ichibaanlogic.com
+
+No manual selection required.
+
+VERY IMPORTANT ENTERPRISE FEATURE
+
+Eventually support:
+
+DKIM/SPF aware sender routing
+
+because telecom partners are sensitive to:
+
+spoofing,
+invoice fraud,
+fake rate sheets,
+phishing.
+
+Especially for:
+
+billing@
+pricing@
+rates@
+
+This becomes operationally important later.
+
+Correct Immediate Next Build
+
+You now have enough clarity to implement:
+
+Commercial Notifications V1
+
+with:
+
+sender profiles
+template types
+audience targeting
+audit logging
+preview system
+professional telecom communication flows
+
+This is now a complete and properly scoped enterprise feature.

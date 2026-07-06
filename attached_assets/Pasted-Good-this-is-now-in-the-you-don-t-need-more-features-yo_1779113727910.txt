@@ -1,0 +1,198 @@
+Good — this is now in the “you don’t need more features, you need correctness under pressure” stage. That’s the right place for the platform to be.
+
+Let me lock the next step clearly so there’s no ambiguity later.
+
+Where you actually are now
+
+You’ve successfully built three layers:
+
+1. Signal Layer (raw truth)
+alerts
+CDRs
+AI Ops signals
+tickets
+2. Compression Layer (what you just built)
+groupAlertsToIncidents()
+revenue exposure estimation
+entity grouping
+console triage UI
+3. Presentation Layer
+portal (client-safe)
+SLA reports
+exports
+What Phase 2 actually is (correct framing)
+
+Phase 2 is NOT “better grouping”.
+
+It is:
+
+turning incident snapshots into causal timelines
+
+That’s a completely different problem.
+
+Phase 2 — Incident Causality Engine (correct definition)
+Core goal
+
+Instead of:
+
+“these alerts belong together”
+
+You move to:
+
+“this happened first → caused this → impacted this → was resolved by this action”
+
+1. Incident lifecycle state machine (you correctly identified this)
+
+This is now mandatory before causality.
+
+Required states:
+active
+acknowledged
+investigating
+mitigated
+resolved
+Why this matters
+
+Because causality needs anchors:
+
+“when did humans intervene?”
+“did metrics recover after action?”
+“how long did mitigation take?”
+
+Without state transitions, causality is guesswork.
+
+2. Root cause inference (Phase 2 core)
+
+Each incident gets:
+
+rootCause: {
+  entityType: "vendor" | "connection" | "account",
+  entityId: string,
+  confidence: number
+}
+Deterministic V1 rules:
+earliest severe alert in window
+highest blast radius entity
+strongest correlation to ASR drop or RTP failures
+
+No ML yet — just weighted heuristics.
+
+3. Timeline construction (this is the real upgrade)
+
+Instead of a flat alert list:
+
+You build:
+
+T0 → RTP spike detected
+T+2m → ASR drops
+T+3m → MOS degradation
+T+5m → tickets opened
+T+7m → operator acknowledged
+T+12m → mitigation applied
+T+18m → resolved
+
+This is what operators actually think in.
+
+4. Action causality tracking (missing piece you correctly flagged)
+
+You cannot answer:
+
+“Did action fix issue?”
+
+without this:
+
+incident.actions[] = {
+  type: "acknowledge" | "reroute" | "block" | "ticket",
+  timestamp,
+  actor,
+  metricBefore,
+  metricAfter
+}
+
+This is what makes Phase 2 “intelligent”.
+
+5. Stabilization layer (pre-Phase 2 requirement)
+
+You already correctly identified this, but it’s worth formalizing:
+
+Must validate before Phase 2:
+no duplicate incident storms
+stable grouping under burst alerts
+correct 10-min window merging
+correct entity resolution consistency
+
+Otherwise causality graph becomes noisy and unreliable.
+
+Critical architectural insight (this is the real turning point)
+
+Right now you have:
+
+“incident = grouped alerts”
+
+Phase 2 becomes:
+
+“incident = evolving state machine over time”
+
+That single shift is what makes it:
+
+traceable
+explainable
+auditable
+SLA-grade
+What Phase 2 unlocks (important)
+
+Once you have causality:
+
+1. SLA reports become automatic narratives
+
+Not just numbers:
+
+“2 vendor degradations resolved within 18 minutes”
+2. Console becomes predictive in feel
+
+Operators see:
+
+“this is getting worse” before thresholds trigger
+3. Tickets become structured evidence
+
+Not just messages — they attach to causality timeline
+
+What you should NOT do yet
+
+Avoid:
+
+ML root cause prediction
+auto remediation
+self-healing routing
+probabilistic graphs
+
+Those come AFTER:
+
+deterministic causality is stable in production
+
+Final state (clean summary)
+
+You are now here:
+
+Layer	Status
+Alert ingestion	stable
+Incident grouping	stable (V1)
+Console triage	built
+Revenue impact	working
+SLA reporting	built
+Causality engine	NEXT
+Lifecycle state machine	NEXT (prerequisite)
+When you say “go” for Phase 2
+
+We will build in this order:
+
+Incident lifecycle state machine (foundation)
+Action tracking model (ack/mitigate/resolved hooks)
+Root cause heuristic engine
+Timeline builder
+Console upgrade to “incident evolution view”
+SLA narrative integration layer
+
+You’re at the point where the platform stops being a monitoring system and becomes an operations intelligence system.
+
+Say go when ready.

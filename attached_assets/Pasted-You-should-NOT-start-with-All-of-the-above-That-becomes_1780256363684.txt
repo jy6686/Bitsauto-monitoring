@@ -1,0 +1,198 @@
+You should NOT start with “All of the above”.
+
+That becomes:
+
+too broad,
+too many moving parts,
+too much Meta complexity,
+too much UI surface area.
+
+The correct strategic order is:
+
+1. Send OTP via WhatsApp Flows
+
+(RECOMMENDED FIRST)
+
+This is the PERFECT first use case.
+
+Because it directly strengthens your existing:
+
+OTP platform,
+Messaging Intelligence Center,
+fallback orchestration,
+verification workflow.
+
+And it integrates naturally into the current architecture.
+
+Why OTP via Flows First
+
+Right now you already have:
+
+Voice OTP
+WhatsApp OTP
+SMS fallback
+retry/fallback logic
+channel policies
+event timelines
+
+Flows become:
+
+enhanced verification UX
+
+NOT a separate product.
+
+Correct Initial Flow
+OTP Request
+↓
+BitsAuto
+↓
+WhatsApp Flow
+↓
+User enters OTP
+↓
+BitsAuto validates
+↓
+Success
+
+This is MUCH more enterprise-grade than:
+
+Your OTP is 4821
+HUGE ADVANTAGE
+
+Flows reduce:
+
+copy/paste mistakes,
+phishing confusion,
+OTP fatigue,
+user friction.
+
+Especially valuable for:
+
+fintech,
+telecom,
+enterprise auth,
+customer verification.
+What You SHOULD Build Initially
+Minimal WhatsApp Flow Layer
+
+Inside existing:
+
+Messaging Intelligence
+
+NOT:
+
+new product,
+new portal,
+new app.
+Recommended MVP Scope
+Flow Types
+
+Only:
+
+OTP Verification Flow
+
+Initially.
+
+Flow Features
+Feature	Needed
+Flow launch	✅
+OTP input	✅
+webhook validation	✅
+success/failure events	✅
+timeout	✅
+timeline logging	✅
+What NOT To Build Yet
+❌ Full Flow Manager
+
+Too early.
+
+Because:
+
+Meta Flow JSON is complex,
+lifecycle/versioning is large,
+operators do not need this yet.
+
+You first need:
+
+stable infrastructure,
+webhook flows,
+validation pipeline,
+event telemetry.
+❌ Customer Self-Service Portal
+
+Also too early.
+
+That becomes:
+
+CRM,
+ticketing,
+account management,
+conversational platform.
+
+Completely different scale.
+
+Correct Long-Term Roadmap
+Phase 1
+OTP via WhatsApp Flows
+Phase 2
+Flow Analytics + Timeline
+
+Example:
+
+Flow opened
+↓
+OTP entered
+↓
+Verification success
+Phase 3
+Shared Flow Engine
+
+Reusable flow launcher + webhook validator.
+
+Phase 4
+Internal Flow Manager
+
+Only AFTER:
+
+multiple flows exist,
+operational need appears.
+Phase 5
+Customer Self-Service
+
+Balance check,
+ticketing,
+approvals,
+service confirmation.
+
+MOST IMPORTANT ARCHITECTURAL RULE
+
+Flows should belong to:
+
+Messaging Intelligence Layer
+
+NOT:
+
+WhatsApp-only module,
+chatbot product,
+standalone portal.
+
+Correct structure:
+
+Messaging Intelligence
+ ├ SMS
+ ├ Voice OTP
+ ├ WhatsApp Templates
+ ├ WhatsApp Flows
+ └ Delivery Policies
+My Strong Recommendation To The Agent
+
+Choose:
+
+“Send OTP via WhatsApp Flows”
+
+and explicitly state:
+
+Build as an extension of the existing Messaging Intelligence Center,
+not as a separate WhatsApp product.
+
+That keeps the architecture clean and aligned with the BitsAuto roadmap.

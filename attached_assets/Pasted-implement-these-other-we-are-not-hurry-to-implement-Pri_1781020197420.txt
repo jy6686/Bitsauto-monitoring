@@ -1,0 +1,136 @@
+implement these other we are not hurry to implement ,
+📊 Priority Summary
+Item Value Effort Priority
+Mera cost → real margin per call High Low P1
+Live call PDD from setup_time Medium Low P1
+Vendor trunk one-click disable High Low P1
+Destination set edit/delete Medium Low P2
+CDR SIP error code filter Medium Low P2
+
+7 days ago
+
+Show less
+
+Planning feature implementation sequencing (14 seconds)
+Let me map the codebase before writing any code — I'll run all the discovery in parallel:
+
+
+13 actions
+Good — the backend routes for destination sets already exist (PATCH/DELETE). Let me now read the frontend files and the live-calls/CDR/vendor sections to understand what needs to change:
+
+
+5 actions
+Now let me read the key frontend sections and the live-calls API response shape in parallel:
+
+
+7 actions
+Good picture forming. Let me read the billing endpoint response and the specific sections I still need:
+
+
+3 actions
+Now I have enough context. Let me read the last pieces I need — the specific sections for each feature — in parallel:
+
+
+6 actions
+I need a few more reads on specific sections before writing code:
+
+
+6 actions
+I have a full picture now. Let me read the remaining sections I still need, then implement all 5 features in parallel:
+
+
+8 actions
+I have all I need. Let me now read the CDR endpoint and DS row action area, then implement all 5 features in parallel:
+
+
+3 actions
+I have everything I need. Let me now implement all 5 features. Starting with reading the DS row action area I need to confirm, then implementing all changes in parallel:
+
+
+3 actions
+I now have everything. Let me check a few last lines then implement all 5 features in parallel:
+
+
+4 actions
+I have all the context I need. Let me now implement all 5 features in parallel. Feature 4 (DS edit/delete) is already done. Let me start with the remaining 4:
+
+
+4 actions
+Now I have everything. Implementing all 4 remaining features in parallel:
+
+
+3 actions
+Continuing with all the remaining edits in parallel:
+
+
+3 actions
+Now adding the table cells for vendorCost/margin, the LivePdd component, the connection toggle button, and the CDR SIP filter — all in parallel:
+
+
+3 actions
+Now replacing the PDD cell, adding the connection toggle, and adding the SIP code filter — all in parallel:
+
+
+11 actions
+Now adding the toggle button to connection rows and the SIP code filter to the CDR page — in parallel:
+
+
+2 actions
+Now let me check if Power is imported in vendors.tsx and find the CDR filter section:
+
+
+14 actions
+Now implementing the CDR SIP code filter and cleaning up the unused pddDisplay variable:
+
+
+6 actions
+Good, the app is running. Now implementing the CDR SIP code filter — reading the exact filter sections:
+
+
+5 actions
+Continuing with the SIP code filter UI and client-side filtering in cdrs.tsx:
+
+
+2 actions
+Now I need to add the client-side SIP code filter to the cdrs array before display:
+
+
+7 actions
+Adding the filtered CDR variable and updating the display loop in one batch:
+
+
+2 actions
+Now updating the CDR display loop to use displayCdrs:
+
+
+2 actions
+Let me check the build status and also verify there are no other places in cdrs.tsx where cdrs is used for the count/empty state display:
+
+
+2 actions
+All files are hot-reloading successfully. Let me take a quick screenshot and run a typecheck to confirm there are no errors:
+
+
+3 actions
+App is running cleanly with all HMR updates confirmed. Here's a summary of everything that was implemented:
+
+5 Sippy 2024 improvements — completed
+Feature 1 — Mera vendor cost & margin in Billing Check (server/routes.ts + call-governance.tsx)
+
+Backend now reads vendorCost from the Mera-enriched CDR cache entry and computes marginAmount = customerCost − vendorCost
+Billing Check table now has two new columns: Vendor Cost and Margin — margin is green for positive and red for negative
+Feature 2 — Live ticking PDD for routing calls (calls-list.tsx)
+
+New LivePddCell component: for pre-answer (routing/ringing) calls it ticks every 200ms from setupTime, shown in amber — so you see time-in-routing live instead of blank
+For connected calls it continues to show the static post-answer delay field as before
+Feature 3 — Vendor connection one-click disable/enable (vendors.tsx)
+
+Added a Power toggle button to each connection row (between the edit gear and the trash icon)
+Green when the connection is active (click to disable), rose-red when blocked (click to re-enable)
+Uses the existing PATCH /api/sippy/connections/:id endpoint with { blocked: true/false } — no new backend code needed
+Feature 4 — Destination set edit/delete — already fully implemented (Pencil + Trash buttons with dialogs confirmed present)
+
+Feature 5 — CDR SIP error code filter (cdrs.tsx)
+
+New SIP Code select in the filter bar: All Codes / 200 Answered / 4xx / 404 / 486 / 488 / 5xx / 503 / 6xx
+Client-side filter — instant, no extra API call; works with all CDR sources (XML-RPC, portal scrape, cache)

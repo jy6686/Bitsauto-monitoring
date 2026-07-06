@@ -1,0 +1,60 @@
+Diagnosis — Where the chain breaks
+The tariff IS stored during account creation. The problem is that no subsequent step in the billing pipeline reads it automatically.
+
+Account Creation  →  companies.sippyITariff ✅  (stored)
+                                    ↓  ✗ never read by invoice flow
+Invoice Generate  →  iTariff required in request body ✗ (manual)
+Invoice Jobs      →  no iTariff column at all         ✗ (blind)
+
+Specifically:
+
+Surface	Current behaviour	Gap
+companies table	Stores sippyIAccount + sippyITariff after provisioning	✅ source of truth exists
+clientIdentityMap	Stores iAccount only — no tariff field	✗ identity layer doesn't carry tariff
+POST /api/invoices/generate	Requires iTariff in request body — hard 400 if absent	✗ no fallback lookup
+POST /api/invoices/bulk-generate	Same — each account entry must include iTariff manually	✗ forces caller to know it
+invoice_jobs table	Has clientName + clientId — no iTariff column	✗ scheduler can never auto-generate
+generateInvoice() function	Takes iTariff as a required argument — no internal lookup	✗ pure pass-through
+invoice_cdr_snapshots	Already stores iTariff per snapshot ✅	Correct — don't change
+What needs to change — in one implementation pass
+1. invoice_jobs — add iTariff column
+This is the most important gap. The scheduler job lifecycle goes PENDING → GENERATED → REVIEW → APPROVED → SENT but the job record has no idea which tariff to use when it auto-generates. Without this column, the scheduler can never be fully automated.
+
+2. generateInvoice() — add optional tariff auto-lookup
+When iTariff is not passed, the function should resolve it by looking up companies where sippyIAccount matches the account. This makes the function self-healing for both the route and the scheduler.
+
+Resolution order for the lookup:
+
+1. iTariff passed explicitly            → use it (current behaviour, unchanged)  
+2. iTariff not passed, iAccount known   → look up companies.sippyITariff  
+3. iTariff not passed, customerName     → join via companies.billingName / displayName  
+4. Still nothing                        → throw descriptive error (not a 400 on tariff field)
+
+3. Both invoice generate routes — make iTariff optional
+POST /api/invoices/generate and POST /api/invoices/bulk-generate should treat iTariff as optional and auto-resolve from companies when absent. The DMR gate stays mandatory.
+
+4. createInvoiceJob() — accept + store iTariff
+The scheduler's createJob() call should accept iTariff and persist it on the job row. detectBillingCycles() (which auto-creates jobs) can then pull sippyITariff from companies for every provisioned account.
+
+5. clientIdentityMap — add iTariff field (lower priority)
+Since clientIdentityMap is the canonical identity layer, adding iTariff there allows resolveClientIdentity() to serve as the single lookup for all billing pipeline components. Seeding happens via POST /api/identity/seed which already pulls account info from Sippy.
+
+The automated flow after the fix
+Account Creation
+  → companies.sippyIAccount + sippyITariff written ✅
+CDR Processing
+  → invoice_cdr_snapshots tagged with iTariff ✅
+Invoice Job Created (manually or by scheduler)
+  → invoice_jobs.iTariff auto-resolved from companies ✅
+Invoice Generation (PENDING → GENERATED)
+  → generateInvoice({ iAccount, periodStart, periodEnd, customerName })
+  → iTariff resolved internally — no manual input needed ✅
+DMR Gate → Review → Approve → Send
+  → all unchanged ✅
+
+What NOT to change
+invoice_cdr_snapshots.iTariff — correct, keep as-is (this is the immutable financial record)
+The DMR verification gate — must stay mandatory before generation
+The draft → review → approved → sent human-approval workflow — keep unchanged
+The generateInvoice() return shape — no callers need to change
+Ready to implement all five changes in one pass when you say go.

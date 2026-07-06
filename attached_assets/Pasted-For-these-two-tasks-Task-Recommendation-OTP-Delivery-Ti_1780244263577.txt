@@ -1,0 +1,207 @@
+For these two tasks:
+
+Task	Recommendation
+OTP Delivery Timeline + Provider Health	✅ Build NOW
+Template Engine	⏳ Build later
+
+And for implementation mode:
+
+Build Timeline + Provider Health in background
+
+NOT “build here”.
+
+Why Background Is Better For #31
+
+This is a:
+
+multi-layer intelligence feature,
+aggregation-heavy feature,
+websocket-integrated feature,
+cross-entity reconstruction feature.
+
+You are touching:
+
+grouping logic,
+provider scoring,
+timeline reconstruction,
+websocket refresh,
+UI expansion,
+derived analytics.
+
+That is NOT a small isolated change.
+
+#31 Is Actually VERY Important
+
+This task is one of the strongest operational intelligence upgrades so far.
+
+Because it transforms:
+
+message logs
+
+into:
+
+delivery orchestration visibility
+
+Example:
+
+SMS failed
+↓
+Voice attempted
+↓
+No answer
+↓
+WhatsApp fallback
+↓
+Delivered
+
+That is EXTREMELY valuable operationally.
+
+Why This Should Be BEFORE Templates
+
+Templates are useful.
+
+But Timeline + Provider Health:
+
+improves debugging,
+improves operations,
+improves routing visibility,
+improves delivery intelligence,
+improves NOC usability.
+
+Templates are mostly:
+
+content management.
+
+Operational intelligence has much higher value right now.
+
+STRONG Recommendation
+Build ONLY #31 now.
+
+Do NOT build both together.
+
+Because:
+
+template engine is a separate architectural layer,
+separate DB model,
+separate rendering system,
+separate UI domain.
+
+Mixing both now will:
+
+increase complexity,
+slow validation,
+increase regression risk.
+#31 Is The Correct Next Evolution
+
+Current state:
+
+send OTP
+
+After #31:
+
+understand OTP journey
+
+That is a MAJOR platform maturity jump.
+
+VERY IMPORTANT ARCHITECTURAL WIN
+
+The timeline system becomes the future foundation for:
+
+Future Capability	Depends on Timeline
+retry analytics	✅
+AI routing	✅
+fraud RCA	✅
+provider scoring	✅
+carrier intelligence	✅
+customer debugging	✅
+
+This is foundational infrastructure.
+
+Provider Health Panel Is ALSO High Value
+
+Because now you already have:
+
+REVE,
+UltraMsg,
+CallMeBot,
+Sippy,
+Voice OTP.
+
+Without provider visibility:
+operators are blind.
+
+BEST PART OF #31
+
+You are NOT adding:
+
+new systems,
+new providers,
+new channels.
+
+You are extracting:
+
+intelligence
+
+from existing traffic.
+
+That is exactly the correct next step.
+
+Recommended Build Strategy
+Phase 1
+
+Background build:
+
+/api/otp/sessions
+/api/messaging/provider-health
+session reconstruction
+provider scoring
+websocket integration
+Phase 2
+
+UI:
+
+Timeline tab
+Provider strip
+expandable traces
+latency rendering
+Phase 3
+
+Validation:
+
+fallback chains
+total delivery timing
+provider status accuracy
+websocket refresh stability
+One VERY Important Recommendation
+
+For timeline grouping:
+
+DO NOT rely ONLY on:
+
+toNumber + 5-minute bucket
+
+Use:
+
+fallback chain,
+parent message IDs,
+retry IDs,
+OTP correlation IDs
+
+where possible.
+
+Otherwise high-volume OTP traffic may merge unrelated sessions.
+
+Very important future-proofing.
+
+Final Recommendation
+✅ Build #31
+✅ Build in background
+❌ Do NOT combine with Templates yet
+
+Because #31 is:
+
+operational intelligence,
+delivery observability,
+orchestration visibility,
+
+and is MUCH more strategically valuable right now than content management.

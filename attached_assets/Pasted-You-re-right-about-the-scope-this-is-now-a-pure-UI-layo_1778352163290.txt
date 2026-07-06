@@ -1,0 +1,121 @@
+You’re right about the scope: this is now a pure UI + layout problem on top of already-correct SIP data, not a backend feature anymore.
+
+But there’s one important correction before you start building it:
+
+⚠️ Reality check (important)
+
+Even though everything looks ready, SIP ladder diagrams usually fail in production builds for one reason:
+
+SIP data exists as a flat timeline, but ladder diagrams require stateful pairing of request ↔ response across participants
+
+So the real missing piece is not “UI only” — it’s:
+
+👉 Message pairing + lane assignment logic
+
+Without that, you’ll get:
+
+arrows in wrong order
+broken call flow visualization
+no clean “conversation thread”
+✅ What you should actually implement (clean breakdown)
+🧠 1. Data transformation layer (MOST IMPORTANT)
+
+Before UI:
+
+Convert SipMessage[] → SipLadderEvent[]
+
+Each event must include:
+
+from: Caller / Sippy / Carrier
+to: Caller / Sippy / Carrier
+type: INVITE, TRYING, 200 OK, BYE, etc.
+timestamp
+deltaMs (time since previous event)
+status: success | warning | failure
+callPhase: setup | ringing | established | teardown
+
+👉 This is what makes the ladder possible.
+
+🧭 2. Lane model (core UI structure)
+
+You need exactly 3 fixed lanes:
+
+LEFT → Caller (UA)
+CENTER → Sippy / SBC
+RIGHT → Carrier / Vendor
+
+Each message maps like:
+
+Caller  →  Sippy     INVITE
+Sippy   →  Carrier   INVITE
+Carrier →  Sippy     100 TRYING
+Sippy   →  Caller    180 RINGING
+...
+🎯 3. Visual rendering layer (what you described)
+Each SIP event becomes:
+Horizontal arrow
+Label (method + code)
+Timestamp aligned to vertical axis
+Color rules:
+green → success path (200 OK, ACK)
+yellow → in-progress (100/180)
+red → failure (4xx/5xx/6xx)
+gray → transport noise / retries
+📉 4. Timeline axis (critical UX piece)
+
+Add:
+
+vertical time ruler
+ms offsets between events
+“PDD marker” (Post Dial Delay) from INVITE → 200 OK
+
+This is what operators actually care about.
+
+🔗 5. Integration hook
+
+Already exists, just confirm:
+
+CDR row → “View SIP Trace”
+passes callId
+loads reconstructed SIP flow
+🧩 What this becomes (important framing)
+
+After this build, your system gains:
+
+Before:
+“We have SIP logs and CDRs”
+After:
+“We can visually replay any call like a network debugger”
+
+That is a step-function improvement in diagnostic capability, not just UI polish.
+
+🚀 Final implementation recommendation
+
+Yes — build it now, but in this order:
+
+Step 1 (must do first)
+
+👉 normalize SIP messages → ladder events
+
+Step 2
+
+👉 lane layout (Caller / Sippy / Carrier grid)
+
+Step 3
+
+👉 arrows + timeline rendering
+
+Step 4
+
+👉 failure path highlighting + PDD marker
+
+If you want next step
+
+I can break this into a drop-in component structure (React + layout + mapping functions) so you can implement it in one clean pass without trial-and-error CSS.
+
+Just say:
+
+👉 “
+design SIP ladder component structure”
+
+and I’ll map the exact implementation blueprint.

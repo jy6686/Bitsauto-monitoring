@@ -1,0 +1,182 @@
+This result changes the diagnosis significantly.
+
+Most important finding
+sippy_accounts table: relation "sippy_accounts" does not exist
+
+So all earlier assumptions about joining against a sippy_accounts database table are wrong.
+
+BitsAuto does not have a persistent Sippy accounts table.
+
+Instead it has:
+
+__bitsautoAccountCache (memory)
+        +
+listAccounts() XML-RPC
+        +
+customer_product_assignments
+
+This explains a lot.
+
+What the database actually contains
+
+You have:
+
+companies                    21 rows
+customer_product_assignments 41 rows
+
+But no:
+
+customers
+sippy_accounts
+
+table.
+
+That means:
+
+Commercial layer
+companies
+customer_product_assignments
+kam_accounts
+Sippy layer
+listAccounts()
+__bitsautoAccountCache
+
+only exists in memory.
+
+This is probably the root cause
+
+Current flow appears to be:
+
+Rate Manager
+      ↓
+accounts-by-product endpoint
+      ↓
+customer_product_assignments
+      ↓
+__bitsautoAccountCache
+      ↓
+dropdown
+
+If cache contains:
+
+1
+4
+55
+58
+...
+
+but misses:
+
+588 internal-ptcl
+589 internal-citc
+683 internaltelstra
+
+then they disappear even though assignments exist.
+
+Bigger architectural issue
+
+Your system currently has:
+
+Product Assignment = Database
+Account Catalog    = Memory Cache
+
+Those should never be separate authorities.
+
+What I would build
+
+Instead of:
+
+customer_product_assignments
+      ∩
+__bitsautoAccountCache
+
+create a persistent account catalog table.
+
+Example:
+
+CREATE TABLE account_registry (
+    i_account      INTEGER PRIMARY KEY,
+    username       TEXT,
+    tariff_id      INTEGER,
+    status         TEXT,
+    last_seen_at   TIMESTAMP,
+    source         TEXT
+);
+
+Populate it from:
+
+Admin API listAccounts()
+
+during sync.
+
+Then every module uses:
+
+account_registry
+
+instead of memory cache.
+
+Short-term fix
+
+Before a major refactor, inspect the cache itself.
+
+Run:
+
+grep -n "__bitsautoAccountCache" server/routes.ts server/*.ts
+
+Then find:
+
+cache.set(...)
+cache.get(...)
+
+and the warm-up function that calls:
+
+listAccounts()
+
+I suspect one of these:
+
+Cache refresh stopped before reaching all accounts.
+Pagination bug.
+Filter removing internal-* accounts.
+Limit applied when populating cache.
+Rate Manager endpoint using stale cache.
+Another very important clue
+
+Your assignment table shows:
+
+created_by=tariff-sync
+created_by=admin
+
+for different accounts.
+
+That suggests there are already multiple provisioning paths creating assignments.
+
+Before changing Vendor Rate or Rate Manager further, I would audit:
+
+Account Wizard
+Admin API createAccount
+tariff-sync
+customer_product_assignments inserts
+
+and make sure every account creation path does:
+
+Create Account
+   ↓
+Create Assignment
+   ↓
+Refresh Account Catalog
+
+in one transaction.
+
+My recommendation
+
+Do not start Vendor Rate implementation yet.
+
+Priority should be:
+
+Fix account governance.
+Replace memory-only account visibility with a persistent account registry.
+Make Account Wizard use the Admin API path exclusively.
+Ensure assignment creation is automatic.
+Then continue Client Rate Manager and Vendor Rate Manager.
+
+Otherwise you'll keep finding "missing account" issues in every module because the underlying account catalog is not unified.

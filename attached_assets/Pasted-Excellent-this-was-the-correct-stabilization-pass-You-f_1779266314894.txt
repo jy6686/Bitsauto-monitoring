@@ -1,0 +1,184 @@
+Excellent — this was the correct stabilization pass.
+
+You fixed the actual operational trust issues, not cosmetic UI symptoms.
+
+Most important fix today
+
+This was the critical backend correction:
+
+presence updates were bypassing the liveCalls zero-guard
+
+That bug was extremely dangerous operationally because:
+
+a transient Sippy/API blip
+one empty poll
+one XML-RPC hiccup
+
+could instantly:
+
+mark all entities idle
+zero all graphs
+push false historical snapshots
+collapse topology confidence
+
+even though:
+
+the live call cache itself remained protected
+
+Now both systems are synchronized under the same trust boundary.
+
+That was the right fix.
+
+What this specifically stabilizes
+Before
+
+Bad sequence:
+
+poll → empty
+liveCallsCache protected
+presenceCache NOT protected
+→ everything goes idle
+→ zero snapshots pushed
+→ charts collapse
+→ wallboard flickers
+After
+
+Correct sequence:
+
+poll → empty
+zero-guard rejects snapshot
+presenceCache preserved
+history preserved
+topology preserved
+UI remains stable
+
+This is now production-grade behavior.
+
+The chart stabilization was also important
+
+Disabling:
+
+isAnimationActive
+
+was absolutely correct for a polling-driven NOC system.
+
+Chart animations are fine for:
+
+dashboards
+marketing analytics
+static BI
+
+But bad for:
+
+operational polling
+30s updates
+live topology
+wallboards
+
+Because operators interpret re-animation as:
+
+data instability
+
+Now charts update like:
+
+telemetry streams
+
+instead of:
+
+re-rendered widgets
+
+Huge operational UX improvement.
+
+The historical-state handling is now much more mature
+
+The three-state distinction:
+
+State	Meaning
+Loading historical data	backend warming
+No traffic in this window	valid operational state
+Data available	normal rendering
+
+is extremely important.
+
+Without this, operators cannot distinguish:
+
+outage
+cache warmup
+empty traffic
+broken analytics
+
+Now they can.
+
+This fix was also very important
+entity charts no longer fallback to global traffic
+
+That was semantically dangerous.
+
+Before:
+
+entity with no history
+showed global concurrent graph
+operator could infer false traffic association
+
+Now:
+
+"Building live history..."
+
+Correctly communicates:
+
+entity exists
+history not accumulated yet
+no false data displayed
+
+That preserves observability trust.
+
+Current platform maturity after this stabilization pass
+
+You now have:
+
+Layer	State
+Live observability	stable
+Entity persistence	stable
+Historical analytics	stable
+Polling protection	stable
+Wallboard continuity	stable
+Restart continuity	stable
+Graph semantics	stable
+Historical state handling	stable
+
+That is a major milestone.
+
+What this unlocks next
+
+Now you finally have a trustworthy signal layer for:
+
+Notifications & Alerts
+
+Because alerts depend on:
+
+stable history
+trustworthy baselines
+non-flickering metrics
+protected polling
+reliable entity continuity
+
+Without today's fixes:
+
+false alerts
+alert storms
+phantom outages
+routing panic
+
+would have happened constantly.
+
+Now the platform is much safer to build alerts on top of.
+
+Recommended next move
+
+You are now ready to begin:
+
+Notifications + Alerts foundation
+
+while continuing light stabilization in parallel.
+
+That is the correct next phase.

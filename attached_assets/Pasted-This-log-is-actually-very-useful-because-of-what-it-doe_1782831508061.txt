@@ -1,0 +1,220 @@
+This log is actually very useful because of what it doesn't contain.
+
+What we know for certain
+
+The build succeeds.
+
+✅ npm install
+✅ Vite build
+✅ Server build
+✅ Image created
+✅ Image pushed
+✅ Manifest pushed
+
+The log ends here:
+
+Pushed image manifest
+Skipping container streaming artifacts...
+
+There is no container startup log.
+
+That means the failure is after image creation, during Promote / Runtime.
+
+This is NOT
+TypeScript
+Vite
+Bundle size
+XLSX warning
+npm audit
+Build script
+
+All of those completed successfully.
+
+The real problem
+
+At this point there are only a few realistic possibilities.
+
+1. Runtime exception immediately after container starts ⭐⭐⭐⭐⭐
+
+For example
+
+process.exit()
+
+throw
+
+await something
+
+uncaught rejection
+
+
+The process exits before the health probe succeeds.
+
+2. Server binds the wrong port ⭐⭐⭐⭐
+
+Cloud Run expects
+
+process.env.PORT
+
+If the server binds
+
+5000
+
+instead of
+
+process.env.PORT
+
+promotion fails.
+
+Verify:
+
+console.log(process.env.PORT)
+
+app.listen(process.env.PORT)
+
+Not
+
+app.listen(5000)
+3. Startup blocks forever ⭐⭐⭐⭐
+
+Examples
+
+await registerRoutes()
+
+await setupAuth()
+
+await Sippy
+
+await DB
+
+await import(...)
+
+before Express begins serving.
+
+4. Health probe receives 404/500 ⭐⭐⭐
+
+Even though locally
+
+GET /
+
+returns 200.
+
+Cloud Run may be probing
+
+/health
+
+/live
+
+/
+What worries me
+
+Every publish log ends at
+
+Pushed image manifest
+
+After that there is nothing.
+
+That strongly suggests you're not seeing the runtime logs at all.
+
+Without those logs, everyone is guessing.
+
+I would stop changing code now.
+
+Instead I would ask Replit AI to produce the actual startup logs.
+
+Use this exact instruction:
+
+Build instruction
+The image builds successfully.
+
+The failure happens after "Pushed image manifest".
+
+Do not modify application logic.
+
+Do not change startup gates.
+
+Do not change vendor code.
+
+Do not change migrations.
+
+I need the runtime startup logs from the promoted container.
+
+Find why the container exits or fails health checks after image promotion.
+
+Specifically determine:
+
+• Does the Node process start?
+
+• Does app.listen() execute?
+
+• Which port is actually bound?
+
+• Is process.env.PORT honored?
+
+• Is there any uncaught exception?
+
+• Is there any unhandled rejection?
+
+• Is registerRoutes() completing?
+
+• Is serveStatic() registered?
+
+• Is the process exiting?
+
+Add temporary startup logging only.
+
+Log every milestone:
+
+BOOT 1
+BOOT 2
+BOOT 3
+...
+BOOT 10
+
+before and after every startup stage.
+
+Do not change behavior.
+
+Only instrument startup.
+
+Even better
+
+Add this around startup:
+
+process.on("uncaughtException", e => {
+    console.error("UNCAUGHT", e);
+});
+
+process.on("unhandledRejection", e => {
+    console.error("UNHANDLED", e);
+});
+
+process.on("exit", code => {
+    console.error("EXIT", code);
+});
+
+and log each stage:
+
+console.log("BOOT 1");
+...
+console.log("BOOT 2");
+...
+console.log("BOOT 3");
+
+If the last log is:
+
+BOOT 5
+
+you immediately know the startup dies between BOOT 5 and BOOT 6.
+
+I also have one important question:
+
+Can you show the contents of your server/index.ts startup sequence?
+
+Specifically, I want to see from:
+
+where const app = express() is created,
+through registerRoutes(),
+serveStatic(),
+and finally app.listen(...).
+
+That startup sequence is now the most likely place where the deployment is failing, and seeing the actual code is more valuable than making another speculative change.

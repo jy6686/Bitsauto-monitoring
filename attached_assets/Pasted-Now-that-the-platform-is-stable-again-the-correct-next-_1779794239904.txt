@@ -1,0 +1,134 @@
+Now that the platform is stable again, the correct next step is:
+
+P2-C / P2-D — Enrichment Overlay Integration
+
+But this should be done carefully as:
+
+telemetry reconciliation work
+
+—not feature expansion.
+
+Recommended Next Phase
+P2-C — Hybrid Enrichment Overlay
+
+Goal:
+combine:
+
+authoritative portal aggregation
+
+with:
+
+per-call enrichment intelligence
+
+Architecture:
+
+Native Sippy Aggregation
+(calls, ASR, ACD, revenue)
+            +
+Per-call enrichment overlay
+(FAS, NER, SIP anomalies)
+            +
+Confidence scoring
+
+This is now the natural next evolution.
+
+What P2-C Should Deliver
+Metric	Source
+Calls	Native
+ASR	Native
+ACD	Native
+Revenue	Native
+Vendor totals	Native
+FAS	Derived overlay
+NER	Derived overlay
+SIP anomaly rates	Derived overlay
+Short-duration ratios	Derived overlay
+P2-D — Confidence & Provenance Governance
+
+This is the MOST important part.
+
+Every derived metric should carry:
+
+Field	Purpose
+provenance	native / derived
+coverageRatio	sample coverage
+confidence	high / medium / low
+sampleSize	enrichment sample count
+staleAge	telemetry age
+
+Example:
+
+FAS: 3.2%
+Derived · Medium confidence
+4,200 sampled calls / 20,232 total
+
+That is enterprise-grade operational telemetry.
+
+IMPORTANT IMPLEMENTATION RULES
+1. Overlay must NEVER overwrite native totals
+
+Derived metrics are:
+
+additive only
+
+Never replace:
+
+calls
+ASR
+revenue
+ACD
+2. Weak samples must degrade gracefully
+
+Example:
+
+Coverage	Behavior
+>60%	normal
+25–60%	medium confidence
+<25%	low confidence
+<5%	suppress metric
+3. Derived metrics must remain explainable
+
+Operators should always know:
+
+where the metric came from
+how large the sample was
+whether confidence is weak
+Strategic Recommendation
+
+Do NOT jump into:
+
+Trust Analytics
+Automation expansion
+AI routing
+Closed-loop optimization
+
+yet.
+
+The correct maturity order is now:
+
+Phase	Status
+Telemetry integrity	Complete
+Governance correctness	Complete
+Provenance visibility	Complete
+Enrichment reconciliation	NEXT
+Confidence calibration	After P2-D
+Trust analytics	Later
+Semi-autonomous failover	Much later
+My Recommendation
+
+Implement:
+
+P2-C + P2-D together
+
+as one coordinated sprint.
+
+Because:
+
+overlay without confidence is dangerous
+confidence without overlay has no value
+
+Together they complete:
+
+trustworthy hybrid telemetry architecture
+
+which is the real foundation for every later intelligence layer.

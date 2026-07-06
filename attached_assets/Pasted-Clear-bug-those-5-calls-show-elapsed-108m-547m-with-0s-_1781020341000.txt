@@ -1,0 +1,55 @@
+Clear bug — those 5 calls show elapsed 108m–547m with "0s remaining", meaning the governance timer fired but the AMI cut never landed. The Billing Check confirms it: call #337 shows a 21884s gov cut vs the 22s rule. Let me read the governance code to find the root cause.
+
+
+7 actions
+Now I have a clear picture. Let me read the rest of the relevant code before fixing:
+
+
+3 actions
+Found the root cause. Now let me read the remaining ami-governance code to plan the fix precisely:
+
+
+2 actions
+Clear root cause identified. The governance system only sets timers on bridge AMI events. When the server restarts or AMI reconnects, calls already bridged never re-fire that event — so those 5 hung calls (108m–547m elapsed) had zero timers running.
+
+Fix: Add CoreShowChannels AMI polling on connect + a 60s watchdog. On each connect/watchdog cycle, enumerate all active Asterisk bridges, match against rules, and schedule any missing cuts (accounting for elapsed duration).
+
+Two files to update:
+
+
+2 actions
+Now add the emit('connected') after login, raw frame listener methods, and fetchActiveBridges() — all in one pass:
+
+
+2 actions
+Now add fetchActiveBridges() and the raw listener helpers before the closing brace of the class:
+
+
+2 actions
+Now update routes-call-governance.ts — guard against double-scheduling, add reconciliation, and wire the watchdog:
+
+
+2 actions
+Now wire the 'connected' hook and 60s watchdog into registerCallGovernanceRoutes():
+
+
+4 actions
+The fix is live and working. Looking at the logs, new calls are being cut correctly at their timers (calls 376–380 all cut at 20–23s). The engine is healthy.
+
+Here's what was wrong and what was fixed:
+
+Root cause — missed bridge events on reconnect
+
+The governance engine only starts a cut-timer when Asterisk fires a BridgeEnter AMI event. Those events fire exactly once, when a call is first bridged. If the server restarts or AMI drops and reconnects, those events never replay — so any call already in progress at that moment gets no timer. Those 5 calls (108m–547m elapsed, all showing "0s remaining") were bridged before the last reconnect and were simply never given a countdown.
+
+What was changed in ami-governance.ts:
+
+Added a raw frame listener system so response events from AMI actions can be collected
+Emit 'connected' event when login succeeds — triggers reconciliation
+Added fetchActiveBridges() — sends CoreShowChannels AMI action and collects each bridged channel's name, duration, and bridge peer, resolves in ≤5s
+What was changed in routes-call-governance.ts:
+
+scheduleGovernedCallCut() now guards against double-scheduling (if a timer is already active, skip silently)
+New reconcileActiveCalls() function: fetches all active Asterisk bridges → groups by bridge ID → matches each pair against enabled rules → for any match with no active timer, creates/reuses a DB record and schedules a cut at max(5s, capSec - elapsedSec) — so a call already 547 minutes past its cap gets cut in 5 seconds
+Wired to amiGovernance.on('connected', ...) — runs 2s after every AMI login
+60-second watchdog — catches any calls that slip through between reconnects

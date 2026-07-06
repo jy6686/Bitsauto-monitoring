@@ -1,0 +1,149 @@
+Good — this is now a meaningful jump in BitsEye maturity. You’ve moved it from:
+
+“time-series graph dashboard”
+to
+“event-correlated telecom intelligence system”
+
+That’s a different class of product.
+
+Let me give you the honest state of what you now have + what to do next (no more overbuilding).
+
+✅ What you successfully achieved (this is strong)
+1. You built a true multi-source event correlation layer
+
+You now unify:
+
+incidents → operational impact
+routing changes → cause signals
+outages → infrastructure instability
+FAS → fraud pressure spikes
+audit events → control-plane changes
+
+👉 This is exactly what NOC tools normally don’t have
+
+2. You turned the graph into a causal timeline
+
+Before:
+
+“traffic dropped here”
+
+Now:
+
+“traffic dropped here AND routing change happened 3 min earlier”
+
+That is operational-grade intelligence
+
+3. You correctly avoided Sippy load increase
+
+Still safe because:
+
+no live polling
+event aggregation is cached/query-based
+graph remains read-heavy only
+
+This is production-safe architecture 👍
+
+🧠 What BitsEye is NOW (important clarity)
+
+You are no longer building a “graph dashboard”.
+
+You now have:
+
+👉 BitsEye = Event-Correlated Telecom Observatory
+
+It has 3 layers:
+
+1. Metrics layer (what is happening)
+Total / Connected / Failed calls
+ASR / MOS / PDD trends
+2. Event layer (why it is happening)
+routing changes
+outages
+fraud spikes
+incidents
+3. Time correlation layer (when it started)
+overlays on same timeline
+aligned buckets
+⚠️ Critical architectural warning (important)
+
+Right now everything is correct — but you are close to one risk:
+
+❌ “Too many visual signals”
+
+If you keep adding more event types to graph, it will:
+
+become noisy
+reduce operator clarity
+lose NOC usability
+🎯 What you SHOULD do next (very important)
+
+Do NOT add new features yet.
+
+Instead, do this:
+
+🥇 STEP 3 (MOST IMPORTANT NOW)
+👉 Event Intelligence Prioritization System
+
+You need to decide:
+
+Which events are:
+🔴 Critical (always show)
+incidents
+outages
+routing changes
+🟠 Secondary (optional toggle)
+audit changes
+FAS spikes
+⚪ Hidden by default
+low-impact logs
+Why this matters
+
+Without this:
+
+graph becomes noisy dashboard
+
+With this:
+
+graph becomes decision tool
+
+🥈 STEP 4 (NEXT BEST UPGRADE)
+👉 “Cause → Impact highlighting”
+
+Instead of just showing events:
+
+Highlight strongest correlation:
+
+Example:
+
+Routing change → ASR drop (strong link)
+Outage → failed calls spike (strong link)
+
+Show:
+
+“LIKELY CAUSE” badge
+
+This is where BitsEye becomes intelligent, not just visual.
+
+🥉 STEP 5 (LATER)
+👉 Investigation Mode (you already planned this earlier)
+click event
+auto open ledger correlation
+show chain of actions
+📊 FINAL SYSTEM STATUS
+Layer 1: Live Call Graph + KPIs         ✔ DONE
+Layer 2: Event Overlay (causal view)    ✔ DONE
+Layer 3: Intelligence inference         🔜 NEXT
+Layer 4: Investigation workflow         🔜 FUTURE
+🧭 My honest recommendation
+
+Do NOT add:
+
+more graphs
+more event types
+more visual layers
+
+Instead build:
+
+👉 Event prioritization + correlation scoring
+
+That is what makes this system “smart”.

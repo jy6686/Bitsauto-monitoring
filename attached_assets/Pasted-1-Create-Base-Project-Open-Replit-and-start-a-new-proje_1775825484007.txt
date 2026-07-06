@@ -1,0 +1,126 @@
+1. Create Base Project
+Open Replit and start a new project using Node.js or Python (Node.js is generally easier for SIP/VoIP).
+Install dependencies for SIP & media:
+
+For Node.js:
+
+npm install sip.js @tiptap/sip-media express fs axios
+📞 2. Integrate with Sippy Soft SIP Server
+
+Sippy Soft will handle SIP signaling. You will configure it to send call events to your Replit app.
+
+➤ Set up webhooks in Sippy Soft:
+
+✔ On call connect → POST to your Replit endpoint
+✔ On call disconnect → POST to your Replit endpoint
+
+Your Replit URL will be similar to:
+
+https://<your‑replit‑project>.repl.co
+🎧 3. Record First 30 Seconds
+
+Create an HTTP endpoint in your Replit server to start recording when call connects:
+
+Example (Node.js Express):
+const express = require('express');
+const fs = require('fs');
+const app = express();
+
+let recordingStream;
+
+app.post('/call‑connected', (req, res) => {
+    // Start recording here (Sippy Soft instructs media server)
+    recordingStream = startRecording30sec();  
+    res.sendStatus(200); 
+});
+
+Your function startRecording30sec() should request Sippy Soft or media bridge to record media for 30 seconds and save to a temp file.
+
+📦 4. Save Audio Temporarily
+
+After 30 seconds, automatically stop recording and save:
+
+function startRecording30sec() {
+    const filename = `temp_audio_${Date.now()}.wav`;
+    // Instruct Sippy Soft or media bridge to start recording
+    // After 30 sec automatically stop
+    setTimeout(() => stopRecording(filename), 30000);
+    return filename;
+}
+
+function stopRecording(filename) {
+    // Save file to Replit / memory / cloud storage
+}
+
+⚡ Note: Replit has limited filesystem persistence — consider saving to a bucket if you plan for longer storage.
+
+🔁 5. Playback to Caller on Same Call
+
+Instead of injecting audio directly into a SIP call leg (which often causes the vendor to drop the call), do either of:
+
+Option A — Media Bridge Playback
+
+Sippy Soft can bridge the recorded file into the call using its media server:
+
+CALL_ID + PLAYBACK FILE (temp_audio_xxx.wav)
+Option B — Conference Bridge
+
+Route both sides into a virtual conference:
+
+[Caller] + [Playback Audio] → same room
+
+This keeps the call alive while audio plays.
+
+Example playback endpoint:
+
+app.post('/playback', (req, res) => {
+    const file = req.body.filename;
+    playAudioInMediaBridge(file); // Media bridge plays to the active call
+    res.sendStatus(200);
+});
+🔄 6. Keep SIP Session Active
+
+Main requirement → Don’t terminate call while playing back media.
+
+Make sure:
+✔ Your media bridge does not Tear down the call leg
+✔ Your call control scripts do not send BYE before playback is finished
+✔ Use reliable session timers on Sippy Soft
+
+❗ 7. Handle Vendor Disconnects
+
+If vendor drops connection mid‑playback:
+
+Instead of injecting playback into the call leg:
+✔ Use a separate media stream
+✔ Use conference channels
+✔ Use Sippy Soft play API to stream back audio independently
+
+So the vendor connection stays separate from your media playback.
+
+🛠 Features to Use in Sippy Soft
+Feature	Purpose
+Call Recording API	Capture RTP streams for 30 sec
+Temporary File Storage	Store .wav or .mp3
+Playback API	Play recorded file into active call
+Media Bridge / Conference	Keep session alive during playback
+🧠 Summary Architecture
+Caller → Sippy Soft — SIP Signaling → Replit App
+           │
+    Recording (30 sec) → Temp Storage
+           │
+   Playback via Media Bridge / Conference
+           │
+        Caller hears audio
+
+No call drops happen because you’re not directly replacing the call media — you’re bridging the audio.
+
+🚀 Next Step (If You Want)
+
+I can generate actual Replit‑ready code templates for:
+✔ Node.js with Express
+✔ Python with FastAPI
+✔ SIP.js for SIP handling
+✔ Integration with Sippy Soft API calls
+
+Just tell me which language you prefer — Python or Node.js?

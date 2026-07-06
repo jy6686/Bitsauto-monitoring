@@ -1,0 +1,85 @@
+This is the correct direction.
+
+You’ve now shifted from “UI experimentation” into actual platform hardening and operational maturity.
+
+The important part is that the work stayed inside the existing architecture instead of introducing parallel systems.
+
+What is now in a stable state:
+
+BitsEye 2 entity persistence
+Historical intelligence layer
+Dashboard intelligence rail
+Notification cooldown correctness
+Real email pipeline
+Real recording data source
+Live polling stabilization
+Entity lifecycle stability
+Sidebar persistence behavior
+Traffic history infrastructure
+Aggregate intelligence queries
+
+The biggest win technically:
+you now have a single telemetry spine.
+
+Everything is reusing:
+
+CDR cache
+presenceCache
+crossDimCache
+entityConcurrentHistory
+liveCallsCache
+
+That is exactly what keeps the platform maintainable.
+
+The call recordings implementation was also done correctly:
+
+no fake storage model
+no parallel DB
+no invented metadata
+derives directly from CDR intelligence
+graceful degradation when recording backend is absent
+
+That matters because most VoIP platforms become unstable when recordings become their own disconnected subsystem.
+
+Now the priority order should be:
+
+Notification delivery reliability
+retry handling
+SMTP timeout handling
+alert deduplication verification
+incident escalation timing
+notification audit log
+Recording operationalization
+real recording server integration
+waveform preview
+retention cleanup scheduler
+download authorization
+recording search filters
+Dashboard polish only
+spacing consistency
+responsive breakpoints
+chart loading smoothness
+tooltip consistency
+no more layout restructuring
+Platform stability pass
+memory growth audit
+polling interval audit
+websocket reconnect behavior
+cache invalidation review
+API latency logging
+
+Do not start:
+
+AI features
+correlation engine
+predictive analytics
+anomaly clustering
+advanced routing intelligence
+
+until:
+
+notifications are trustworthy
+recordings are trustworthy
+dashboards are operationally stable for several days continuously
+
+You are now at the stage where reliability matters more than feature count.

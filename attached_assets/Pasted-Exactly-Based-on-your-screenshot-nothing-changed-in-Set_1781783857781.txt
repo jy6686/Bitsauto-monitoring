@@ -1,0 +1,377 @@
+Exactly. Based on your screenshot, nothing changed in Settings, so asking you to retest without changing credentials was not the right next step.
+
+The error shown is the same:
+
+Portal CSV:
+no upload form at /admin/tariffs.php
+
+grant "Edit Tariff Rates" permission to a customer-portal account
+(ssp-root admin-portal access is read-only for rate uploads)
+
+That tells us:
+
+What we know for certain
+
+✅ BitsAuto reached the push logic
+
+✅ Tariff found (#33)
+
+✅ Prefixes found (19230, 19232)
+
+✅ XLSX/CSV generation executed
+
+❌ Upload path fell back to Portal CSV
+
+❌ Portal upload failed
+
+❌ Same permission error as before
+
+What we do NOT know yet
+
+We still have not seen evidence that:
+
+getUploadToken()
+uploadBinaryFile()
+getUploadStatus()
+
+completed successfully.
+
+The screenshot only shows the fallback portal error.
+
+The real problem
+
+The team made several code changes:
+
+CSV → XLSX
+SA action
+column mapping
+verification logic
+upload token improvements
+
+But your screenshot proves:
+
+Final result still comes from portal_csv
+
+which means one of two things is happening:
+
+Scenario A (most likely)
+
+getUploadToken() never succeeds
+
+or
+
+token = null
+
+therefore code falls back to Portal CSV.
+
+Scenario B
+
+Upload Token succeeds but verification fails and code incorrectly falls through to Portal CSV.
+
+Before changing more code
+
+You need one thing from logs:
+
+[RateManager] getUploadToken ...
+
+and
+
+[RateManager] Upload Status ...
+
+and
+
+[RateManager] Verification ...
+
+Without those lines we're still guessing.
+
+Another important observation from your screenshot
+
+Your grid shows:
+
+Active From
+Invalid Date
+Invalid Date
+Invalid Date
+
+for every destination.
+
+That means Sippy date parsing is still broken in the UI.
+
+Not related to rate push failure, but it proves there are still contract mismatches between:
+
+Sippy API
+↓
+Backend parser
+↓
+Frontend grid
+What I would tell the developer now
+
+Do not ask for another functional retest until you provide:
+
+Full server log for one push attempt.
+Exact output of:
+getUploadToken
+uploadBinaryFile
+getUploadStatus
+verification
+Confirmation which path actually executed:
+upload_token
+portal_csv
+xmlrpc
+
+Because right now the only evidence we have is:
+
+0/2 rate(s) updated
+Portal CSV failed
+
+which is identical to the previous test.
+
+So from a user perspective:
+
+the rate push engine is still failing and no observable improvement has been proven yet.
+
+why csv , instead of excel??/
+
+You're asking the right question.
+
+Based on your Sippy screenshots and the XLSX template you uploaded earlier:
+
+The user-facing Sippy upload is Excel (.xlsx), not CSV.
+
+The reason developers keep mentioning CSV is because internally many Sippy bulk-import APIs historically accept a CSV payload, and some implementations generate CSV then upload it. But your environment appears to be using the same upload workflow exposed in the Sippy UI:
+
+Upload Rates
+Select File
+Format: .csv or MS-Office 2007 .xlsx
+
+From an operational perspective, if your existing workflow and downloaded templates are:
+
+Tariff Export.xlsx
+↓
+Edit rates
+↓
+Upload same file format back
+
+then BitsAuto should ideally:
+
+Download current tariff
+↓
+Store original XLSX
+↓
+Modify only changed rows
+↓
+Upload XLSX
+
+not:
+
+Generate synthetic CSV
+↓
+Convert fields
+↓
+Upload CSV
+Why I prefer XLSX in your case
+Matches Sippy exactly
+Same columns
+Same order
+Same headers
+Same file type
+Easier auditing
+Keep Before.xlsx
+Keep After.xlsx
+Compare changes later
+Safer
+No column-order mistakes
+No delimiter issues
+No date-format surprises
+Supports your archive idea
+Store every uploaded sheet for 90 days
+Download any historical push
+Rollback by re-uploading a previous sheet
+What concerns me
+
+The current error is:
+
+Portal CSV:
+no upload form at /admin/tariffs.php
+
+Notice:
+
+No upload form
+
+This failure occurs before Sippy even validates the file format.
+
+So whether the payload is:
+
+CSV
+
+or
+
+XLSX
+
+the current failure is still:
+
+BitsAuto cannot access the upload page/process.
+
+That's why changing CSV → XLSX alone won't solve the permission/path problem.
+
+What I would verify next
+
+For one test push, the logs should clearly show:
+
+Upload type: XLSX
+File name: rates.xlsx
+Size: xxxx bytes
+
+Upload URL:
+...
+
+Upload response:
+...
+
+Then we can determine:
+
+Did the XLSX actually reach Sippy?
+Did Sippy reject it?
+Or did the upload never start because of permissions?
+
+Right now the screenshot only proves the system ended up in the portal fallback path, not whether the XLSX import path actually succeeded.
+
+in tariff we have download, select to upload button, if are reaching on this page then what type of permission we need??  we can download it, ammend in tariff and then save then upload it in same format 
+
+That's exactly why I don't fully agree with the current error message.
+
+Your screenshot shows you're logged in as:
+
+ssp-root
+
+and you can clearly access:
+
+/c1/rates_tariff.php?i_tariff=33
+
+and on that page you can see:
+
+Upload Rates
+[Select File]
+
+Format: .csv or MS-Office 2007 .xlsx
+
+So this proves several things:
+
+What permissions you already have
+
+✅ View tariff rates
+
+✅ Download tariff rates
+
+✅ Access tariff upload screen
+
+✅ See upload control
+
+✅ Access customer portal (/c1/)
+
+If the upload button is visible, then Sippy is already exposing the upload feature to this account.
+
+Therefore the current BitsAuto error is suspicious
+
+BitsAuto says:
+
+No upload form found
+Grant Edit Tariff Rates permission
+ssp-root is read-only
+
+But your screenshot shows:
+
+Select File
+
+which is the upload form.
+
+So one of these is true:
+
+Possibility 1 (most likely)
+
+BitsAuto is looking at the wrong URL.
+
+The error mentions:
+
+/admin/tariffs.php
+
+but your working upload page is:
+
+/c1/rates_tariff.php?i_tariff=33
+
+Those are different pages.
+
+If the code is scraping:
+
+/admin/tariffs.php
+
+it may not find the upload control.
+
+Possibility 2
+
+The parser is expecting:
+
+<form enctype="multipart/form-data">
+
+but this Sippy version renders upload controls differently.
+
+Meaning:
+
+Upload form exists
+BitsAuto parser fails to detect it
+
+and falsely reports:
+
+No upload form found
+Possibility 3
+
+The upload token path succeeds but verification fails and then falls into the portal fallback path.
+
+In that case the portal error is only a secondary error.
+
+What I would tell the developer
+
+Before changing permissions, answer these questions:
+
+Which exact URL is BitsAuto opening?
+/admin/tariffs.php
+
+or
+
+/c1/rates_tariff.php?i_tariff=33
+When it downloads the tariff, can it successfully fetch the same page shown in your screenshot?
+Does the HTML returned to BitsAuto actually contain:
+<input type="file">
+
+or
+
+Select File
+Can BitsAuto download the existing tariff XLSX from that page first?
+
+Because your preferred workflow makes sense:
+
+Download tariff.xlsx
+↓
+Keep original copy
+↓
+Modify changed rows only
+↓
+Upload same XLSX format back
+↓
+Archive Before.xlsx + After.xlsx
+
+That is much safer than generating a completely synthetic sheet from scratch.
+
+My conclusion
+
+Based on this screenshot alone, I would not assume a permission problem yet.
+
+The account clearly sees the upload control.
+
+I would investigate whether BitsAuto is:
+
+targeting the wrong URL (/admin/... instead of /c1/...),
+failing to detect the upload form on this Sippy version,
+or failing after upload and then incorrectly showing the portal fallback error.
+
+The screenshot is strong evidence that ssp-root already has access to the tariff upload page itself.

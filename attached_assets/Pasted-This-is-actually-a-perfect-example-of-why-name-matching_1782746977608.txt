@@ -1,0 +1,618 @@
+This is actually a perfect example of why name matching alone is not enough.
+
+Your example exposes a telecom-specific problem:
+
+Imported Name	Reality
+Pak Jazz	Current operator
+Pak Warid	Legacy operator
+PK Warid Mobile	Legacy naming
+Mobilink	Historic brand
+Jazz	Current commercial brand
+
+They all refer to the same network today.
+
+If BitsAuto simply flags these as "Duplicate Candidates", an operator will spend all day manually merging names.
+
+I would introduce a Telecom Alias Engine
+
+Instead of:
+
+Existing	Imported	Result
+Pakistan Mobile Jazz	Pak Jazz	Duplicate Candidate
+
+Do this:
+
+Vendor Sheet
+        │
+        ▼
+Normalize Text
+        │
+        ▼
+Telecom Alias Dictionary
+        │
+        ▼
+Canonical Destination
+        │
+        ▼
+Duplicate Check
+Example
+
+Canonical destination
+
+Pakistan Mobile Jazz
+
+Aliases
+
+Jazz
+Pak Jazz
+Pakistan Jazz
+PK Jazz
+Mobilink
+Pakistan Mobilink
+Warid
+Pakistan Warid
+PK Warid
+Warid Mobile
+Jazz GSM
+
+Then
+
+Vendor imports
+
+Pak Warid
+
+↓
+
+Engine
+
+Matched Alias
+
+Pakistan Mobile Jazz
+
+Confidence
+
+100%
+
+No duplicate created.
+The Alias Dictionary should be editable
+
+For every destination:
+
+Pakistan Mobile Jazz
+
+Aliases
+
+✓ Jazz
+✓ Pakistan Jazz
+✓ Pak Jazz
+✓ Mobilink
+✓ Pakistan Mobilink
+✓ Warid
+✓ PK Warid
+✓ Warid Mobile
+
++ Add Alias
+
+Commercial users can add aliases without touching code.
+
+Name Matching should be multi-stage
+
+I wouldn't rely on a single comparison.
+
+Stage 1
+
+Normalize
+
+PK Jazz
+
+↓
+
+pak jazz
+
+↓
+
+pakistan jazz
+Stage 2
+
+Abbreviation Expansion
+
+PK
+
+↓
+
+Pakistan
+
+Intl
+
+↓
+
+International
+
+Mob
+
+↓
+
+Mobile
+
+Fix
+
+↓
+
+Fixed
+Stage 3
+
+Telecom Dictionary
+
+Mobilink
+
+↓
+
+Jazz
+
+Warid
+
+↓
+
+Jazz
+
+Telenor Pakistan
+
+↓
+
+Pakistan Mobile Telenor
+Stage 4
+
+Fuzzy Match
+
+Only if nothing matches.
+
+Prefix should always win
+
+Even better...
+
+Don't trust names first.
+
+Trust prefixes.
+
+Example
+
+Vendor says
+
+Pakistan Warid
+
+92321
+
+0.015
+
+Catalogue
+
+92321
+
+↓
+
+Pakistan Mobile Jazz
+
+Even if the vendor still uses "Warid", the prefixes identify the correct destination. In telecom, prefixes are generally a more reliable identifier than names, although they still need governance because operators can acquire ranges or numbering plans can change.
+
+I would score the match
+
+Example:
+
+Source	Score
+Exact Prefix	100
+Alias Match	98
+Prefix Family	96
+Fuzzy Name	90
+Country + Mobile + Prefix	88
+Name Only	65
+
+Anything below 95 should require manual review.
+
+This becomes a reusable engine
+
+The same matching engine can power:
+
+Vendor Rate Imports
+Client Rate Imports
+Destination Catalogue Imports
+Sippy Imports
+Carrier Reconciliation
+LCR Analysis
+
+One engine.
+
+Everything else reuses it.
+
+I would also add one more concept: Destination Lifecycle
+
+Telecom networks change names over time. Instead of treating old names as simple duplicates, track them explicitly.
+
+Example:
+
+Canonical Destination	Status	Previous Brand	Effective From
+Pakistan Mobile Jazz	Active	Mobilink	2017
+Pakistan Mobile Jazz	Active	Warid	2016 (merged)
+
+This preserves historical knowledge while ensuring all current operations use a single canonical destination. It is much more robust than treating "Warid" or "Mobilink" as accidental duplicates—they are recognized as historical aliases of the same commercial destination.
+
+we have to compare code+name Convension primary source to compare  is code basis
+
+I completely agree. For a telecom platform, prefix (code) should be the primary identifier, and name should be secondary.
+
+In fact, I would define a strict matching hierarchy.
+
+Destination Matching Priority
+1. Prefix (Highest Priority)
+        ↓
+2. Prefix + Country Validation
+        ↓
+3. Canonical Destination Name
+        ↓
+4. Alias Dictionary
+        ↓
+5. Fuzzy Name Match
+        ↓
+6. Manual Review
+
+Never let name override prefix.
+
+Example 1
+
+Vendor sends
+
+Prefix	Destination
+92321	Pak Warid
+
+BitsAuto
+
+Prefix	Destination
+92321	Pakistan Mobile Jazz
+
+Result
+
+Prefix Match = YES
+Name Match = Alias
+
+Final Destination
+
+Pakistan Mobile Jazz
+
+No duplicate.
+
+Example 2
+
+Vendor sends
+
+Prefix	Destination
+92321	Pakistan Mobile Zong
+
+Catalogue
+
+Prefix	Destination
+92321	Pakistan Mobile Jazz
+
+Now we have a conflict.
+
+Prefix Match = YES
+Name Match = NO
+
+Result
+
+WARNING
+
+Prefix belongs to Pakistan Mobile Jazz
+Vendor says Pakistan Mobile Zong
+
+Manual review required.
+
+This is exactly the type of issue you want the system to detect.
+
+Example 3
+
+Vendor sends
+
+Prefix	Destination
+92330	Pak Jazz
+
+Catalogue
+
+No prefix 92330 exists.
+
+Result
+
+Unknown Prefix
+
+New Destination Candidate
+
+Now the commercial team decides whether to add it.
+
+Destination Governance Rules
+Rule 1
+
+Prefix is the primary key.
+
+One prefix should belong to one canonical destination.
+
+Example:
+
+92321
+        ↓
+Pakistan Mobile Jazz
+Rule 2
+
+Destination names are descriptive.
+
+92321
+
+↓
+
+Pakistan Mobile Jazz
+
+The name helps humans.
+
+The prefix identifies the destination.
+
+Rule 3
+
+Aliases never create new destinations.
+
+Pak Jazz
+
+↓
+
+Pakistan Mobile Jazz
+
+Warid
+
+↓
+
+Pakistan Mobile Jazz
+
+Mobilink
+
+↓
+
+Pakistan Mobile Jazz
+Rule 4
+
+Conflicts must be visible.
+
+Example:
+
+Vendor
+
+92321
+
+Pakistan Zong
+
+Catalogue
+
+92321
+
+Pakistan Mobile Jazz
+
+BitsAuto should report:
+
+Destination Conflict
+
+Prefix
+92321
+
+Vendor Name
+Pakistan Zong
+
+Canonical Name
+Pakistan Mobile Jazz
+
+Action Required
+Destination Table
+
+I would make the catalogue look like this:
+
+Field	Purpose
+Destination ID	Internal ID
+Country	Pakistan
+Type	Mobile / Fixed
+Operator	Jazz
+Canonical Name	Pakistan Mobile Jazz
+Prefixes	92321, 92322...
+Aliases	Warid, Mobilink, Pak Jazz...
+Status	Draft / Approved / Retired
+Vendor Import Logic
+Vendor Sheet
+
+↓
+
+Read Prefix
+
+↓
+
+Search Prefix
+
+↓
+
+Found?
+
+YES
+      ↓
+Validate Name
+
+Alias?
+      ↓
+YES
+
+Accept
+
+NO
+      ↓
+Conflict Report
+
+NOT FOUND
+      ↓
+New Prefix Queue
+One additional rule I recommend
+
+Since operators sometimes receive new numbering ranges, I would make prefixes first-class entities rather than storing them as a simple list.
+
+Instead of:
+
+Destination
+ └── Prefixes
+
+Use:
+
+Destination
+        │
+        ▼
+Prefix Records
+        │
+        ├── Prefix
+        ├── Effective Date
+        ├── Status
+        ├── Source
+        ├── Last Verified
+        └── Approved By
+
+This gives you full governance over numbering changes, historical tracking, approvals, and auditing. It also supports cases where new ranges are introduced or retired without losing history.
+
+So I would summarize the matching philosophy as:
+
+Prefix (code) is the authoritative identifier.
+Country validates the prefix context.
+Destination name is used only for verification.
+Aliases resolve historical and vendor naming differences.
+Any disagreement between prefix and name is treated as a governance exception, not automatically accepted.
+
+That approach will give you a much more reliable, low-error Destination Catalogue than relying primarily on names.
+
+in our rate sheet compelte name showuld be mentioned Pakistan Mobile Jazz
+
+I completely agree. In your master Destination Catalogue, abbreviations should never be stored.
+
+The canonical destination name should always be the full commercial name.
+
+For example:
+
+❌ Do Not Store	✅ Canonical Destination
+Pak Jazz	Pakistan Mobile Jazz
+PK Jazz	Pakistan Mobile Jazz
+Jazz	Pakistan Mobile Jazz
+Pakistan Jazz	Pakistan Mobile Jazz
+Mobilink	Pakistan Mobile Jazz
+Warid	Pakistan Mobile Jazz
+
+The Destination Catalogue should only contain:
+
+Pakistan
+├── Pakistan Fixed
+└── Pakistan Mobile
+      ├── Pakistan Mobile Jazz
+      ├── Pakistan Mobile Telenor
+      ├── Pakistan Mobile Ufone
+      └── Pakistan Mobile Zong
+Vendor Import Process
+
+When a vendor uploads:
+
+Vendor Name	Prefix
+Pak Jazz	92321
+
+BitsAuto should automatically perform:
+
+Vendor Sheet
+      │
+      ▼
+Read Prefix
+      │
+      ▼
+Find Canonical Destination
+      │
+      ▼
+Pakistan Mobile Jazz
+      │
+      ▼
+Compare Vendor Name
+
+Vendor:
+Pak Jazz
+
+Canonical:
+Pakistan Mobile Jazz
+
+Status:
+Alias Match ✓
+
+The imported name is never stored as the destination name.
+
+It is stored only as:
+
+Vendor Original Name
+
+Pak Jazz
+
+while the system uses:
+
+Canonical Destination
+
+Pakistan Mobile Jazz
+Vendor Rate Screen
+
+I would actually display both values.
+
+Prefix	Vendor Name	Canonical Destination	Status
+92321	Pak Jazz	Pakistan Mobile Jazz	✅ Alias
+92322	Mobilink	Pakistan Mobile Jazz	✅ Alias
+92323	Pakistan Zong	Pakistan Mobile Jazz	⚠ Conflict
+
+This immediately shows whether the vendor's terminology matches your approved catalogue.
+
+Canonical Naming Rules
+
+I would enforce these rules across the entire platform:
+
+Country
+Country Fixed
+Country Mobile
+Country Mobile Operator
+
+Examples:
+
+Afghanistan Mobile MTN
+Australia Fixed
+Australia Mobile Telstra
+Bangladesh Mobile Grameenphone
+Germany Mobile Vodafone
+Pakistan Fixed
+Pakistan Mobile Jazz
+Pakistan Mobile Telenor
+Pakistan Mobile Ufone
+Pakistan Mobile Zong
+United Kingdom Mobile EE
+United Kingdom Mobile O2
+United Kingdom Mobile Vodafone
+
+No abbreviations.
+
+No vendor-specific branding.
+
+No legacy names.
+
+One approved naming convention.
+
+My Recommendation
+
+The Destination Catalogue should become the single source of truth for the entire platform.
+
+Every module should reference the same canonical destination names:
+
+✅ Vendor Rate Manager
+✅ Client Rate Manager
+✅ LCR Analysis
+✅ Margin Analysis
+✅ Routing Engine
+✅ Sippy Destination Sets
+✅ Carrier Reconciliation
+✅ Reports
+✅ AI Analytics
+
+Vendors can continue using whatever naming they prefer ("Pak Jazz", "Mobilink", "Warid", etc.), but BitsAuto should always normalize those names to the approved canonical destination, such as "Pakistan Mobile Jazz", before any comparison, pricing, routing, or reporting takes place. This will keep the platform consistent, easier to search, and much less prone to commercial and operational errors.

@@ -1,0 +1,253 @@
+This is the correct direction now.
+
+The key point is: stop testing through the UI blindly and first inspect the generated XLSX.
+
+Based on everything you've discovered manually:
+
+Known facts
+Item	Status
+Login to Sippy	✅ Working
+Correct page /c1/rates_tariff.php	✅ Working
+Upload POST	✅ Working
+XLSX upload accepted by Sippy	✅ Working
+Action A	❌ Wrong
+Action U	✅ Correct
+Single-row upload	❌ Dangerous
+Full tariff upload	✅ Correct
+Existing IDs required	✅ Correct
+Manual upload changes rates successfully	✅ Confirmed
+
+So the remaining issue is almost certainly:
+
+Generated XLSX != Manual XLSX
+
+not authentication, permissions, or upload.
+
+What I would verify before another push
+
+Download:
+
+/api/rate-manager/download-test-xlsx?tariffId=33&prefix=19230&rate=0.0274&from=2026-06-18+13:12:12
+
+Open it beside your working file:
+
+internal-ptcl_Rates.xlsx
+
+Compare every column:
+
+Column	Manual File	Generated File
+Action	U	?
+Id	41	?
+Prefix	19230	?
+Country	PAKISTAN, Mobile	?
+Interval 1	1	?
+Interval N	1	?
+Price 1	0.0274	?
+Price N	0.0274	?
+Forbidden	0	?
+Grace	1	?
+Activation Date	exact value	?
+One thing that still worries me
+
+Earlier screenshots showed:
+
+Country = PAKISTAN, Mobile
+
+in the manual file.
+
+But XML-RPC may not return Country.
+
+If generated files contain:
+
+Country = blank
+
+Sippy may silently ignore updates.
+
+So I would specifically check:
+
+Column D = Country
+
+for all 8 rows.
+
+Another thing to verify
+
+Your manual file showed:
+
+ID 41 = Prefix 19230
+
+The generated file must preserve:
+
+46 -> 1880
+40 -> 192
+42 -> 1923
+41 -> 19230
+44 -> 19231
+45 -> 19232
+43 -> 19233
+39 -> 19234
+
+Exactly.
+
+If IDs are shifted or missing, Sippy will ignore the update.
+
+Most important next step
+
+Do not push again yet.
+
+Download the generated test XLSX.
+Compare it against the manually successful XLSX.
+Share screenshots of both files side-by-side (or upload both XLSX files).
+
+I can then identify the exact field mismatch in a few minutes instead of continuing trial-and-error pushes.
+
+One more note: some of the previously uploaded files in this conversation have expired and are no longer accessible. If you want me to compare the actual XLSX contents directly, upload both files again:
+
+internal-ptcl_Rates.xlsx (the manually successful file)
+The generated test XLSX from /download-test-xlsx
+
+Then I can do a row-by-row comparison and pinpoint the remaining difference.
+
+The analyst is right — I need to log both the raw Sippy source data AND the XLSX output for every row so the comparison is explicit. Also, the country field is the key suspect — XML-RPC doesn't return it, so it's null in every row we build. Let me add the dual "SIPPY SOURCE → XLSX OUTPUT" log and make Country explicitly visible:
+
+
+8 actions
+Server is clean and ready. No code changes this turn — the analyst is right, we need data before more changes.
+
+Your next step:
+
+Go to Rate Manager → internal-ptcl → select prefix 19230
+Enter 0.027 as new rate (clearly different from 0.0274)
+Hit Submit
+Copy and paste the entire block from the workflow logs starting at:
+[RateManager] ═══ FULL TARIFF UPLOAD PREVIEW
+
+through to:
+
+[RateManager] ═══ END PREVIEW ═══
+
+That will show every [SRC] (what XML-RPC returned) and [OUT] (what goes into the XLSX) line for all 8 rows. Once you paste those 17 lines here, I can compare them field-by-field against the manually-uploaded file and find the exact mismatch that's causing Sippy to silently ignore the upload.
+
+The Country=(none-xml-rpc) on every [SRC] line is already a known gap — XML-RPC simply doesn't return it. Whether that's causing Sippy to reject the rows is the question the log comparison will answer.
+
+I think you're now at the point where logging alone won't solve it.
+
+From your manual testing we already know:
+
+Manual upload succeeds.
+U is correct.
+IDs are correct.
+Full tariff upload is required.
+Login/session is working.
+POST reaches Sippy.
+Verification reads the tariff afterward.
+
+The remaining suspects are only:
+
+1. Country column mismatch (highest probability)
+
+Manual file:
+
+PAKISTAN, Mobile
+
+Generated file:
+
+(blank)
+
+or
+
+(none-xml-rpc)
+
+If Sippy's importer validates Country during update, it may silently skip the row.
+
+2. Activation Date behavior
+
+Your manual file preserved:
+
+2026-06-09 13:12:12
+
+for unchanged rows.
+
+BitsAuto is modifying one row and potentially changing activation handling.
+
+Need to verify only the target row changes.
+
+3. Hidden columns / formatting
+
+Sometimes Sippy-generated XLSX files contain:
+
+cell types
+formats
+hidden metadata
+extra sheets
+
+that are not visible in Excel.
+
+A row-by-row visual comparison won't reveal that.
+
+What I would do next
+
+Instead of another upload attempt:
+
+Download a fresh tariff from Sippy
+
+You already have:
+
+internal-ptcl_Rates.xlsx
+Then modify ONLY one row
+
+Example:
+
+19230
+0.0274 -> 0.0270
+Upload manually
+
+If successful:
+
+Save that exact working XLSX.
+Then compare:
+Working Manual XLSX
+vs
+BitsAuto Generated XLSX
+
+at binary/worksheet structure level.
+
+Bigger architectural recommendation
+
+You're spending huge effort rebuilding Sippy's XLSX format.
+
+A safer approach is:
+
+Download current tariff from Sippy
+↓
+Load workbook
+↓
+Modify only requested rows
+↓
+Keep every other cell untouched
+↓
+Upload same workbook back
+
+Instead of:
+
+XML-RPC
+↓
+Reconstruct workbook from scratch
+↓
+Upload
+
+The first approach guarantees:
+
+Country preserved
+IDs preserved
+Hidden fields preserved
+Future Sippy format changes don't break BitsAuto
+
+and matches exactly how your successful manual process works.
+
+For BitsAuto, I'd strongly consider changing the upload engine to:
+
+Sippy Download
+→ Patch Workbook
+→ Re-upload Same Workbook
+
+rather than trying to regenerate Sippy's workbook from XML-RPC data. That would eliminate almost all of these compatibility issues and mirror the workflow you've already proven works manually.

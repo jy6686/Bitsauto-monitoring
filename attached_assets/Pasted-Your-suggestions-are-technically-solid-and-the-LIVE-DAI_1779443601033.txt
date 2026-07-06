@@ -1,0 +1,206 @@
+Your suggestions are technically solid, and the LIVE/DAILY/WEEKLY distinction is now finally mature enough to formalize properly.
+
+My assessment of each point:
+
+1. LIVE / DAILY / WEEKLY Context Labels
+
+This should absolutely be implemented.
+
+Right now operators understand:
+
+LIVE = “moving graph”
+DAILY = “historical graph”
+WEEKLY = “bigger historical graph”
+
+But they do not understand:
+
+sampling cadence
+aggregation logic
+why peaks flatten
+why LIVE is noisier
+
+That matters operationally.
+
+The platform now has three different telemetry resolutions:
+
+Mode	Source	Aggregation	Operational Meaning
+LIVE	raw concurrent snapshots	none	real-time concurrency
+72H	concurrent_snapshots	1h MAX bucket	tactical trend
+7D	concurrent_snapshots	6h MAX bucket	strategic trend
+
+That is exactly how carrier-grade NOCs work.
+
+2. Should DAILY use 6h buckets?
+
+No — not for the current 72h window.
+
+Your current setup is actually correct:
+
+Mode	Window	Bucket
+LIVE	~4h	45s snapshots
+72H	72h	1h MAX
+7D	7d	6h MAX
+
+Why 1h MAX for 72H is correct:
+
+preserves operational spikes
+still compresses enough for readability
+allows hour-by-hour degradation analysis
+keeps tactical incident visibility
+
+If you move 72H to 6h buckets:
+
+you lose short outages
+spikes disappear
+ASR/concurrency incidents become visually smoothed
+RCA becomes weaker
+
+6h buckets are appropriate for:
+
+executive trend views
+strategic capacity analysis
+long retention compression
+
+Not for operational 72h troubleshooting.
+
+So my recommendation:
+
+KEEP 1h MAX for 72H
+KEEP 6h MAX for 7D
+
+That architecture is correct.
+
+3. Mode Toggle UX Improvement
+
+This is the right refinement.
+
+Instead of only:
+
+LIVE
+DAILY
+WEEKLY
+
+Use:
+
+LIVE
+72H
+7D
+
+Then under chart title:
+
+Real-time · 45s snapshots
+Tactical trend · 1h MAX buckets
+Strategic trend · 6h MAX buckets
+
+This removes ambiguity instantly.
+
+4. NER Recommendation
+
+Very strong recommendation.
+
+ASR alone is not enough for carrier operations.
+
+Example:
+
+Metric	Value
+NER	92%
+ASR	31%
+
+That means:
+
+network delivery is working
+calls are reaching destination network
+endpoints/users are rejecting/failing
+
+That is operationally VERY different from:
+
+route unreachable
+SIP rejection
+carrier outage
+
+NER becomes extremely valuable in:
+
+vendor disputes
+route quality analysis
+fraud diagnostics
+customer complaints
+
+This is one of the best next metrics you can add.
+
+5. ACD Threshold/FAS Correlation
+
+This is also correct.
+
+ACD is not just a quality metric.
+It is a fraud signal.
+
+Patterns:
+
+ultra-low ACD
+sudden ACD collapse
+high NER + low ACD
+geographically isolated short calls
+
+often indicate:
+
+FAS
+early media fraud
+fake answer supervision
+route manipulation
+
+Since your platform already has:
+
+FAS engine
+anomaly engine
+concurrent telemetry
+vendor scoring
+
+ACD threshold overlays become very high-value with very low implementation cost.
+
+6. Metric Source Comment Block
+
+This is underrated but important.
+
+Because your original regression happened from:
+
+semantically incorrect metric substitution
+
+not from:
+
+broken rendering
+
+A simple immutable developer contract comment block is actually valuable protection.
+
+Especially for future developers touching:
+
+entity-history endpoint
+chart aggregators
+CDR analytics
+My Final Recommendation Order
+Immediate (very low effort)
+Rename DAILY → 72H
+Rename WEEKLY → 7D
+Add bucket/sub-label context
+Next (highest operational value)
+Add NER alongside ASR
+Then
+Add ACD/FAS visual thresholds
+Later
+RCA correlation engine
+Incident Command Center
+AI synthesis layer
+Overall Assessment
+
+The important thing now is:
+you are no longer debating telemetry correctness.
+
+That phase is over.
+
+You are now refining:
+
+operational interpretation
+diagnosis acceleration
+signal quality
+operator clarity
+
+That is a much more advanced stage of platform maturity than where BitsEye 2 started.

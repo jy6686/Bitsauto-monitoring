@@ -1,0 +1,377 @@
+I agree with both of your adjustments, and I would actually make them platform doctrine.
+
+1. Margin Visibility — Do NOT Show True Margin To KAM
+
+This is absolutely the correct commercial governance model.
+
+Management View
+
+Can see:
+
+Vendor Cost
+Customer Rate
+Gross Margin
+Net Margin
+Margin %
+Monthly Profit
+Trading Manager
+
+Can see:
+
+Vendor Cost
+Customer Rate
+Margin %
+
+but maybe not full profitability.
+
+KAM (Key Account Manager)
+
+Should NOT see:
+
+Vendor Cost
+True Margin
+Vendor Identity
+
+Instead show:
+
+Commercial Health
+Pricing Band
+Offer Flexibility
+Discount Authority
+
+Example:
+
+Role	What They See
+Management	24.3% margin
+Trading Manager	Margin Healthy
+KAM	Pricing Band A
+Better KAM Model
+
+Instead of:
+
+Margin = 24%
+
+Show:
+
+Offer Window
+
+Minimum Offer: 0.024
+Target Offer: 0.026
+Premium Offer: 0.028
+
+The KAM can negotiate inside the approved window without ever seeing the underlying vendor economics.
+
+This is how many wholesale carriers operate.
+
+2. Global Destination Catalog
+
+This is one of the strongest proposals you've made.
+
+I would place this ABOVE Product Registry.
+
+Because everything depends on destinations:
+
+Routing
+Pricing
+Trading
+Products
+Notifications
+Rates
+Reporting
+Current Problem
+
+Today most telecom systems store:
+
+Pakistan Mobile
+Pakistan Jazz
+9230
+92300
+923001
+
+in multiple places.
+
+Result:
+
+Routing says one thing
+Pricing says another
+Vendor sheet says another
+
+Eventually chaos.
+
+Recommended Architecture
+Level 1
+Pakistan
+India
+Bangladesh
+UK
+USA
+Level 2
+Pakistan
+ ├ Fixed
+ └ Mobile
+Level 3
+Pakistan Mobile
+ ├ Jazz
+ ├ Zong
+ ├ Ufone
+ └ Telenor
+Level 4 (Optional)
+Jazz
+ ├ Prepaid
+ ├ Postpaid
+ └ Enterprise
+
+Unlimited depth.
+
+Most Important Addition
+
+Add:
+
+Commercial Status
+
+Every destination should have:
+
+Commercially Approved
+Commercially Blocked
+Testing Only
+Deprecated
+Under Review
+
+This is more valuable than simply:
+
+Active
+Inactive
+Destination Catalog Becomes Master Data
+
+Everything references:
+
+destination_id
+
+NOT:
+
+destination_name
+
+This is critical.
+
+Example
+
+Today:
+
+Pakistan Mobile
+Pakistan Mob
+PK Mobile
+Pakistan Cellular
+
+all appear in different systems.
+
+Future:
+
+destination_id = 112
+
+Everything references that.
+
+Approved Destination Workspace
+
+I strongly like your:
+
+Left Tree
+Right Approved Panel
+
+design.
+
+Left
+Global Catalog
+
+All destinations.
+
+Right
+Commercial Portfolio
+
+Only approved destinations.
+
+Very clean.
+
+What I Would Add
+Product Availability Matrix
+
+Example:
+
+Destination	First Class	Business	Bravo	Charlie
+Pakistan Jazz	✓	✓	✓	✗
+Pakistan Zong	✓	✓	✗	✗
+
+This becomes extremely useful for Trading and Pricing.
+
+Destination Approval Workflow
+
+I fully agree.
+
+Example:
+
+Search:
+Pakistan Warid
+
+Not approved.
+
+Click:
+
+Request Approval
+
+Workflow:
+
+Trader
+    ↓
+Manager
+    ↓
+Approved
+    ↓
+Available Everywhere
+
+Very strong governance.
+
+Market Pricing Intelligence
+
+I would NOT show raw margin here either.
+
+Instead:
+
+Management
+Cost
+Sell
+Margin
+KAM
+Market Position
+Competitive
+Premium
+Aggressive
+Trader
+Cost Trend
+Rate Trend
+Pricing Health
+
+Role-based visibility.
+
+Multi-Server Architecture
+
+I agree with your correction.
+
+The earlier "sync everything everywhere" model is unnecessary.
+
+For your environment:
+
+Core Server
+DID Server
+Testing Server
+Future Servers
+
+I would use:
+
+Selective Synchronization
+
+Example:
+
+Core
+
+Owns:
+
+Customers
+Auth
+Routing
+Products
+Rates
+DID Server
+
+Sync:
+
+DID Customers
+DID Routing
+DID Rates
+
+Only.
+
+Testing Server
+
+Sync:
+
+Selected Accounts
+Selected Routes
+Selected Vendors
+
+Only.
+
+Sync Policy
+
+Instead of:
+
+Auto Replicate All
+
+Use:
+
+Publish
+    ↓
+Select Nodes
+    ↓
+Sync
+
+Example:
+
+Publish Rate Change
+
+Checkboxes:
+
+☑ Core
+☑ DID
+☐ Test
+
+Very practical.
+
+Cluster Management Workspace
+
+Later create:
+
+Cluster Management
+├ Nodes
+├ Sync Jobs
+├ Drift Detection
+├ Deployment History
+├ Health
+
+instead of trying to make every node equal.
+
+My Priority Ranking Now
+
+After all these discussions, I would rank future commercial architecture as:
+
+Tier 1
+Routing Control Plane Completion
+Provisioning Studio Stabilization
+Global Destination Catalog
+Tier 2
+Product Registry
+Pricing & Rate Intelligence
+Voice Trading Workspace
+Tier 3
+Cluster Management
+Selective Multi-Node Synchronization
+AI Trading Recommendations
+The Biggest Architectural Insight
+
+The Global Destination Catalog is becoming the master data layer for the entire commercial side of BitsAuto.
+
+Destination Catalog
+        ↓
+Products
+        ↓
+Pricing
+        ↓
+Trading
+        ↓
+Customer Offers
+        ↓
+Routing
+        ↓
+Reporting
+
+If built correctly, it becomes the equivalent of a telecom "Chart of Accounts" — a foundational system that every other commercial workspace depends on.
+
+One note: I see references to uploaded files, but some previously uploaded files are no longer available in the conversation. If you want me to review or compare any specific document again, please upload it once more.

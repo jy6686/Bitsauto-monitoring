@@ -1,0 +1,270 @@
+reve-otp*CLI> pjsip set logger on
+reve-otp*CLI> core show channels
+reve-otp*CLI> core show settings
+PJSIP Logging enabled
+Channel              Location             State   Application(Data)             
+0 active channels
+0 of 500 max active calls ( 0.00% of capacity)
+17 calls processed
+
+PBX Core settings
+-----------------
+  Version:                     18.6.0
+  Build Options:               DONT_OPTIMIZE, COMPILE_DOUBLE, OPTIONAL_API
+  Maximum calls:               500 (Current 0)
+  Maximum open file handles:   91959
+  Root console verbosity:      3
+  Current console verbosity:   10
+  Debug level:                 5
+  Trace level:                 0
+  Maximum load average:        0.000000
+  Minimum free memory:         0 MB
+  Startup time:                15:33:48
+  Last reload time:            09:28:44
+  System:                      Linux/3.10.0-1127.19.1.el7.x86_64 built by mockbuild on x86_64 2021-09-03 10:16:51 UTC
+  System name:                 
+  Entity ID:                   7a:14:85:36:17:a6
+  PBX UUID:                    90c1597c-cd3e-4a99-aa88-5dfb19223ca1
+  Default language:            en
+  Language prefix:             Enabled
+  User name and group:         /
+  Executable includes:         Enabled
+  Transcode via SLIN:          Enabled
+  Transmit silence during rec: Enabled
+  Generic PLC:                 Disabled
+  Generic PLC on equal codecs: Disabled
+  Hide Msg Chan AMI events:    Disabled
+  Min DTMF duration::          80
+  Cache media frames:          Enabled
+  RTP use dynamic payloads:    1
+  RTP dynamic payload types:   35-63,96-127
+
+* Subsystems
+  -------------
+  Manager (AMI):               Enabled
+  Web Manager (AMI/HTTP):      Disabled
+  Call data records:           Enabled
+  Realtime Architecture (ARA): Disabled
+
+* Directories
+  -------------
+  Configuration file:          /etc/asterisk/asterisk.conf
+  Configuration directory:     /etc/asterisk
+  Module directory:            /usr/lib64/asterisk/modules
+  Spool directory:             /var/spool/asterisk
+  Log directory:               /var/log/asterisk
+  Run/Sockets directory:       /var/run/asterisk
+  PID file:                    /var/run/asterisk/asterisk.pid
+  VarLib directory:            /var/lib/asterisk
+  Data directory:              /var/lib/asterisk
+  ASTDB:                       /var/lib/asterisk/astdb
+  IAX2 Keys directory:         /var/lib/asterisk/keys
+  AGI Scripts directory:       /var/lib/asterisk/agi-bin
+
+
+reve-otp*CLI> pjsip show endpoint sippy-endpoint
+
+ Endpoint:  <Endpoint/CID.....................................>  <State.....>  <Channels.>
+    I/OAuth:  <AuthId/UserName...........................................................>
+        Aor:  <Aor............................................>  <MaxContact>
+      Contact:  <Aor/ContactUri..........................> <Hash....> <Status> <RTT(ms)..>
+  Transport:  <TransportId........>  <Type>  <cos>  <tos>  <BindAddress..................>
+   Identify:  <Identify/Endpoint.........................................................>
+        Match:  <criteria.........................>
+    Channel:  <ChannelId......................................>  <State.....>  <Time.....>
+        Exten: <DialedExten...........>  CLCID: <ConnectedLineCID.......>
+==========================================================================================
+
+ Endpoint:  sippy-endpoint                                       Not in use    0 of inf
+        Aor:  sippy-aor                                          0
+      Contact:  sippy-aor/sip:191.101.30.107:5060          951fd13c35 NonQual         nan
+   Identify:  sippy-identify/sippy-endpoint
+        Match: 191.101.30.107/32
+
+
+ ParameterName                      : ParameterValue
+ ===================================================================================================
+ 100rel                             : yes
+ accept_multiple_sdp_answers        : false
+ accountcode                        : 
+ acl                                : 
+ aggregate_mwi                      : true
+ allow                              : (ulaw|alaw)
+ allow_overlap                      : true
+ allow_subscribe                    : true
+ allow_transfer                     : true
+ allow_unauthenticated_options      : false
+ aors                               : sippy-aor
+ asymmetric_rtp_codec               : false
+ auth                               : 
+ bind_rtp_to_media_address          : false
+ bundle                             : false
+ call_group                         : 
+ callerid                           : <unknown>
+ callerid_privacy                   : allowed_not_screened
+ callerid_tag                       : 
+ codec_prefs_incoming_answer        : prefer:pending, operation:intersect, keep:all, transcode:allow
+ codec_prefs_incoming_offer         : prefer:pending, operation:intersect, keep:all, transcode:allow
+ codec_prefs_outgoing_answer        : prefer:pending, operation:intersect, keep:all, transcode:allow
+ codec_prefs_outgoing_offer         : prefer:pending, operation:union, keep:all, transcode:allow
+ connected_line_method              : invite
+ contact_acl                        : 
+ context                            : sippy-media-anchor
+ cos_audio                          : 0
+ cos_video                          : 0
+ device_state_busy_at               : 0
+ direct_media                       : false
+ direct_media_glare_mitigation      : none
+ direct_media_method                : invite
+ disable_direct_media_on_nat        : false
+ dtls_auto_generate_cert            : No
+ dtls_ca_file                       : 
+ dtls_ca_path                       : 
+ dtls_cert_file                     : 
+ dtls_cipher                        : 
+ dtls_fingerprint                   : SHA-256
+ dtls_private_key                   : 
+ dtls_rekey                         : 0
+ dtls_setup                         : active
+ dtls_verify                        : No
+ dtmf_mode                          : rfc4733
+ fax_detect                         : false
+ fax_detect_timeout                 : 0
+ follow_early_media_fork            : true
+ force_avp                          : false
+ force_rport                        : true
+ from_domain                        : 
+ from_user                          : 
+ g726_non_standard                  : false
+ ice_support                        : false
+ identify_by                        : username,ip
+ ignore_183_without_sdp             : false
+ inband_progress                    : false
+ incoming_call_offer_pref           : local
+ incoming_mwi_mailbox               : 
+ language                           : 
+ mailboxes                          : 
+ max_audio_streams                  : 1
+ max_video_streams                  : 1
+ media_address                      : 
+ media_encryption                   : no
+ media_encryption_optimistic        : false
+ media_use_received_transport       : false
+ message_context                    : 
+ moh_passthrough                    : false
+ moh_suggest                        : default
+ mwi_from_user                      : 
+ mwi_subscribe_replaces_unsolicited : no
+ named_call_group                   : 
+ named_pickup_group                 : 
+ notify_early_inuse_ringing         : false
+ one_touch_recording                : false
+ outbound_auth                      : 
+ outbound_proxy                     : 
+ outgoing_call_offer_pref           : remote_merge
+ pickup_group                       : 
+ preferred_codec_only               : false
+ record_off_feature                 : automixmon
+ record_on_feature                  : automixmon
+ refer_blind_progress               : true
+ rewrite_contact                    : true
+ rpid_immediate                     : false
+ rtcp_mux                           : false
+ rtp_engine                         : asterisk
+ rtp_ipv6                           : false
+ rtp_keepalive                      : 0
+ rtp_symmetric                      : true
+ rtp_timeout                        : 0
+ rtp_timeout_hold                   : 0
+ sdp_owner                          : -
+ sdp_session                        : Asterisk
+ send_connected_line                : yes
+ send_diversion                     : true
+ send_history_info                  : false
+ send_pai                           : false
+ send_rpid                          : false
+ set_var                            : 
+ srtp_tag_32                        : false
+ stir_shaken                        : false
+ sub_min_expiry                     : 0
+ subscribe_context                  : 
+ suppress_q850_reason_headers       : false
+ t38_udptl                          : false
+ t38_udptl_ec                       : none
+ t38_udptl_ipv6                     : false
+ t38_udptl_maxdatagram              : 0
+ t38_udptl_nat                      : false
+ timers                             : yes
+ timers_min_se                      : 90
+ timers_sess_expires                : 1800
+ tone_zone                          : 
+ tos_audio                          : 0
+ tos_video                          : 0
+ transport                          : 
+ trust_connected_line               : yes
+ trust_id_inbound                   : false
+ trust_id_outbound                  : false
+ use_avpf                           : false
+ use_ptime                          : false
+ user_eq_phone                      : false
+ voicemail_extension                : 
+ webrtc                             : no
+
+[2026-07-03 15:07:20] DEBUG[14375]: http.c:1953 httpd_helper_thread: HTTP opening session.  Top level
+[2026-07-03 15:07:20] DEBUG[14375]: http.c:1412 handle_uri: HTTP Request URI is /ws/v1/cluster/apps/new-application 
+[2026-07-03 15:07:20] DEBUG[14375]: http.c:1467 handle_uri: match request [ws/v1/cluster/apps/new-application] with handler [httpstatus] len 10
+[2026-07-03 15:07:20] DEBUG[14375]: http.c:1467 handle_uri: match request [ws/v1/cluster/apps/new-application] with handler [ari] len 3
+[2026-07-03 15:07:20] DEBUG[14375]: http.c:1467 handle_uri: match request [ws/v1/cluster/apps/new-application] with handler [ws] len 2
+[2026-07-03 15:07:20] DEBUG[14375]: http.c:1489 handle_uri: Requested URI [ws/v1/cluster/apps/new-application] has no handler
+[2026-07-03 15:07:20] DEBUG[14375]: http.c:563 ast_http_send: HTTP keeping session open.  status_code:404
+[2026-07-03 15:07:21] DEBUG[14375]: http.c:2010 httpd_helper_thread: HTTP closing session.  Top level
+[2026-07-03 15:07:21] DEBUG[9101]: res_pjsip_registrar.c:1278 check_expiration_thread: Woke up at 1783091241  Interval: 30
+[2026-07-03 15:07:21] DEBUG[9101]: res_pjsip_registrar.c:1285 check_expiration_thread: Expiring 0 contacts
+[2026-07-03 15:07:23] DEBUG[4208]: manager.c:6683 process_message: Running action 'Ping'
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:9098 __sip_alloc: Allocating new SIP dialog for 0c71a3810529cf7b334b37f46dac018d@[::1]:5160 - OPTIONS (No RTP)
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:3573 obproxy_get: OBPROXY: Not applying OBproxy to this call
+[2026-07-03 15:07:25] DEBUG[9119]: acl.c:1047 ast_ouraddrfor: For destination '191.101.30.107', our source address is '159.223.32.59'.
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:3982 ast_sip_ouraddrfor: Setting AST_TRANSPORT_UDP with address 159.223.32.59:5160
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:8887 change_callid_pvt: SIP call-id changed from '0c71a3810529cf7b334b37f46dac018d@[::1]:5160' to '7f0a7ce42d6b2c5e7d5944686df980fc@159.223.32.59:5160'
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:3449 initialize_initreq: Initializing initreq for method OPTIONS - callid 7f0a7ce42d6b2c5e7d5944686df980fc@159.223.32.59:5160
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  0 [ 34]: OPTIONS sip:191.101.30.107 SIP/2.0
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  1 [ 64]: Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK36b65477;rport
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  2 [ 16]: Max-Forwards: 70
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  3 [ 63]: From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as51d43728
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  4 [ 24]: To: <sip:191.101.30.107>
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  5 [ 41]: Contact: <sip:Unknown@159.223.32.59:5160>
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  6 [ 60]: Call-ID: 7f0a7ce42d6b2c5e7d5944686df980fc@159.223.32.59:5160
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  7 [ 17]: CSeq: 102 OPTIONS
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  8 [ 35]: User-Agent: FPBX-16.0.10.40(18.6.0)
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  9 [ 35]: Date: Fri, 03 Jul 2026 15:07:25 GMT
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header 10 [ 90]: Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header 11 [ 26]: Supported: replaces, timer
+Reliably Transmitting (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK36b65477;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as51d43728
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 7f0a7ce42d6b2c5e7d5944686df980fc@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Fri, 03 Jul 2026 15:07:25 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:4338 __sip_reliable_xmit: *** SIP TIMER: Initializing retransmit timer on packet: Id  #12
+[2026-07-03 15:07:25] DEBUG[9119]: chan_sip.c:3806 __sip_xmit: Trying to put 'OPTIONS sip' onto UDP socket destined for 191.101.30.107:5060
+
+<--- SIP read from UDP:191.101.30.107:5060 --->
+SIP/2.0 200 OK
+Via: SIP/2.0/UDP 159.223.32.59:5160;received=159.223.32.59;branch=z9hG4bK36b65477;rport=5160
+To: <sip:191.101.30.107>;tag=0b46.986e1a940689054f486029ecf1c9cbf4
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as51d43728
+Call-ID: 7f0a7ce42d6b2c5e7d5944686df980fc@159.223.32.59:5160
+CSeq: 102 OPTIONS
+Server: Sippy Softswitch v2024-PRODUCTION.485
+Content-Length: 0

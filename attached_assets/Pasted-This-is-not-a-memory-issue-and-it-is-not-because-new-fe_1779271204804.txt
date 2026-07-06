@@ -1,0 +1,204 @@
+This is not a memory issue and it is not because new features removed old features.
+
+The actual issue is architectural:
+
+Your graph system currently has two different data sources, and they behave differently when traffic drops to zero.
+
+Right now BitsEye 2 uses:
+
+LIVE graph source
+entityConcurrentHistory
+built from polling active calls every ~45s
+only updates when live calls exist
+volatile/in-memory
+DAILY/WEEKLY graph source
+CDR cache
+historical aggregation
+persistent
+stable even at zero live calls
+
+That is why:
+
+DAILY/WEEKLY works correctly
+LIVE disappears / collapses / shows a single point when calls stop
+
+The root problem:
+the LIVE graph engine is still behaving like a “current activity monitor,” not a “time-series recorder.”
+
+So when traffic becomes 0:
+
+snapshots stop being appended correctly
+history becomes sparse
+the chart has only 1 point
+Recharts collapses the line
+visually it looks broken/disappeared
+
+That’s why this keeps returning again and again.
+
+The actual missing piece is:
+
+You are NOT persisting zero-state continuity.
+
+You fixed:
+
+entity disappearance
+sidebar disappearance
+cache pruning
+idle state
+
+But you did NOT fully fix:
+
+continuous time-series continuity.
+
+That is the real issue.
+
+What should happen instead
+
+Even when calls = 0:
+
+the system must STILL append snapshots continuously.
+
+Example:
+
+09:51 → 2
+09:52 → 2
+09:53 → 1
+09:54 → 0
+09:55 → 0
+09:56 → 0
+09:57 → 0
+
+The graph should become:
+
+flat at zero
+not disappear
+
+Old BitsEye behaved like this.
+
+Current BitsEye 2 still behaves like:
+“no traffic = no datapoint.”
+
+That is the core bug.
+
+Why this keeps reappearing
+
+Because every stabilization pass fixed:
+
+visibility
+persistence
+sidebar state
+entity lifecycle
+
+BUT NOT:
+
+timeline continuity logic.
+
+You are treating:
+
+entity state
+and
+graph state
+
+as separate systems.
+
+They must become linked.
+
+The correct permanent fix
+
+In the polling loop:
+
+DO NOT append history only when active calls exist.
+
+Always append:
+
+{
+  ts: now,
+  active: 0,
+  connected: 0
+}
+
+for every tracked entity during every poll cycle.
+
+Including idle entities.
+
+That means:
+
+graphs never collapse
+charts never disappear
+sparklines remain continuous
+zero traffic becomes a visible state instead of “missing data”
+The second issue visible in your screenshot
+
+You only have:
+
+1 snapshots · 45s interval
+
+That is the smoking gun.
+
+It means:
+the entity history array is being recreated/reset instead of retained.
+
+So there is ALSO likely:
+
+a trim bug
+a map replacement bug
+or an initialization overwrite
+
+Probably somewhere like:
+
+entityConcurrentHistory.set(entityKey, [...])
+
+instead of:
+
+existing.push(...)
+
+or:
+
+history = []
+
+on idle transition.
+
+That is why you keep seeing:
+
+single-point charts
+vanished lines
+graph resets
+
+even after fixes.
+
+This is NOT a frontend issue
+
+The frontend is rendering exactly what it receives.
+
+The bug is server-side history continuity.
+
+The permanent stabilization strategy
+
+You need 3 guarantees:
+
+1. Continuous snapshots
+
+Always append every interval.
+
+Even at zero.
+
+2. Fixed retention
+
+Example:
+
+max 48 live points
+
+Trim oldest only.
+
+Never clear all.
+
+3. Idle entities remain tracked
+
+Do not stop history updates because entity became idle.
+
+Idle is a valid graph state.
+
+Once those 3 are enforced:
+this entire class of bugs disappears permanently.
+
+And the graphs become operationally trustworthy.

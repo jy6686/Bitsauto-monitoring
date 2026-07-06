@@ -1,0 +1,86 @@
+sleep 4 && curl -s "http://localhost:5000/api/sippy/accounts-by-product/1" | node -e "
+const chunks=[];
+process.stdin.on('data',c=>chunks.push(c));
+process.stdin.on('end',()=>{
+  try {
+    const d=JSON.parse(Buffer.concat(chunks).toString());
+    console.log('Product:', d.productName, '|', d.productCode);
+    console.log('Accounts assigned:', d.assignedCount);
+    console.log('Accounts matched in Sippy:', d.accounts?.length);
+    if(d.accounts?.length>0) console.log('Sample:', JSON.stringify(d.accounts[0]));
+  } catch(e) {
+    console.log('Raw:', Buffer.concat(chunks).toString().slice(0,300));
+  }
+});
+"
+Product: undefined | undefined
+Accounts assigned: undefined
+Accounts matched in Sippy: undefined
+~/workspace$ node -e "
+const { execSync } = require('child_process');
+const db = process.env.DATABASE_URL;
+const r = execSync('psql \"'+db+'\" -t -A -F\"|\" -c \"SELECT id, name, code, trunk_prefix, status FROM product_registry ORDER BY id;\"', {encoding:'utf8'});
+console.log('id|name|code|trunk_prefix|status');
+r.trim().split('\n').filter(Boolean).forEach(l=>console.log(l));
+"
+id|name|code|trunk_prefix|status
+1|First Class|FC|1|commercial
+2|Business Class|BC|2|commercial
+3|Special Bravo|SB|6|commercial
+4|Special Charlie|SC|7|commercial
+~/workspace$ node -e "
+const { execSync } = require('child_process');
+const db = process.env.DATABASE_URL;
+const r = execSync('psql \"'+db+'\" -t -A -F\"|\" -c \"SELECT p.name, p.code, COUNT(a.id) as assigned FROM product_registry p LEFT JOIN customer_product_assignments a ON a.product_id=p.id AND a.status=\'active\' GROUP BY p.id, p.name, p.code ORDER BY p.id;\"', {encoding:'utf8'});
+console.log('Product|Code|Assigned Clients');
+r.trim().split('\n').filter(Boolean).forEach(l=>console.log(l));
+"
+Product|Code|Assigned Clients
+First Class|FC|0
+Business Class|BC|0
+Special Bravo|SB|0
+Special Charlie|SC|0
+
+Show less
+13 Jun
+The products exist but 0 clients are assigned to any product. That's why the filter returns nothing — the customer_product_assignments table is empty. Clients haven't been linked to products yet.
+
+Two things need to happen:
+
+1. Check if clients exist in the Companies table:
+
+bash
+node -e "
+const { execSync } = require('child_process');
+const db = process.env.DATABASE_URL;
+const r = execSync('psql \"'+db+'\" -t -A -F\"|\" -c \"SELECT COUNT(*) as companies FROM companies; SELECT COUNT(*) as assignments FROM customer_product_assignments;\"', {encoding:'utf8'});
+console.log(r.trim());
+"
+2. Check Sippy accounts to see what accounts exist:
+
+bash
+curl -s "http://localhost:5000/api/sippy/accounts" | node -e "
+const chunks=[];
+process.stdin.on('data',c=>chunks.push(c));
+process.stdin.on('end',()=>{
+  try {
+    const d=JSON.parse(Buffer.concat(chunks).toString());
+    const accts = d.accounts||d;
+    console.log('Total Sippy accounts:', Array.isArray(accts)?accts.length:'?');
+    if(Array.isArray(accts)&&accts.length>0){
+      accts.slice(0,5).forEach(a=>console.log(' -',a.iAccount||a.i_account, a.username||a.name));
+    }
+  } catch(e){ console.log('Raw:', Buffer.concat(chunks).toString().slice(0,200)); }
+});
+"
+The fix is to bulk-assign existing Sippy accounts to their products based on which tariff/product they're currently on. This can be done automatically by reading the Sippy tariff assignment for each account and matching it to FC/BC/SB/SC.
+
+Do you want me to:
+
+Auto-assign — read each Sippy account's current tariff, match to FC/BC/SB/SC product, and populate customer_product_assignments automatically
+Manual assign — you do it through the Companies page per client
+Option 1 is faster and can be done in one command. Which do you prefer?
+
+1
+
+13 Jun

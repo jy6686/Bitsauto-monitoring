@@ -1,0 +1,103 @@
+Issue: Frontend is displaying product-prefixed dial codes instead of actual destination prefixes
+
+We already agreed on this architecture and tested it successfully yesterday.
+
+Current Problem
+
+In Send Rate, the UI is showing:
+
+19233
+
+for Pakistan Ufone Mobile.
+
+This is incorrect.
+
+Expected Behavior
+
+The actual destination prefix is:
+
+9233
+
+The leading:
+
+1
+
+is the product/trunk classification prefix (First Class) and is only used internally by the backend/product routing logic.
+
+It must NOT be shown in the frontend destination catalog or destination queue.
+
+Architecture Already Agreed
+
+Product Prefixes:
+
+1 = First Class
+2 = Business Class
+6 = Special Bravo
+7 = Special Charlie
+
+Destination Prefix:
+
+Pakistan Ufone = 9233
+Pakistan Jazz  = 9230
+
+Backend may derive:
+
+FC + Ufone = 19233
+BC + Ufone = 29233
+SB + Ufone = 69233
+SC + Ufone = 79233
+
+for internal tariff/routing operations.
+
+But the operator must always see:
+
+9233
+
+not
+
+19233
+Important
+
+Yesterday we tested rate push successfully using the actual destination prefix and rates were pushed correctly to Sippy.
+
+That means the existing implementation was already working.
+
+Now the UI is exposing the internal product prefix again, which appears to be a regression.
+
+Required Fix
+Destination Queue should display:
+9233
+
+instead of
+
+19233
+Product prefix logic must remain backend-only.
+Do not modify the push engine.
+Do not modify destination catalog data.
+Audit recent changes around:
+displayPrefix
+sippyPrefix
+effectivePrefix
+destinationPrefix
+productPrefix
+
+because a previous working layer appears to have been overwritten.
+
+Concern
+
+This is becoming a recurring issue:
+
+A previously tested and working layer gets changed when implementing a new feature, causing regressions in existing functionality.
+
+Before making changes, please verify:
+
+What was working yesterday
+What changed
+Why the display layer now exposes internal routing prefixes
+
+and restore the previously approved behavior.
+
+Frontend Display: 9233
+Backend Routing/Tariff Logic: may use 19233
+
+These must remain separate.

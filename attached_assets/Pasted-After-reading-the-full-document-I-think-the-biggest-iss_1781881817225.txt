@@ -1,0 +1,468 @@
+After reading the full document, I think the biggest issue is exactly what you said:
+
+We started with Initial Client Rate Implementation, but now we are walking in 10 different directions.
+
+The document is actually describing 5 separate platforms mixed together:
+
+Initial Client Rate Workflow
+Rate Management Platform
+Product-Based Pricing Platform
+Voice Trading Desk
+Commercial Workspace / UI Structure
+
+Those should not be built together.
+
+What Was The Original Goal?
+
+The original goal was:
+
+Client Wizard
+    ↓
+Create Account
+    ↓
+Create Tariff
+    ↓
+Create Service Plan
+    ↓
+Create Initial Rate Job
+    ↓
+KAM Creates First Rate Sheet
+    ↓
+Approval
+    ↓
+Send Customer Rate Sheet
+    ↓
+Customer Live
+
+This is the onboarding lifecycle.
+
+That is a small, focused workflow.
+
+Where We Drifted
+
+Now discussions are covering:
+
+Vendor Email Parsing
+Rate Import Engine
+Rate Repository
+Margin Engine
+Approval Workflow
+Product Pricing
+7-Day Notice Engine
+Trading Desk
+Route Board
+Deal Management
+Quality Monitoring
+AI Trading
+Destination Governance
+Billing Increment Engine
+Notification Center
+
+Those are Phase 2, 3, 4 projects.
+
+My Recommendation
+
+Freeze everything except:
+
+Phase 1 — Initial Client Rate Lifecycle
+
+Complete only:
+
+Client Wizard
+Client
+Product
+Currency
+Billing Type
+Provisioning
+Create Sippy Account
+Create Tariff
+Create Service Plan
+Auto Job Creation
+Pending Initial Rate Setup
+
+(#329)
+
+Rate Template
+KAM Creates Initial Rate Sheet
+Approval
+Manager Approval
+Send Rates
+Email Customer
+Activate
+Client Status = Live
+What Should Wait
+
+Do NOT build yet:
+
+Vendor Rate Automation
+rates@company.com
+email parser
+xlsx parser
+csv parser
+vendor templates
+
+Huge project.
+
+Voice Trading Desk
+Dashboard
+Deals
+Route Board
+Opportunity Management
+AI Trading
+
+Separate department.
+
+7-Day Notification Engine
+
+Depends on:
+
+Vendor costs
+Customer costs
+Margin engine
+History engine
+
+Not ready.
+
+Product-Based Historical Pricing
+
+Depends on:
+
+Product repository
+Rate repository
+Versioning
+History
+
+Not ready.
+
+What I Would Build Next
+
+Priority order:
+
+P1
+
+Initial Client Rate Dashboard
+
+Pending Initial Rates
+Awaiting Template
+Awaiting Approval
+Ready To Send
+Live
+P2
+
+Product Membership Management
+
+FC
+BC
+SB
+SC
+
+Assigned Clients
+Unassigned Clients
+P3
+
+Rate Template Builder
+
+Create Template
+Clone Template
+Import Template
+P4
+
+Approval Workflow
+
+KAM
+↓
+Manager
+↓
+Send
+Final Assessment
+
+The document is excellent as a 3-year commercial roadmap.
+
+But for BitsAuto today, I would split it into:
+
+PHASE 1
+Initial Client Rate Lifecycle
+
+PHASE 2
+Product-Based Pricing
+
+PHASE 3
+Vendor Rate Automation
+
+PHASE 4
+7-Day Notice Engine
+
+PHASE 5
+Voice Trading Desk
+
+PHASE 6
+AI Commercial Intelligence
+
+Otherwise you'll keep adding features while the core onboarding flow remains unfinished.
+
+The highest-value next deliverable is still:
+
+Client Wizard
+→ Tariff
+→ Service Plan
+→ Initial Rate Job
+→ Template
+→ Approval
+→ Send Rates
+→ Go Live
+
+until that lifecycle is complete end-to-end.
+
+Let me first understand the full document and then audit what's already built.
+
+
+6 actions
+Here's a clear picture of where you stand — what's built, what's partial, and what's missing — mapped directly against the spec.
+
+✅ Already Built & Tested (Do Not Touch)
+Spec Item	What Exists
+Product Classification (FC/BC/SB/SC)	product_registry table, trunk prefix encoding (1/2/6/7), full CRUD
+Customer Tariff Structure	Single tariff per customer, customer_product_assignments linking i_account → product
+Product-Specific Rate Sheets	product_rates table, destination-level rates per product
+Rate Push to Sippy	Portal upload (P1) + XML-RPC fallback (P2) — tested and working in Sippy
+Rate Push Audit	rate_push_jobs table, success/failure logging
+Client Rate Sheet Generation	Excel generation (
+
+Your assessment is heading in the right direction, but I would stop the audit before more development starts.
+
+The biggest mistake we've repeatedly made is mixing three separate systems:
+
+System 1 — Client Onboarding & Initial Rates
+
+This is where #329 belongs.
+
+Client Wizard
+   ↓
+Create Company
+   ↓
+Create Sippy Account
+   ↓
+Create Tariff
+   ↓
+Create Service Plan
+   ↓
+Create Initial Rate Job
+   ↓
+KAM Creates First Rate Sheet
+   ↓
+Approval
+   ↓
+Send Rate Sheet
+   ↓
+Client Live
+
+This should be completed first.
+
+System 2 — Product-Based Commercial Pricing
+
+This is where FC / BC / SB / SC belong.
+
+Product Registry
+Customer Product Assignment
+Product Rates
+Rate Templates
+Rate History
+Product Notifications
+
+You already have much of the foundation:
+
+✅ product_registry
+✅ customer_product_assignments
+✅ product_rates
+✅ rate_push_jobs
+✅ destination catalog
+
+But the commercial workflow is incomplete.
+
+System 3 — Vendor Rate Automation
+
+This is the large module described in the uploaded document.
+
+rates@company.com
+Email Fetching
+Vendor XLS Import
+CSV Import
+TXT Import
+Vendor Templates
+Parser Engine
+Approval Workflow
+Vendor Cost Analysis
+7-Day Notice Engine
+Margin Protection
+
+This should be a separate project.
+
+Current Reality
+
+From everything you've shared about BitsAuto:
+
+Completed
+Product Framework
+FC
+BC
+SB
+SC
+
+with trunk-prefix model.
+
+Destination Catalog
+Country
+  → Mobile
+      → Jazz (9230)
+      → Zong
+      → Ufone
+
+already exists.
+
+Rate Push Engine
+Send Rate
+   ↓
+pushRateToSippy()
+   ↓
+setSippyRateEntry()
+   ↓
+pushRateViaPortalUpload()
+   ↓
+Sippy
+
+Certified and should remain frozen.
+
+Notifications
+
+You already implemented:
+
+Initial Rate Jobs (#329)
+Rate Job Audit (#328)
+Notification Templates
+Notification Jobs
+Attachment Hashes
+Sheet Generated step
+Partially Complete
+Product Membership
+
+Current status:
+
+customer_product_assignments
+
+exists but commercial governance is incomplete.
+
+Need:
+
+Assigned
+Unassigned
+Conflict
+
+views.
+
+Initial Client Rate Lifecycle
+
+Current:
+
+Create Initial Job
+
+exists.
+
+Missing:
+
+Pending Rates
+Awaiting Template
+Awaiting Approval
+Ready To Send
+Activated
+
+end-to-end workflow.
+
+Not Started
+
+These are major roadmap items from the uploaded specification.
+
+Vendor Rate Management
+Vendor Email Inbox
+Parser Engine
+Format Conversion
+Rate Repository
+Cost Impact Analysis
+Vendor Increase
+Affected Customers
+Margin Impact
+7-Day Notice Queue
+Who must be notified
+When
+Which destinations
+Voice Trading Desk
+Trading Dashboard
+Deal Management
+Route Board
+Opportunities
+Margin Protection Engine
+Minimum Margin
+Negative Margin Block
+Approval Rules
+What I Would Build Next
+
+Not Vendor Parsing.
+
+Not Trading Desk.
+
+Not AI.
+
+Next Sprint
+1. Initial Rate Workspace
+Pending Initial Rates
+Awaiting Template
+Awaiting Approval
+Ready To Send
+Live
+
+This finishes the onboarding lifecycle.
+
+2. Product Membership Management
+Products
+Assigned Accounts
+Unassigned Accounts
+Conflicts
+
+This fixes governance.
+
+3. Rate Template Builder
+Clone Template
+Version Template
+Product Template
+
+This completes commercial operations.
+
+My Conclusion
+
+You are approximately:
+
+Initial Client Rate Workflow       65%
+Product Pricing Platform           55%
+Vendor Rate Automation             10%
+Voice Trading Desk                  5%
+
+The platform already has the hardest technical piece completed:
+
+Rate Push → Sippy
+
+The next value is not another engine.
+
+The next value is completing the business workflow around the engine:
+
+Client Wizard
+   ↓
+Initial Rate Job
+   ↓
+Template
+   ↓
+Approval
+   ↓
+Send Rates
+   ↓
+Client Live
+
+Finish that lifecycle first, then move into Vendor Rate Automation and the Voice Trading Desk.

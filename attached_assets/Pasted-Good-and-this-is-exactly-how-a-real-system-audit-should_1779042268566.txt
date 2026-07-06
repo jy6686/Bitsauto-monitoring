@@ -1,0 +1,161 @@
+Good — and this is exactly how a real system audit should resolve: by checking code truth instead of assumption layers.
+
+Your findings are consistent with what a mature implementation looks like, so let’s interpret this properly instead of just marking “done”.
+
+🧪 Corrected System State (after your verification)
+1. Dashboard Preferences Persistence
+✅ What is actually true
+
+You have a complete persistence loop:
+
+DB table exists (dashboard_widget_prefs)
+GET → DB read (user-scoped via sub)
+PUT → upsert with onConflictDoUpdate
+frontend hydrates on mount + invalidates cache
+🧠 Why earlier concern appeared
+
+That kind of “it feels like it resets” issue usually comes from:
+
+cached query not invalidated
+dev environment reload masking persistence
+or user mismatch during auth sessions
+✅ Final status:
+
+Production-ready, correctly scoped, correctly persisted
+
+2. Alert Lifecycle (3-state system)
+✅ What is actually true
+
+You already have a full lifecycle model:
+
+open → acknowledged → resolved
+
+And critically:
+
+DB stores full timestamps ✔
+user attribution exists ✔
+separate endpoints per action ✔
+frontend badge rendering exists ✔
+aggregation counts exist ✔
+🧠 Why external audit got this wrong
+
+This is a classic pattern:
+
+Many systems expose ACK in DB but forget UI or aggregation
+OR
+UI shows ACK but backend doesn't persist it
+
+You have neither issue.
+
+✅ Final status:
+
+Fully implemented, consistent across backend + frontend + DB
+
+🧭 What this actually means (important)
+
+At this point, your platform is no longer in:
+
+“feature incomplete” state ❌
+
+It is in:
+
+“system integration verification phase”
+
+That is a very different stage.
+
+🔍 What still actually matters (real risks now)
+
+Since both flagged issues are confirmed OK, the real remaining risks are different:
+
+⚠️ 1. Cross-module consistency risk (REAL)
+
+Now that you have:
+
+Live Traffic engine
+ASR/ACD report
+Verdict engine
+Alerts system
+Dashboard customization
+
+The real risk is:
+
+same entity behaving differently across modules due to caching/window differences
+
+Example:
+
+Verdict says GREEN (CI-based)
+Live Traffic shows degradation (real-time)
+Alerts not triggered yet (threshold delay)
+
+This is expected, but must be visually explained in UI later.
+
+⚠️ 2. Temporal mismatch risk
+
+Different refresh rates:
+
+Module	Update mode
+CI	cache window
+Live Traffic	30s snapshot
+Alerts	event-driven
+Reports	batch CDR
+
+This is fine — but users can misinterpret it.
+
+⚠️ 3. UX trust gap (not bug, perception issue)
+
+This is where most telecom dashboards fail:
+
+“Why do three screens disagree?”
+
+You will eventually need:
+
+timestamps everywhere
+“data freshness indicator”
+unified entity context header
+🧭 Updated Reality Summary
+What is NOT broken:
+Dashboard persistence ✔
+Alert lifecycle ✔
+Vendor/connection linking ✔
+ASR/ACD reporting ✔
+Live Traffic ✔
+Verdict engine ✔
+What is actually next (important shift)
+
+You are now in:
+
+coherence engineering phase
+
+Not feature building.
+
+🚀 Recommended next move (correct sequence now)
+
+Since hardening is confirmed OK:
+
+1. Unified Operations Console (NOW becomes highest value)
+
+Because you now need:
+
+one place to reconcile all signals
+2. Add “Data Freshness Layer”
+
+This is underrated but critical:
+
+last updated timestamps per module
+live vs cached indicators
+per-panel refresh age
+3. Optional: Alert intelligence upgrade
+
+ONLY after console exists (as you already correctly planned)
+
+🧠 Key insight (this is the important part)
+
+You are past:
+
+“Does it work?”
+
+You are now at:
+
+“Do all systems tell a consistent operational story?”
+
+That is a much higher-level engineering phase.

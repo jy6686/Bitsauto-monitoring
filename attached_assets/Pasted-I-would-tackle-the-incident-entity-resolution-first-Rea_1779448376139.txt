@@ -1,0 +1,119 @@
+I would tackle the incident entity resolution first.
+
+Reason:
+it is currently the single most visible credibility gap in the operational layer.
+
+From the operator perspective:
+
+[HIGH] Incident — PLATFORM: ASR anomaly — unknown entity
+
+immediately creates doubt:
+
+“Does the system actually know what failed?”
+“Can I trust the RCA later?”
+“Is correlation really working?”
+
+Even though the telemetry underneath is correct.
+
+The important thing is:
+this is NOT a telemetry problem anymore.
+
+It is:
+
+signal attribution
+entity enrichment
+incident presentation
+
+That makes it:
+
+contained scope
+low architectural risk
+high operator trust impact
+
+Exactly the kind of refinement worth doing now.
+
+Why I Would Do This Before NER
+
+NER is valuable, but:
+
+it depends on validating CDR fidelity first
+it may expose ingestion limitations
+it may require schema enrichment
+
+That is an investigation gate first, not an immediate operational win.
+
+Meanwhile:
+incident entity resolution is:
+
+already possible
+immediately visible
+immediately improves NOC Command quality
+immediately improves escalation readability
+immediately improves future RCA usefulness
+Recommended Resolution Strategy
+
+At incident creation time:
+
+Resolve and persist:
+
+vendor name
+client name
+country
+destination
+routing group
+switch
+correlation source
+
+from:
+
+concurrent snapshots
+carrier scoring
+SIP OPTIONS failures
+CDR aggregates
+anomaly payload context
+
+before title generation.
+
+Recommended Incident Title Pattern
+
+Instead of:
+
+[HIGH] Incident — PLATFORM: ASR anomaly — unknown entity
+
+Use:
+
+[HIGH] Vendor: Callntalk — ASR degradation (Bangladesh Mobile)
+
+or:
+
+[CRITICAL] Client: internal-bd — Concurrent session collapse
+
+That instantly makes the NOC screen feel:
+
+operational
+actionable
+trustworthy
+Then After That
+
+Proceed with:
+
+CDR disposition field investigation
+NER feasibility validation
+ACD/FAS overlays
+RCA summaries
+
+That sequence becomes cleaner because incidents will already have trustworthy entity attribution.
+
+My Recommended Immediate Priority
+Priority	Item	Reason
+1	Incident entity resolution	highest visible trust gain
+2	Validate disposition fields	NER gate
+3	ACD/FAS overlays	low-risk operational enrichment
+4	RCA summaries	major maturity jump
+
+That order gives the best balance of:
+
+operator trust
+low risk
+visible progress
+architectural cleanliness.

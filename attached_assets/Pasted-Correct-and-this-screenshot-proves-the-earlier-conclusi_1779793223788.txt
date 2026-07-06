@@ -1,0 +1,179 @@
+Correct — and this screenshot proves the earlier conclusion needs refinement.
+
+FAS is not globally unavailable.
+
+What’s actually happening is:
+
+Data Source	FAS Behavior
+Fallback / CDR-cache mode	FAS CAN be calculated
+Native /asr_acd.php aggregation	FAS NOT provided
+
+That explains the difference perfectly.
+
+What This Screenshot Proves
+
+In this older snapshot:
+
+Calls = 150
+Billable = 4
+ASR = 2.7%
+FAS = 25%
+
+That FAS value could only have come from:
+
+per-call analysis
+
+—not from Sippy aggregated SQL output.
+
+Meaning:
+the fallback CDR parser already contains:
+
+short-duration inspection
+failed-call pattern detection
+or SIP-code heuristics
+
+So:
+
+the FAS engine already partially exists
+
+which is actually very good news.
+
+Revised Understanding
+
+The situation is now:
+
+Metric	Native Portal	Fallback Cache
+ASR	✓ Native	
+ACD	✓ Native	
+Revenue	✓ Native	
+Vendor grouping	✓ Native	
+NER	Derived locally	
+FAS	ONLY from per-call fallback/CDR analysis	
+
+So after parity restoration:
+
+you gained authoritative totals
+but lost per-call enrichment context
+
+because the platform switched sources.
+
+Most Likely Current Behavior
+
+The system is probably doing:
+
+portal mode
+→ fasRate = 0 hardcoded
+
+which matches your code observation.
+
+That means:
+
+FAS disappeared because the platform changed telemetry source
+
+—not because the FAS engine broke.
+
+Correct Long-Term Architecture
+
+This is the proper model now:
+
+Metric	Source
+Calls	Native aggregation
+ASR	Native aggregation
+ACD	Native aggregation
+Revenue	Native aggregation
+Vendor totals	Native aggregation
+FAS	Per-call enrichment engine
+NER	Derived enrichment engine
+
+Meaning:
+
+hybrid telemetry architecture
+
+This is actually the right enterprise design.
+
+Best Fix Strategy (Important)
+
+DO NOT:
+
+disable FAS entirely
+
+Instead:
+
+merge enrichment onto native aggregation
+
+Architecture should become:
+
+Native SQL totals
+        +
+Per-call enrichment overlays
+
+So:
+
+authoritative counts remain
+FAS intelligence preserved
+future fraud analytics stay valid
+Most Likely Proper Solution
+P2-A
+
+Fix NER row mapping inconsistency
+
+Small fix.
+
+P2-B
+
+Remove hardcoded:
+
+fasRate: 0
+P2-C
+
+Run enrichment overlay pass:
+
+Using:
+
+sampled CDR cache
+SIP codes
+short-duration analysis
+
+to compute:
+
+FAS %
+NER %
+suspicious termination ratios
+
+AFTER native aggregation loads.
+
+Important Strategic Point
+
+This actually strengthens the platform architecture.
+
+Why?
+
+Because now you have:
+
+two telemetry layers
+Layer 1 — authoritative aggregation
+
+Reliable totals and carrier accounting.
+
+Layer 2 — enrichment intelligence
+
+Behavioral analysis and fraud heuristics.
+
+That is how mature telecom intelligence systems are normally structured.
+
+Current Reality
+Layer	Status
+Native aggregation	healthy
+Telemetry provenance	healthy
+FAS engine	exists
+FAS integration	incomplete
+NER mapping	inconsistent
+Hybrid enrichment model	not yet unified
+
+So the platform is now:
+
+architecturally healthy
+
+but:
+
+enrichment reconciliation is unfinished.

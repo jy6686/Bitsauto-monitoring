@@ -1,0 +1,99 @@
+Yes — this is the right moment to implement it, but only the specific fix, not a restructure.
+
+From everything you shared (code + logs + current behavior), here’s the real situation:
+
+What is currently happening
+
+From your system:
+
+Tariff is created successfully ✔
+Account is created successfully ✔
+Service Plan / Rate Plan is NOT created ❌
+Root cause (already confirmed):
+👉 provisioningLogin() was incorrectly treating 302 → /index.php as failure, even though it is actually a successful login in your Sippy setup
+You already patched login verification (good)
+But the system behavior you are seeing means:
+
+The fix is either NOT fully deployed OR service-plan step is still skipping due to stale session / fallback logic.
+
+So should we implement now?
+✅ YES — but only this narrow implementation:
+
+We should ONLY implement verification + retry protection for Service Plan creation, NOT redesign provisioning.
+
+Because right now your system is in a “half-fixed state”:
+
+Login works (fixed)
+Tariff works
+Service plan sometimes fails depending on session reuse / login validation timing
+🔥 What MUST be implemented next (minimal safe fix)
+1. Ensure Service Plan always gets a valid session
+
+Even after login fix, we must guarantee:
+
+session is fresh
+cookies are valid
+fallback login is retried if plan creation fails
+2. Add explicit guard inside service plan creation
+
+Before calling createSippyServicePlan:
+
+if (!provisionSession || !provisionSession.cookiesValid) {
+   provisionSession = await provisioningLogin();
+}
+3. Add retry around service plan creation (IMPORTANT)
+
+Because Sippy often:
+
+accepts login
+but delays session activation
+
+So:
+
+try {
+   await createSippyServicePlan(...)
+} catch (e) {
+   log("Service plan failed, retrying with fresh session");
+
+   const freshSession = await provisioningLogin(true);
+   await createSippyServicePlan(..., freshSession);
+}
+4. Add visibility (critical for debugging)
+
+Right now you don’t know WHY it fails.
+
+Add:
+
+[SIPPY] servicePlanRequest: START
+[SIPPY] sessionId: xxxx
+[SIPPY] tariffId: xxxx
+[SIPPY] response: <raw HTML or status>
+⚠️ Important truth (based on your logs)
+
+Your system is NOT failing architecturally.
+
+It is failing because:
+
+Sippy is session-sensitive and your provisioning flow assumes stateless API behavior (it is NOT stateless)
+
+So service plan creation is the first place this shows up.
+
+👍 My go-ahead decision
+✔ Yes, implement — but ONLY:
+session re-validation before service plan creation
+retry once on failure
+logging for Sippy response
+❌ Do NOT do right now:
+wizard changes
+auth redesign
+provisioning restructure
+new tables
+workflow changes
+🚀 Expected result after this fix
+
+Next provisioning should become:
+
+Tariff ✔
+Service Plan ✔ (no silent failure anymore)
+Account ✔
+Auth Rules ✔

@@ -1,0 +1,99 @@
+Perfect — this is now fully locked and implementation-safe.
+
+You’ve closed the only real risk in the entire design:
+
+⚠️ Unit mismatch (seconds → milliseconds) in MOS calculation
+
+That’s exactly the kind of subtle bug that would have silently poisoned the portal metrics, so catching it upfront matters more than anything else in this change.
+
+✅ FINAL EXECUTION STATE (100% READY)
+🧠 MOS subsystem (confirmed)
+server/mos.ts
+
+Exports:
+
+computeMOS
+estimateMOSFromPDD(ms) ← expects milliseconds
+mosToGrade
+
+### ✔ Correct transformation rule (critical)
+
+```ts id="mos-fix"
+avgPddSeconds * 1000 → estimateMOSFromPDD()
+📦 FINAL IMPLEMENTATION CONTRACT (LOCKED)
+1. Backend — /api/portal/view
+
+Add:
+
+const avgPddMs = avgPddSeconds * 1000;
+
+const quality = computePortalQuality(cdrs, avgPddMs);
+const destinations = computeDestinations(cdrs);
+
+Return unchanged structure:
+
+return {
+  ...existing,
+  quality,
+  destinations
+}
+2. computePortalQuality(cdrs)
+Must include:
+ASR
+ACD
+PDD (seconds)
+MOS (via ms conversion)
+MOS grade
+NER
+breakdown buckets
+3. computeDestinations(cdrs)
+group by country
+top 5 + other
+calls, minutes, ASR, %
+4. Frontend changes
+A) client-portal.tsx
+
+Replace 3 hardcoded values:
+
+MOS → quality.mos
+PDD → quality.pdd
+packet loss → derived from failure breakdown
+B) portal-view.tsx
+
+Add Quality Section (5 cards):
+
+ASR
+ACD
+NER (tooltip)
+MOS (grade badge A–D)
+PDD
+⚠️ FINAL VALIDATION SUMMARY
+Item	Status
+MOS module exists	✅ confirmed
+MS conversion rule	✅ confirmed (critical fix applied)
+No schema changes	✅
+No API expansion	✅
+No new Sippy calls	✅
+Data source	CDR-only aggregation
+Risk level	LOW (fully deterministic math layer)
+🚀 READY TO EXECUTE
+
+There is nothing left to clarify.
+
+This is now:
+
+✔ deterministic transformation layer
+✔ known input (CDRs)
+✔ known outputs (quality + destinations)
+✔ known UI mapping
+✔ zero external dependency risk
+
+👉 Say: "go"
+
+And I will execute it as a single coherent implementation pass across:
+
+routes.ts
+client-portal.tsx
+portal-view.tsx
+
+No re-checks, no design changes, no branching.

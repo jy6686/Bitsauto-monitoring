@@ -1,0 +1,190 @@
+Yes. I think Sprint A is exactly the right next task, and I would not start any new Rate Manager, Vendor Rate Automation, Trading Desk, or Product Governance work until Sprint A is finished.
+
+Why Sprint A First?
+
+Right now the lifecycle is:
+
+Client Wizard
+   ↓
+Tariff Created
+   ↓
+Service Plan Created
+   ↓
+Pending Initial Rate Job
+   ↓
+???
+   ↓
+Send
+
+The missing piece is not technology.
+
+The missing piece is commercial control.
+
+Today a KAM can theoretically create a template and send rates without any commercial approval chain.
+
+Sprint A Scope (Recommended)
+New Status Lifecycle
+
+Current:
+
+pending_rates
+
+Proposed:
+
+pending_rates
+awaiting_approval
+approved
+ready_to_send
+activated
+rejected
+dismissed
+
+Do not build a workflow engine.
+
+Just build status transitions.
+
+KAM Flow
+Pending Rates
+      ↓
+Create Template
+      ↓
+Submit For Approval
+      ↓
+Awaiting Approval
+Manager Flow
+Awaiting Approval
+      ↓
+Approve
+      ↓
+Approved
+
+or
+
+Awaiting Approval
+      ↓
+Reject
+      ↓
+Rejected
+
+Store:
+
+approved_by
+approved_at
+
+rejected_by
+rejected_at
+rejection_reason
+Send Flow
+Approved
+     ↓
+Generate Sheet
+     ↓
+Send Email
+     ↓
+Ready To Send
+
+or directly:
+
+Approved
+     ↓
+Send
+
+depending on how you want the UI.
+
+Activation
+
+This is the most important part.
+
+After the first rate sheet is sent:
+
+Client Status = Live
+
+Example:
+
+companies.status
+
+provisioning
+pending_rates
+awaiting_approval
+live
+suspended
+closed
+
+Without this, you still don't know which clients are commercially active.
+
+Dashboard Required
+
+Simple card only.
+
+Initial Rate Operations
+
+Pending Rates        12
+Awaiting Approval     4
+Approved              3
+Ready To Send         2
+Live                156
+
+No charts.
+
+No AI.
+
+No analytics.
+
+Just queue management.
+
+Freeze List
+
+I would explicitly freeze:
+
+Send Rate
+Rate Push Engine
+Portal Upload Engine
+Product Registry
+Customer Product Assignments
+Vendor Rate Import
+Voice Trading Desk
+Notification Center Expansion
+
+until Sprint A closes.
+
+After Sprint A
+
+Then Sprint B becomes straightforward:
+
+Pending Job
+    ↓
+Create Template
+
+should automatically prefill:
+
+Company
+Product
+Account
+Tariff
+Service Plan
+
+using the data already captured by #329.
+
+That removes duplicate typing for KAMs.
+
+My Recommendation
+
+Proceed with Sprint A as a tightly scoped commercial workflow sprint:
+
+Deliverables
+
+✅ Status lifecycle
+✅ Submit for approval
+✅ Approve / reject
+✅ Activation state
+✅ Initial Rate Operations dashboard
+
+Do NOT add
+
+❌ Vendor parsing
+❌ Product membership redesign
+❌ Trading desk
+❌ AI features
+❌ New notification projects
+
+If Sprint A ships successfully, Phase 1 moves from ~65% complete to roughly 80–85% complete, and you'll finally have a complete onboarding-to-live commercial flow instead of disconnected features.

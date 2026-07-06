@@ -1,0 +1,140 @@
+The latest evidence proves only one thing:
+
+setSippyRateEntry()
+    ↓
+all XML-RPC methods fail
+    ↓
+pushRateViaPortalUpload()
+    ↓
+action=change
+
+That is now confirmed by actual code.
+
+What is NOT yet proven is:
+
+pushRateToSippy()
+    ↓
+setSippyRateEntry()
+
+We still have not seen that code.
+
+So if you tell Claude:
+
+"Refactor push-batch to bypass pushRateToSippy and call pushRateViaPortalUpload directly"
+
+you risk changing the exact path that has already been working in production.
+
+My Recommendation
+DO NOT IMPLEMENT ANY RATE-PUSH CHANGES
+
+Freeze:
+
+pushRateToSippy()
+setSippyRateEntry()
+pushRateViaPortalUpload()
+action=change
+
+until certification is complete.
+
+Only Ask Claude To Perform Verification
+
+Before any code changes, get the missing evidence.
+
+Ask Claude:
+
+Do not modify any code.
+
+We have confirmed from actual code that:
+
+setSippyRateEntry()
+→ tries XML-RPC methods
+→ falls back to pushRateViaPortalUpload()
+→ action=change
+
+Before any refactor or optimization, verify the remaining call chain with evidence.
+
+Please trace and document:
+
+POST /api/rate-manager/push-batch
+→ pushRateToSippy()
+→ ?
+
+Show the exact code proving whether pushRateToSippy() calls setSippyRateEntry().
+
+Use grep/sed and paste the actual function body.
+
+Do not modify any files.
+Do not refactor any rate push logic.
+Do not change pushRateViaPortalUpload().
+Do not change action=change.
+
+Goal: produce evidence only.
+
+If That Verification Shows
+pushRateToSippy()
+    ↓
+setSippyRateEntry()
+    ↓
+pushRateViaPortalUpload()
+
+Then:
+
+Proceed With Certification
+
+T4
+T6
+T7
+T8
+T1
+T2
+T3
+T5
+
+No refactoring.
+
+No optimization.
+
+No queue redesign.
+
+If Verification Shows
+pushRateToSippy()
+
+uses a different path entirely,
+
+then stop and review.
+
+Important Rule
+
+For BitsAuto:
+
+Sprint 1 = Certification
+
+NOT:
+
+Notification Center
+Job Queue
+Worker
+Product Governance
+Performance Optimization
+Direct iTariff Routing
+
+Those are later.
+
+The only acceptable code changes during Sprint 1 should be fixes to:
+
+Send Rate queue logic
+Destination resolution
+Longest-prefix matching
+Product mapping
+Validation
+Push History logging
+
+after a certification test actually proves a defect.
+
+So my answer to:
+
+should we implement now?
+
+is:
+
+No. Not yet. Verify the last missing call chain, then run certification. Protect the proven Sippy rate-update path exactly as it is today.

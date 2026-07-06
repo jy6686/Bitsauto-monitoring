@@ -1,0 +1,249 @@
+This is actually GOOD progress.
+
+You have now narrowed the problem to ONE specific layer:
+
+Asterisk channel/originate configuration
+
+NOT:
+
+REVE
+BitsAuto
+OTP extraction
+Sippy routing
+Vendor routing
+
+Those are already mostly proven working.
+
+MOST IMPORTANT CLUE
+
+This line:
+
+Call Failure: No such extension/number
+
+AND:
+
+instant failure
+no ringing
+no SIP delay
+
+means:
+
+Asterisk never successfully created outbound SIP channel.
+
+VERY important distinction.
+
+What This Means
+
+The problem is BEFORE:
+
+Sippy routing
+vendor routing
+carrier routing
+
+Current failure point:
+
+BitsAuto
+↓
+AMI
+↓
+Asterisk channel creation FAILS
+The Strongest Clue
+
+This sequence proves it:
+
+Attempt	Result
+SIP/Sippy/+923...	failed
+SIP/Sippy/923...	failed
+PJSIP/...	failed
+direct IP attempt	env not applied
+
+Meaning:
+
+Asterisk trunk/channel tech mismatch.
+Your Sippy Side Is PROBABLY Fine
+
+Because:
+
+Sippy test routing already works
+IP auth already configured
+routing group already configured
+
+The issue is:
+
+Asterisk dialing syntax.
+BEST NEXT STEP NOW
+
+(HIGHEST PRIORITY)
+
+You should:
+
+bypass BitsAuto temporarily
+
+and test DIRECTLY from Asterisk.
+
+This is CRITICAL now.
+
+Inside FreePBX/Asterisk
+
+Use:
+
+Originate test call manually
+
+Example:
+
+channel originate SIP/923468280111@191.101.30.107 application Echo
+
+OR:
+
+channel originate PJSIP/923468280111@Sippy application Echo
+
+depending on:
+
+SIP
+PJSIP
+WHY THIS IS IMPORTANT
+
+Because right now:
+
+BitsAuto debugging is hiding the real Asterisk error.
+
+Direct CLI test will instantly show:
+
+trunk exists?
+channel exists?
+auth issue?
+codec issue?
+route issue?
+MOST LIKELY ROOT CAUSE
+
+Based on everything:
+
+FreePBX trunk is PJSIP
+
+BUT:
+
+endpoint name != "Sippy"
+
+VERY common.
+
+You Need Exact FreePBX Trunk Name
+
+Inside FreePBX:
+
+Connectivity
+↓
+Trunks
+↓
+Sippy
+
+Need:
+
+actual trunk technology
+actual endpoint identifier
+Possible Real Names
+
+Example:
+
+PJSIP/sippy-trunk
+PJSIP/trunk-0001
+PJSIP/provider1
+
+NOT:
+
+PJSIP/Sippy
+IMPORTANT
+
+FreePBX auto-generates:
+
+endpoint names
+auth sections
+AOR names
+
+often DIFFERENT from trunk display name.
+
+BEST FIX
+
+Instead of guessing:
+
+manually verify trunk endpoint.
+What You Need From FreePBX
+
+Inside:
+
+Asterisk CLI
+
+Run:
+
+pjsip show endpoints
+
+OR:
+
+sip show peers
+
+This will reveal:
+
+actual endpoint names.
+Then Use Exact Endpoint
+
+Example:
+
+PJSIP/provider1/923468280111
+
+instead of guessed:
+
+PJSIP/Sippy/923468280111
+VERY IMPORTANT
+
+You are EXTREMELY close now.
+
+Because:
+
+OTP pipeline already works.
+
+Current remaining problem:
+
+one Asterisk dialing string.
+
+That’s all.
+
+My Strong Recommendation
+
+DO THIS NOW:
+
+1. Verify:
+PJSIP or SIP?
+2. Get exact endpoint name
+3. Manual originate test in Asterisk CLI
+4. Once phone rings:
+
+THEN reconnect BitsAuto.
+
+This is the fastest path now.
+
+Architecture Decision
+
+And YES:
+
+continue with direct HTTP-triggered Voice OTP.
+
+DO NOT:
+
+wait for SMS failure
+depend on DLR
+depend on SMS vendor
+
+Your new architecture is MUCH better:
+
+REVE
+↓ HTTP
+BitsAuto
+↓
+AMI
+↓
+Asterisk
+↓
+Sippy
+↓
+Carrier
+
+This is the correct production direction.

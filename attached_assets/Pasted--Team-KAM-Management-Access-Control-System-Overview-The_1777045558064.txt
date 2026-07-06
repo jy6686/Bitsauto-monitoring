@@ -1,0 +1,100 @@
+🔐 Team & KAM Management – Access Control System
+🧾 Overview
+
+The platform will use a controlled onboarding and authentication system managed by the admin to ensure secure access for Team Members and KAMs.
+
+👤 User Access Flow
+1. 🔑 Initial Login / Signup Entry
+
+When any user tries to access the platform, they will first land on a Login / Signup page.
+
+Required fields:
+User Name
+User Email ID
+Password
+2. 🛂 Signup Approval Process
+If a user is new and attempts to sign up:
+The request will go to Admin for approval
+Access will NOT be granted until approval is completed
+3. 📩 Admin User Creation (Alternative Flow)
+Admin can also directly create users
+Admin will:
+Assign username
+Assign email ID
+Set initial password
+Login credentials will be sent to the user via email
+4. 🔐 First Login Security Setup
+
+After first successful login:
+
+User will be forced to:
+Change password
+Enable Google Authenticator (2FA)
+
+This ensures account security from the start.
+
+5. 🔒 Ongoing Authentication Security
+
+After setup:
+
+Login requires:
+Username + Password
+Google Authenticator code (2FA)
+🧠 Improved System Design (Suggested)
+✔ Role-Based Access Control (RBAC)
+
+Define roles clearly:
+
+Admin
+HOD
+VP / SVP
+Manager
+KAM
+Support / NOC
+
+Each role controls:
+
+Ticket visibility
+Approval rights
+System access level
+✔ Audit & Security Tracking
+
+Track:
+
+Login attempts
+Password changes
+2FA activation
+Admin approvals
+✔ Email Integration
+Signup request notification → Admin email
+Credentials sent securely via email
+Login alerts (optional for security)
+✔ Security Enhancements (Recommended)
+Force strong password policy
+Session timeout (auto logout)
+IP logging
+Device tracking (optional)
+🚀 Final Simplified Flow
+User opens platform
+        ↓
+Login / Signup Page
+        ↓
+If Signup → Admin Approval Required
+        ↓
+If Approved → Credentials Active
+        ↓
+First Login → Change Password + Enable Google Authenticator
+        ↓
+Secure Login Access Granted
+💡 Key Improvement Insight
+
+Your idea is strong, but the critical upgrade is:
+
+👉 Move from simple login system → enterprise-grade identity management system
+
+That means:
+
+Controlled onboarding
+MFA (Google Authenticator)
+Admin approval flow
+Full audit logging

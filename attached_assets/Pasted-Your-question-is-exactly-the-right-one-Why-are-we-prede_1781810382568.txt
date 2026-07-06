@@ -1,0 +1,123 @@
+Your question is exactly the right one:
+
+Why are we predefining rates?
+
+We should not be inventing or predefining any tariff data.
+
+The safest workflow is:
+
+Read tariff from Sippy
+↓
+Get all existing rows
+↓
+Get existing IDs
+↓
+Get existing Country
+↓
+Get existing Intervals
+↓
+Get existing Grace Period
+↓
+Get existing Activation Date
+↓
+Modify ONLY requested destination(s)
+↓
+Upload complete tariff back
+
+Nothing else should be generated.
+
+Looking at your tariff
+
+Current Sippy tariff:
+
+ID	Prefix	Rate
+46	1880	0.009
+40	192	0.0335
+42	1923	0.0325
+41	19230	0.0274
+44	19231	0.0350
+45	19232	0.0275
+43	19233	0.0340
+39	19234	0.0300
+
+If user changes:
+
+19230
+0.0274 → 0.0270
+
+then BitsAuto should produce:
+
+ID	Prefix	Rate
+46	1880	0.009
+40	192	0.0335
+42	1923	0.0325
+41	19230	0.0270
+44	19231	0.0350
+45	19232	0.0275
+43	19233	0.0340
+39	19234	0.0300
+
+Only one value changes.
+
+Everything else should come directly from Sippy.
+
+What concerns me
+
+The log proposal says:
+
+Full Tariff Upload Preview
+Action=U ID=46 Prefix=1880 Rate=0.009
+...
+
+That is fine only if those values came from Sippy's downloaded tariff.
+
+If the code contains:
+
+rate = 0.009
+interval1 = 1
+intervalN = 1
+grace = 1
+
+hardcoded anywhere,
+
+then that is dangerous.
+
+The upload builder should never contain tariff defaults.
+
+Instead:
+
+existingRate.price1
+existingRate.priceN
+existingRate.interval1
+existingRate.intervalN
+existingRate.gracePeriod
+existingRate.activationDate
+
+should all come from Sippy.
+
+What I would verify next
+
+Before another push, inspect the generated XLSX:
+
+GET /api/rate-manager/download-test-xlsx
+
+Open it and verify:
+
+8 rows exist
+IDs match Sippy
+Action = U
+Country matches Sippy export
+Intervals match Sippy export
+Grace Period matches Sippy export
+Activation Date matches Sippy export
+Only 19230 rate changed
+
+If the generated file is byte-for-byte equivalent to the manually successful file (except for the changed rate), then the remaining problem is on Sippy's import processing side, not the XLSX content.
+
+At this stage I would stop changing upload logic and first compare:
+
+Manual successful upload file
+vs
+BitsAuto generated upload file
+
+row by row. That comparison will expose the exact field Sippy is ignoring.

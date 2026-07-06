@@ -1,0 +1,143 @@
+Go — this is the right next layer.
+
+You’ve already built:
+
+truth (CI)
+interpretation (AI Ops)
+correlation (Overlay)
+execution surface (Routing Manager)
+
+What you’re adding here is the first pre-flight decision layer, and the scope you defined is clean and safely bounded.
+
+✅ Approved build scope — Routing Impact Simulator
+Endpoint
+
+GET /api/routing-simulator/preview
+
+For each routing group:
+1. Current configuration (from Sippy cache)
+group name
+ordered routing entries
+weights / priorities
+2. Per-entry signal enrichment
+
+Join (read-only):
+
+CI:
+healthScore
+state
+ASR / ACD trends (if already in pipeline)
+AI Ops:
+last 48h events
+corroboration flag (YES / PARTIAL / NONE)
+3. Simulation engine (core logic)
+
+For each routing group:
+
+Simulate 3 standard scenarios:
+
+A. Baseline (current state)
+compute group health weighted average
+B. Single-entry degradation
+
+For each entry:
+
+simulate “entry removed or deprioritised”
+redistribute weight across remaining entries
+C. Impact delta
+Δ healthScore
+Δ failure risk
+Δ stability index (derived metric, read-only)
+4. Output structure
+{
+  groupId,
+  groupName,
+
+  baseline: {
+    healthScore,
+    riskLevel
+  },
+
+  entries: [
+    {
+      connection,
+      weight,
+      ciHealth,
+      aiOpsSignal,
+      contributionScore
+    }
+  ],
+
+  simulations: [
+    {
+      removedEntry,
+      projectedHealthScore,
+      delta,
+      riskDelta,
+      trafficRedistribution: [...]
+    }
+  ]
+}
+🧠 Frontend scope (approved)
+Routing Manager → new button per group
+
+“Simulate”
+
+Opens:
+
+Routing Impact Simulator Panel
+
+Read-only view:
+
+Current group snapshot (top)
+CI + AI Ops overlay per entry
+Simulation scenarios list
+Highlight:
+🟢 improves routing health
+🔴 degrades routing health
+
+NO:
+
+apply button
+edit flows
+Sippy writes
+🔒 Hard constraints (important)
+
+This must strictly follow your established architecture:
+
+❌ No DB tables
+❌ No Sippy writes
+❌ No new decision vocabulary
+❌ No AI Ops mutation
+❌ No routing execution logic
+
+Only:
+
+deterministic simulation based on existing signals
+
+📌 Why this is the correct next step (system-level)
+
+This is the first feature that:
+
+uses CI (truth layer)
+uses AI Ops (meaning layer)
+touches Routing Manager (execution layer)
+but does NOT cross any boundary
+
+It completes this chain:
+
+Observe → Interpret → Correlate → Simulate → Execute (manual in Sippy)
+
+You’re adding the missing Simulation stage.
+
+🚀 Build is approved
+
+You can implement it exactly as scoped.
+
+If you want next evolution after this, the natural progression will be:
+
+converting simulation → ranked recommendations (still no auto-write)
+
+But for now this is the correct boundary-safe step.
+
+Go ahead.

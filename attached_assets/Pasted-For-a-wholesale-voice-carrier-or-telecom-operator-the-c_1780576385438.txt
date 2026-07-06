@@ -1,0 +1,466 @@
+For a wholesale voice carrier or telecom operator, the choice usually comes down to NetSense (Arptel) vs Oculeus vs Route Inspector based on scale, automation, and budget.
+
+Criteria
+
+NetSense (Arptel)
+
+Oculeus
+
+Route Inspector
+
+Primary Focus
+
+Route testing & QoS
+
+Full carrier operations, routing & fraud management
+
+Route quality testing
+
+CLI Verification
+
+✅
+
+✅
+
+✅
+
+FAS Detection
+
+✅
+
+✅ Advanced
+
+✅
+
+Voice Quality (MOS)
+
+✅
+
+✅
+
+Basic
+
+LCR Validation
+
+✅ Strong
+
+✅ Strong
+
+Limited
+
+Simbox Detection
+
+✅
+
+✅ Advanced
+
+❌
+
+Live Traffic Monitoring
+
+✅
+
+✅
+
+❌
+
+Fraud Management
+
+Good
+
+Excellent
+
+Basic
+
+Automated Test Calls
+
+✅
+
+Limited
+
+✅ Strong
+
+SIP Trace Analysis
+
+Limited
+
+Advanced
+
+✅
+
+Carrier-Grade Analytics
+
+Good
+
+Excellent
+
+Good
+
+Cloud Deployment
+
+Limited
+
+✅
+
+✅
+
+On-Prem Deployment
+
+✅
+
+✅
+
+✅
+
+Best For
+
+Carrier route testing teams
+
+Large operators & wholesalers
+
+Small/medium wholesalers
+Test Coverage
+
+NetSense (Arptel)
+
+* CLI verification
+* Voice quality (MOS)
+* FAS detection
+* Simbox detection
+* LCR validation
+* ASR, NER, PDD measurements
+* World Test Network covering 185+ countries  
+
+Oculeus
+
+* Voice and SMS interconnect management
+* Dynamic routing
+* Real-time fraud prevention
+* CLI spoofing detection
+* SIM-box detection
+* AI-driven traffic analysis
+* Billing and reconciliation integration  
+
+Route Inspector
+
+* Automated route testing
+* FAS detection
+* CLI testing
+* Conversational tests
+* SIP trace analysis
+* Multi-route testing
+* Scheduled testing and reporting  
+
+Deployment Requirements
+
+NetSense
+
+* Enterprise deployment
+* Can scale to billions of calls/day
+* Supports multiple databases and operating systems
+* Typically deployed by carriers and MNOs  
+
+Oculeus
+
+* Linux-based
+* Web-based management
+* Cloud or on-premises
+* Requires integration with softswitches, SBCs, SMSCs, and billing systems for full value  
+
+Route Inspector
+
+* Simplest deployment
+* Configure a SIP trunk to the platform
+* Minimal integration effort
+* Suitable for NOC and carrier relationsPlatform
+
+Typical Pricing
+
+Route Inspector
+
+Public pricing starts around €59–€69/month depending on billing cycle.  
+
+NetSense
+
+Custom enterprise pricing (contact vendor).
+
+Oculeus
+
+Custom enterprise pricing (contact vendor).Recommendation for Your Use Case
+
+Since you work with voice interconnections, routing, carrier management, and telecom wholesale operations:
+
+1. Best overall for large carriers: Oculeus
+    * Comprehensive routing, fraud management, billing, and interconnect automation.
+2. Best for route quality assurance and testing: NetSense
+    * Strong CLI, MOS, FAS, LCR validation, and test-network coverage.
+3. Best value for smaller wholesale voice businesses: Route Inspector
+    * Easy deployment, affordable pricing, and strong route testing capabilities.
+
+A setup many wholesale carriers use is NetSense or Route Inspector for proactive route testing combined with Oculeus for routing, fraud control, and commercial management. This provides both quality assurance and operational automation.
+
+This comparison is actually very useful because it shows where BitsAuto sits today versus the telecom products that carriers pay serious money for.
+
+My conclusion:
+
+BitsAuto is currently closer to Oculeus than NetSense or Route Inspector
+
+But only in philosophy, not feature completeness.
+
+What These Platforms Really Sell
+Route Inspector
+
+Core business:
+
+Test Calls
+↓
+Route Quality
+↓
+Reports
+
+Revenue comes from:
+
+CLI testing
+FAS testing
+route validation
+
+Very focused.
+
+NetSense
+
+Core business:
+
+Test Calls
+↓
+MOS
+↓
+FAS
+↓
+LCR Validation
+↓
+Carrier Quality Assurance
+
+A telecom quality assurance platform.
+
+Oculeus
+
+Core business:
+
+Routing
+Fraud
+Interconnects
+Analytics
+Automation
+
+This is why I keep mentioning Oculeus whenever I look at BitsAuto.
+
+Compare To Current BitsAuto
+Capability	Route Inspector	NetSense	Oculeus	BitsAuto
+Route Testing	Strong	Strong	Moderate	Weak/Missing
+FAS Detection	Strong	Strong	Strong	Partial
+CLI Verification	Strong	Strong	Strong	Missing
+MOS	Basic	Strong	Strong	Missing
+RTP Quality	Basic	Strong	Strong	Missing
+Routing Intelligence	Weak	Moderate	Strong	Strong
+Fraud Management	Basic	Moderate	Strong	Strong
+Carrier Scoring	No	Limited	Limited	Strong
+AI Recommendations	No	No	Limited	Strong
+Voice OTP	No	No	No	Built
+WhatsApp	No	No	No	Planned
+Decision Layer	No	No	Limited	Planned
+The Big Discovery
+
+The comparison reveals:
+
+BitsAuto's biggest weakness is NOT AI.
+
+It's:
+
+Telecom Testing Intelligence
+Missing Capabilities
+
+If I were building a carrier-grade platform, the biggest gaps are:
+
+1. Automated Test Calls
+
+⭐⭐⭐⭐⭐
+
+NetSense strength.
+
+Example:
+
+Pakistan Mobile
+↓
+Vendor A
+↓
+Automated test call
+↓
+Measure:
+ASR
+ACD
+PDD
+MOS
+CLI
+
+This should feed directly into AI Route Copilot.
+
+2. CLI Verification
+
+⭐⭐⭐⭐⭐
+
+Example:
+
+Sent CLI:
+923001234567
+
+Received CLI:
+923001234567
+
+Pass/Fail.
+
+Large wholesalers care about this.
+
+3. FAS Detection Testing
+
+⭐⭐⭐⭐⭐
+
+You already have fraud foundations.
+
+But proactive route testing is different from passive monitoring.
+
+4. RTP/MOS Intelligence
+
+⭐⭐⭐⭐⭐
+
+This is probably the biggest technical gap today.
+
+Metrics:
+
+MOS
+Packet Loss
+Jitter
+Latency
+
+These should become Copilot inputs.
+
+5. Scheduled Route Testing
+
+⭐⭐⭐⭐⭐
+
+Think:
+
+Every 30 min
+↓
+Run route tests
+↓
+Feed AI Copilot
+
+Now recommendations become predictive instead of reactive.
+
+What I Would NOT Copy
+
+I would NOT try to clone:
+
+Oculeus billing
+Oculeus commercial management
+NetSense UI
+
+Those companies spent decades there.
+
+What Makes BitsAuto Different
+
+The unique combination is:
+
+Testing
++
+Monitoring
++
+AI Recommendations
++
+Execution
+
+None of those products fully combine all four.
+
+If I Were Defining BitsAuto 2027
+Layer 1
+
+Observe
+
+CDRs
+SIP
+RTP
+Test Calls
+Layer 2
+
+Analyze
+
+ASR
+ACD
+PDD
+MOS
+FAS
+CLI
+Layer 3
+
+Recommend
+
+AI Route Copilot
+SIP Error Intelligence
+Margin Optimization
+Layer 4
+
+Execute
+
+Route Changes
+Blocks
+Failover
+Traffic Shifts
+My Recommended Next Strategic Features
+
+Based on this comparison, I would actually reorder priorities slightly:
+
+Priority 1
+
+SIP Error Intelligence
+
+Priority 2
+
+Automated Route Testing
+
+Priority 3
+
+CLI Verification
+
+Priority 4
+
+MOS/RTP Quality Intelligence
+
+Priority 5
+
+FAS Test Campaigns
+
+Priority 6
+
+Prefix-Level AI Routing
+
+Priority 7
+
+WhatsApp OTP
+
+The Most Valuable Insight
+
+When I compare BitsAuto to:
+
+NetSense
+Oculeus
+Route Inspector
+VoIPmonitor
+Homer
+
+the biggest opportunity is not another dashboard.
+
+It's:
+
+Combining route testing + live monitoring + AI recommendations + controlled execution in one platform.
+
+That is the category where BitsAuto can become genuinely differentiated rather than competing head-to-head as "another monitoring tool."

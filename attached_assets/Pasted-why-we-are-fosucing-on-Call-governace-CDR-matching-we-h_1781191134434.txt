@@ -1,0 +1,200 @@
+why we are fosucing on Call governace CDR matching? we have to resolve cdr, P&L, etc isue once for all platform feature,
+
+I think you're asking exactly the right question.
+
+The problem is that we've been solving a symptom, not the platform-wide root cause.
+
+The discussion became focused on:
+
+Call Governance
+↓
+Governed Call
+↓
+Find CDR
+↓
+Find P&L
+
+because that's where the failure was visible.
+
+But your real objective is much larger:
+
+BitsAuto Platform
+↓
+Any Call
+↓
+Correct Product
+↓
+Correct Rate
+↓
+Correct Customer Billing
+↓
+Correct Vendor Cost
+↓
+Correct Margin
+↓
+Correct Invoice
+What should be the actual platform-level objective?
+
+Not:
+
+Fix Call Governance Billing Tab
+
+Instead:
+
+Universal Telecom Reconciliation Engine
+
+One engine used by:
+
+Billing Verification
+Customer CDR
+Vendor CDR
+P&L
+Finance
+Invoices
+Credit Notes
+Revenue Assurance
+Deal Workspace
+Deal Profitability
+Margin Truth
+Product Registry
+Product
+Rate
+Tariff
+Revenue Protection
+Negative Margin
+Overdraft Risk
+Trust Center (later)
+Configuration Changes
+Commercial Impact
+What is the real root cause?
+
+Not:
+
+No CDR
+
+The real root cause is:
+
+No Universal Commercial Identity
+
+Today different systems know different things:
+
+System	Knows
+Asterisk	Original call
+Sippy Customer CDR	Revenue
+Sippy Vendor CDR	Cost
+P&L	Revenue + Cost + Margin
+Product Registry	Intended Product
+Deal Workspace	Intended Commercial Terms
+
+Nothing links them with one authoritative identity.
+
+What should become the master key?
+
+I would create a platform-wide concept:
+
+Commercial Call Identity (CCI)
+
+Example:
+
+Call UUID
+Customer
+Product
+Original CLD
+Normalized CLD
+CLI
+Start Time
+
+Everything attaches to that.
+
+Then:
+
+Customer CDR
+Vendor CDR
+P&L
+Governance
+Invoice
+
+all point to the same identity.
+
+Why Product Registry suddenly became critical
+
+Earlier Product Registry looked like a commercial module.
+
+Now it's becoming:
+
+Billing Infrastructure
+
+because:
+
+Product
+↓
+Tariff
+↓
+Rate
+↓
+Invoice
+
+is inseparable.
+
+My revised roadmap
+
+Instead of:
+
+0.2 P&L
+0.3 Billing
+0.5 Governance
+
+I would reframe it as:
+
+Foundation Layer
+Commercial Identity Layer
+
+Contains:
+
+Product Identity
+Customer Identity
+Vendor Identity
+Original CLD
+Product Prefix
+Tariff Identity
+Reconciliation Layer
+Customer CDR
+Vendor CDR
+P&L
+Validation Layer
+Rate Integrity
+Margin Integrity
+Invoice Integrity
+Application Layer
+
+Uses the same engine:
+
+Billing Verification
+Revenue Assurance
+Deal Workspace
+Finance
+Product Registry
+My recommendation
+
+You're right that the platform should stop treating this as:
+
+Call Governance problem
+
+and start treating it as:
+
+Platform-wide Commercial Reconciliation Architecture
+
+Because if the architecture is correct:
+
+Call Governance gets fixed automatically.
+Billing Verification gets fixed automatically.
+Margin Intelligence becomes trustworthy.
+Invoices become trustworthy.
+Revenue Assurance becomes trustworthy.
+
+In other words, the goal should be:
+
+Resolve CDR, Vendor CDR, P&L, Product, Rate, Margin, and Invoice linkage once,
+then let every BitsAuto module consume the same verified truth.
+
+That is a much stronger long-term architecture than continuing to patch individual modules one by one.

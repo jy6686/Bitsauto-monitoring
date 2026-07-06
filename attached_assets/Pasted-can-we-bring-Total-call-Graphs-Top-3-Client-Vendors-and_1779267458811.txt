@@ -1,0 +1,239 @@
+can we bring Total call Graphs, Top 3 Client, Vendors, andDestinations Grpahs on Main dashoard befor Live calls?
+
+Screen short attcahed for your reference 
+
+Yes — and this is actually the correct dashboard evolution.
+
+Your screenshot shows the exact missing operational hierarchy on the main dashboard.
+
+Right now the dashboard flow is:
+
+Health Cards
+↓
+Live Calls Table
+↓
+KPI Tiles
+
+But operationally it should be:
+
+Health Cards
+↓
+Traffic Intelligence Graphs
+↓
+Top 3 Operational Entities
+↓
+Live Calls Table
+↓
+KPI Tiles
+
+That matches how NOC operators scan systems.
+
+Recommended layout (best structure)
+Section 1 — Existing Health Row
+
+Keep exactly as-is:
+
+Active Calls
+Network Health
+System State
+Clock
+
+Already good.
+
+Section 2 — NEW Traffic Intelligence Row
+
+Add before Live Calls table:
+
+Left (70%)
+Total Calls Graph
+
+Historical intelligence chart:
+
+Options:
+
+LIVE
+DAILY
+WEEKLY
+
+Metrics:
+
+Calls
+ASR
+Minutes
+Cost
+
+Exactly using the new:
+
+/api/bitseye/entity-history
+
+in aggregate mode.
+
+Right (30%)
+
+Stacked mini graphs:
+
+Top Clients
+
+Top 3 clients by:
+
+concurrent
+or daily calls
+
+Mini sparklines + counts.
+
+Top Vendors
+
+Top 3 vendors:
+
+concurrent
+ASR color
+trend sparkline
+Top Destinations
+
+Top 3 destinations:
+
+traffic
+CPS spike indicator
+connect rate color
+Then Section 3 — Live Calls Table
+
+Move current:
+
+Live Calls
+
+down one section.
+
+Because:
+
+live calls are tactical
+graphs are operational
+
+Operators need macro view first.
+
+Why this is the right UX
+
+Your current dashboard is too:
+
+event-focused
+
+The old BitsEye strength was:
+
+trend-focused
+
+The new dashboard should combine both:
+
+Layer	Purpose
+Health cards	current state
+Intelligence graphs	trend understanding
+Top entities	concentration awareness
+Live calls	tactical drilldown
+
+That is proper NOC flow.
+
+Most important point
+
+You already built 90% of the backend needed.
+
+You now have:
+
+historical intelligence endpoint
+entity history engine
+top entity aggregation
+live sparklines
+persistent presence cache
+
+So this is mostly:
+
+dashboard composition
+
+NOT new architecture.
+
+Recommended implementation order
+Step 1
+
+Add:
+
+Total Traffic Intelligence Graph
+
+center-left large card.
+
+Step 2
+
+Add:
+
+Top 3 Clients
+Top 3 Vendors
+Top 3 Destinations
+
+right-side stacked cards.
+
+Step 3
+
+Move:
+
+Live Calls table
+
+below graphs.
+
+Strong recommendation
+
+Do NOT make the dashboard:
+
+denser
+more widgets
+more colors
+more cards
+
+Keep:
+
+whitespace
+large graphs
+operational readability
+
+Your current UI quality is already much better than old BitsEye visually.
+
+Now you're adding the intelligence layer back in.
+
+can u show the screen ho it looks like 
+Edit
+perfect look GOOD
+
+Yes — this layout is the correct direction for BitsEye 2 stabilization.
+
+What makes this version better operationally:
+
+Total Traffic Graph becomes the visual anchor immediately after KPI cards
+Top 3 Clients / Vendors / Destinations give instant traffic intelligence without clicking sidebar
+Live Calls table moves lower because operators don’t stare at raw calls first — they look at trends first
+The dashboard feels like a real NOC traffic intelligence platform instead of a live-session monitor
+Historical continuity becomes visible immediately (daily/weekly trends)
+
+This is also low-risk because:
+
+we already built the backend /api/bitseye/entity-history
+daily/weekly graph infrastructure already exists
+top entity calculations already exist in BitsEye 2
+mostly a layout reorganization, not a new feature system
+
+So the implementation plan for the next hour should be:
+
+Phase 1 (safe stabilization)
+
+Move Total Traffic Graph above Live Calls
+Add:
+Top 3 Clients
+Top 3 Vendors
+Top 3 Destinations
+Keep existing styling/components
+No new navigation
+No new APIs unless required
+Reuse existing chart infrastructure only
+
+Then stop and stabilize before moving to:
+
+Notifications
+Alerts
+Email Notifications
+Call Recording
+
+That sequence is correct.

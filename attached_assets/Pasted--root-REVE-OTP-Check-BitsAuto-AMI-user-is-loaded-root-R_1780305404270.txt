@@ -1,0 +1,48 @@
+[root@REVE-OTP ~]# # Check BitsAuto AMI user is loaded
+[root@REVE-OTP ~]# asterisk -rx "manager show user bitsauto"
+
+          username: bitsauto
+            secret: <Set>
+               ACL: yes
+         read perm: system,call,log,verbose,agent,user,config,dtmf,reporting,cdr,dialplan
+        write perm: system,call,agent,user,config,originate
+   displayconnects: no
+allowmultiplelogin: yes
+         Variables: 
+ACL: (unnamed)
+---------------------------------------------
+  0:  deny - 0.0.0.0/0.0.0.0
+  1: allow - 0.0.0.0/0.0.0.0
+[root@REVE-OTP ~]# 
+[root@REVE-OTP ~]# # Check both dialplan contexts exist
+[root@REVE-OTP ~]# asterisk -rx "dialplan show sippy-media-anchor"
+[ Context 'sippy-media-anchor' created by 'pbx_config' ]
+  '_.' =>           1. NoOp(BitsAuto Governance: ${CHANNEL} uid=${UNIQUEID}) [extensions_custom.conf:12]
+                    2. MixMonitor(/var/spool/asterisk/monitor/${UNIQUEID}.wav,b) [extensions_custom.conf:13]
+                    3. Dial(${SIPPY_DEST},3600,Tt)                [extensions_custom.conf:14]
+                    4. Hangup()                                   [extensions_custom.conf:15]
+
+-= 1 extension (4 priorities) in 1 context. =-
+[root@REVE-OTP ~]# asterisk -rx "dialplan show gov-playback"
+[ Context 'gov-playback' created by 'pbx_config' ]
+  's' =>            1. NoOp(Governance playback: ${GOV_PLAYBACK_FILE}) [extensions_custom.conf:19]
+                    2. Answer()                                   [extensions_custom.conf:20]
+                    3. Wait(1)                                    [extensions_custom.conf:21]
+                    4. Playback(${GOV_PLAYBACK_FILE})             [extensions_custom.conf:22]
+                    5. Hangup()                                   [extensions_custom.conf:23]
+
+-= 1 extension (5 priorities) in 1 context. =-
+[root@REVE-OTP ~]# Username:  bitsauto
+-bash: Username:: command not found
+[root@REVE-OTP ~]# Secret:    <set>
+-bash: syntax error near unexpected token `newline'
+[root@REVE-OTP ~]# [ Context 'sippy-media-anchor' ]
+-bash: [: Context: unary operator expected
+[root@REVE-OTP ~]#   '_.'                  =>      1. NoOp(...)
+-bash: syntax error near unexpected token `('
+[root@REVE-OTP ~]# asterisk -rx "core show channels"
+Channel              Location             State   Application(Data)             
+0 active channels
+0 active calls
+41 calls processed
+[root@REVE-OTP ~]# 

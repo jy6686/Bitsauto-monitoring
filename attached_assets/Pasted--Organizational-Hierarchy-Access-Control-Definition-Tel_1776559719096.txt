@@ -1,0 +1,113 @@
+🏢 Organizational Hierarchy & Access Control Definition (Telecom Monitoring System)
+
+We need to implement a role-based visibility hierarchy to control what each user level can see in the system. Each role should only access data relevant to their scope of responsibility.
+
+👤 Defined Roles
+HOD: Junaid
+SVP: Sohaib Hameed
+VP: Iqra Khan
+Manager: Mahek Ali
+Team Lead: Iqra Yousnus
+KAM: Rimsha Ali
+🔐 Access Rules & Data Visibility
+1️⃣ HOD (Junaid)
+
+Full system visibility.
+
+Can access:
+
+All clients (global view)
+Live call monitoring
+Traffic graphs
+Bitseye analytics
+Account balances
+Product classification
+2️⃣ SVP (Sohaib Hameed)
+
+Restricted to SVP hierarchy only.
+
+Can access:
+
+Only SVP-level assigned teams and clients
+Live call monitoring
+Traffic graphs
+Bitseye analytics
+Account balances
+Product classification
+
+❌ Cannot access HOD-level client data
+
+3️⃣ VP (Iqra Khan)
+
+Restricted to VP-level scope only.
+
+Can access:
+
+Only VP-assigned clients and teams
+Live call monitoring
+Traffic graphs
+Bitseye analytics
+Account balances
+Product classification
+
+❌ Cannot access HOD or SVP data
+
+4️⃣ Manager (Mahek Ali)
+
+Manager-level restricted view.
+
+Can access:
+
+Only Manager-assigned clients and teams
+Live call monitoring
+Traffic graphs
+Bitseye analytics
+Account balances
+Product classification
+
+❌ Cannot access HOD, SVP, or VP data
+
+5️⃣ Team Lead (Iqra Yousnus)
+
+Team-level visibility only.
+
+Can access:
+
+Only Team Lead-assigned clients
+Live call monitoring
+Traffic graphs
+Bitseye analytics
+Account balances
+Product classification
+
+❌ Cannot access higher-level data (HOD / SVP / VP / Manager)
+
+6️⃣ KAM (Rimsha Ali)
+
+Account-level access only.
+
+Can access:
+
+Only assigned client accounts
+Live call monitoring for assigned clients
+Traffic graphs
+Bitseye analytics
+Account balances
+Product classification
+
+❌ Cannot access any unassigned clients or higher-level hierarchy data
+
+📊 Summary Rule (System Logic)
+
+Each user should ONLY see data for their own hierarchy level and below (within assigned scope).
+Higher-level data is strictly restricted and not visible.
+
+🧠 Purpose
+
+This structure ensures:
+
+Strong data security (multi-tenant isolation)
+Clear operational responsibility
+Accurate performance tracking per role
+Prevention of unauthorized client visibility
+Scalable telecom hierarchy management

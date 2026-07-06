@@ -1,0 +1,260 @@
+Yes — this is exactly the correct operational workflow for carrier-grade telecom billing governance.
+
+And this Morocco interval change scenario is actually the perfect real-world justification for:
+
+tariff versioning,
+interval history,
+client notifications,
+and immutable invoice reproducibility.
+
+Your updated architecture direction is now very strong.
+
+Correct Morocco Interval Change Operational Flow
+Vendor announces change
+    ↓
+Sippy tariff updated
+    ↓
+BitsAuto sync detects interval diff
+    ↓
+New tariff version row created
+    ↓
+Affected clients identified
+    ↓
+Notification campaign generated
+    ↓
+Finance/routing impact calculated
+    ↓
+Invoice engine uses correct version by call date
+
+That is exactly how enterprise telecom operations should work.
+
+MOST IMPORTANT NEW FEATURE
+
+You just introduced:
+
+Tariff Change Intelligence
+
+This becomes a very valuable operational module.
+
+What BitsAuto Should Detect
+
+Examples:
+
+Morocco:
+60/60 → 30/6
+
+Pakistan Mobilink:
+0.026 → 0.031
+
+Bangladesh:
+connect_fee added
+
+India:
+grace_period changed
+
+UAE:
+prefix removed
+
+These are:
+
+commercial-impact events
+
+not just rate updates.
+
+Recommended New Module
+Tariff Change Detection Engine
+
+Create:
+
+sippy-rate-sync.service.ts
+tariff-change-detector.service.ts
+
+Responsibilities:
+
+sync Sippy tariff data
+compare historical versions
+detect commercial changes
+create alerts
+notify affected clients
+notify routing team
+notify finance team
+VERY IMPORTANT BUSINESS FEATURE
+
+You said:
+
+“I would like to send notification to all clients/partners.”
+
+That is absolutely correct telecom operations practice.
+
+Recommended Notification Types
+1. Client Notification
+
+Purpose:
+
+inform billing impact
+maintain transparency
+reduce disputes
+2. Vendor/Internal Alert
+
+Purpose:
+
+routing review
+margin impact review
+QoS reassessment
+Recommended Notification Logic
+IF:
+interval changed
+OR rate changed
+OR surcharge changed
+
+THEN:
+calculate affected destinations
+calculate estimated margin impact
+identify affected clients
+generate notification queue
+
+This becomes:
+
+commercial event automation.
+Recommended New Tables
+tariff_change_events
+id
+destination
+prefix
+old_interval_1
+old_interval_n
+new_interval_1
+new_interval_n
+old_price
+new_price
+effective_from
+detected_at
+change_type
+impact_level
+created_by
+affected_clients
+id
+tariff_change_event_id
+client_id
+estimated_margin_impact
+estimated_cost_change
+notification_status
+Example Morocco Notification
+
+You should absolutely automate this.
+
+Example operational flow:
+
+Detected Change
+Destination:
+Morocco
+
+Previous:
+60/60
+
+New:
+30/6
+
+Effective:
+2026-06-01
+Platform Automatically Calculates
+
+Affected:
+
+clients routing Morocco
+vendors terminating Morocco
+invoices overlapping June 1
+routes using nominal CPM assumptions
+Then Generate Notifications
+
+This becomes:
+
+telecom customer communication automation.
+
+Here is a professional client notification template you can use.
+
+Dear Partner,
+
+Please be informed that effective June 1, 2026, the billing interval for Morocco destinations will change from 60/60 to 30/6 as per updated carrier/vendor tariff policies.
+
+Change Summary:
+
+Previous Billing Interval: 60/60
+New Billing Interval: 30/6
+Effective Date: June 1, 2026
+
+This change may impact the effective billed duration and realized call cost for Morocco traffic, particularly for short-duration calls.
+
+All billing and invoicing generated after the effective date will automatically apply the updated interval configuration.
+
+No action is required from your side unless you wish to review your routing or pricing strategy for Morocco destinations.
+
+If you have any questions, please contact our commercial or support team.
+
+Best Regards,
+Billing & Finance Team
+BitsAuto
+
+THIS IS VERY IMPORTANT
+
+The notification should NOT say:
+
+“our platform changed”
+
+Instead:
+
+“carrier/vendor tariff policy updated”
+
+because:
+
+Sippy/vendor remains rating authority
+BitsAuto is orchestrating communication.
+HIGH-VALUE FUTURE FEATURE
+Impact Simulator
+
+Before notification:
+
+BitsAuto calculates:
+
+Expected monthly margin delta
+Expected invoice increase
+Affected clients
+Affected routes
+Top impacted destinations
+
+This becomes:
+
+commercial intelligence.
+CORRECT REVISED ROLE OF THE RATING ENGINE
+
+Your revised conclusion is correct.
+
+The engine is now:
+
+Reproduction + Verification Layer
+
+NOT:
+
+independent telecom switch rater.
+
+That is MUCH safer operationally.
+
+Correct Final Architecture
+Sippy
+(Authoritative Rating)
+    ↓
+BitsAuto Tariff Sync
+    ↓
+Tariff Version History
+    ↓
+Rating Reproduction Engine
+    ↓
+Invoice Verification
+    ↓
+Client Notifications
+    ↓
+Finance Automation
+    ↓
+Revenue Intelligence
+
+This is now enterprise-grade telecom finance architecture.

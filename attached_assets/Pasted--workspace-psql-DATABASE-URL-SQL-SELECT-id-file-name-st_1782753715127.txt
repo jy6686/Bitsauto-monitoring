@@ -1,0 +1,38 @@
+~/workspace$ psql "$DATABASE_URL" << 'SQL'
+SELECT id, file_name, status, row_count, uploaded_at
+FROM vendor_rate_sheets;
+SQL
+
+grep -Rn "vendor_rate_sheet_rows" server/
+grep -Rn "vendor-rates/import\|/api/vendor-rates" server/routes-vendor-rates.ts | head -20
+ id | file_name | status | row_count |        uploaded_at         
+----+-----------+--------+-----------+----------------------------
+  1 | test.xlsx | draft  |         0 | 2026-06-29 11:49:10.695399
+(1 row)
+
+server/routes-vendor-rates.ts:405:        FROM vendor_rate_sheet_rows vr
+server/routes-vendor-rates.ts:454:        WITH base AS (SELECT prefix, CAST(rate AS double precision) AS rate FROM vendor_rate_sheet_rows WHERE sheet_id = ${baseSheetId ?? 0}),
+server/routes-vendor-rates.ts:455:             newv AS (SELECT prefix, CAST(rate AS double precision) AS rate FROM vendor_rate_sheet_rows WHERE sheet_id = ${newSheetId})
+server/routes-vendor-rates.ts:467:          base AS (SELECT prefix, CAST(rate AS double precision) AS rate FROM vendor_rate_sheet_rows WHERE sheet_id = ${baseSheetId ?? 0}),
+server/routes-vendor-rates.ts:468:          newv AS (SELECT prefix, destination, CAST(rate AS double precision) AS rate FROM vendor_rate_sheet_rows WHERE sheet_id = ${newSheetId}),
+92:  // GET /api/vendor-rates/vendors
+93:  app.get('/api/vendor-rates/vendors', async (_req, res) => {
+102:  // POST /api/vendor-rates/preview — parse file, return headers + sample (no DB write)
+103:  app.post('/api/vendor-rates/preview', async (req, res) => {
+113:  // POST /api/vendor-rates/import
+114:  app.post('/api/vendor-rates/import', async (req, res) => {
+242:  // POST /api/vendor-rates/sheets/:id/match
+243:  app.post('/api/vendor-rates/sheets/:id/match', async (req, res) => {
+255:  // POST /api/vendor-rates/match-sheet  { sheetId: number }
+256:  app.post('/api/vendor-rates/match-sheet', async (req, res) => {
+268:  // GET /api/vendor-rates/sheets
+269:  app.get('/api/vendor-rates/sheets', async (_req, res) => {
+285:  // GET /api/vendor-rates/sheets/:id/rows
+286:  app.get('/api/vendor-rates/sheets/:id/rows', async (req, res) => {
+304:  // GET /api/vendor-rates/column-maps/:vendorId
+305:  app.get('/api/vendor-rates/column-maps/:vendorId', async (req, res) => {
+314:  // DELETE /api/vendor-rates/sheets/:id
+315:  app.delete('/api/vendor-rates/sheets/:id', async (req, res) => {
+321:  // POST /api/vendor-rates/compare
+322:  app.post('/api/vendor-rates/compare', async (req, res) => {
+~/workspace$ 

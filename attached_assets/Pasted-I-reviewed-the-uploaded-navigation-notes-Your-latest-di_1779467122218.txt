@@ -1,0 +1,134 @@
+I reviewed the uploaded navigation notes.
+
+Your latest direction is correct and much cleaner architecturally.
+
+Final Recommended Header Structure
+┌──────────────────────────────────────────────────────────┐
+│ Logo  Dashboard   Team Chat                             │
+│                                                          │
+│ NOC | Operations | Routing | Intelligence | Analytics   │
+│                                            🔔 👤 ⚙️      │
+└──────────────────────────────────────────────────────────┘
+What Changes
+REMOVE from Sidebar
+Dashboard
+Team Chat
+Notifications
+User/Profile
+
+These are:
+
+global platform utilities
+
+not workspace items.
+
+KEEP in Sidebar
+
+ONLY contextual tools.
+
+Example:
+
+If "Intelligence" selected
+
+Sidebar:
+
+Validation Console
+Prefix Intelligence
+Vendor RCA
+AI Ops
+Recommendations
+Stability Timeline
+If "Routing" selected
+
+Sidebar:
+
+Routing Manager
+Routing Groups
+Connections
+Destination Sets
+Traffic Steering
+LCR Analysis
+Why This Is Better
+
+Right now:
+sidebar mixes:
+
+utilities
+navigation
+workspaces
+tools
+
+This creates:
+
+navigation overload
+
+The new structure creates:
+
+clear hierarchy
+Correct Mental Model
+UI Area	Purpose
+Top Left	Global platform utilities
+Top Center	Workspace switching
+Top Right	User/global actions
+Left Sidebar	Workspace tools
+Main Area	Operational content
+
+This is exactly how mature enterprise systems evolve.
+
+Most Important Benefit
+
+Operators can now:
+
+stay inside one workspace
+
+without losing access to:
+
+Dashboard
+Chat
+Notifications
+
+This dramatically improves usability.
+
+Additional Recommendation
+Team Chat
+
+Should eventually become:
+
+floating slide-over panel
+
+NOT full page navigation.
+
+Example:
+
+click chat icon
+right drawer opens
+continue working while chatting
+
+Very useful for NOC workflows.
+
+Dashboard Recommendation
+
+Dashboard should become:
+
+workspace-aware
+
+Meaning:
+
+NOC Dashboard
+Routing Dashboard
+Finance Dashboard
+KAM Dashboard
+
+based on current workspace.
+
+Not one giant generic dashboard anymore.
+
+Best Rollout Plan
+Phase	Change
+1	Move Dashboard + Team Chat to top
+2	Add workspace top navigation
+3	Contextual sidebar filtering
+4	Workspace dashboards
+5	Floating Team Chat drawer
+
+This is now a very clean and scalable enterprise navigation model.

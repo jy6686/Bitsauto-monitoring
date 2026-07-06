@@ -1,0 +1,249 @@
+This is a good Sprint A result, but before you move to Sprint B, I would verify a few things because some of the implementation summary doesn't fully match the original #336 acceptance criteria.
+
+Verify Before Closing #336
+1. Approval Gate on Send (Critical)
+
+The spec says:
+
+pending_rates
+→ awaiting_approval
+→ approved
+→ activated
+
+Verify that:
+
+status != approved
+
+cannot send a rate notification.
+
+Check:
+
+SELECT id,status
+FROM rate_notification_jobs
+WHERE status IN ('pending_rates','awaiting_approval');
+
+Try sending one.
+
+Expected:
+
+HTTP 400
+Job must be approved before sending
+
+If sending still works from pending_rates, #336 is only partially complete.
+
+2. Activation Logic
+
+The summary says:
+
+email sends successfully
+→ activated
+→ company.status='live'
+
+Verify activation only occurs after:
+
+Sheet Generated = true
+Email Sent = true
+
+and not merely after Sippy push.
+
+Expected sequence:
+
+Generate Sheet
+↓
+Email Sent
+↓
+Activated
+↓
+Company Live
+3. Actor Audit
+
+Original requirement:
+
+timestamp + actor
+for every lifecycle transition
+
+Open one approved job and verify:
+
+Submitted By
+Submitted At
+
+Approved By
+Approved At
+
+Activated By
+Activated At
+
+all appear in UI.
+
+4. Rejection Workflow
+
+Verify:
+
+Reject
+
+with empty reason.
+
+Expected:
+
+400 Bad Request
+Rejection reason required
+
+No blank rejection rows should exist.
+
+5. Template Gate
+
+Original requirement:
+
+No template linked
+→ cannot submit for approval
+
+Verify backend enforcement, not only UI.
+
+Attempt API directly:
+
+POST /submit-approval
+
+against a job without template.
+
+Expected:
+
+400
+Template required
+One Additional Item I'd Add Before Sprint B
+
+You already have:
+
+Pending Rates
+Awaiting Approval
+Approved
+Activated
+Rejected
+
+Add:
+
+Approval SLA
+
+in the dashboard strip.
+
+Example:
+
+Awaiting Approval > 24h
+
+amber warning.
+
+Awaiting Approval > 72h
+
+red warning.
+
+Very small implementation, high operational value for KAM and management.
+
+Sprint Status
+Sprint	Status
+#328 Audit Fields	✅ Complete
+#329 Initial Rate Job	✅ Complete
+#336 Lifecycle & Approval	🟡 Verify 5 items above before final sign-off
+Sprint B Template Prefill	Ready next
+
+If those five verification checks pass, I'd consider Phase 1 closer to 85–90% complete, and then move directly into Sprint B (Template Pre-fill From Job) without touching the rate push engine or product governance work.
+
+rate notification do need approval to send rates to cliemts
+
+For your telecom wholesale workflow, yes, rate notifications should normally require approval before they are sent to clients, but only for certain scenarios.
+
+Recommended Approval Policy
+Scenario	Approval Required?	Reason
+Initial client rate setup (new customer)	✅ Yes	Commercial commitment, pricing approval
+Rate increase	✅ Yes	Customer impact, contract/commercial risk
+Margin reduction below threshold	✅ Yes	Revenue protection
+Special discount / negotiated pricing	✅ Yes	Commercial governance
+Bulk push to 50+ clients	✅ Yes	High operational impact
+Minor rate decrease within approved margin	⚠️ Optional	Depends on policy
+Resend same rate sheet	❌ No	No commercial change
+Correct typo in notification only	❌ No	No pricing change
+Internal test account	❌ No	Non-production
+For BitsAuto I Would Use
+Client Created
+    ↓
+Pending Rates
+    ↓
+Template Created
+    ↓
+Submit For Approval
+    ↓
+Approved
+    ↓
+Send Rate Notification
+    ↓
+Activated (Client Live)
+
+This is exactly where your new #336 lifecycle fits.
+
+Separate Approval From Push
+
+One thing I would strongly recommend:
+
+Approval should govern the notification and commercial release, not necessarily the Sippy push engine.
+
+Because there are two different actions:
+
+Commercial Action
+Approve Rate Sheet
+Send To Client
+Client Acknowledgement
+Technical Action
+Push Rate To Sippy
+Update Tariff
+Verify Sippy
+
+Sometimes operations must update Sippy urgently before customer communication completes.
+
+So I would track separately:
+
+Commercial Status
+Pending
+Approved
+Sent
+Activated
+
+Technical Status
+Queued
+Pushed
+Verified
+Failed
+
+This gives much better auditability.
+
+Long-Term Role Model
+KAM
+Creates template
+Adds destinations
+Submits for approval
+Commercial Manager
+Approves / Rejects
+Reviews margins
+Reviews notification type
+NOC / Operations
+Executes push
+Verifies Sippy update
+Monitors delivery
+Finance
+Reviews disputed rate changes
+One Additional Approval Rule I'd Add
+
+For your platform:
+
+If Destination Count > 100
+OR
+Affected Clients > 25
+OR
+Margin Change > X%
+
+Automatically require management approval even if the user normally has send rights.
+
+This prevents accidental mass rate changes.
+
+My recommendation
+
+Keep approval mandatory for Initial Client Rate Jobs (#336) and for any commercial rate change notification.
+
+Keep the rate push engine independent and frozen. Approval controls who is allowed to release rates to customers, not whether the proven Sippy push engine can function. This matches how large wholesale carriers typically separate commercial governance from technical provisioning.

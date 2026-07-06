@@ -1,0 +1,141 @@
+Good — this is exactly the right moment to not overbuild into chaos, because you already have three overlapping decision systems forming.
+
+Let’s align this cleanly with what you’ve actually built.
+
+My recommendation (based on your current system state)
+👉 Go with Option B first (boundary cleanup)
+
+Then evolve into Option A later.
+
+Not because Option A is wrong — it’s actually the “final architecture” — but because you don’t yet have stable signal trust across all three systems.
+
+Right now:
+
+Carrier Intelligence = statistical scoring (ASR/ACD/PDD)
+Carrier Scoring = probably business-weight scoring
+AI Ops = anomaly detection layer
+
+If you introduce a shared state table too early, you’ll end up with:
+
+“One table, three conflicting writers”
+
+That becomes harder to debug than the current situation.
+
+What’s actually the real problem (important)
+
+The doc is right about the symptom, but the deeper issue is this:
+
+❗ You don’t have a “decision authority layer” yet
+
+Right now each system is doing partial decisions:
+
+Layer	Role (current reality)
+Carrier Intelligence	suggests + partially decides
+AI Ops	suggests + flags anomalies
+Routing Manager	executes business rules
+
+So decisions are being computed multiple times, not centralized.
+
+What Option B should look like (properly done)
+
+We keep your current architecture BUT enforce strict discipline:
+
+1. Carrier Intelligence becomes READ-ONLY intelligence engine
+No suppression
+No penalties
+No route blocking logic
+Only:
+ASR / ACD / PDD
+Health Score
+FAS Risk label
+Recommendation text
+
+👉 Output becomes:
+
+{
+  "state": "DEGRADED",
+  "healthScore": 42,
+  "signals": {
+    "asr": 28,
+    "acd": 35,
+    "pdd": 480
+  },
+  "recommendation": "Investigate high failure rate"
+}
+
+No action semantics.
+
+2. AI Ops becomes the decision arbitrator (lightweight for now)
+
+Instead of:
+
+multiple systems deciding independently
+
+AI Ops does:
+
+consume Carrier Intelligence + Carrier Scoring
+produce a single verdict
+
+Example:
+
+{
+  "vendor": "BICS-PR",
+  "finalState": "DEGRADED",
+  "action": "MONITOR_ONLY"
+}
+3. Routing Manager remains the only execution layer
+no AI logic
+no scoring logic
+only:
+weights
+priorities
+manual overrides
+apply decisions from AI Ops (optional, future)
+What you should change NOW (minimal code impact)
+Carrier Intelligence UI
+
+Remove or neutralize:
+
+❌ “Suppress Route”
+❌ “Penalize”
+❌ “Investigate button that implies action”
+
+Replace with:
+
+ℹ️ “Open in AI Ops”
+ℹ️ “View Routing Impact”
+
+So it becomes clearly observational.
+
+Why this is the correct staging
+
+This avoids the biggest failure mode:
+
+multiple systems fighting over control of routing decisions
+
+And instead enforces:
+
+Observe → Decide → Execute
+
+without premature data coupling.
+
+When Option A becomes correct (important)
+
+You move to Shared Entity State Layer ONLY when:
+
+AI Ops is stable as a decision engine
+Carrier Intelligence signals are trusted
+Routing Manager can consume external verdicts safely
+
+Then you introduce:
+
+vendor_connection_state (canonical truth)
+
+and migrate all systems to it.
+
+Final decision summary
+✔ Implement Option B now (guardrails + role separation)
+❌ Do NOT introduce shared state DB yet
+✔ Make Carrier Intelligence strictly observability
+✔ Let AI Ops become the single decision layer
+✔ Keep Routing Manager as execution-only

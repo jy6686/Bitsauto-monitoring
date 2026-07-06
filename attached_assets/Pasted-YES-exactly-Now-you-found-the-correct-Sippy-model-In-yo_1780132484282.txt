@@ -1,0 +1,662 @@
+YES — exactly.
+Now you found the correct Sippy model.
+
+In your case:
+
+Asterisk = Client/Account
+
+NOT Vendor.
+
+That is the correct setup if:
+
+Asterisk originates traffic INTO Sippy
+Sippy routes outbound termination
+
+So your architecture becomes:
+
+Asterisk
+   ↓
+Sippy Customer Account
+   ↓
+Routing Group
+   ↓
+Vendor
+   ↓
+Carrier
+
+This is correct.
+
+Why “Customer/Client Account” Is Correct
+
+Because from Sippy’s perspective:
+
+Asterisk is generating outbound calls
+
+So:
+
+it behaves like a customer/client
+not a vendor/carrier
+
+Exactly like:
+
+SIP customer
+PBX customer
+wholesale client
+Correct Sippy Setup
+
+Inside Sippy:
+
+1. Create Customer Account
+
+Example:
+
+Account Name:
+BitsAuto-Asterisk
+2. Add SIP Authentication
+
+Either:
+
+Option A — IP Auth
+
+(RECOMMENDED initially)
+
+Allow:
+
+Asterisk Server IP
+
+Simplest.
+
+Option B — Username/Password
+
+Example:
+
+Username: asterisk01
+Password: ********
+
+More secure.
+
+3. Assign Routing Group
+
+Example:
+
+PK-VOICE-OTP
+
+This allows:
+
+Jazz
+Ufone
+Zong
+PTCL
+
+termination.
+
+4. Set Capacity/CPS
+
+Example:
+
+Setting	Example
+CPS	5
+Concurrent Calls	20
+5. Configure CLI Rules
+
+Important for:
+
+OTP delivery
+anti-spam
+answer rate
+Correct Call Flow
+REVE
+   ↓ HTTP
+BitsAuto
+   ↓ AMI
+Asterisk
+   ↓ SIP
+Sippy Customer Account
+   ↓
+Vendor
+   ↓
+Carrier
+
+This is correct telecom architecture.
+
+IMPORTANT
+Sippy sees Asterisk as customer traffic source.
+
+Then:
+
+Sippy vendors terminate traffic.
+
+Perfect.
+
+Recommended Naming
+
+Inside Sippy:
+
+Entity	Suggested Name
+Account	BitsAuto-Asterisk
+Routing Group	VoiceOTP-PK
+Connection	Asterisk-DO-01
+
+Very clean.
+
+MOST IMPORTANT THING
+
+You should:
+
+separate OTP traffic
+
+from normal SIP traffic.
+
+Meaning:
+
+Create:
+
+dedicated routing group
+
+Example:
+
+OTP-VOICE-ROUTES
+
+Why?
+
+Later you can:
+
+optimize ASR
+optimize CLI
+optimize cost
+track OTP quality separately
+
+VERY important.
+
+Recommended SIP Authentication
+
+Initially:
+
+IP auth only
+
+because:
+
+easier
+stable
+internal infra
+
+Later:
+
+digest auth
+TLS
+SBC
+Recommended Codec
+
+Allow:
+
+ulaw
+alaw
+
+Avoid:
+
+transcoding
+GSM
+G729 initially
+
+Keep simple.
+
+IMPORTANT FUTURE FEATURE
+
+Now BitsAuto can monitor:
+
+Metric	Meaning
+ASR	answer quality
+PDD	setup speed
+Duration	playback success
+Hangup cause	routing issue
+Route	carrier quality
+
+This becomes:
+
+Voice OTP Intelligence
+
+VERY valuable later.
+
+Final Recommended Architecture
+REVE = HTTP/API ingress
+BitsAuto = orchestration/intelligence
+Asterisk = media playback
+Sippy Customer Account = SIP ingress
+Sippy Vendors = termination
+Carriers = delivery
+
+This is now architecturally correct.
+
+how get SMPP API?
+
+REVE directly talk SIP to Sippy.
+
+Correct separation is:
+
+System	Responsibility
+REVE	SMPP/API
+BitsAuto	orchestration
+Asterisk	media
+Sippy	routing
+
+You do NOT need SMPP API between REVE and Sippy.
+
+That is the important architectural distinction.
+
+Your Current Systems
+System	Protocol
+SMPP Client → REVE	SMPP
+REVE → BitsAuto	HTTP API
+BitsAuto → Asterisk	AMI/API
+Asterisk → Sippy	SIP
+Sippy → Vendor	SIP
+
+That is the CORRECT protocol separation.
+
+Important Clarification
+
+You asked:
+
+“how get SMPP API?”
+
+Actually:
+
+SMPP is NOT used between REVE and Sippy.
+
+SMPP is only:
+
+Client → REVE
+
+because REVE is your:
+
+SMS gateway/SMPP server.
+Correct Architecture
+SMPP Client
+     ↓ SMPP
+REVE
+     ↓ HTTP API
+BitsAuto
+     ↓ AMI
+Asterisk
+     ↓ SIP
+Sippy
+     ↓ SIP
+Carrier
+
+This is correct telecom architecture.
+
+Why NOT SMPP To Sippy?
+
+Because:
+
+Sippy is SIP routing platform
+
+NOT SMS/SMPP platform.
+
+Sippy handles:
+
+SIP INVITEs
+RTP
+voice routing
+LCR
+billing
+
+NOT:
+
+SMPP submit_sm
+DLR
+SMS traffic
+What REVE Should Do
+
+REVE receives:
+
+submit_sm
+
+from SMPP clients.
+
+Then REVE transforms that into:
+
+HTTP request
+
+to BitsAuto.
+
+Example:
+
+POST /api/voice-otp
+
+Payload:
+
+{
+  "msisdn": "+923001112233",
+  "otp": "987432"
+}
+
+That is your:
+
+SMPP → Voice OTP conversion layer.
+Then BitsAuto Handles Voice Workflow
+
+BitsAuto:
+
+validates
+logs
+monitors
+selects chain
+triggers Asterisk
+Asterisk Handles Media
+
+Asterisk:
+
+playback
+IVR
+digit audio
+
+ONLY.
+
+Sippy Handles SIP Routing
+
+Sippy:
+
+receives SIP call
+selects vendor
+routes to carrier
+
+ONLY.
+
+MOST IMPORTANT CONCEPT
+
+Think of REVE as:
+
+SMPP/API ingress gateway
+
+NOT telecom media platform.
+
+So:
+
+SMPP ends at REVE
+SIP starts at Asterisk
+
+BitsAuto orchestrates between them.
+
+HOW TO IMPLEMENT IN REVE
+
+You need:
+
+HTTP Vendor/Profile
+
+inside REVE.
+
+You already mentioned:
+
+RTST HTTP Vendor
+
+Perfect.
+
+That HTTP vendor should call:
+
+https://bitsauto.yourdomain.com/api/voice-otp
+Example REVE Flow
+SMPP submit_sm
+      ↓
+REVE
+      ↓
+HTTP Vendor
+      ↓
+BitsAuto API
+
+This is exactly correct.
+
+IMPORTANT
+
+Do NOT try:
+
+REVE
+   ↓ SMPP
+Sippy
+
+Wrong protocol.
+Wrong platform role.
+
+Final Correct Separation
+System	Role
+REVE	SMPP/API ingress
+BitsAuto	orchestration/intelligence
+Asterisk	media playback
+Sippy	SIP routing
+Vendor	PSTN termination
+
+This is clean telecom-grade architecture.
+
+i have created an account in sippy with name Asterisk, IP allowed routing set now tel me what configuration in bitsauto monitoring 
+
+Perfect — now your Sippy side is ready.
+
+You already configured:
+
+Sippy Item	Status
+Customer account	✅
+Allowed IP	✅
+Routing group	✅
+
+Now the remaining work is mainly:
+
+BitsAuto → Asterisk configuration
+
+and:
+
+Asterisk → Sippy trunk
+Final Flow
+REVE
+   ↓ HTTP
+BitsAuto
+   ↓ AMI
+Asterisk
+   ↓ SIP
+Sippy Account: "Asterisk"
+   ↓
+Vendor
+   ↓
+Carrier
+What You Must Configure NOW
+PART 1 — BitsAuto Configuration
+
+Inside BitsAuto you need:
+
+1. Asterisk AMI Connection
+
+Example config:
+
+ASTERISK_AMI_HOST=159.223.32.59
+ASTERISK_AMI_PORT=5038
+ASTERISK_AMI_USER=admin
+ASTERISK_AMI_PASSWORD=yourpassword
+
+This allows:
+
+BitsAuto → originate calls via AMI
+2. Voice OTP API Route
+
+Example:
+
+POST /api/voice-otp
+
+Payload:
+
+{
+  "to": "+923001112233",
+  "otp": "987432"
+}
+3. Originate Logic
+
+BitsAuto should send:
+
+Channel: PJSIP/sippy/+923001112233
+Context: otp-playback
+Extension: s
+Priority: 1
+CallerID: OTP
+Variable: OTP=987432
+
+VERY important:
+
+OTP passed as variable.
+PART 2 — Asterisk Configuration
+
+Now Asterisk must connect to Sippy.
+
+1. Create SIP Trunk
+
+Inside:
+
+FreePBX / Asterisk
+
+Add trunk:
+
+Trunk Name:
+sippy
+2. SIP Trunk Settings
+
+Example PJSIP:
+
+type=endpoint
+transport=transport-udp
+context=from-internal
+disallow=all
+allow=ulaw,alaw
+outbound_auth=sippy-auth
+aors=sippy-aor
+Auth Section
+type=auth
+auth_type=userpass
+username=Asterisk
+password=YOUR_SIPPY_PASSWORD
+AOR Section
+type=aor
+contact=sip:SIPPY_IP
+IMPORTANT
+
+If using:
+
+IP authentication only
+
+then you may not need:
+
+username
+password
+
+Only:
+
+allowed IP in Sippy
+PART 3 — OTP Playback Context
+
+Inside:
+
+/etc/asterisk/extensions.conf
+
+Add:
+
+[otp-playback]
+
+exten => s,1,Answer()
+same => n,Set(OTP=${OTP})
+
+same => n,Playback(custom/${OTP:0:1})
+same => n,Playback(custom/${OTP:1:1})
+same => n,Playback(custom/${OTP:2:1})
+same => n,Playback(custom/${OTP:3:1})
+same => n,Playback(custom/${OTP:4:1})
+same => n,Playback(custom/${OTP:5:1})
+
+same => n,Hangup()
+PART 4 — Digit WAV Files
+
+Directory:
+
+/var/lib/asterisk/sounds/custom/
+
+Files:
+
+0.wav
+1.wav
+2.wav
+...
+9.wav
+PART 5 — BitsAuto Monitoring
+
+Now inside BitsAuto:
+
+Track:
+
+Metric	Source
+initiated	AMI
+answered	AMI events
+failed	SIP response
+duration	CDR
+hangup cause	Asterisk
+route	Sippy
+
+VERY important.
+
+Recommended Test
+
+Send:
+
+{
+  "to": "+923001112233",
+  "otp": "987432"
+}
+
+Expected:
+
+BitsAuto
+↓
+AMI originate
+↓
+Asterisk
+↓
+SIP INVITE
+↓
+Sippy account "Asterisk"
+↓
+Vendor
+↓
+Carrier
+↓
+Customer hears digits
+MOST IMPORTANT DEBUGGING
+
+If call fails:
+
+Check:
+
+Issue	Cause
+SIP 403	IP/auth
+SIP 404	routing
+SIP 503	no vendor
+no audio	codec
+immediate hangup	dialplan
+VERY IMPORTANT RECOMMENDATION
+
+Inside BitsAuto:
+
+store chain metadata
+
+Example:
+
+Field	Value
+source	REVE
+media	Asterisk
+routing	Sippy
+route	PK-OTP
+vendor	PTCL
+
+This becomes:
+
+Voice OTP Intelligence Layer
+
+later used for:
+
+AI routing
+fraud detection
+chain scoring
+auto rerouting.

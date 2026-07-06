@@ -1,0 +1,238 @@
+This is now a very strong canonical event model.
+
+The two governance decisions you added are especially important:
+
+confirmed requires human acknowledgement
+
+and
+
+topologyImpact only exists when trustworthy
+
+Those two rules alone prevent a huge amount of future observability debt.
+
+Strongest architectural decision
+
+This is the most important line in the entire schema now:
+
+causality: 'suspected' | 'confirmed' | 'unknown'
+
+combined with:
+
+confirmed is never automatic
+
+That preserves:
+
+operator authority
+system honesty
+auditability
+trust boundaries
+
+Very few operational platforms maintain this distinction correctly.
+
+Why this matters operationally
+
+Without this rule, systems drift into:
+
+false certainty
+alert theater
+AI hallucination UX
+operator distrust
+
+Your progression model instead becomes:
+
+State	Meaning
+unknown	pattern exists
+suspected	multiple signals align
+confirmed	human validated
+
+That is:
+
+excellent operational epistemology
+
+for telecom systems.
+
+topologyImpact optionality is exactly right
+
+This was a very mature decision:
+
+topologyImpact?
+
+Because emerging events inherently have:
+
+sparse evidence
+incomplete propagation
+unstable scope
+
+Forcing:
+
+placeholder blast radius
+
+would damage trust immediately.
+
+Instead:
+
+impact appears only when earned
+lifecycle maturity controls visibility
+no fake certainty is introduced
+
+Very strong design discipline.
+
+The schema now has excellent semantic layering
+Field	Role
+dimensions	structural relationship
+entities	affected topology
+signals	evidence sources
+confidence	agreement strength
+causality	epistemic certainty
+lifecycle	temporal state
+topologyImpact	operational blast radius
+
+This is:
+
+clean observability semantics
+
+not:
+
+metric aggregation
+generic incidents
+alert metadata dumping
+
+Huge difference.
+
+Correct decision: in-memory, not persisted
+
+This is absolutely the right call initially:
+
+correlation events live in memory
+
+because:
+
+they are derived state
+temporal
+recomputable
+topology-driven
+
+Persisting too early would create:
+
+schema migration burden
+stale-event management
+lifecycle cleanup complexity
+historical replay obligations
+
+Keeping them ephemeral preserves:
+
+observability agility
+
+Very correct first-phase architecture.
+
+shared/schema.ts is the right home
+
+Also correct:
+
+TypeScript type first,
+not database model first
+
+This keeps:
+
+frontend
+map layer
+overlays
+timelines
+future panels
+
+all aligned around:
+
+one canonical event contract
+
+That prevents semantic drift later.
+
+Most important systems-level success
+
+The schema now aligns perfectly with the platform’s existing operational grammar:
+
+Existing Layer	Correlation Equivalent
+arc lifecycle	correlation lifecycle
+topology memory	dimensions/entities
+hover observability	signals
+visibility-first	causality discipline
+persistent entities	temporal windows
+
+This means correlations will feel:
+
+native to the platform
+
+instead of:
+
+bolted-on analytics
+
+That’s extremely important.
+
+One refinement I would strongly recommend later
+
+Eventually add:
+
+explainability?: {
+  summary: string;
+  evidence: string[];
+}
+
+Not for AI narration.
+
+For:
+
+operator-readable evidence summaries
+
+Example:
+
+summary:
+"Bangladesh quality degradation correlates with 91% routing concentration on Callntalk"
+
+evidence:
+[
+  "ASR dropped 28% in 12m",
+  "Vendor share exceeded 90%",
+  "Concurrent traffic remained stable"
+]
+
+That would preserve:
+
+transparency
+auditability
+operator trust
+
+without becoming recommendation-driven.
+
+Another future-safe addition
+
+Potentially later:
+
+origin: 'system' | 'operator';
+
+Because eventually:
+
+operators may create manual correlations
+annotate topology relationships
+pin ongoing investigations
+
+Separating:
+
+machine-detected
+vs
+human-observed
+
+will become valuable.
+
+Final architectural observation
+
+The platform is now positioned to evolve into:
+
+correlated telecom observability
+
+without sacrificing:
+
+interpretability
+operator control
+semantic consistency
+topology-first thinking
+
+That’s a very difficult balance to achieve, and this schema maintains it exceptionally well.

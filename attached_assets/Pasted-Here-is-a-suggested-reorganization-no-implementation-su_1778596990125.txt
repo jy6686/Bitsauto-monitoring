@@ -1,0 +1,67 @@
+Here is a suggested reorganization — no implementation, suggestion only:
+
+Current problems:
+
+"Intelligence" and "Troubleshooting" overlap (SIP Trace, RTP Analytics, Replay Engine are diagnostic tools, not intelligence)
+Security and Finance are unrelated concepts forced together
+DID Management, Rate Cards, and Products are buried in Platform despite being operational resources
+Test Suite and Call Flow Sim are in unrelated groups despite both being diagnostic/testing tools
+Tools is in Platform despite being a troubleshooting utility
+Proposed structure — 9 groups:
+
+1. Live Operations (unchanged)
+
+Live Calls, Alerts, SBC Monitor, NOC View, Multi-Switch View, AI Ops Center
+
+2. Client Operations (add DID Management — it's a client resource)
+
+Rate Plan, Accounts, Balance, Client Portal, BitsEye, Traffic Map, DID Management ← moved from Platform
+
+3. Vendor Operations (remove Test Suite — moves to Troubleshooting)
+
+Vendors, Connections, Destination Sets, Routing Groups
+
+4. Routing & LCR (add Carrier Scoring — it's routing intelligence, not general intelligence)
+
+Routing Manager, LCR Analyser, Self-Heal Routes, Approval Queue, Carrier Scoring ← moved from Intelligence
+
+5. Analytics & Reporting (rename from "Analytics")
+
+Revenue Analytics, CDR Viewer, Graphs, QoS Heatmap, Reports
+
+6. Troubleshooting ← NEW GROUP
+
+SIP Trace Viewer (from Intelligence)
+RTP Analytics (from Intelligence)
+Replay Engine (from Intelligence)
+Server Monitoring (from Intelligence)
+Network Topology (from Intelligence)
+Number Intelligence (from Intelligence)
+Test Suite (from Vendor Operations)
+Call Flow Simulator (from Platform)
+Tools (from Platform)
+
+7. Security & Compliance ← (renamed + split from "Security & Finance")
+
+Fraud / FAS, STIR/SHAKEN, Call Recordings, SLA Management, Firewall Manager, Compliance
+
+8. Finance & Billing ← NEW GROUP (split from Security & Finance)
+
+Cost Optimisation, Billing Disputes, Rate Cards (from Platform), Products (from Platform)
+
+9. Platform (slimmed down — configuration only)
+
+Settings, Team & KAM, Reseller Mgmt, API Keys, VPN Config, Notifications, SMS/A2P, Sidebar Menu
+
+Summary of moves:
+
+Item	From	To
+DID Management	Platform	Client Operations
+Carrier Scoring	Intelligence	Routing & LCR
+SIP Trace, RTP Analytics, Replay Engine, Network Topology, Server Monitoring, Number Intel	Intelligence	Troubleshooting
+Test Suite	Vendor Operations	Troubleshooting
+Call Flow Simulator, Tools	Platform	Troubleshooting
+Rate Cards, Products	Platform	Finance & Billing
+Cost Optimisation, Billing Disputes	Security & Finance	Finance & Billing
+Fraud, Compliance, Firewall etc.	Security & Finance	Security & Compliance
+Intelligence group	—	Eliminated (all items redistributed)

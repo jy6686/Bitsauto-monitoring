@@ -1,0 +1,82 @@
+I’d prioritize these in the following order for maximum operational impact inside a real carrier/NOC workflow:
+
+Sticky Alert Bar
+Highest immediate value. Operators should instantly see critical incidents without navigating anywhere. A persistent top banner for active alarms (ASR drop, traffic loss, route failure, fraud spike, CPS overload, etc.) will make BitsEye feel like a true live NOC system.
+
+Live Anomaly Highlights
+Since the anomaly engine already exists, surfacing anomalies directly inside entity rows is the next logical step.
+Example:
+
+Client row turns amber/red
+Inline badge: “ASR ↓ 18%”
+Vendor row pulse for sudden traffic drop
+
+This creates instant visual decision-making without opening reports.
+
+Live ASR/ACD Trend Overlay
+This is extremely valuable for routing and operations teams. Overlaying ASR/ACD quality indicators directly onto the sparklines gives real-time route health visibility:
+
+Green = stable quality
+Amber = degradation
+Red = route issue
+
+This would make BitsEye far more actionable than traditional dashboards.
+
+NOC Audio Alerts
+Lower implementation effort but high operational usefulness. Simple browser audio alerts for:
+
+critical incidents,
+route down,
+traffic collapse,
+fraud alerts,
+zero traffic detection
+
+would work very well in a 24/7 monitoring room.
+
+My Recommendation for Next Phase
+Immediate Priority
+Sticky Alert Bar + Live Anomaly Highlights
+
+Reason:
+These two together instantly transform the platform from:
+
+“monitoring dashboard”
+into
+“live operational intelligence system.”
+
+Operators should never need to search for problems — the platform should visually push issues to them in real time.
+
+Suggested Future NOC Flow
+Example Operator Experience
+Vendor traffic collapses
+
+Immediately:
+
+Vendor row turns red
+Sparkline drops sharply
+Sticky alert appears at top:
+“⚠ Vendor A — Traffic Down 72%”
+Audio alert plays
+Clicking alert opens affected entity
+
+This is exactly how enterprise telecom NOC systems operate.
+
+Additional High-Value Idea
+
+One feature that would become extremely powerful:
+
+“Attention Mode”
+
+A dynamic ranking system that automatically pushes problematic entities to the top based on:
+
+ASR degradation
+traffic drop
+ACD collapse
+anomaly score
+fraud score
+CPS overload
+
+Meaning:
+The most problematic routes/vendors/clients automatically rise to the top of BitsEye without manual searching.
+
+That would be a major differentiator versus traditional VoIP monitoring platforms.

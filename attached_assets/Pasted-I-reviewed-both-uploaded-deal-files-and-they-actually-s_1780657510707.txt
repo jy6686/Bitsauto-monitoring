@@ -1,0 +1,231 @@
+I reviewed both uploaded deal files, and they actually strengthen the case for building the Deal Workspace next.
+
+What the Deal Files Reveal
+
+These are not simple quote sheets.
+
+They are effectively a manual version of a future Voice Trading Deal Engine.
+
+Deal Temp.xlsx
+
+Contains commercial concepts such as:
+
+KAM
+Grace Period
+Expiry Date
+Profit
+Pre-Profit
+Total Revenue
+Account Pay/Receive
+Partner Netoff %
+Blended Rate
+
+and destination-level trading data:
+
+Destination
+Selling
+Buying
+Trunk/Product
+Client/Vendor
+
+Examples found:
+
+AFGHANISTAN MOBILE AWCC
+AFGHANISTAN MOBILE ETISALAT
+AFGHANISTAN MOBILE MTN
+
+alongside:
+
+Business Class
+First Class
+Platinum
+Gold
+Silver
+
+This confirms products already exist in your commercial operation.
+
+Percentage-Based Deal Model
+
+One sheet contains:
+
+Percentage Wise
+
+Premium 50%
+Standard 50%
+
+Premium Rate 0.028
+Standard Rate 0.031
+Average Rate 0.0295
+
+This means traders are already modeling:
+
+Traffic Mix
+↓
+Product Mix
+↓
+Blended Average Rate
+
+This is exactly what a Deal Simulator should calculate automatically.
+
+Deal 2.xlsx
+
+Contains:
+
+Party Name
+Start Date
+End Date
+Grace Period
+Expiry Date
+
+This confirms deals have a lifecycle.
+
+A future deal should not just be:
+
+Customer
+Rate
+
+but:
+
+Customer
+↓
+Product
+↓
+Destination
+↓
+Rate
+↓
+Volume
+↓
+Start Date
+↓
+End Date
+↓
+Grace Period
+↓
+Approval
+My Recommendation Changed Slightly
+
+Because Product Registry is now in place:
+
+Customer
+↓
+Product
+↓
+Destination
+
+I would NOT build full Rate Management next.
+
+I would build:
+
+Deal Workspace
+
+before Rate Management.
+
+Why?
+
+Your traders are currently using Excel files that contain:
+
+Profitability
+Revenue
+Offer Rates
+Deal Expiry
+Grace Period
+Product Mix
+Volume Commitments
+
+Those are deal functions.
+
+Not rate-management functions.
+
+New Roadmap
+Completed
+
+✅ Product Registry
+✅ Destination Catalog
+✅ Product Lifecycle
+✅ Availability Matrix
+✅ Customer Assignments
+
+Next
+Voice Trading → Deals Workspace
+
+Tabs:
+
+Deals
+├ Dashboard
+├ Deal Board
+├ Deal Simulator
+├ Approvals
+├ History
+Deal Simulator
+
+Input:
+
+Customer
+Product
+Destination
+Volume
+Offer Rate
+
+Output:
+
+Projected Revenue
+Projected Cost
+Commercial Health
+Expiry Impact
+
+This directly replaces the spreadsheets.
+
+After Deal Workspace
+
+Then build:
+
+Pricing & Rate Intelligence
+
+because now you'll have:
+
+Product IDs
+Destination IDs
+Customer Product Assignments
+Deal Data
+
+to attach pricing logic to.
+
+One More Important Observation
+
+The deal sheets contain:
+
+Gold
+Silver
+Platinum
+Premium
+Standard
+Business Class
+First Class
+
+Before building anything else, I would normalize this inside Product Registry:
+
+Product Code	Product Name
+FC	First Class
+BC	Business Class
+SB	Special Bravo
+SC	Special Charlie
+PL	Platinum
+GD	Gold
+SV	Silver
+PR	Premium
+ST	Standard
+
+Otherwise you'll eventually end up with the same product represented differently across deals, rates, and routing.
+
+Recommendation
+
+Do not start the full Rate Management System yet.
+
+Build:
+
+Deal Workspace
+
+next.
+
+The uploaded Excel files prove that the biggest manual process in your commercial operation today is deal creation, profitability analysis, and offer management, not rate importing. The Deal Workspace will deliver value immediately and will naturally feed the future Pricing & Rate Intelligence platform.

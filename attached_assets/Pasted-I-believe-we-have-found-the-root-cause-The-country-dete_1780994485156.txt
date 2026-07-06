@@ -1,0 +1,69 @@
+I believe we have found the root cause.
+
+The country detection logic appears to be using the CLI (Calling Number / A-Party) instead of the CLD (Called Number / B-Party Destination) for destination resolution.
+
+For Call Governance and destination analytics, the country must always be determined from the CLD, not the CLI.
+
+Example:
+
+CLD: 923468281010 → Destination = Pakistan ✅
+CLI: Any originating number from any country → Should NOT be used for destination detection ❌
+
+Similarly, for Eritrea:
+
+CLD starts with Eritrea country code → Destination = Eritrea ✅
+CLI may belong to a completely different country and must not affect destination classification ❌
+
+This would explain why:
+
+multiple incorrect countries are appearing in the analytics,
+Pakistan traffic is being reported under other countries,
+Eritrea traffic is being reported incorrectly,
+destination summaries look inconsistent,
+and potentially why some governance-related CDR reporting is not being generated correctly.
+Required Fix
+
+Please review the destination-resolution logic and ensure:
+
+Country detection uses CLD only
+governed_calls.callee
+destination number
+B-party number
+Never use CLI for destination lookup
+caller number
+A-party number
+source/originating number
+Apply this correction consistently across:
+Governance Analytics
+Destination Impact Table
+Top Governed Destinations
+Country Resolver
+Coverage Panel
+Rule Statistics
+Any destination-based reporting
+Validation Test
+
+Expected results:
+
+CLD	Expected Country
+923468281010	Pakistan
+88017xxxxxxx	Bangladesh
+9715xxxxxxx	UAE
+291xxxxxxx	Eritrea
+
+Regardless of what CLI contains.
+
+Additional Check
+
+Since we recently governed:
+
+Pakistan traffic
+Eritrea traffic
+
+Please review those governed call records specifically and verify:
+
+which field is being used for country resolution,
+whether the analytics engine is reading CLI instead of CLD,
+and whether that mismatch is affecting CDR generation or destination reporting.
+
+From the behavior you described, it strongly appears that destination identification is currently being derived from the wrong field. Fixing the lookup to use CLD only should correct the country reporting and destination analytics.

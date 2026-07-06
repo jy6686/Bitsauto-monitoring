@@ -1,0 +1,136 @@
+Got it — switch the entire BitsEye visual system to a modern light, clean, enterprise-grade NOC dashboard, not dark theme.
+
+This is actually a very strong move for usability (especially for KAM + business teams).
+
+☀️ BitsEye — Modern Light UI Design (Recommended)
+🎯 Design Goal
+
+Move from:
+
+“technical monitoring dashboard”
+
+to:
+
+“clean telecom intelligence platform (Bloomberg + Stripe + Datadog light mode)”
+
+🧱 1. GLOBAL THEME (LIGHT SYSTEM)
+Base Colors
+Background: #F7F9FC (soft cloud white)
+Card surface: #FFFFFF
+Border: #E6EAF0
+Primary text: #1F2937
+Secondary text: #6B7280
+Accent Colors (important for telecom meaning)
+🟢 Healthy: #16A34A
+🔵 Normal traffic: #2563EB
+🟠 Warning: #F59E0B
+🔴 Critical / failed calls: #EF4444
+UI Style
+Soft shadows (not harsh borders)
+Rounded corners (12–16px)
+Minimal grid lines
+High whitespace (very important for “modern feel”)
+📊 2. LIVE CALLS GRAPH (LIGHT VERSION)
+Visual Type (best choice)
+
+👉 Clean dual-line + soft area fill
+
+Structure:
+Total Calls → blue line (#2563EB)
+Connected Calls → green line (#16A34A)
+Failed Calls → light red area (#FEE2E2 fill)
+Style Rules:
+Background: pure white card
+Grid: very faint gray (#F1F5F9)
+Lines: 2px smooth curves
+No harsh neon/glow (important for light theme)
+Result feel:
+
+“Financial analytics dashboard, not telecom NOC”
+
+🧾 3. KPI STRIP (LIGHT MODERN STYLE)
+
+Replace old blocks with:
+
+👉 “Metric Cards (Stripe-style)”
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│ Total Calls  │ │ Connected    │ │ Failed       │
+│ 12,480 ↑     │ │ 9,210 ↑      │ │ 320 ↓        │
+└──────────────┘ └──────────────┘ └──────────────┘
+Style:
+white cards
+soft shadow (0 2px 10px rgba(0,0,0,0.04))
+big number (20–24px)
+small label above
+trend arrow right side
+📈 4. CHART EXPERIENCE (LIGHT MODE)
+Must use:
+✔ Smooth curves
+✔ soft gradient fills
+✔ minimal axis lines
+✔ hover highlight only
+Avoid:
+neon glow
+heavy borders
+dark overlays
+dense grid lines
+🔥 5. FAILED CALLS VISUAL (IMPORTANT)
+
+Instead of harsh red lines:
+
+👉 Use “soft danger layer”
+light red area under curve
+opacity: 8–15%
+becomes darker on hover
+
+This keeps UI calm but still informative.
+
+⏱ 6. TIME TOGGLE (MODERN STYLE)
+
+Replace buttons with:
+
+👉 Segmented control (Apple style)
+[ 5m | 15m | 1h | 6h ]
+Style:
+pill container
+active = blue background (#2563EB)
+smooth transition
+🧠 7. OVERALL LAYOUT (MODERN BITSEYE)
+-------------------------------------------------
+ HEADER (KAM / Filters / Time Range)
+-------------------------------------------------
+
+ KPI CARDS (4–5 cards)
+-------------------------------------------------
+
+ LIVE CALLS GRAPH (main focus)
+-------------------------------------------------
+
+ SECONDARY METRICS (ASR / MOS / PDD mini trend)
+-------------------------------------------------
+
+ OPTIONAL: INCIDENT FEED
+🎯 WHAT THIS ACHIEVES
+Before:
+telecom monitoring tool
+After:
+enterprise analytics platform (clean + readable + executive-ready)
+⚠️ IMPORTANT DESIGN RULE
+
+In LIGHT mode BitsEye should feel:
+
+“financial system reliability dashboard”
+
+NOT:
+
+“network monitoring war room”
+
+🚀 MY RECOMMENDATION (CLEAR)
+
+Implement in this order:
+
+1. Light theme system (global tokens)
+2. KPI cards (replace strip)
+3. Live Calls graph (clean dual line)
+4. Failed calls soft layer
+5. Segmented time contro

@@ -1,0 +1,104 @@
+Stop before deploying.
+
+The patch did not apply cleanly. The generated code shown in your sed output is syntactically corrupted.
+
+Examples from your output:
+
+console.log([Sippy] pushRateViaPortalUpload...
+
+should be
+
+console.log(`[Sippy] pushRateViaPortalUpload...
+
+and
+
+const boundary = ----FormBoundary${Date.now().toString(36)};
+
+should be
+
+const boundary = `----FormBoundary${Date.now().toString(36)}`;
+
+and
+
+${base}/c1/rates_tariff.php
+
+should be
+
+`${base}/c1/rates_tariff.php`
+
+and multiple return messages lost their template literal wrappers.
+
+More importantly
+
+I would not deploy this patch yet even if the syntax is fixed.
+
+Your manual test proved:
+
+Existing rates = U
+New destination = A
+Upload XLSX
+Sippy creates new prefix
+
+But the patch Claude generated is making assumptions about:
+
+file field name = rate_file
+upload endpoint = rates_tariff.php
+multipart structure
+required hidden fields
+
+None of those have been verified against the actual Sippy upload form.
+
+You already have code that discovers:
+
+probePortalRatesPage()
+
+which extracts:
+
+formAction
+fileField
+hiddenFields
+
+The safer fix is:
+
+Detect prefix exists → use existing update workflow (U/change)
+Detect prefix missing → generate XLSX with Action=A
+Upload using the same portal upload form Sippy uses, not a handcrafted multipart request
+Verify prefix appears in tariff
+Your business rule is correct
+
+For Send Rate tab only:
+
+Scenario	Action
+Prefix exists in tariff	U
+Prefix does not exist in tariff	A
+
+Ignore:
+
+SA
+S
+
+for now.
+
+Rate Analysis remains unchanged because it only updates existing tariff entries and is already working.
+
+What I would do next
+
+Before any deployment:
+
+npm run build
+
+or
+
+npx tsc --noEmit
+
+I expect compilation errors from the corrupted template literals shown in the output.
+
+Fix the syntax first, then implement the A/U logic properly using the real Sippy upload workflow.
+
+The important conclusion from your testing is:
+
+✅ Sippy can create new destinations via XLSX upload using Action=A.
+
+❌ Current Send Rate "action=add" portal POST does not create destinations.
+
+So the direction is correct, but the generated patch should not be trusted until it compiles and uses the actual Sippy upload form correctly.

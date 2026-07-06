@@ -1,0 +1,128 @@
+🔌 🧠 SIPPY API HEALTH CHECKER (MODULE DESIGN)
+🎯 PURPOSE
+
+Continuously monitor Sippy Soft API health to ensure:
+
+API is reachable
+Authentication is valid
+Responses are correct
+Latency is acceptable
+No silent failures
+
+This will support your Fix Button system + Live monitoring dashboard
+
+⚙️ 1. CORE HEALTH CHECK ENDPOINT
+Create API:
+GET /api/sippy/health
+🧾 Response Example
+{
+  "status": "healthy",
+  "auth": "valid",
+  "latency_ms": 320,
+  "last_success_call": "2026-04-19T18:20:00Z",
+  "error": null
+}
+🧠 2. HEALTH CHECK LOGIC (BACKEND)
+Step-by-step flow:
+✅ Step 1 — Test Authentication
+Use API USER/PASS
+Attempt lightweight Sippy API call (safe method like balance or ping)
+await sippyClient.login(API_USER, API_PASS);
+✅ Step 2 — Test API Response
+
+Call lightweight endpoint:
+
+balance check
+system status
+CDR sample fetch (limit 1)
+✅ Step 3 — Measure Latency
+const start = Date.now();
+await sippyClient.ping();
+const latency = Date.now() - start;
+✅ Step 4 — Validate Data Integrity
+
+Check:
+
+response exists
+no null/empty payload
+correct format (XML/JSON parsed correctly)
+✅ Step 5 — Error Handling
+
+Detect:
+
+Issue	Meaning
+401	Auth failed
+timeout	network issue
+empty response	API broken
+invalid XML	parsing issue
+⚠️ 3. HEALTH STATUS RULES
+if (authFailed) status = "unhealthy";
+else if (timeout) status = "degraded";
+else if (latency > 2000) status = "slow";
+else status = "healthy";
+📊 4. EXTENDED METRICS (IMPORTANT FOR YOUR SYSTEM)
+
+Return:
+
+API status
+authentication status
+latency
+last successful request
+error count
+uptime status
+Example:
+{
+  "status": "degraded",
+  "auth": "valid",
+  "latency_ms": 1800,
+  "error_rate": "2.3%",
+  "last_success_call": "2026-04-19T18:18:00Z"
+}
+🔁 5. AUTO-RECOVERY HOOK (FOR YOUR FIX BUTTON)
+
+If health check fails:
+
+Trigger Fix Actions:
+refreshSippySession()
+retryAPI()
+switchVendor()
+reloadCDR()
+🖥️ 6. FRONTEND USAGE
+On Dashboard / Fix Button:
+const res = await fetch("/api/sippy/health");
+
+Display:
+
+🟢 Healthy
+🟡 Degraded
+🔴 Down
+🚨 7. ALERT RULES (OPTIONAL BUT IMPORTANT)
+
+Trigger alert if:
+
+auth fails
+API timeout > 3 times
+no response in last X minutes
+ASR drops + API unhealthy
+🧠 FINAL ARCHITECTURE
+
+Your system becomes:
+
+🔧 Fix Button → Sippy Health Check → Diagnose → Auto Retry → Fix Action → Update UI
+
+📘 INTEGRATION WITH YOUR FIX SYSTEM
+
+This module MUST be called inside:
+
+Fix Button flow (Phase 1)
+Background monitoring
+CDR/P&L/Live Calls validation
+ASR/ACD anomaly detection
+✅ FINAL RESULT
+
+You will have:
+
+✔ Real-time Sippy monitoring
+✔ Automatic API health detection
+✔ Fix button integration support
+✔ Telecom-grade reliability layer

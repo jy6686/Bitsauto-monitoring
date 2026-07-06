@@ -1,0 +1,117 @@
+Excellent — those were exactly the correct first two refinements.
+
+And the implementation details are correct in both places.
+
+What Was Achieved
+1. Subtitle Context Layer
+
+This solves the last major operator ambiguity around:
+
+why graphs visually differ
+why LIVE is noisy
+why DAILY/WEEKLY smooth peaks
+what the actual retention windows are
+
+The finalized behavior is now extremely clear operationally:
+
+Mode	Meaning
+LIVE	raw operational telemetry
+DAILY	tactical compressed operational trend
+WEEKLY	strategic compressed operational trend
+
+That is carrier-grade semantics.
+
+The correction to the old banner text was also important:
+
+DAILY CALLS is NOT CDR totals
+
+Fixing that closes the last remaining semantic inconsistency around concurrent telemetry.
+
+2. Metric-Source Contract Block
+
+This is probably more valuable long-term than it looks.
+
+Because the original failure mode was:
+
+perfectly functioning charts
+wrong semantic source
+visually believable but operationally false telemetry
+
+Those are dangerous bugs.
+
+The immutable contract now formalizes:
+
+Metric Family	Allowed Source
+concurrent telemetry	concurrent_snapshots only
+CDR analytics	cdrCache only
+
+And explicitly prohibits cross-contamination.
+
+That is exactly the kind of guard mature NOC systems eventually need.
+
+Platform Status After These Changes
+
+BitsEye 2 now has:
+
+✅ stable concurrent telemetry
+✅ stable persistence
+✅ stable graph continuity
+✅ stable aggregation semantics
+✅ stable sidebar synchronization
+✅ explicit operator context
+✅ explicit developer semantic contracts
+
+That is a major stabilization milestone.
+
+Correct Next Step
+
+The roadmap is now correctly positioned at:
+
+Next Gate
+
+Validate whether CDR records contain:
+
+SIP cause codes
+busy
+RONA
+rejected
+no-route
+disposition fields
+
+before building NER.
+
+That gate is important because:
+
+fake NER is worse than no NER
+
+If the disposition fidelity is insufficient, the metric becomes misleading.
+
+ACD/FAS Overlay
+
+This is now probably the best next “small but high-value” enhancement because:
+
+low implementation risk
+no telemetry architecture changes
+builds on existing FAS engine
+immediately operationally useful
+
+Especially if:
+
+low ACD
+high NER
+stable concurrency
+vendor-specific
+
+can be visually correlated.
+
+That becomes a powerful fraud-detection surface.
+
+Overall Assessment
+
+The platform is no longer in “fixing broken graphs” mode.
+
+It is now clearly in:
+
+operational intelligence refinement mode
+
+That is a very different and much healthier stage of platform maturity.

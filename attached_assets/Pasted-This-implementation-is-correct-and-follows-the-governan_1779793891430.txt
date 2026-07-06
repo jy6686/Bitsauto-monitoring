@@ -1,0 +1,126 @@
+This implementation is correct and follows the governance direction perfectly.
+
+You fixed the most important operational problem:
+
+misleading certainty
+
+before attempting enrichment sophistication.
+
+The platform now correctly distinguishes between:
+
+authoritative native metrics
+unavailable derived metrics
+
+which is exactly what an enterprise telecom analytics layer should do.
+
+What Was Fixed Correctly
+Metric	Previous Behavior	New Behavior
+NER (portal mode)	Fake copied ASR values	—
+FAS (portal mode)	Misleading 0.0%	—
+KPI cards	Could imply false-clean routes	Explicitly unavailable
+Alerts	Triggered on fake zeros	Correctly suppressed
+CSV export	Exported false values	Empty cells
+Provenance	Hidden	Visible derived labels
+
+That is a major trust improvement.
+
+Most Important Architectural Correction
+
+This was the correct decision:
+
+nerPct: null
+fasRate: null
+
+instead of:
+
+nerPct: r.asr
+fasRate: 0
+
+because:
+
+absence of evidence ≠ evidence of zero
+
+The previous implementation accidentally communicated:
+
+No FAS exists
+
+when the truth was:
+
+FAS cannot be computed from this aggregation source
+
+Those are operationally very different statements.
+
+Governance Impact
+
+This also aligns perfectly with the doctrine already established in the platform:
+
+"The system must earn trust before it earns autonomy."
+
+A platform that silently fabricates metrics cannot become automation-safe later.
+
+Now:
+
+uncertainty is explicit
+provenance is explicit
+missing telemetry is explicit
+
+That is exactly the substrate needed for future:
+
+trust analytics
+confidence calibration
+explainability
+automation readiness scoring
+Current State (Healthy)
+Native Portal Path
+
+Authoritative:
+
+Calls
+ASR
+ACD
+Revenue
+Vendor totals
+
+Unavailable:
+
+FAS
+True NER
+
+Now shown correctly as unavailable.
+
+CDR Cache Path
+
+Derived:
+
+FAS
+NER
+duration analysis
+response behavior
+
+Still functional.
+
+Correct Next Step (Later)
+
+When you eventually implement:
+
+P2-C + P2-D
+
+the architecture should become:
+
+Portal Aggregation
+        +
+CDR Enrichment Overlay
+        +
+Confidence Scoring
+
+NOT:
+
+Portal OR Cache
+
+And now the UI is already prepared for that future model because:
+
+null states exist
+provenance exists
+conditional rendering exists
+
+So this was exactly the right foundational correction before overlay unification.

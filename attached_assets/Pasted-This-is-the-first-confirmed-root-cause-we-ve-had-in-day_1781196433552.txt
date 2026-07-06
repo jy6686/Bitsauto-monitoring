@@ -1,0 +1,160 @@
+This is the first confirmed root cause we've had in days.
+
+Recording Issue Status: RESOLVED (Root Cause Identified)
+
+The problem is not:
+
+Asterisk recording configuration
+AMI Monitor events
+SSH connectivity
+SFTP access
+Stream endpoint
+Audio player
+Reconciliation Lab
+
+The problem is:
+
+Asterisk Server Disk = 100% Full
+
+Reported:
+
+/dev/vda1
+25 GB total
+25 GB used
+20 KB free
+
+And:
+
+98,067 WAV files
+~17 GB recordings
+
+This explains perfectly:
+
+recording_path exists in DB
+but WAV file does not exist
+
+because Asterisk can still generate the path but cannot write the file.
+
+What I would do immediately
+Emergency Action 1
+
+Check recording age distribution:
+
+du -sh /var/spool/asterisk/monitor/*
+
+and
+
+find /var/spool/asterisk/monitor -type f -name "*.wav" -mtime +30 | wc -l
+
+See how much space can be recovered.
+
+Emergency Action 2
+
+If recordings older than 30 days are not required:
+
+find /var/spool/asterisk/monitor \
+  -type f \
+  -name "*.wav" \
+  -mtime +30 \
+  -delete
+
+Then:
+
+df -h
+
+Confirm free space returns.
+
+Emergency Action 3
+
+Long-Term
+
+Move recordings off the Asterisk server.
+
+Example:
+
+Asterisk
+↓
+Daily archive job
+↓
+Object Storage
+(S3 / Spaces / Backblaze)
+
+Keeping 98k WAV files on the PBX disk is eventually going to recreate the problem.
+
+Good News
+P3.1 Vendor Cost Extraction
+
+The validation is actually more important than it looks.
+
+New calls show:
+
+Revenue      populated
+Vendor Cost  populated
+Margin       populated
+
+Example:
+
+Revenue     0.0073
+Vendor Cost 0.0003
+Margin      0.0070
+
+That means:
+
+P&L Revenue
+↓
+cdrCost
+
+P&L Cost
+↓
+cdrVendorCost
+
+is now working.
+
+So:
+
+P3.1 = Complete
+New Priority Order
+Ops Team
+Today
+Free disk space
+or
+Expand volume
+
+No code required.
+
+Development Team
+Next
+P3.2 Vendor Cost Validation
+
+Use 20–50 fresh calls.
+
+Verify:
+
+Vendor CDR Cost
+=
+P&L Cost
+After P3.2
+P3.3 Commercial Identity Audit
+
+Validate:
+
+1923 → FC
+2923 → BC
+6923 → SB
+7923 → SC
+
+and verify revenue aligns with expected product rates.
+
+Updated Status Board
+Item	Status
+Recording Root Cause	✅ Found
+Recording Diagnostics	✅ Working
+Recording Fix	🟡 Free disk / expand volume
+P&L Revenue Extraction	✅ Working
+P&L Vendor Cost Extraction	✅ Working
+Vendor Cost Validation	🟡 Next
+Commercial Identity Audit	🟡 Next
+Commercial Call Identity	⏸ Deferred
+Trust Center	❄ Frozen
+
+One final note: some of the earlier uploaded CDR exports, vendor reports, and screenshots referenced during the analysis have expired and are no longer accessible. If you want to continue with Vendor Cost Validation or Commercial Identity Audit using those datasets, please upload fresh exports again.

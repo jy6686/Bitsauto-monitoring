@@ -1,0 +1,138 @@
+After reading the uploaded notes and the findings from the customer/vendor summary reports, I think you've identified a fundamental billing architecture issue, not just a CDR matching issue.
+
+What the reports proved
+
+These prefixes are simultaneously active:
+
+Product	Prefix Example	Rate
+FC	19231	0.0400
+SC	79231	0.0252
+Internal/Other	19231	0.0075
+Other customer	19231	0.0250
+
+Same destination family:
+
+9231XXXXXXXX
+
+Different products:
+
+19231XXXXXXXX
+79231XXXXXXXX
+
+Different rates.
+
+Therefore:
+
+suffix-10
+
+can never become the final billing key.
+
+My conclusion
+
+I would no longer classify this as:
+
+Billing Verification
+
+I would classify it as:
+
+Commercial Identity Verification
+
+because the system must prove:
+
+Call
+↓
+Product
+↓
+Tariff
+↓
+Rate
+↓
+Revenue
+↓
+Cost
+↓
+Margin
+What the reports changed
+
+Before seeing the summaries, one could argue:
+
+"The chance of collision is low."
+
+After seeing real production data:
+
+19231
+79231
+
+active in the same reporting window,
+
+that argument disappears.
+
+The collision risk is real.
+
+What I would prioritize now
+
+Before:
+
+Trust Center
+Security Scoring
+Quality Assurance
+Route Certification
+
+I would finish:
+
+Commercial Truth Layer
+Product Registry
+Rate Repository
+Rate Manager
+Product-aware P&L matching
+Rate Integrity Audit
+Invoice Validation
+Most important field missing today
+
+The reports point to one missing field:
+
+governed_calls.product_code
+
+Without it, the platform has to infer product later.
+
+With it:
+
+Call
+↓
+Product = SC
+↓
+Only accept 7923 candidates
+
+and reject:
+
+1923
+2923
+6923
+
+immediately.
+
+My recommendation
+
+I agree with your position:
+
+Do not trust automated invoicing until Product Identity and Rate Integrity are authoritative.
+
+The customer and vendor summary reports are the strongest evidence so far that:
+
+Product
+
+must be treated as a first-class billing object throughout the entire chain:
+
+Asterisk
+↓
+Sippy
+↓
+CDR
+↓
+P&L
+↓
+Billing Verification
+↓
+Invoice
+
+Otherwise the platform may produce technically valid P&L records while still generating commercially incorrect invoices. That's a much bigger risk than delaying Trust Center or other future modules.

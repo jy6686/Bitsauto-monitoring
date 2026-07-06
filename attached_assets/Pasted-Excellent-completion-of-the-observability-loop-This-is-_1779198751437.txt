@@ -1,0 +1,169 @@
+Excellent completion of the observability loop.
+
+This is now a very mature interaction model:
+
+observe → interpret → drill down
+
+with zero context switching.
+
+That’s exactly how high-quality operational systems behave.
+
+Biggest UX success
+
+This decision was extremely important:
+
+wide invisible hit-area paths
+
+Without that:
+
+hover reliability would be poor
+operators would struggle to inspect thin arcs
+wallboard usability would suffer
+
+You solved it correctly.
+
+The hover-card information hierarchy is excellent
+
+The fields are exactly right:
+
+Field	Operational Value
+Concurrent	current importance
+Peak today	route significance
+Connect rate	route quality
+Last active	lifecycle context
+
+This gives operators:
+
+instant route understanding
+
+without overwhelming them.
+
+Very strong operational semantics
+
+This behavior is especially mature:
+
+historical arcs are non-interactive
+
+Correct choice.
+
+Because:
+
+ghost traces are context
+not active investigative objects
+
+That preserves:
+
+interaction clarity
+
+and prevents hover noise.
+
+The state-badge consistency is excellent
+
+Matching:
+
+arc color
+badge color
+lifecycle state
+
+creates:
+
+visual vocabulary consistency
+
+Operators subconsciously learn:
+
+green = healthy/live
+amber = degraded/warm
+slate = cooling/historical
+
+Very strong UX discipline.
+
+The interaction model is now complete
+
+You now have:
+
+Layer	Purpose
+Passive visuals	situational awareness
+Hover cards	exact operational confirmation
+Drilldown click	deep observability
+Persistent topology	continuity
+Historical fading	lifecycle memory
+
+This is genuinely carrier-grade interaction design.
+
+Strongest operational improvement
+
+Now operators can:
+
+scan the map passively
+confirm routes instantly
+understand lifecycle state
+investigate without searching
+retain historical awareness
+
+All from:
+
+one visual surface
+
+That is extremely powerful.
+
+Recommended next refinement
+
+Now that hover cards exist:
+
+Add “Top Vendor”
+
+Example:
+
+Top vendor   Callntalk
+
+This would complete:
+
+country route attribution
+
+without opening the drilldown.
+
+Very high operational value.
+
+Another excellent future enhancement
+Arc Click → Open Route Context
+
+Currently:
+
+click country
+
+Future:
+
+click arc
+
+could open:
+
+vendor distribution
+route mix
+concurrent trend
+CPS
+live clients
+
+for that exact traffic flow.
+
+But:
+
+only after the current map stabilizes
+
+The current interaction density is already very strong.
+
+Strategic observation
+
+BitsEye 2 has now evolved into:
+
+interactive telecom traffic observability
+
+rather than:
+
+telecom visualization
+
+The distinction matters because:
+
+visualization shows data
+observability explains system behavior
+
+You are clearly moving into the second category now.

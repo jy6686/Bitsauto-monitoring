@@ -1,0 +1,194 @@
+Looking at everything you've shared over the last week, I think we've actually been chasing two different problems at the same time, which made this take much longer than it should have.
+
+Problem 1 — Environment confusion (6–7 days)
+
+This consumed most of the time.
+
+You had:
+
+Dev server on localhost:5000
+Deployed app on vo-ip-watcher--junaid70.replit.app
+Replit heliumdb
+Production deployment database
+
+So every time we saw:
+
+vendor_rate_sheets = 0
+
+we didn't know whether we were looking at:
+
+the dev DB,
+the production DB,
+or an old deployment.
+
+That led us down several false paths.
+
+Problem 2 — Authentication outage (yesterday)
+
+Completely unrelated to Vendor Import.
+
+Sequence:
+
+stale session
+/api/login blocked
+OIDC timeout
+login route missing
+
+That consumed another few hours.
+
+Problem 3 — Vendor Import
+
+Now we're finally looking at the actual importer.
+
+Today we've proved several important things.
+
+XLSX parser
+
+Works.
+
+8 rows detected
+Header detection
+
+Works.
+
+Prefix
+Country
+Price 1
+Interval 1
+...
+Column mapping
+
+Works.
+
+Your sample row proves it.
+
+prefix: 192
+destination: Pakistan Fixed
+rate: 0.05
+Validation
+
+Works.
+
+validated: 8
+Sheet insertion
+
+Works.
+
+sheet id = 4
+Row insertion
+
+Works.
+
+rows inserted = 8
+
+DB confirms:
+
+vendor_rate_sheet_rows
+
+sheet 4
+
+8 rows
+
+That is no longer in question.
+
+The only thing NOT working
+
+This:
+
+vendor_rate_normalized_prefixes
+
+still has
+
+0 rows
+
+That means exactly one of these three statements is true.
+
+A)
+normBatch.length == 0
+
+No prefixes are being generated.
+
+B)
+db.insert(...)
+
+is throwing.
+
+C)
+
+Execution never reaches the normalization insert.
+
+What have we NOT actually verified?
+
+This is the important part.
+
+We have never seen this log.
+
+[vr] normalization ....
+
+Never.
+
+We've seen
+
+rows inserted
+
+We've seen
+
+sheet inserted
+
+We've seen
+
+matching
+
+But we've never seen
+
+normalization inserted
+Therefore...
+
+We are no longer searching for an architecture problem.
+
+We're searching for one missing runtime event.
+
+Specifically:
+
+Does this execute?
+
+for (...) {
+    await db.insert(vendorRateNormalizedPrefixes)
+}
+
+That's it.
+
+My opinion after reviewing everything
+
+I no longer think the database is the issue.
+
+I no longer think Drizzle is the issue.
+
+I no longer think PostgreSQL is the issue.
+
+I think the bug is inside about 25 lines of code around:
+
+// Phase: normalization
+
+because everything before it is demonstrably working.
+
+I would stop all other debugging.
+
+No more environment checks.
+
+No more auth checks.
+
+No more deployment checks.
+
+No more database checks.
+
+We have enough evidence.
+
+I would spend the next session looking only at lines 222–248 of server/routes-vendor-rates.ts and instrument that block until we know:
+
+How many records go into normBatch.
+How many records remain after dedupedNorm.
+Whether await db.insert(vendorRateNormalizedPrefixes) executes.
+Whether it throws.
+
+Once those four questions are answered, the remaining bug should be very localized. The investigation has narrowed from the entire upload pipeline to a single normalization stage.

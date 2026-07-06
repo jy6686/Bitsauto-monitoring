@@ -1,0 +1,371 @@
+I agree with most of this analysis. Based on what you've found, I'd adjust the implementation roadmap in a few important ways.
+
+The biggest finding
+
+The assumption that global_destinations required a massive naming cleanup was incorrect.
+
+Your SQL shows the canonical catalogue is already standardized:
+
+global_destinations ≈ 151k rows
+Almost every row already follows the commercial naming convention:
+Pakistan Mobile Jazz
+Pakistan Mobile Telenor
+Pakistan Fixed
+etc.
+Only a handful of ISO-style names exist.
+
+That means the destination catalogue is not the source of the naming inconsistency.
+
+Root Cause 1 — Sippy naming leakage
+
+The screenshots showing:
+
+PAK Mobile MOBLIN
+PAK Mobile TELNOR
+PHL Mobile GLOBET
+RUS Mobile MVNO
+
+strongly indicate those values are being displayed directly from Sippy data.
+
+So there are effectively two naming systems:
+
+Commercial catalogue
+
+global_destinations
+-------------------
+Pakistan Mobile Jazz
+Pakistan Mobile Telenor
+Pakistan Fixed
+
+Execution layer
+
+Sippy
+------
+PAK Mobile MOBLIN
+PAK Mobile TELNOR
+PAK Fixed SCOGSM
+
+Those should never be exposed directly to commercial users.
+
+Instead:
+
+Sippy destination
+        │
+        │ mapping
+        ▼
+global_destination_id
+        │
+        ▼
+Commercial Name
+
+The UI should always display the canonical commercial name.
+
+Sippy names should remain internal.
+
+Root Cause 2 — Duplicate destination clusters
+
+This is actually the more serious issue.
+
+You discovered two independent import generations.
+
+Example:
+
+Cluster A
+
+ID 1093
++9230
+
+Country PK
+
+and
+
+Cluster B
+
+ID 374641
+
+9230
+
+Country 92
+
+Both represent exactly the same destination.
+
+This creates several problems.
+
+Instead of
+
+Pakistan Mobile Jazz
+
+↓
+
+destination_id = 374641
+
+you have
+
+Pakistan Mobile Jazz
+
+↓
+
+destination_id = 1093
+
+OR
+
+destination_id = 374641
+
+depending on which import matched.
+
+That becomes dangerous because every downstream table references destination_id.
+
+Why this becomes a routing problem
+
+Suppose vendor uploads
+
+92301234
+
+Matching logic:
+
+LEFT(prefix,n)
+
+may return
+
++9230
+
+or
+
+9230
+
+depending on normalization.
+
+Now:
+
+destination_product_rates
+
+destination_id=1093
+
+instead of
+
+destination_id=374641
+
+Vendor A matches one.
+
+Vendor B matches another.
+
+Commercial reports split.
+
+Approval workflow splits.
+
+Rate history splits.
+
+Carrier scoring splits.
+
+Eventually one destination appears as two different destinations.
+
+That is much more damaging than inconsistent naming.
+
+I would change the roadmap
+
+Instead of
+
+Sprint A
+
+Rename destinations
+
+I'd propose:
+
+Sprint A — Canonical Destination Migration
+Phase 1
+
+Destination deduplication
+
+Create a mapping table
+
+old_destination_id
+
+↓
+
+new_destination_id
+
+For example
+
+1093
+
+↓
+
+374641
+Phase 2
+
+Update every FK
+
+Including
+
+destination_product_rates
+vendor_rate_normalized_prefixes
+routing tables
+approval tables
+analytics
+history tables
+audit tables
+any cached mappings
+
+Everything references one canonical destination.
+
+Phase 3
+
+Delete obsolete duplicates
+
+Only after all FK validation passes.
+
+Phase 4
+
+Unique constraints
+
+Prevent this from happening again.
+
+Examples
+
+(country_code,
+operator,
+prefix)
+
+or
+
+normalized_prefix
+
+depending on the final model.
+
+The Rate Manager should not use Sippy names
+
+Instead of
+
+SELECT name
+FROM destination_sets_cache
+
+(or equivalent)
+
+it should resolve
+
+destination_set
+
+↓
+
+destination_id
+
+↓
+
+global_destinations.name
+
+The picker becomes
+
+Pakistan Mobile Jazz
+
+Pakistan Mobile Zong
+
+Pakistan Mobile Telenor
+
+Pakistan Mobile Ufone
+
+regardless of what Sippy internally calls them.
+
+Commercial governance still makes sense
+
+I actually think this becomes more valuable now.
+
+Instead of trying to clean names,
+
+the catalogue becomes the single source of truth.
+
+Example
+
+global_destinations
+
+id
+
+canonical_name
+
+commercial_status
+
+routing_status
+
+country
+
+operator
+
+prefix
+
+destination_class
+
+Every other module reads from here.
+
+Vendor Rate Manager
+
+↓
+
+Destination Catalogue
+
+↓
+
+LCR
+
+↓
+
+Rate Push
+
+↓
+
+Analytics
+
+↓
+
+Reports
+
+↓
+
+Everything.
+
+One source.
+
+One improvement I'd add
+
+I'd also introduce a permanent Destination Alias Registry.
+
+Example
+
+Alias	Canonical Destination
+PAK Mobile MOBLIN	Pakistan Mobile Jazz
+MOBLIN	Pakistan Mobile Jazz
+Mobilink	Pakistan Mobile Jazz
+Jazz	Pakistan Mobile Jazz
+PK Jazz	Pakistan Mobile Jazz
+
+Then every importer follows the same pipeline:
+
+Vendor file
+
+↓
+
+Normalize
+
+↓
+
+Alias lookup
+
+↓
+
+Canonical destination_id
+
+↓
+
+Store
+
+The UI always displays the canonical name, while the original vendor or Sippy text is preserved for traceability.
+
+Revised priority
+
+Based on your findings, I would prioritize the work as follows:
+
+Deduplicate global_destinations and consolidate all foreign-key references (highest priority because it affects data integrity).
+Normalize all import pipelines so every incoming prefix resolves to a single canonical destination_id.
+Update the Rate Manager and related UIs to display names from global_destinations instead of Sippy-derived labels.
+Implement the commercial approval workflow using the existing commercial_status field.
+Enforce uniqueness and naming validation (normalized prefixes, alias registry, validation rules) to prevent future duplicates.
+
+This sequence addresses the underlying data model first. Once there is exactly one canonical destination_id per real-world destination, the UI, rate management, reporting, routing, and governance layers all become deterministic and much easier to maintain.

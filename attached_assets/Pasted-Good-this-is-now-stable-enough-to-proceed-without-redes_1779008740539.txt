@@ -1,0 +1,83 @@
+Good — this is now stable enough to proceed without redesigning anything.
+
+Decision 1 — Carrier Intelligence
+
+Yes, do the cleanup now.
+
+Remove the action semantics only (not the intelligence, not the scoring, not the recommendations).
+
+Concretely:
+
+❌ Suppress Route button → remove
+❌ Penalise button → remove
+❌ any “Suppress 15m / 1h” quick actions → remove
+❌ anything that triggers operational intent
+❌ Investigate if it implies workflow action
+
+Replace with pure navigation links:
+
+✅ Open in AI Ops
+✅ View Routing Impact (read-only drilldown)
+
+Keep everything else exactly the same:
+
+FAS detection
+health score
+recommendation labels (INVESTIGATE_FAS, MONITOR_CLOSELY, etc.)
+severity badges
+
+So yes — make it strictly signal-only UI. That aligns with the locked architecture (Carrier Intelligence = observe only).
+
+Decision 2 — Routing Manager scope
+
+Start with Option A (connections dropdown only).
+
+Reasoning is simple:
+
+You already have evidence the system is still partially ExtJS + global arrays (conns[], DOM mutation, etc.). Jumping to full sweep (Option B) without mapping exact ExtJS footprint would risk breaking:
+
+routing entries table
+policy ordering logic
+activation/expiration date handling
+vendor → connection → destination-set linkage
+
+So we go incremental:
+
+Phase 1 (now)
+
+Replace only:
+
+conns[]
+setConnectionsList(id)
+dropdown population logic
+
+With:
+
+useQuery(['sippy-connections'])
+useMemo(filteredConnections)
+controlled <select> binding
+
+Everything else in Routing Manager remains untouched.
+
+One constraint before next step (important)
+
+Before you implement Routing Manager changes, do a quick code inventory pass:
+
+Check:
+
+how many files still use Ext.*
+whether routing page is still partially server-rendered PHP or already React-mounted
+whether /api/sippy/* endpoints already exist or are only used internally in cache layer
+
+No need to refactor yet — just identify surface area.
+
+Final direction (locked)
+
+So your execution order is now:
+
+Carrier Intelligence UI cleanup (immediate, safe)
+→ remove action buttons, make it observability-only
+Routing Manager Phase 1 (minimal blast radius)
+→ replace connections dropdown only with React Query + Sippy fetch
+Later
+→ expand to vendors + destination sets + entries table

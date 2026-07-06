@@ -1,0 +1,158 @@
+You’re very close to the correct conclusion, but there’s a subtle but important logic error in the proposed “2-minute test” that would still leave you guessing.
+Let’s tighten this properly.
+
+🧠 First: You are correct about one key fact
+You already have:
+✔ XML-RPC working at https://191.101.30.107/xmlapi/xmlapi
+✔ Valid credentials (ssp-root)
+✔ Successful read operations:
+
+
+listActiveCalls
+
+
+getVendorInfo
+
+
+balance queries
+
+
+So yes:
+
+The transport layer + authentication are confirmed healthy.
+
+That part is settled.
+
+⚠️ Where your proposed test breaks down
+❌ Problem 1: getServicePlanInfo is NOT a capability test
+If you call:
+
+getServicePlanInfo(1)
+
+and it returns data:
+✔ That only proves read access exists
+It tells you nothing about:
+
+
+addServicePlan
+
+
+addBillingPlan
+
+
+createBillingPlan
+
+
+👉 In other words:
+
+Read APIs and write APIs are often completely separated in Sippy.
+
+
+❌ Problem 2: “try addBillingPlan and see error” is unreliable
+Even if you call:
+
+
+addBillingPlan
+
+
+addServicePlan
+
+
+You may get:
+ResponseMeaning“unknown method”not exposed“permission denied”method exists but blockedsilent failproxy layer swallowing errorgeneric faultinsufficient privileges
+👉 All of these are ambiguous in real Sippy deployments.
+So this does NOT give a deterministic answer.
+
+🧠 The real issue you’re trying to solve
+You are trying to classify:
+
+“Is billing object creation exposed via XML-RPC or UI-only?”
+
+This is NOT solvable via single-method probing.
+It requires capability grouping, not individual calls.
+
+🚀 Correct minimal test (actually decisive)
+Instead of one method, you need a 3-point capability probe:
+1. Read test (you already passed)
+getServicePlanInfo
+2. Write test (safe dry-run attempt)
+addServicePlan (with minimal valid payload)
+3. Structural test (critical)
+listServicePlans OR getBillingPlans
+
+🧠 Decision logic (this is what actually matters)
+Result patternMeaningread ✔ + write ✔Full API billing supportread ✔ + write ✖UI-only billing (most likely)read ✔ + missing methodsrestricted API scopewrite exists but failspermission-layer restriction
+
+⚠️ Key insight you are currently missing
+You said:
+
+“system already tries addBillingPlan and fails silently”
+
+That is important — but incomplete.
+Because in Sippy:
+👉 Silent failure ≠ no capability
+👉 It often means:
+
+
+wrong parameter schema
+
+
+missing hidden fields
+
+
+or internal validation failure before execution
+
+
+So even your existing fallback behavior is not conclusive evidence of UI-only system.
+
+🧭 Architectural truth (final clarity)
+You currently have:
+✔ Working XML-RPC layer
+✔ Working read operations
+❓ Unknown write capability for billing objects
+So the correct classification is:
+
+You are in a “partial-capability unknown boundary state”, not a confirmed UI-only system yet.
+
+
+💡 Recommendation (important correction)
+Your suggested conclusion:
+
+“evidence already points strongly to UI-bound billing”
+
+⚠️ That is not yet proven
+It is:
+
+
+plausible
+
+
+likely in many Sippy installs
+
+
+but not confirmed in your specific instance
+
+
+
+🚀 What I recommend instead (final step, deterministic)
+Instead of more guessing, do this:
+✔ One controlled write probe only
+Call:
+addServicePlan(  name: "TEST_PROBE",  tariff_id: 1)
+Then classify result:
+OutputConclusionsuccessfull automation possibleunknown methodUI-only or restricted buildpermission faultAPI exists but blockedvalidation errorschema mismatch (still API-capable)
+
+🧭 Final decision guidance
+Only after this single write probe can you safely choose:
+🟢 Full automation
+→ keep provisioning engine
+🟡 Hybrid system
+→ guided workflow (your Option B)
+🔴 UI-only billing
+→ permanent manual handoff design
+
+👍 Bottom line
+You’re close, but the key correction is:
+
+❌ Don’t test “read vs write methods individually”
+✅ Test “write capability as a system behavior”

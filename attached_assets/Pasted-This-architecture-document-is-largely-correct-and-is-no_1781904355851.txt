@@ -1,0 +1,238 @@
+This architecture document is largely correct and is now detailed enough to become a formal platform specification. I would make only a few adjustments before calling it frozen.
+
+Confirmed / Locked
+Product Variants
+
+I agree with the final variant list:
+
+Code	Name	Trunk Prefix
+FC-W	First Class - Wholesale	1
+BC-W	Business Class - Wholesale	2
+SB-W	Special Bravo - Wholesale	6
+SB-R	Special Bravo - Retail	6
+SC-W	Special Charlie - Wholesale	7
+SC-R	Special Charlie - Retail	7
+PM-R	Premium	1
+BS-R	Business	2
+NP	No Prefix	—
+
+This aligns with your legacy commercial model.
+
+Prefix Architecture
+
+This should become a hard platform rule:
+
+fullPrefix
+   = audit only
+
+dialPrefix
+   = only value sent to Sippy
+
+No exceptions.
+
+Every Sippy write path should use:
+
+resolveSippyPrefix()
+
+and no route should manually concatenate prefixes.
+
+Destination Catalog
+
+I agree it is now the master repository.
+
+It should own:
+
+Country
+Operator
+Breakout
+Dial Prefix
+
+Billing Increment
+Minimum Duration
+Effective Date
+
+Commercial Status
+High Cost Flag
+
+and become the source for:
+
+Rate Manager
+Send Rates
+Product Pricing
+Trading Desk
+Client Tariff Profiles
+Rate Sheet Generation
+One Change I Would Make
+PM-R and BS-R
+
+You currently have:
+
+PM-R → trunkPrefix = 1
+BS-R → trunkPrefix = 2
+
+I would not freeze those values yet.
+
+Why?
+
+Because FC and BC trunk prefixes already represent routing classes.
+
+We know:
+
+1 = First Class
+2 = Business Class
+6 = Special Bravo
+7 = Special Charlie
+
+but we have not proven whether:
+
+Premium
+Business
+
+are:
+
+commercial brands of FC/BC
+separate routing tiers
+legacy notification-only products
+NP-derived products
+
+Before freezing:
+
+PM-R = 1
+BS-R = 2
+
+I would verify against:
+
+legacy rate sheets
+legacy notification templates
+client tariff profiles
+
+Otherwise we risk hardcoding an assumption.
+
+Destination Increment Model
+
+I completely agree:
+
+Destination
+      ↓
+Increment
+
+not
+
+Product
+      ↓
+Increment
+
+The spreadsheet proves it.
+
+The important addition:
+
+Increment inheritance
+Destination Increment
+        ↓
+Customer Override (optional)
+        ↓
+Rate Sheet
+
+Customer override should exist in the architecture even if it is rarely used.
+
+Large customers sometimes negotiate:
+
+Default:
+60/1
+
+Customer X:
+1/1
+
+This should be an exception record, not a UI choice.
+
+High-Cost Protection
+
+I would elevate this to a mandatory control.
+
+Default import behavior:
+
+Satellite
+Premium
+Inmarsat
+Iridium
+Globalstar
+Shared Cost
+
+↓
+
+isHighCost = true
+commercialStatus = blocked
+
+This protects against accidental publication.
+
+Client Tariff Profile
+
+This is the biggest unknown.
+
+The screenshots strongly suggest:
+
+Client Tariff Profile
+
+is the true commercial object.
+
+Until you collect:
+
+Status tab
+Rates tab
+Notification page
+Profile list page
+
+I would not build:
+
+Delta sheets
+Changes only
+Status engine
+Notification templates
+
+because those features depend on understanding:
+
+N
+NC
+I
+D
+PI
+PD
+B
+R
+DC
+
+properly.
+
+Recommended Freeze
+Build Now
+
+Sprint A
+
+Prefix fix
+resolveSippyPrefix()
+hierarchy certification
+
+Sprint B1
+
+Destination enrichment
+increment fields
+high-cost flags
+approved-only enforcement
+
+Sprint B2
+
+Sippy increment audit
+
+Sprint C
+
+Product variant migration
+Hold
+Client Tariff Profile
+Status engine
+Delta sheets
+Notification engine
+Rate sheet formatter
+
+until legacy discovery is complete.
+
+At this point the architecture is coherent. The biggest remaining risk is not technical—it is making assumptions about the legacy Client Tariff Profile before all of its screens and behaviors have been captured.

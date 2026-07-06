@@ -1,0 +1,277 @@
+Yes — this is a major discrepancy and your concern is absolutely valid.
+
+The screenshots clearly show:
+
+Source	Calls
+Legacy Sippy ASR/ACD	~20,232
+BitsAuto Platform	250
+
+for the SAME:
+
+time window
+grouping
+vendor
+report type
+
+That is not a small aggregation drift.
+That means:
+
+the platform is NOT reading the same CDR universe
+
+as the softswitch report.
+
+And the difference is too large to be explained by:
+
+timezone offset
+ASR filtering
+pagination
+rounding
+UI truncation
+
+This indicates:
+
+a fundamental data-fetching or filtering mismatch
+Most Likely Root Causes
+
+Based on the screenshots and your platform architecture, these are the highest-probability issues:
+
+1. CDR LIMIT still exists somewhere
+
+This is the MOST likely issue.
+
+Your platform report shows:
+
+250 CDRs · 10:00:56 UTC
+
+That strongly suggests:
+
+the backend query is capped
+probably:
+LIMIT 250
+LIMIT 500
+sample mode
+dev/test safeguard
+pagination default
+
+while Sippy runs:
+
+full aggregation across all matching CDRs
+
+This alone could explain the difference.
+
+VERY suspicious indicator:
+
+Platform total calls = exactly 250
+
+That looks artificial.
+
+2. Platform is querying ONLY processed/normalized CDRs
+
+Possible architecture mismatch:
+
+Sippy report:
+
+reads raw live switch CDRs
+
+BitsAuto:
+
+reads replicated analytics table
+
+If:
+
+replication lag exists
+ETL pipeline partial
+ingestion queue stalled
+only rated calls imported
+only answered calls imported
+normalization failing
+
+then totals collapse dramatically.
+
+3. Incorrect ASR denominator logic
+
+Sippy ASR:
+
+billable calls / total attempts
+
+Your platform may accidentally:
+
+exclude failed attempts
+exclude rejected calls
+exclude SIP failures
+exclude non-rated rows
+
+which destroys:
+
+ASR
+NER
+call counts
+
+and massively shrinks total CDRs.
+
+4. Vendor grouping mismatch
+
+Sippy:
+
+Callntalk/CallnTalk-PR-PR
+
+BitsAuto:
+
+Callntalk / Unknown Connection
+
+This is VERY important.
+
+That means:
+
+vendor mapping resolution is failing
+
+Possibilities:
+
+connection_id mismatch
+vendor normalization broken
+join failure
+route mapping incomplete
+missing carrier relation
+
+If the join fails:
+many CDRs may be discarded.
+
+5. "Hide entries without calls" logic implemented incorrectly
+
+Potential bad logic:
+
+Instead of:
+
+HAVING COUNT(*) > 0
+
+the platform may accidentally:
+
+WHERE billable_calls > 0
+
+which would exclude:
+
+failed attempts
+rejected calls
+FAS failures
+SIP 4xx/5xx
+
+and destroy ASR totals.
+
+6. Raw CDR source mismatch
+
+You MUST verify:
+
+both reports are querying the SAME physical source
+
+Possible mismatch:
+
+Sippy → live PostgreSQL
+BitsAuto → cached analytics snapshot
+wrong switch
+wrong partition
+wrong DB
+stale replica
+incomplete import
+What You Should Check FIRST
+Priority 1 — Remove ALL limits
+
+Search backend immediately for:
+
+LIMIT
+OFFSET
+take(
+slice(
+maxRecords
+250
+500
+1000
+
+Especially in:
+
+ASR/ACD endpoint
+analytics queries
+CDR fetch layer
+ORM pagination
+
+The exact:
+
+250
+
+strongly suggests a hard cap.
+
+Priority 2 — Compare raw SQL directly
+
+Run BOTH queries directly.
+
+Compare:
+
+total raw rows
+grouped rows
+failed calls included?
+SIP failures included?
+rejected included?
+unrated included?
+
+You need:
+
+exact SQL comparison
+
+between:
+
+Sippy native report
+BitsAuto report
+Priority 3 — Verify source table
+
+Confirm:
+
+same database
+same switch
+same timezone
+same partition
+same retention window
+Priority 4 — Verify aggregation logic
+
+Check:
+
+COUNT(*) vs COUNT(answered)
+WHERE disposition='ANSWERED'
+billable_only filters
+normalized_only filters
+Biggest Red Flag
+
+This line:
+
+250 CDRs
+
+combined with:
+
+20,232 calls in Sippy
+
+is NOT a statistical drift.
+
+That is:
+
+systemic query truncation or filtering failure
+
+and should be treated as:
+
+critical analytics integrity issue
+
+because:
+
+ASR becomes invalid
+NER becomes invalid
+Intelligence recommendations become invalid
+simulation confidence becomes invalid
+routing governance decisions become unreliable
+
+This issue must be resolved before trusting:
+
+optimization
+failover
+traffic steering
+recommendation accuracy
+
+because all higher intelligence layers depend on:
+
+correct CDR ground truth.

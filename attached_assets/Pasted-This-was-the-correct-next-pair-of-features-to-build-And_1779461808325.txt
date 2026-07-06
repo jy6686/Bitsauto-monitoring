@@ -1,0 +1,212 @@
+This was the correct next pair of features to build.
+
+And importantly:
+they were built in the correct order.
+
+Because now the platform finally understands:
+
+vendor behavior over time
+
+—not just current state.
+
+That is a major operational intelligence milestone.
+
+Most Important Achievement
+
+The strongest architectural addition is:
+
+Vendor Stability Timeline
+
+Because previously:
+the platform could tell you:
+
+“Vendor is bad right now”
+
+Now it can tell you:
+
+“Vendor has been degrading for 18 hours”
+
+or:
+
+“Vendor is oscillating every few hours”
+
+That is exponentially more operationally valuable.
+
+Why This Matters So Much
+
+Telecom routing decisions should NEVER rely on:
+
+single-point quality observations
+
+because:
+
+transient spikes happen
+routes fluctuate
+international carriers oscillate
+maintenance windows distort metrics
+
+Timeline persistence is what turns:
+
+signals
+
+into:
+
+behavioral intelligence
+
+That distinction is extremely important.
+
+Strongest Design Decisions
+1. Snapshot Timing Offset
+
+Very smart:
+
+T+5 after carrier scoring
+
+This prevents:
+
+stale captures
+race conditions
+incomplete scoring windows
+
+Excellent operational discipline.
+
+2. Stability Classification
+
+This was the most important addition.
+
+Not just:
+
+current Q
+latest delta
+
+But:
+
+stable
+degrading
+recovering
+oscillating
+
+derived from:
+
+trajectory
+variance
+snapshot history
+
+This is:
+
+vendor behavioral modeling
+
+Very important evolution.
+
+3. Oscillation Detection
+
+Extremely valuable operationally.
+
+Oscillating vendors are often:
+
+unstable carriers
+overloaded routes
+intermittent fraud paths
+poor upstream routing partners
+
+And oscillation is MUCH harder to notice manually than sustained degradation.
+
+This is high-value intelligence.
+
+4. Shared Q-Score Formula
+
+Very important.
+
+Using:
+
+the same scoring contract everywhere
+
+protects semantic consistency.
+
+That means:
+
+Prefix Intelligence
+Recommendation Engine
+Stability Timeline
+Validation Console
+
+all speak:
+
+the same operational language
+
+This is critical long-term.
+
+Incident Lifecycle Feed Was Also Extremely Valuable
+
+Because now the platform finally has:
+
+temporal operational traceability
+
+—not just current incident state.
+
+This enables:
+
+RCA timelines
+escalation analysis
+fraud persistence tracking
+recovery verification
+operator accountability
+
+Very important operational maturity step.
+
+Most Important Combined Outcome
+
+The platform now understands:
+
+Intelligence Layer	Status
+Current quality	complete
+Destination quality	complete
+Degradation	complete
+Recommendations	complete
+Validation	complete
+Incident lifecycle	complete
+Behavioral history	now complete
+
+This is now becoming:
+
+a genuine telecom operational intelligence platform
+
+—not just analytics dashboards.
+
+Correct Next Step NOW
+
+The roadmap naturally points to:
+
+Vendor RCA Drilldown
+
+because now:
+
+recommendations exist
+degradation exists
+lifecycle exists
+prefix intelligence exists
+timeline history exists
+
+So the next operational gap is:
+
+deep explainability
+
+Operators should be able to click:
+
+“Reduce priority for Vendor X”
+
+and immediately see:
+
+which prefixes degraded
+how Q changed over time
+what triggered the recommendation
+correlated incidents
+FAS behavior
+confidence evidence
+degradation sequence
+
+That becomes:
+
+operational RCA intelligence
+
+which is the correct next maturity jump.

@@ -1,0 +1,233 @@
+Client Revenue Reconciliation should be next.
+
+Because now that DMR exists, the platform already has:
+
+operational telecom economics truth.
+
+The next highest-value step is:
+
+customer-side finance validation.
+
+Acknowledgement Tracking is useful, but it is:
+
+governance enhancement.
+
+Client Revenue Reconciliation is:
+
+direct telecom finance protection.
+
+Much higher operational leverage.
+
+Why Client Revenue Reconciliation Should Come Next
+
+You now already have:
+
+Layer	Status
+Daily operational economics	✅
+Immutable finance truth	✅
+Snapshot-backed invoices	✅
+Vendor reconciliation	✅
+DMR drift detection	✅
+
+The remaining blind spot is:
+
+What the customer sees
+vs
+What BitsAuto calculated
+
+That is exactly:
+
+Client Revenue Reconciliation.
+Most Important Strategic Reason
+
+This completes:
+
+bilateral telecom reconciliation.
+
+Meaning:
+
+Direction	Covered
+Vendor → Us	✅
+Us → Customer	NEXT
+
+Once both exist:
+
+finance triangulation becomes complete.
+
+Very powerful.
+
+Why It Fits Perfectly After DMR
+
+Because DMR now provides:
+
+daily verified economics baseline.
+
+Meaning customer reconciliation can compare:
+
+Customer Billing Data
+vs
+Invoice
+vs
+DMR
+vs
+Snapshots
+
+instead of:
+
+invoice totals only.
+
+That dramatically improves dispute resolution quality.
+
+What Client Revenue Reconciliation Should Become
+
+NOT:
+
+“invoice differences table.”
+
+It should become:
+
+Customer Revenue Assurance Layer
+
+Very important framing.
+
+Recommended Architecture
+New Tables
+client_revenue_reconciliations
+client_id
+billing_period
+client_duration
+client_amount
+
+bitsauto_duration
+bitsauto_amount
+
+dmr_duration
+dmr_amount
+
+delta_duration
+delta_amount
+
+severity
+status
+reconciled_at
+Optional
+client_reconciliation_imports
+
+for:
+
+CSV
+XLSX
+API imports later.
+Most Important Workflow
+Customer Billing Data
+        ↓
+Normalize
+        ↓
+Compare Against:
+- DMR
+- Invoice
+- Snapshots
+        ↓
+Classify Drift
+        ↓
+Finance Review Queue
+        ↓
+Recalculate If Needed
+        ↓
+Approve Invoice
+
+That becomes:
+
+telecom customer billing governance.
+Most Important UI Feature
+
+The:
+
+discrepancies-only queue
+
+must remain primary.
+
+Exactly like the screenshots.
+
+Finance teams operate:
+
+by exception management.
+Recalculate Workflow
+
+(Very important)
+
+Should now become:
+
+Recalculate DMR
+→ rerun verification
+→ regenerate invoice preview
+→ rerun reconciliation
+
+NOT:
+
+manual invoice edits.
+
+Very important operational principle.
+
+Why Acknowledgement Tracking Should Wait Slightly
+
+Because:
+
+communication governance already works,
+delivery tracking already exists,
+draft governance already exists.
+
+Acknowledgement tracking improves:
+
+legal/commercial defensibility.
+
+But Client Revenue Reconciliation improves:
+
+telecom finance correctness itself.
+
+That is more strategically important right now.
+
+Recommended Sequence
+NEXT
+Client Revenue Reconciliation
+
+Build:
+
+import layer,
+comparison engine,
+discrepancy queue,
+recalculation workflow,
+approval linkage.
+THEN
+Acknowledgement Tracking
+
+Very fast build afterward.
+
+Likely:
+
+tracking pixel,
+open webhook,
+acknowledge endpoint,
+opened_at / acknowledged_at.
+
+Small scope now.
+
+MOST IMPORTANT PLATFORM EVOLUTION
+
+Once Client Revenue Reconciliation exists:
+
+BitsAuto officially becomes:
+
+Full Telecom Revenue Assurance Platform
+
+because it will now validate:
+
+Economics Layer	Status
+Tariff Truth	✅
+Daily Operations Truth	✅
+Vendor Finance Truth	✅
+Customer Finance Truth	NEXT
+Invoice Truth	✅
+Snapshot Truth	✅
+
+That is enterprise telecom finance maturity.

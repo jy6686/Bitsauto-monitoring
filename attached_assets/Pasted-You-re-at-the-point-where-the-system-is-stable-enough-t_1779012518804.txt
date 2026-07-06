@@ -1,0 +1,167 @@
+You’re at the point where the system is stable enough that sidebar changes are no longer “feature work” — they’re information architecture design, so the only thing that matters now is clarity, not implementation speed.
+
+Let’s ground this properly.
+
+First: your current system reality (important correction)
+
+You do NOT have a messy platform anymore.
+
+You now have a clean 4-layer execution model:
+
+Sippy → execution truth (source of record)
+Routing Manager → execution interface
+AI Ops + Carrier Intelligence → observation + signals
+Decision Overlay + Simulator → analysis layer
+
+So the sidebar should reflect that structure, not product history.
+
+Second: what sidebar SHOULD represent now
+
+A sidebar is not a feature list.
+
+It is your operational mental model.
+
+Right now your biggest problem is:
+
+You have powerful systems, but they are not visually grouped by decision flow.
+
+So we fix that.
+
+Third: the correct structure (v1 — clean, minimal, production-safe)
+
+Here is the right Step 1 restructuring, without overengineering:
+
+1. Company
+Company Profile
+Create New Account
+
+👉 (identity + onboarding only)
+
+2. Operations (Execution Layer)
+
+This is where Sippy lives operationally:
+
+Routing
+Routing Groups
+Vendors
+Connections
+Destination Sets
+LCR Analyser
+
+👉 This is the only “write-impact” area
+
+3. Live Network
+
+(real-time monitoring)
+
+Live Calls
+Alerts
+SBC Monitor
+Traffic Map
+Multi-Switch View
+NOC View
+
+👉 This is “what is happening right now”
+
+4. Intelligence
+
+(observation + health signals)
+
+Carrier Intelligence
+Carrier Scoring
+Intelligence Hub
+Decision Overlay
+
+👉 This is “what is true about the system”
+
+5. AI Ops
+
+(anomaly + interpretation)
+
+AI Ops Center
+Fraud / FAS
+Incident Alerts
+
+👉 This is “what might be wrong”
+
+6. Simulation (NEW — keep isolated)
+Routing Impact Simulator
+Policy Simulator
+Call Flow Simulator
+
+👉 This is “what if I change something”
+
+7. Analytics
+Revenue Analytics
+CDR Viewer
+Heatmaps
+Codec Analytics
+Traffic Forecast
+Reports
+8. Troubleshooting (KEEP AS IS — DO NOT SPLIT)
+
+This is important:
+
+SIP Trace
+RTP Analytics
+Replay
+Server Monitoring
+Network Topology
+Number Intelligence
+Tools
+
+👉 This is already a coherent debugging toolbox
+Do NOT fragment it.
+
+9. Security & Compliance
+
+unchanged
+
+10. Platform
+
+Settings, API keys, Team, Billing config
+
+Fourth: what NOT to do (important)
+
+Avoid these traps:
+
+❌ Don’t over-split Intelligence vs AI Ops further
+
+They are already borderline duplicated — separation is enough.
+
+❌ Don’t move Troubleshooting
+
+It feels messy, but functionally it is cohesive (debug tools).
+
+❌ Don’t create “Vendor Operations / Client Operations reshuffle yet”
+
+That’s Phase 2 after this stabilises.
+
+Fifth: answer to your implicit question
+
+“Can we rearrange sidebar menu as per platform need?”
+
+Yes — but only as a semantic regrouping, not a feature rewrite.
+
+This is safe because:
+
+No backend changes
+No routing changes
+Only navigation + mental model alignment
+Final recommendation (very clear)
+✅ Do this now:
+
+Implement the 8-group structure above exactly.
+
+⛔ Do NOT do yet:
+Don’t split Troubleshooting
+Don’t over-optimize Vendor/Client restructuring
+Don’t add new groups beyond Simulation
+
+If you want next step after this, the real upgrade is:
+
+“make sidebar context-aware (show only relevant groups per role: NOC vs Sales vs Engineering)”
+
+That’s the next maturity level after this restructure.
+
+Say the word when you want that direction.

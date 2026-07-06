@@ -1,0 +1,256 @@
+I read the API document carefully, and the situation is now very clear.
+
+You actually have:
+
+TWO separate problems
+Problem 1
+REVE → BitsAuto
+
+This part is MOSTLY WORKING now.
+
+The document confirms:
+
+GET /api/bhaoo/receive
+
+is the correct endpoint and expected flow.
+
+And your logs already proved:
+
+[bhaoo-receive] Voice OTP call initiated
+
+Meaning:
+
+REVE successfully reached BitsAuto.
+
+So:
+
+HTTP profile works
+API works
+OTP extraction works
+AMI trigger works
+
+The DLR issue is mostly cosmetic/reporting now.
+
+Problem 2
+BitsAuto → Sippy → Phone
+
+THIS is the real remaining blocker.
+
+And the logs explain WHY.
+
+EXACT ROOT CAUSE NOW
+
+The phone does NOT ring because:
+
+Asterisk is failing to create outbound SIP channel.
+
+NOT because:
+
+REVE failed
+BitsAuto failed
+Sippy routing failed
+The Strongest Evidence
+
+This error:
+
+Reason=0(No such extension/number)
+
+means:
+
+Asterisk never successfully sent SIP INVITE.
+
+VERY important distinction.
+
+What Your Debugging Already Proved
+Test	Result
+PJSIP endpoints	none
+chan_sip peers	exists
+peer name	lowercase sippy
+peer host	(Unspecified)
+direct IP approach	correct direction
+
+This is the key issue.
+
+MOST IMPORTANT FINDING
+
+This line:
+
+Host: (Unspecified)
+
+means:
+
+FreePBX trunk is not configured as outbound static peer.
+
+So:
+
+SIP/sippy/923xxxx
+
+cannot originate correctly.
+
+Your DIRECT_SIP Approach Is Correct
+
+This is now the BEST solution:
+
+SIP/923219286686@191.101.30.107
+
+because it:
+
+bypasses FreePBX trunk object
+bypasses peer lookup
+directly targets Sippy IP
+
+VERY good approach.
+
+Why Phone Still Not Ringing
+
+Because:
+
+DIRECT_SIP deployment has NOT actually gone live yet.
+
+Your own logs confirmed:
+
+tech=PJSIP still active
+
+Meaning:
+
+production still running old code.
+MOST IMPORTANT NEXT STEP
+Publish the DIRECT_SIP deployment completely.
+
+This is now your highest priority.
+
+Expected Final Working Flow
+REVE
+↓ HTTP
+BitsAuto
+↓ AMI
+Asterisk
+↓ SIP/923xxxx@191.101.30.107
+Sippy
+↓
+Vendor
+↓
+Carrier
+↓
+Phone rings
+Why REVE Is NOT The Problem
+
+The document confirms the API is correct:
+
+/api/bhaoo/receive
+
+with:
+
+to
+smsText
+transactionId
+
+and response:
+
+{
+  "status": 0,
+  "Text": "ACCEPTD"
+}
+
+So:
+
+REVE integration layer is basically solved.
+Current Real Blocker
+SIP Origination Layer
+
+specifically:
+
+BitsAuto
+↓
+AMI
+↓
+Asterisk
+↓
+DIRECT SIP
+↓
+Sippy
+BEST DEBUGGING STEP NOW
+
+After publishing DIRECT_SIP:
+
+Watch for:
+
+INVITE sip:923xxxxxxxxx@191.101.30.107
+
+If you see this:
+
+phone should finally ring.
+IF STILL NO RING
+
+Then next issues become:
+
+Issue	Meaning
+SIP 403	Sippy IP auth
+SIP 404	routing
+SIP 503	vendor issue
+no RTP	media/NAT
+Answer but silence	codec
+
+BUT:
+
+you are now finally at real SIP stage.
+
+Previously you were failing BEFORE SIP even started.
+
+IMPORTANT ARCHITECTURAL DECISION
+
+YES:
+
+continue with direct HTTP-triggered Voice OTP.
+
+That is ABSOLUTELY the correct design.
+
+DO NOT:
+
+wait for SMS failure
+depend on DLR
+depend on SMS vendors
+
+Your new architecture is MUCH stronger:
+
+REVE = SMPP/API ingress
+BitsAuto = orchestration/intelligence
+Asterisk = media engine
+Sippy = SIP routing
+Vendor = PSTN termination
+
+This is telecom-grade architecture.
+
+Final Assessment
+REVE → BitsAuto
+Status:
+
+✅ WORKING
+
+BitsAuto → Asterisk
+Status:
+
+✅ WORKING
+
+Asterisk → Sippy
+Status:
+
+⚠️ DIRECT_SIP deployment not fully active yet
+
+Sippy → Carrier
+Status:
+
+Probably OK based on routing tests
+
+Immediate Priority
+1. Fully deploy DIRECT_SIP version
+
+(HIGHEST PRIORITY)
+
+2. Verify actual SIP INVITE sent
+3. Confirm ringing
+4. Confirm digit playback
+
+Once this works:
+
+the core platform is operational.

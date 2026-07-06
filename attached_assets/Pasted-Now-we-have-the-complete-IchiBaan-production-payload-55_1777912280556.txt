@@ -1,0 +1,31 @@
+Now we have the complete IchiBaan production payload — 55 fields, all at once. The key insight: they send ALL contact/address fields from the start, not iteratively. Our v3.04b's iterative approach may have caused the city 501. Let me build v3.05 with the exact complete payload sent all at once:
+
+
+3 actions
+501 again with the full payload. But we know from v3.04b that fields up through bcc all gave clean 400s — then city caused the 501. Let me do a surgical test: the complete IchiBaan payload without city, then if that works, try with city to confirm it's the culprit:
+
+
+2 actions
+Confirmed: city is the 501 trigger. Without it → clean 400 "city is required". With it → 501 crash. The IchiBaan team sends city: "" and it works on their instance. Two possibilities: (1) our serializer encodes empty strings differently, or (2) the Sippy instance differs. Let me test with a non-empty city value to isolate:
+
+
+2 actions
+All three city values crash — "Houston", "N/A", " " — all 501. This is NOT a serialization issue. The city field itself crashes the Sippy Python handler on your instance regardless of what value we send. Same broken-record pattern as commission agents.
+
+Here's the complete picture:
+
+Test	city value	Result
+v3.05b-A	omitted	400 "city is required"
+v3.05b-B	""	501 Fatal error
+v3.05c	"Houston"	501 Fatal error
+v3.05c	"N/A"	501 Fatal error
+v3.05c	" "	501 Fatal error
+The city field is REQUIRED but BROKEN — exactly like the commission agents and (originally) the password policy. The IchiBaan team sends city: "" and it works fine on their Sippy instance, which means their Sippy installation doesn't have this server-side crash.
+
+Root cause: Something in your Sippy instance's Python handler crashes when it tries to process the city field — likely a broken database record, a missing table, or a corrupted configuration that the city processing code depends on. This is a server-side Sippy issue, not a payload issue.
+
+What you need to ask the IchiBaan team or your Sippy admin:
+
+Our Sippy server crashes (501 Fatal error) whenever the city field is included in createAccount, regardless of value ("Houston", empty string, "N/A" — all crash). Without city, the server says "city is required." So city is required but broken. Can you check if there's a broken configuration, missing table, or corrupt data on our Sippy instance related to city/address handling? This is the same pattern we saw with commission agents.
+
+HOLDING per packet discipline. We're 54 fields deep and the payload is correct — the blocker is server-side city handling on your Sippy instance.

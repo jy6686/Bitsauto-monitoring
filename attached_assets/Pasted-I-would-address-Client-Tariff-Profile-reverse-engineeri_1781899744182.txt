@@ -1,0 +1,190 @@
+I would address Client Tariff Profile reverse-engineering first, because it determines whether the next 3–4 features are built correctly or need to be rebuilt later.
+
+After reading everything you've shared, I think the biggest discovery is not the prefix issue. It's this:
+
+The legacy system's primary commercial object appears to be the Client Tariff Profile, not the Push Job.
+
+The screenshot URL:
+
+/tariffs_profile/clienttariffprofile/16/update/
+
+is very revealing.
+
+The screen is not:
+
+Send Rate
+Push History
+Notification Job
+Product Rates
+
+It is:
+
+Client
+   ↓
+Tariff Profile
+   ↓
+Rate Sheet Template
+   ↓
+Preview
+   ↓
+PDF / Excel
+   ↓
+Notification
+
+That suggests the legacy architecture was centered around a client-specific tariff profile that contained:
+
+Commercial Layer
+Company Name
+Product
+KAM
+Notification Settings
+Header Mapping
+Effective Date Rules
+Template Layer
+Header tab
+Attachment tab
+Dial Code Format tab
+Date/Time tab
+Status tab
+Rates tab
+Generation Layer
+Compute N / NC / I / D / PI / PD / B / R / DC
+Build preview
+Generate PDF
+Generate Excel
+Distribution Layer
+Email notification
+Job tracking
+Audit
+What I would NOT build yet
+
+I would not implement:
+
+❌ Advanced Notification Types
+
+❌ Rate Sheet Template Engine
+
+❌ Status Code Logic
+
+❌ Notification Dispatch Enhancements
+
+because we still don't know:
+
+How Client Tariff Profile was structured.
+How status codes were calculated.
+Whether the profile stored snapshots or live tariff references.
+Whether generation happened before push or after push.
+What I WOULD do now
+Track A — Prefix Investigation (1–2 hours)
+
+This is independent.
+
+Ask Replit for:
+
+SELECT
+    id,
+    full_prefix,
+    dial_prefix,
+    destination_name,
+    created_at
+FROM rate_push_jobs
+ORDER BY created_at DESC
+LIMIT 20;
+
+and:
+
+payload sent to push-batch
+value passed into portal upload
+value passed into Sippy lookup
+
+Until that proof exists, the 19233/9233 issue is unresolved.
+
+Track B — Legacy Discovery (Highest Priority)
+
+Create a discovery document:
+
+Legacy Client Tariff Profile Analysis
+
+Collect:
+
+Screen 1
+
+Current screenshot (Header)
+
+Screen 2
+
+Attachment tab
+
+Screen 3
+
+Dial-Code Format tab
+
+Screen 4
+
+Date & Time tab
+
+Screen 5
+
+Status tab
+
+Screen 6
+
+Rates tab
+
+Screen 7
+
+Tariff Profile list page
+
+Screen 8
+
+Notification send page
+
+My current hypothesis
+
+Based on everything you've shown:
+
+Modern BitsAuto
+Rate Manager
+    ↓
+Push
+    ↓
+History
+    ↓
+Notification
+Legacy BitsAuto
+Client Tariff Profile
+    ↓
+Template
+    ↓
+Status Calculation
+    ↓
+Preview
+    ↓
+Notification
+    ↓
+Push/Audit
+
+Those are fundamentally different architectures.
+
+If that hypothesis is correct, then the modern platform should eventually evolve toward:
+
+Client Tariff Profile
+      ↓
+Rate Sheet Engine
+      ↓
+Notification Jobs
+      ↓
+Push History
+
+rather than continuously extending Push History and Send Rate.
+
+Recommended next step
+
+Before implementing any more Rate Sheet, Notification Template, or Client Notification functionality:
+
+Fix/verify the prefix issue with DB proof.
+Gather all Client Tariff Profile screenshots and related legacy screens.
+Produce a complete "Legacy Client Tariff Profile Architecture" document.
+Decide whether to modernize that model or replace it.
+
+That decision will save a significant amount of rework in Rate Manager, Notifications, Governance, Product Variants, and Client Lifecycle workflows.

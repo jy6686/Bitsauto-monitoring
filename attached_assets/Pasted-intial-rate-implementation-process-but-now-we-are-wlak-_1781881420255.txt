@@ -1,0 +1,3783 @@
+intial rate implementation process but now we are wlak here and there
+
+
+
+Rate Management & Automation Requirements
+
+
+
+1.⁠ ⁠Rate Sheet Reception & Parsing
+
+
+
+A centralized Rate Management module should be implemented to automate vendor rate sheet processing.
+
+
+
+Required Features
+
+
+
+•⁠  ⁠Dedicated email address for receiving vendor rate sheets (e.g., rates@company.com).
+
+•⁠  ⁠Automatic monitoring of incoming rate sheet emails.
+
+•⁠  ⁠Support for multiple formats:
+
+    * XLS/XLSX
+
+    * CSV
+
+    * TXT
+
+    * Vendor-specific custom formats
+
+•⁠  ⁠Intelligent parser to convert vendor formats into the platform’s standard rate format.
+
+•⁠  ⁠Validation checks before import.
+
+•⁠  ⁠Preview screen showing:
+
+    * New destinations
+
+    * Updated destinations
+
+    * Increased rates
+
+    * Decreased rates
+
+    * Invalid records
+
+
+
+Missing Features
+
+
+
+•⁠  ⁠Automatic email retrieval and parsing.
+
+•⁠  ⁠Format conversion engine.
+
+•⁠  ⁠Vendor-specific parsing templates.
+
+•⁠  ⁠Automated destination matching.
+
+
+
+⸻
+
+
+
+2.⁠ ⁠Vendor Rate Update Automation
+
+
+
+When a vendor rate sheet is approved:
+
+
+
+•⁠  ⁠Automatically update all destination sets linked to the vendor.
+
+•⁠  ⁠Update all routes and connections using the same destination set.
+
+•⁠  ⁠Generate audit logs showing:
+
+    * Previous rate
+
+    * New rate
+
+    * User
+
+    * Date & Time
+
+
+
+⸻
+
+
+
+3.⁠ ⁠Historical Rate Repository
+
+
+
+The platform should maintain a complete history of all rates.
+
+
+
+Features
+
+
+
+•⁠  ⁠Store all previous rate sheets.
+
+•⁠  ⁠Track rate changes over time.
+
+•⁠  ⁠Display:
+
+    * Current Rate
+
+    * Previous Rate
+
+    * Difference
+
+    * Percentage Increase/Decrease
+
+    * Effective Date
+
+
+
+Benefits
+
+
+
+When preparing a quote for a client, the system should instantly show:
+
+
+
+•⁠  ⁠Last offered rate.
+
+•⁠  ⁠Current cost.
+
+•⁠  ⁠Margin analysis.
+
+•⁠  ⁠Increase or decrease compared to previous pricing.
+
+
+
+⸻
+
+
+
+4.⁠ ⁠Client Rate Generation Module
+
+
+
+A pricing engine should be available for generating customer rate sheets.
+
+
+
+Features
+
+
+
+•⁠  ⁠Generate rates from:
+
+    * Wholesale pricing tables
+
+    * Retail pricing tables
+
+    * Custom pricing plans
+
+•⁠  ⁠Save generated pricing templates.
+
+•⁠  ⁠Reuse existing pricing plans for future customers.
+
+•⁠  ⁠Export to:
+
+    * Excel
+
+    * CSV
+
+    * PDF
+
+
+
+⸻
+
+
+
+5.⁠ ⁠Pricing Protection & Loss Prevention Rules
+
+
+
+To avoid accidental losses, pricing validation rules should be enforced.
+
+
+
+Example
+
+
+
+If cost = $1.00
+
+
+
+The system should not allow:
+
+
+
+•⁠  ⁠$0.01
+
+•⁠  ⁠$0.05
+
+
+
+Without management approval.
+
+
+
+Required Rules
+
+
+
+Rate Decrease Validation
+
+
+
+•⁠  ⁠New rate cannot be reduced by more than 50%.
+
+•⁠  ⁠If exceeded:
+
+    * Import fails.
+
+    * Approval workflow is triggered.
+
+
+
+Rate Increase Validation
+
+
+
+•⁠  ⁠Rate increase should be scheduled.
+
+•⁠  ⁠Effective date must be at least 7 days in the future.
+
+•⁠  ⁠Customers receive advance notification.
+
+
+
+Margin Protection
+
+
+
+•⁠  ⁠Minimum margin rules.
+
+•⁠  ⁠Cost + minimum markup validation.
+
+•⁠  ⁠Hard stop if margin becomes negative.
+
+
+
+⸻
+
+
+
+6.⁠ ⁠Email Routing Configuration
+
+
+
+A centralized Email Configuration page should be created.
+
+
+
+Examples
+
+
+
+Billing
+
+
+
+billing@company.com
+
+
+
+Invoices
+
+
+
+invoice@company.com
+
+
+
+Vendor Rates
+
+
+
+rates@company.com
+
+
+
+Retail Pricing
+
+
+
+pricing@company.com
+
+
+
+Notifications
+
+
+
+alerts@company.com
+
+
+
+Features
+
+
+
+•⁠  ⁠Configure sender addresses.
+
+•⁠  ⁠Configure recipient groups.
+
+•⁠  ⁠Define workflows per mailbox.
+
+
+
+⸻
+
+
+
+7.⁠ ⁠Approval Workflow
+
+
+
+Before implementing rate changes:
+
+
+
+Auto Approve
+
+
+
+•⁠  ⁠Small changes within allowed threshold.
+
+
+
+Manual Approval
+
+
+
+Required when:
+
+
+
+•⁠  ⁠Rate decreases exceed configured limits.
+
+•⁠  ⁠Margin falls below minimum threshold.
+
+•⁠  ⁠Large destination volume is affected.
+
+
+
+⸻
+
+
+
+8.⁠ ⁠Reporting & Audit Trail
+
+
+
+Provide complete visibility into pricing changes.
+
+
+
+Reports
+
+
+
+•⁠  ⁠Rate Increase Report
+
+•⁠  ⁠Rate Decrease Report
+
+•⁠  ⁠Margin Impact Report
+
+•⁠  ⁠Vendor Update History
+
+•⁠  ⁠Customer Pricing History
+
+
+
+Audit Logs
+
+
+
+Track:
+
+
+
+•⁠  ⁠User
+
+•⁠  ⁠Date
+
+•⁠  ⁠Previous Value
+
+•⁠  ⁠New Value
+
+•⁠  ⁠Approval Status
+
+
+
+⸻
+
+
+
+Expected Outcome
+
+
+
+The platform should provide a fully automated rate lifecycle management system that:
+
+
+
+•⁠  ⁠Receives vendor rates automatically.
+
+•⁠  ⁠Parses and validates incoming rate sheets.
+
+•⁠  ⁠Prevents pricing mistakes and revenue loss.
+
+•⁠  ⁠Maintains historical pricing records.
+
+•⁠  ⁠Generates client pricing automatically.
+
+•⁠  ⁠Updates all linked routes and destination sets.
+
+•⁠  ⁠Provides approval workflows and audit trails.
+
+•⁠  ⁠Centralizes billing, pricing, invoice, and rate management emails.
+
+This feature set is commonly available in carrier-grade VoIP/SMS platforms such as Oculeus, NetSapiens, PortaOne, and iTel Billing. Implementing similar functionality would enable the Achiban Logic platform to have a comprehensive and robust Rate Management module capable of automating rate processing, validation, pricing control, and customer rate generation.
+
+Product-Based Rate Management & Client Notification Requirements
+
+
+
+ 1.⁠ ⁠Product Classification Framework
+
+
+
+The platform should support multiple products under the same customer tariff.
+
+
+
+Example Products
+
+
+
+•⁠  ⁠First Class
+
+•⁠  ⁠Business Class
+
+•⁠  ⁠Special Bravo
+
+•⁠  ⁠Special Charlie
+
+
+
+Each product must have:
+
+
+
+•⁠  ⁠Unique Product ID
+
+•⁠  ⁠Product Name
+
+•⁠  ⁠Product Description
+
+•⁠  ⁠Product Type
+
+•⁠  ⁠Product-Specific Rate Sheet
+
+•⁠  ⁠Product-Specific Effective Dates
+
+
+
+⸻
+
+
+
+ 2.⁠ ⁠Customer Tariff Structure
+
+
+
+A customer should have a single tariff profile.
+
+
+
+Example
+
+
+
+Customer: Junaid
+
+
+
+Tariff: Junaid Wholesale
+
+
+
+Products within Tariff:
+
+
+
+•⁠  ⁠First Class
+
+•⁠  ⁠Business Class
+
+•⁠  ⁠Special Bravo
+
+•⁠  ⁠Special Charlie
+
+
+
+The tariff remains the same, but each product maintains its own independent rate sheet.
+
+
+
+Example
+
+
+
+Pakistan Mobile
+
+
+
+First Class = 0.0200
+
+
+
+Business Class = 0.0180
+
+
+
+Special Bravo = 0.0160
+
+
+
+Special Charlie = 0.0140
+
+
+
+The same destination appears multiple times within the tariff, one entry for each product.
+
+
+
+⸻
+
+
+
+ 3.⁠ ⁠Product Identification & Documentation
+
+
+
+The system should clearly indicate:
+
+
+
+•⁠  ⁠Which destination belongs to which product.
+
+•⁠  ⁠Which rate sheet was used.
+
+•⁠  ⁠Which vendor supplied the rate.
+
+•⁠  ⁠Which customer rate was generated from that product.
+
+
+
+Users should be able to view:
+
+
+
+•⁠  ⁠Product Name
+
+•⁠  ⁠Last Updated Date
+
+•⁠  ⁠Previous Rate
+
+•⁠  ⁠Current Rate
+
+•⁠  ⁠Vendor Source
+
+•⁠  ⁠Customer Rate History
+
+
+
+⸻
+
+
+
+ 4.⁠ ⁠Product-Based Rate Repository
+
+
+
+The platform should store rate sheets separately for each product.
+
+
+
+Example
+
+
+
+Pakistan Mobile
+
+
+
+Rate Sheet:
+
+
+
+•⁠  ⁠First Class
+
+•⁠  ⁠Business Class
+
+•⁠  ⁠Special Bravo
+
+•⁠  ⁠Special Charlie
+
+
+
+Each rate sheet should be maintained independently.
+
+
+
+The database must retain:
+
+
+
+•⁠  ⁠Historical rates
+
+•⁠  ⁠Effective dates
+
+•⁠  ⁠Previous versions
+
+•⁠  ⁠Change history
+
+
+
+⸻
+
+
+
+ 5.⁠ ⁠Rate History & Audit Tracking
+
+
+
+For every destination and product, the platform should record:
+
+
+
+•⁠  ⁠Last Offered Rate
+
+•⁠  ⁠Offer Date
+
+•⁠  ⁠Current Rate
+
+•⁠  ⁠Previous Rate
+
+•⁠  ⁠Rate Increase
+
+•⁠  ⁠Rate Decrease
+
+•⁠  ⁠Customer Name
+
+•⁠  ⁠User Name
+
+
+
+Example
+
+
+
+Pakistan Mobile
+
+
+
+Product: Business Class
+
+
+
+Customer Rate Sent:
+
+
+
+•⁠  ⁠January 2026 = 0.0180
+
+•⁠  ⁠March 2026 = 0.0190
+
+•⁠  ⁠June 2026 = 0.0210
+
+
+
+Users should instantly see the complete history.
+
+
+
+⸻
+
+
+
+ 6.⁠ ⁠Automated Customer Impact Analysis
+
+
+
+When vendor rates change, the system should automatically identify affected customers.
+
+
+
+Example
+
+
+
+Vendor Rate
+
+
+
+Previous:
+
+0.0180
+
+
+
+New:
+
+0.0190
+
+
+
+Effective:
+
+7 Days
+
+
+
+The system should automatically compare:
+
+
+
+•⁠  ⁠Customer Selling Rate
+
+•⁠  ⁠Current Cost
+
+•⁠  ⁠Margin
+
+•⁠  ⁠Effective Date
+
+
+
+⸻
+
+
+
+ 7.⁠ ⁠Seven-Day Rate Increase Notification Engine
+
+
+
+Wholesale customers typically require 7-day advance notice.
+
+
+
+The platform should automatically generate alerts when vendor rate increases are received.
+
+
+
+Alert Conditions
+
+
+
+Vendor submits:
+
+
+
+Pakistan Mobile
+
+
+
+Current Cost:
+
+0.0180
+
+
+
+New Cost:
+
+0.0190
+
+
+
+Effective:
+
+7 Days
+
+
+
+The system should:
+
+
+
+•⁠  ⁠Identify impacted customers.
+
+•⁠  ⁠Calculate new margins.
+
+•⁠  ⁠Determine whether customer rates require adjustment.
+
+•⁠  ⁠Generate notification tasks.
+
+
+
+⸻
+
+
+
+ 8.⁠ ⁠Smart Alert Logic
+
+
+
+Alerts should only be generated when action is required.
+
+
+
+Example 1
+
+
+
+Customer Rate:
+
+0.0250
+
+
+
+New Vendor Cost:
+
+0.0190
+
+
+
+Margin remains sufficient.
+
+
+
+Result:
+
+No alert required.
+
+
+
+Example 2
+
+
+
+Customer Rate:
+
+0.0191
+
+
+
+New Vendor Cost:
+
+0.0190
+
+
+
+Margin becomes critically low.
+
+
+
+Result:
+
+Alert required.
+
+
+
+Example 3
+
+
+
+Customer already received updated pricing.
+
+
+
+Result:
+
+No duplicate alert generated.
+
+
+
+⸻
+
+
+
+ 9.⁠ ⁠Customer Rate Recommendation List
+
+
+
+Seven days before implementation, the platform should generate a list showing:
+
+
+
+•⁠  ⁠Customer Name
+
+•⁠  ⁠Product Name
+
+•⁠  ⁠Destination
+
+•⁠  ⁠Current Customer Rate
+
+•⁠  ⁠New Recommended Rate
+
+•⁠  ⁠Vendor Increase Amount
+
+•⁠  ⁠Effective Date
+
+•⁠  ⁠Margin Impact
+
+
+
+This becomes the operational work queue for the pricing team.
+
+
+
+⸻
+
+
+
+10.⁠ ⁠Rate Sheet Distribution Management
+
+
+
+The platform should automatically prepare customer-specific rate sheets.
+
+
+
+Features:
+
+
+
+•⁠  ⁠Product-based exports.
+
+•⁠  ⁠Customer-specific pricing.
+
+•⁠  ⁠Wholesale pricing.
+
+•⁠  ⁠Retail pricing.
+
+•⁠  ⁠Scheduled distribution.
+
+•⁠  ⁠Email delivery.
+
+•⁠  ⁠Approval workflow before sending.
+
+
+
+⸻
+
+
+
+Expected Outcome
+
+
+
+The platform should function as a complete Product-Based Pricing Management System that:
+
+
+
+•⁠  ⁠Maintains separate rate sheets for each product.
+
+•⁠  ⁠Stores full historical pricing records.
+
+•⁠  ⁠Tracks customer rate offers and revisions.
+
+•⁠  ⁠Identifies affected customers when vendor costs increase.
+
+•⁠  ⁠Generates automatic 7-day advance notice alerts.
+
+•⁠  ⁠Prevents duplicate notifications.
+
+•⁠  ⁠Provides product-level visibility and reporting.
+
+•⁠  ⁠Enables efficient wholesale and retail rate management.
+
+Voice Trading Desk Requirements
+
+
+
+Overview
+
+
+
+The platform should include a dedicated Voice Trading Desk module to manage voice wholesale operations, vendor negotiations, customer pricing, routing decisions, quality monitoring, and commercial performance from a single interface.
+
+
+
+The Voice Trading Desk should act as the operational hub between:
+
+
+
+•⁠  ⁠Vendors
+
+•⁠  ⁠Customers
+
+•⁠  ⁠Routing Team
+
+•⁠  ⁠NOC Team
+
+•⁠  ⁠Billing Team
+
+•⁠  ⁠Management
+
+
+
+⸻
+
+
+
+ 1.⁠ ⁠Trading Dashboard
+
+
+
+A real-time dashboard displaying:
+
+
+
+Commercial KPIs
+
+
+
+•⁠  ⁠Revenue
+
+•⁠  ⁠Cost
+
+•⁠  ⁠Profit
+
+•⁠  ⁠Margin %
+
+•⁠  ⁠Minutes
+
+•⁠  ⁠ASR
+
+•⁠  ⁠ACD
+
+•⁠  ⁠CPS
+
+•⁠  ⁠Concurrent Calls
+
+
+
+Operational KPIs
+
+
+
+•⁠  ⁠Active Routes
+
+•⁠  ⁠Route Quality Status
+
+•⁠  ⁠Rate Changes Pending
+
+•⁠  ⁠Customer Requests
+
+•⁠  ⁠Vendor Requests
+
+•⁠  ⁠Open Tickets
+
+
+
+⸻
+
+
+
+ 2.⁠ ⁠Vendor Management
+
+
+
+Maintain a complete vendor database.
+
+
+
+Vendor Profile
+
+
+
+•⁠  ⁠Company Name
+
+•⁠  ⁠Contact Details
+
+•⁠  ⁠NOC Contacts
+
+•⁠  ⁠Commercial Contacts
+
+•⁠  ⁠Billing Contacts
+
+•⁠  ⁠Test Numbers
+
+•⁠  ⁠SIP Information
+
+•⁠  ⁠IP Addresses
+
+•⁠  ⁠Payment Terms
+
+•⁠  ⁠Currency
+
+•⁠  ⁠Credit Limit
+
+
+
+Vendor Documents
+
+
+
+•⁠  ⁠Agreement
+
+•⁠  ⁠Rate Sheets
+
+•⁠  ⁠KYC Documents
+
+•⁠  ⁠Tax Documents
+
+
+
+⸻
+
+
+
+ 3.⁠ ⁠Customer Management
+
+
+
+Maintain a complete customer profile.
+
+
+
+Customer Profile
+
+
+
+•⁠  ⁠Company Name
+
+•⁠  ⁠Trading Name
+
+•⁠  ⁠Technical Contacts
+
+•⁠  ⁠Billing Contacts
+
+•⁠  ⁠Account Manager
+
+•⁠  ⁠Product Assignments
+
+•⁠  ⁠Tariffs
+
+•⁠  ⁠Credit Limits
+
+•⁠  ⁠Payment Terms
+
+
+
+⸻
+
+
+
+ 4.⁠ ⁠Route Inventory Management
+
+
+
+A central route repository.
+
+
+
+Route Details
+
+
+
+•⁠  ⁠Destination
+
+•⁠  ⁠Product
+
+•⁠  ⁠Vendor
+
+•⁠  ⁠Cost
+
+•⁠  ⁠Selling Price
+
+•⁠  ⁠Margin
+
+•⁠  ⁠Route Status
+
+
+
+Examples:
+
+
+
+•⁠  ⁠First Class
+
+•⁠  ⁠Business Class
+
+•⁠  ⁠Special Bravo
+
+•⁠  ⁠Special Charlie
+
+
+
+The trading team should instantly see:
+
+
+
+•⁠  ⁠Available routes
+
+•⁠  ⁠Best routes
+
+•⁠  ⁠Backup routes
+
+•⁠  ⁠Quality score
+
+
+
+⸻
+
+
+
+ 5.⁠ ⁠Rate Management Integration
+
+
+
+Integrated with the Rate Management module.
+
+
+
+Features
+
+
+
+•⁠  ⁠Vendor rate imports
+
+•⁠  ⁠Product-specific rates
+
+•⁠  ⁠Historical rates
+
+•⁠  ⁠Margin calculations
+
+•⁠  ⁠Customer pricing generation
+
+•⁠  ⁠Rate comparison
+
+
+
+⸻
+
+
+
+ 6.⁠ ⁠Route Trading Board
+
+
+
+A live trading board showing:
+
+
+
+Vendor Side
+
+
+
+•⁠  ⁠Current Cost
+
+•⁠  ⁠Previous Cost
+
+•⁠  ⁠Increase/Decrease
+
+•⁠  ⁠Effective Date
+
+
+
+Customer Side
+
+
+
+•⁠  ⁠Current Selling Price
+
+•⁠  ⁠Previous Selling Price
+
+•⁠  ⁠Margin Impact
+
+
+
+This allows traders to make immediate pricing decisions.
+
+
+
+⸻
+
+
+
+ 7.⁠ ⁠Deal Management
+
+
+
+Track commercial negotiations.
+
+
+
+Deal Record
+
+
+
+•⁠  ⁠Customer
+
+•⁠  ⁠Destination
+
+•⁠  ⁠Product
+
+•⁠  ⁠Requested Rate
+
+•⁠  ⁠Offered Rate
+
+•⁠  ⁠Approved Rate
+
+•⁠  ⁠Status
+
+
+
+Statuses:
+
+
+
+•⁠  ⁠New
+
+•⁠  ⁠Negotiating
+
+•⁠  ⁠Approved
+
+•⁠  ⁠Rejected
+
+•⁠  ⁠Implemented
+
+
+
+⸻
+
+
+
+ 8.⁠ ⁠Testing & Route Qualification
+
+
+
+Integrated testing workflow.
+
+
+
+Testing Requests
+
+
+
+•⁠  ⁠Send Test
+
+•⁠  ⁠Receive Test Results
+
+•⁠  ⁠Route Qualification
+
+
+
+Track:
+
+
+
+•⁠  ⁠ASR
+
+•⁠  ⁠ACD
+
+•⁠  ⁠PDD
+
+•⁠  ⁠CLI Delivery
+
+•⁠  ⁠Audio Quality
+
+
+
+⸻
+
+
+
+ 9.⁠ ⁠Quality Monitoring
+
+
+
+Monitor route quality in real time.
+
+
+
+KPIs
+
+
+
+•⁠  ⁠ASR
+
+•⁠  ⁠ACD
+
+•⁠  ⁠PDD
+
+•⁠  ⁠SIP Errors
+
+•⁠  ⁠False Answer Supervision
+
+•⁠  ⁠Short Duration Calls
+
+
+
+Alerts
+
+
+
+•⁠  ⁠ASR Drop
+
+•⁠  ⁠ACD Drop
+
+•⁠  ⁠Quality Degradation
+
+•⁠  ⁠Traffic Loss
+
+
+
+⸻
+
+
+
+10.⁠ ⁠Margin Protection Engine
+
+
+
+Prevent commercial losses.
+
+
+
+Rules
+
+
+
+•⁠  ⁠Minimum Margin %
+
+•⁠  ⁠Minimum Markup
+
+•⁠  ⁠Negative Margin Block
+
+•⁠  ⁠Approval Workflow
+
+
+
+Example:
+
+
+
+Cost = $0.020
+
+
+
+Attempted Sell Rate = $0.015
+
+
+
+Result:
+
+Blocked automatically.
+
+
+
+⸻
+
+
+
+11.⁠ ⁠Opportunity Management
+
+
+
+Track trading opportunities.
+
+
+
+Opportunities
+
+
+
+•⁠  ⁠New Customer
+
+•⁠  ⁠New Vendor
+
+•⁠  ⁠New Destination
+
+•⁠  ⁠Price Improvement
+
+•⁠  ⁠Traffic Growth
+
+
+
+Expected:
+
+
+
+•⁠  ⁠Revenue
+
+•⁠  ⁠Margin
+
+•⁠  ⁠Minutes
+
+
+
+⸻
+
+
+
+12.⁠ ⁠Traffic Analysis
+
+
+
+Identify business trends.
+
+
+
+Reports
+
+
+
+•⁠  ⁠Top Customers
+
+•⁠  ⁠Top Vendors
+
+•⁠  ⁠Top Destinations
+
+•⁠  ⁠Margin Analysis
+
+•⁠  ⁠Revenue Analysis
+
+•⁠  ⁠Growth Trends
+
+
+
+⸻
+
+
+
+13.⁠ ⁠NOC & Trading Collaboration
+
+
+
+Shared workflow between NOC and Trading.
+
+
+
+Trading Team
+
+
+
+•⁠  ⁠Commercial decisions
+
+•⁠  ⁠Pricing
+
+•⁠  ⁠Negotiations
+
+
+
+NOC Team
+
+
+
+•⁠  ⁠Quality
+
+•⁠  ⁠Routing
+
+•⁠  ⁠Testing
+
+•⁠  ⁠Monitoring
+
+
+
+All activities should be visible in a shared timeline.
+
+
+
+⸻
+
+
+
+14.⁠ ⁠Vendor & Customer Communication Hub
+
+
+
+Maintain communication history.
+
+
+
+Store
+
+
+
+•⁠  ⁠Emails
+
+•⁠  ⁠WhatsApp Messages
+
+•⁠  ⁠Tickets
+
+•⁠  ⁠Notes
+
+•⁠  ⁠Rate Discussions
+
+•⁠  ⁠Commercial Agreements
+
+
+
+Everything should be searchable.
+
+
+
+⸻
+
+
+
+15.⁠ ⁠AI-Based Trading Recommendations (Future Phase)
+
+
+
+The platform should analyze:
+
+
+
+•⁠  ⁠Vendor Costs
+
+•⁠  ⁠Customer Pricing
+
+•⁠  ⁠Route Quality
+
+•⁠  ⁠Traffic Trends
+
+
+
+And automatically recommend:
+
+
+
+•⁠  ⁠Best vendor
+
+•⁠  ⁠Best route
+
+•⁠  ⁠Price increase opportunities
+
+•⁠  ⁠Price decrease opportunities
+
+•⁠  ⁠Margin optimization
+
+
+
+⸻
+
+
+
+Expected Outcome
+
+
+
+The Voice Trading Desk should become the central command center for wholesale voice operations, combining:
+
+
+
+•⁠  ⁠Trading
+
+•⁠  ⁠Routing
+
+•⁠  ⁠Pricing
+
+•⁠  ⁠Testing
+
+•⁠  ⁠Quality Monitoring
+
+•⁠  ⁠Customer Management
+
+•⁠  ⁠Vendor Management
+
+•⁠  ⁠Margin Protection
+
+•⁠  ⁠Commercial Reporting
+
+
+
+into a single integrated platform.
+
+The most important components of this module are the Product-Based Rate History, Vendor Cost Impact Analysis, and the 7-Day Notification Engine.
+
+
+
+These features will automatically identify which customers need to receive updated rate sheets, which customers do not require any action, and which specific products (First Class, Business Class, Special Bravo, Special Charlie) require rate updates.
+
+
+
+The system will analyze vendor cost changes, compare them against current customer pricing, evaluate margin impact, and generate actionable notifications, ensuring that rate increases are communicated to affected customers within the required notice period while avoiding unnecessary or duplicate notifications.
+
+Commercial Workspace UI & Navigation Requirements
+
+
+
+Overview
+
+
+
+All newly developed commercial features should be organized into dedicated workspace modules rather than being added as individual top-level menu items or dropdown menus.
+
+
+
+The objective is to create a clean, scalable, and business-focused user experience where each department operates from its own workspace.
+
+
+
+⸻
+
+
+
+Voice Trading Workspace
+
+
+
+A dedicated top-level menu should be created:
+
+
+
+Voice Trading
+
+
+
+When users click on Voice Trading, they should enter a dedicated commercial workspace containing tab-based navigation.
+
+
+
+The Voice Trading workspace should be fully commercial-focused and separate from routing, NOC, and technical operations.
+
+
+
+⸻
+
+
+
+Voice Trading Dashboard (Default Tab)
+
+
+
+The landing page should display:
+
+
+
+Commercial Metrics
+
+
+
+•⁠  ⁠Revenue
+
+•⁠  ⁠Cost
+
+•⁠  ⁠Margin
+
+•⁠  ⁠Minutes
+
+•⁠  ⁠ASR
+
+•⁠  ⁠ACD
+
+
+
+Live Trading Information
+
+
+
+•⁠  ⁠Current Vendor Rates
+
+•⁠  ⁠Customer Rates
+
+•⁠  ⁠Active Routes
+
+•⁠  ⁠Route Names
+
+•⁠  ⁠Top Destinations
+
+•⁠  ⁠Rate Change Alerts
+
+•⁠  ⁠Vendor Notifications
+
+
+
+Trading Windows
+
+
+
+•⁠  ⁠Pending Deals
+
+•⁠  ⁠Pending Rate Approvals
+
+•⁠  ⁠Vendor Increases
+
+•⁠  ⁠Customer Notifications Due
+
+•⁠  ⁠Margin Risk Alerts
+
+
+
+⸻
+
+
+
+Trading Authorization & Approval Workflow
+
+
+
+Traders should only be able to offer rates within approved margin limits.
+
+
+
+Standard Workflow
+
+
+
+The Trading Manager or Department Head defines:
+
+
+
+•⁠  ⁠Minimum Margin
+
+•⁠  ⁠Allowed Discount Range
+
+•⁠  ⁠Product Pricing Rules
+
+
+
+The system automatically calculates:
+
+
+
+•⁠  ⁠Cost
+
+•⁠  ⁠Suggested Sell Rate
+
+•⁠  ⁠Minimum Allowed Rate
+
+•⁠  ⁠Margin %
+
+
+
+Aggressive Pricing Requests
+
+
+
+If a trader wants to offer a rate below the approved margin threshold:
+
+
+
+•⁠  ⁠Submit Approval Request
+
+•⁠  ⁠Manager receives notification
+
+•⁠  ⁠Manager reviews request
+
+•⁠  ⁠Manager approves or rejects
+
+
+
+Only approved requests can be offered to customers.
+
+
+
+⸻
+
+
+
+Rate Management Workspace
+
+
+
+A separate commercial workspace should be created for rate operations.
+
+
+
+Main Menu
+
+
+
+Rates
+
+
+
+or
+
+
+
+Rate Management
+
+
+
+or
+
+
+
+Pricing Management
+
+
+
+⸻
+
+
+
+Tab 1 – Rate Dashboard
+
+
+
+Displays:
+
+
+
+•⁠  ⁠Vendor Rate Changes
+
+•⁠  ⁠Customer Rate Changes
+
+•⁠  ⁠Pending Notifications
+
+•⁠  ⁠Product-Based Pricing Summary
+
+•⁠  ⁠Margin Analysis
+
+•⁠  ⁠Recent Updates
+
+
+
+⸻
+
+
+
+Tab 2 – Rate Editor
+
+
+
+Used for viewing and editing pricing.
+
+
+
+Features:
+
+
+
+•⁠  ⁠Search Destination
+
+•⁠  ⁠Search Product
+
+•⁠  ⁠Search Customer
+
+•⁠  ⁠Compare Current vs Previous Rates
+
+•⁠  ⁠Compare Vendor vs Customer Rates
+
+
+
+Rate Editor Limitations
+
+
+
+The Rate Editor should support:
+
+
+
+•⁠  ⁠Single Destination Rate
+
+•⁠  ⁠Single Product Rate
+
+•⁠  ⁠Breakout Rate
+
+•⁠  ⁠Flat Rate
+
+
+
+It should not be used for mass customer distributions.
+
+
+
+⸻
+
+
+
+Tab 3 – Send Rates
+
+
+
+Used for customer rate distribution.
+
+
+
+Filters
+
+
+
+•⁠  ⁠Customer
+
+•⁠  ⁠Multiple Customers
+
+•⁠  ⁠Product
+
+•⁠  ⁠Active Customers
+
+•⁠  ⁠Inactive Customers
+
+•⁠  ⁠Dormant Customers
+
+•⁠  ⁠Region
+
+•⁠  ⁠Destination
+
+
+
+Features
+
+
+
+•⁠  ⁠Send rates to multiple customers simultaneously.
+
+•⁠  ⁠Send multiple destinations simultaneously.
+
+•⁠  ⁠Product-based rate sheet generation.
+
+•⁠  ⁠Email distribution.
+
+•⁠  ⁠Scheduled delivery.
+
+
+
+⸻
+
+
+
+Tab 4 – Rate Notifications
+
+
+
+A complete notification and audit center.
+
+
+
+Displays:
+
+
+
+•⁠  ⁠All sent rate sheets
+
+•⁠  ⁠Sender
+
+•⁠  ⁠Date & Time
+
+•⁠  ⁠Customer
+
+•⁠  ⁠Product
+
+•⁠  ⁠Status
+
+
+
+Status Examples
+
+
+
+•⁠  ⁠Draft
+
+•⁠  ⁠Pending Approval
+
+•⁠  ⁠Scheduled
+
+•⁠  ⁠Sent
+
+•⁠  ⁠Delivered
+
+•⁠  ⁠Opened
+
+•⁠  ⁠Failed
+
+
+
+⸻
+
+
+
+Tab 5 – Vendor Cost Impact Analysis
+
+
+
+Displays:
+
+
+
+•⁠  ⁠Vendor Rate Increase
+
+•⁠  ⁠Effective Date
+
+•⁠  ⁠Margin Impact
+
+•⁠  ⁠Affected Customers
+
+•⁠  ⁠Affected Products
+
+
+
+Automatically identifies customers requiring updates.
+
+
+
+⸻
+
+
+
+Tab 6 – 7-Day Notice Queue
+
+
+
+Displays:
+
+
+
+•⁠  ⁠Customers requiring notice
+
+•⁠  ⁠Destinations affected
+
+•⁠  ⁠Current Sell Rate
+
+•⁠  ⁠New Recommended Rate
+
+•⁠  ⁠Effective Date
+
+•⁠  ⁠Days Remaining
+
+
+
+This becomes the operational work queue for traders.
+
+
+
+⸻
+
+
+
+Tab 7 – Product Rate History
+
+
+
+Displays:
+
+
+
+Product
+
+
+
+•⁠  ⁠First Class
+
+•⁠  ⁠Business Class
+
+•⁠  ⁠Special Bravo
+
+•⁠  ⁠Special Charlie
+
+
+
+History
+
+
+
+•⁠  ⁠Previous Rates
+
+•⁠  ⁠Current Rates
+
+•⁠  ⁠Increase/Decrease Analysis
+
+•⁠  ⁠Effective Dates
+
+•⁠  ⁠Customer Pricing History
+
+
+
+⸻
+
+
+
+Tab 8 – Approval Center
+
+
+
+Displays:
+
+
+
+•⁠  ⁠Aggressive Pricing Requests
+
+•⁠  ⁠Margin Exception Requests
+
+•⁠  ⁠Manual Overrides
+
+•⁠  ⁠Approval History
+
+
+
+⸻
+
+
+
+Tab 9 – Reports & Analytics
+
+
+
+Reports include:
+
+
+
+•⁠  ⁠Revenue Analysis
+
+•⁠  ⁠Margin Analysis
+
+•⁠  ⁠Customer Pricing History
+
+•⁠  ⁠Vendor Rate History
+
+•⁠  ⁠Product Performance
+
+•⁠  ⁠Trader Activity
+
+
+
+⸻
+
+
+
+UI Design Standard
+
+
+
+All future commercial modules should follow the same structure.
+
+
+
+Instead of creating multiple top-level menus:
+
+
+
+Recommended Structure
+
+
+
+Voice Trading
+
+├── Dashboard
+
+├── Deals
+
+├── Route Board
+
+├── Notifications
+
+├── Reports
+
+
+
+Rate Management
+
+├── Dashboard
+
+├── Rate Editor
+
+├── Send Rates
+
+├── Notifications
+
+├── Vendor Impact Analysis
+
+├── 7-Day Notice Queue
+
+├── Product History
+
+├── Approvals
+
+├── Reports
+
+
+
+Customer Management
+
+├── Dashboard
+
+├── Customers
+
+├── Pricing
+
+├── Notifications
+
+├── Reports
+
+
+
+This approach keeps the platform organized, scalable, and easy to use while ensuring that all commercial functions remain grouped within dedicated workspaces rather than being scattered across multiple dropdown menus.
+
+Global Destination Catalog & Product Offering Management
+
+
+
+Overview
+
+
+
+The platform should include a centralized Global Destination Catalog containing all worldwide destinations and their hierarchical destination structure.
+
+
+
+This module will become the master repository for all destinations used in routing, pricing, rate generation, and customer product offerings.
+
+
+
+⸻
+
+
+
+Global Destination Hierarchy
+
+
+
+Each destination should support a multi-level hierarchy.
+
+
+
+Level 1 – Parent Destination
+
+
+
+Examples:
+
+
+
+•⁠  ⁠Pakistan
+
+•⁠  ⁠India
+
+•⁠  ⁠Bangladesh
+
+•⁠  ⁠United Kingdom
+
+•⁠  ⁠United States
+
+
+
+These represent country-level destinations.
+
+
+
+⸻
+
+
+
+Level 2 – Child Destination
+
+
+
+Examples:
+
+
+
+Pakistan
+
+├── Fixed
+
+├── Mobile
+
+
+
+India
+
+├── Fixed
+
+├── Mobile
+
+
+
+United Kingdom
+
+├── Fixed
+
+├── Mobile
+
+
+
+This level separates destination categories.
+
+
+
+⸻
+
+
+
+Level 3 – Breakout Destination
+
+
+
+Examples:
+
+
+
+Pakistan Mobile
+
+├── 9230 – Jazz
+
+├── 9231 – Zong
+
+├── 9232 – Warid
+
+├── 9233 – Ufone
+
+├── 9234 – Telenor
+
+
+
+India Mobile
+
+├── Airtel
+
+├── Jio
+
+├── Vodafone
+
+├── BSNL
+
+
+
+United Kingdom Mobile
+
+├── Vodafone UK
+
+├── O2
+
+├── EE
+
+├── Three UK
+
+
+
+The system should support unlimited breakout levels where required.
+
+
+
+⸻
+
+
+
+Destination Master Database
+
+
+
+The platform should maintain:
+
+
+
+Destination Information
+
+
+
+•⁠  ⁠Country Name
+
+•⁠  ⁠Destination Name
+
+•⁠  ⁠Parent Destination
+
+•⁠  ⁠Child Destination
+
+•⁠  ⁠Breakout Destination
+
+•⁠  ⁠Country Code
+
+•⁠  ⁠Dial Prefix
+
+•⁠  ⁠Operator Name
+
+•⁠  ⁠Product Mapping
+
+•⁠  ⁠Status
+
+
+
+The destination catalog becomes the single source of truth for the entire platform.
+
+
+
+⸻
+
+
+
+Destination Selection Workspace
+
+
+
+A dedicated page should display:
+
+
+
+Left Panel
+
+
+
+Global Destination Tree
+
+
+
+Example:
+
+
+
+Pakistan
+
+├── Fixed
+
+├── Mobile
+
+│   ├── Jazz
+
+│   ├── Zong
+
+│   ├── Ufone
+
+│   ├── Telenor
+
+
+
+India
+
+├── Fixed
+
+├── Mobile
+
+
+
+United Kingdom
+
+├── Fixed
+
+├── Mobile
+
+
+
+Users can:
+
+
+
+•⁠  ⁠Expand
+
+•⁠  ⁠Collapse
+
+•⁠  ⁠Search
+
+•⁠  ⁠Filter
+
+
+
+⸻
+
+
+
+Right Panel
+
+
+
+Approved Commercial Destinations
+
+
+
+This panel displays destinations approved for commercial use.
+
+
+
+Example:
+
+
+
+Approved Destinations
+
+
+
+✓ Pakistan Mobile
+
+
+
+✓ Pakistan Jazz
+
+
+
+✓ Pakistan Zong
+
+
+
+✓ India Mobile
+
+
+
+✓ Bangladesh Mobile
+
+
+
+⸻
+
+
+
+Allowed Destination Management
+
+
+
+The business team should not necessarily offer all A-Z destinations.
+
+
+
+The system should allow:
+
+
+
+Available Destinations
+
+
+
+All global destinations stored in the master database.
+
+
+
+Allowed Destinations
+
+
+
+Only destinations approved by management.
+
+
+
+Blocked Destinations
+
+
+
+Destinations not available for:
+
+
+
+•⁠  ⁠Rate generation
+
+•⁠  ⁠Customer offers
+
+•⁠  ⁠Product creation
+
+•⁠  ⁠Commercial trading
+
+
+
+Blocked destinations should not appear in pricing workflows.
+
+
+
+⸻
+
+
+
+Destination Approval Workflow
+
+
+
+When a new destination is required:
+
+
+
+1.⁠ ⁠User searches destination.
+
+2.⁠ ⁠Selects destination.
+
+3.⁠ ⁠Submits approval request.
+
+4.⁠ ⁠Manager reviews request.
+
+5.⁠ ⁠Destination becomes commercially available.
+
+
+
+⸻
+
+
+
+Product & Rate Integration
+
+
+
+Approved destinations automatically become available in:
+
+
+
+•⁠  ⁠Rate Management
+
+•⁠  ⁠Product Management
+
+•⁠  ⁠Voice Trading Desk
+
+•⁠  ⁠Routing Management
+
+•⁠  ⁠Customer Pricing
+
+
+
+Example:
+
+
+
+Pakistan Mobile
+
+
+
+Products:
+
+
+
+•⁠  ⁠First Class
+
+•⁠  ⁠Business Class
+
+•⁠  ⁠Special Bravo
+
+•⁠  ⁠Special Charlie
+
+
+
+Each product can maintain separate rates for the same destination.
+
+
+
+⸻
+
+
+
+Market Pricing Intelligence
+
+
+
+For approved destinations, the platform should support:
+
+
+
+•⁠  ⁠Current Vendor Cost
+
+•⁠  ⁠Best Available Cost
+
+•⁠  ⁠Previous Cost
+
+•⁠  ⁠Customer Sell Rate
+
+•⁠  ⁠Margin Analysis
+
+
+
+This allows traders to quickly determine which destinations are commercially active.
+
+
+
+⸻
+
+
+
+Search & Drill-Down Features
+
+
+
+Users should be able to:
+
+
+
+Search By
+
+
+
+•⁠  ⁠Country
+
+•⁠  ⁠Destination
+
+•⁠  ⁠Operator
+
+•⁠  ⁠Prefix
+
+•⁠  ⁠Product
+
+
+
+Drill Down
+
+
+
+Pakistan
+
+
+
+→ Mobile
+
+
+
+→ Jazz
+
+
+
+→ First Class
+
+
+
+→ Customer Rates
+
+
+
+→ Vendor Costs
+
+
+
+⸻
+
+
+
+Benefits
+
+
+
+This module creates a centralized destination repository where:
+
+
+
+•⁠  ⁠All global destinations are maintained.
+
+•⁠  ⁠Only approved destinations can be offered commercially.
+
+•⁠  ⁠Product-based pricing is controlled.
+
+•⁠  ⁠Destination management is standardized.
+
+•⁠  ⁠Traders can easily find, approve, and offer destinations.
+
+•⁠  ⁠Rate management becomes consistent across the entire platform.
+
+
+
+The Global Destination Catalog will become the foundation for Routing, Pricing, Voice Trading, Product Management, and Customer Rate Distribution.
+
+Customer Rate Sheet Rules & Format Management Requirements
+
+
+
+Overview
+
+
+
+The platform should include a comprehensive Rate Sheet Rules Engine similar to advanced carrier trading platforms, where customer rate sheets are generated based on predefined templates, pricing rules, billing increments, and customer-specific preferences.
+
+
+
+The objective is to standardize rate sheet generation while allowing flexibility for different customer requirements.
+
+
+
+⸻
+
+
+
+Customer Rate Sheet Template Management
+
+
+
+The system should support configurable rate sheet templates.
+
+
+
+Each template should define:
+
+
+
+Required Columns
+
+
+
+•⁠  ⁠Destination Name
+
+•⁠  ⁠Breakout Name
+
+•⁠  ⁠Dial Code / Prefix
+
+•⁠  ⁠Product Name
+
+•⁠  ⁠Rate
+
+•⁠  ⁠Currency
+
+•⁠  ⁠Effective Date
+
+•⁠  ⁠Billing Increment
+
+•⁠  ⁠Minimum Duration (Optional)
+
+•⁠  ⁠Product Type
+
+•⁠  ⁠Notes (Optional)
+
+
+
+⸻
+
+
+
+Rate Sheet Format Rules
+
+
+
+The platform should allow administrators to define:
+
+
+
+Column Mapping
+
+
+
+Example:
+
+
+
+Column A = Destination
+
+
+
+Column B = Breakout
+
+
+
+Column C = Prefix
+
+
+
+Column D = Rate
+
+
+
+Column E = Billing Increment
+
+
+
+Column F = Effective Date
+
+
+
+Column G = Product
+
+
+
+Different customers may require different formats.
+
+
+
+The system should support multiple export templates.
+
+
+
+⸻
+
+
+
+Effective Date Management
+
+
+
+Every rate sheet should include:
+
+
+
+•⁠  ⁠Effective Date
+
+•⁠  ⁠Rate Change Date
+
+•⁠  ⁠Notice Period
+
+
+
+Examples:
+
+
+
+Effective Immediately
+
+
+
+Effective in 7 Days
+
+
+
+Effective in 15 Days
+
+
+
+Effective on Specific Date
+
+
+
+⸻
+
+
+
+Billing Increment Management
+
+
+
+The platform should support customer-specific billing increments.
+
+
+
+Examples
+
+
+
+1/1
+
+
+
+6/6
+
+
+
+30/6
+
+
+
+30/30
+
+
+
+60/1
+
+
+
+60/60
+
+
+
+90/90
+
+
+
+Custom Increment
+
+
+
+⸻
+
+
+
+Customer-Level Increment Rules
+
+
+
+Each customer profile should contain:
+
+
+
+Billing Increment Profile
+
+
+
+Customer A
+
+
+
+•⁠  ⁠1/1
+
+
+
+Customer B
+
+
+
+•⁠  ⁠60/60
+
+
+
+Customer C
+
+
+
+•⁠  ⁠60/1
+
+
+
+Customer D
+
+
+
+•⁠  ⁠30/6
+
+
+
+When generating a rate sheet, the correct billing increment should automatically appear.
+
+
+
+⸻
+
+
+
+Product-Level Increment Rules
+
+
+
+Different products may have different increments.
+
+
+
+Example:
+
+
+
+First Class
+
+
+
+1/1
+
+
+
+Business Class
+
+
+
+60/60
+
+
+
+Special Bravo
+
+
+
+60/1
+
+
+
+Special Charlie
+
+
+
+30/6
+
+
+
+The system should support both:
+
+
+
+•⁠  ⁠Product-based increments
+
+•⁠  ⁠Customer-based increments
+
+
+
+Priority rules can be configured.
+
+
+
+⸻
+
+
+
+Rate Sheet Generation Logic
+
+
+
+When generating customer pricing:
+
+
+
+The system should automatically determine:
+
+
+
+•⁠  ⁠Customer
+
+•⁠  ⁠Product
+
+•⁠  ⁠Destination
+
+•⁠  ⁠Rate
+
+•⁠  ⁠Billing Increment
+
+•⁠  ⁠Effective Date
+
+•⁠  ⁠Currency
+
+
+
+and generate the correct output format.
+
+
+
+⸻
+
+
+
+Bulk Customer Rate Distribution
+
+
+
+Users should be able to:
+
+
+
+Select
+
+
+
+•⁠  ⁠Single Customer
+
+•⁠  ⁠Multiple Customers
+
+•⁠  ⁠Customer Groups
+
+
+
+Generate
+
+
+
+•⁠  ⁠Product-Based Rate Sheets
+
+•⁠  ⁠Destination-Based Rate Sheets
+
+•⁠  ⁠Full Rate Sheets
+
+•⁠  ⁠Delta Rate Sheets (Only Changes)
+
+
+
+⸻
+
+
+
+Rate Sheet Validation Rules
+
+
+
+Before sending:
+
+
+
+The system should verify:
+
+
+
+•⁠  ⁠Destination exists
+
+•⁠  ⁠Product exists
+
+•⁠  ⁠Rate exists
+
+•⁠  ⁠Effective Date exists
+
+•⁠  ⁠Billing Increment exists
+
+
+
+Missing values should trigger validation errors.
+
+
+
+⸻
+
+
+
+Approval Rules
+
+
+
+If a rate sheet contains:
+
+
+
+•⁠  ⁠Aggressive pricing
+
+•⁠  ⁠Margin exceptions
+
+•⁠  ⁠Special discounts
+
+
+
+Approval should be required before distribution.
+
+
+
+⸻
+
+
+
+Rate Sheet History
+
+
+
+Store every generated rate sheet.
+
+
+
+Track:
+
+
+
+•⁠  ⁠Customer
+
+•⁠  ⁠Product
+
+•⁠  ⁠Effective Date
+
+•⁠  ⁠Billing Increment
+
+•⁠  ⁠User
+
+•⁠  ⁠Version Number
+
+
+
+Users should be able to compare:
+
+
+
+•⁠  ⁠Previous Rate Sheet
+
+•⁠  ⁠Current Rate Sheet
+
+
+
+⸻
+
+
+
+Customer Profile Settings
+
+
+
+Each customer should have configurable options:
+
+
+
+Pricing
+
+
+
+•⁠  ⁠Wholesale
+
+•⁠  ⁠Retail
+
+
+
+Billing Increment
+
+
+
+•⁠  ⁠1/1
+
+•⁠  ⁠60/60
+
+•⁠  ⁠60/1
+
+•⁠  ⁠Custom
+
+
+
+Notice Period
+
+
+
+•⁠  ⁠Immediate
+
+•⁠  ⁠7 Days
+
+•⁠  ⁠15 Days
+
+•⁠  ⁠Custom
+
+
+
+Preferred Rate Sheet Format
+
+
+
+•⁠  ⁠Standard Template
+
+•⁠  ⁠Customer Template
+
+•⁠  ⁠Custom Mapping
+
+
+
+⸻
+
+
+
+Expected Outcome
+
+
+
+The platform should automatically generate customer-specific rate sheets using predefined templates and business rules.
+
+
+
+The system must support:
+
+
+
+•⁠  ⁠Customer-specific formats
+
+•⁠  ⁠Product-specific formats
+
+•⁠  ⁠Billing increments (1/1, 60/60, 60/1, etc.)
+
+•⁠  ⁠Effective dates
+
+•⁠  ⁠Notice periods
+
+•⁠  ⁠Approval workflows
+
+•⁠  ⁠Historical tracking
+
+
+
+This ensures that every customer receives the correct rate sheet format with the correct pricing, billing increment, and effective date based on their commercial agreement and operational requirements.
+
+Billing Increment Logic Correction & Requirements
+
+
+
+Correction to Previous Design
+
+
+
+Billing increments should not be managed at the Product level.
+
+
+
+Billing increments are primarily Destination-based and may optionally be overridden at the Customer level when required.
+
+
+
+Correct Hierarchy
+
+
+
+1.⁠ ⁠Destination Default Increment
+
+2.⁠ ⁠Customer Override Increment (Optional)
+
+3.⁠ ⁠System-Wide Override (Optional)
+
+
+
+Products (First Class, Business Class, Special Bravo, Special Charlie) should inherit the increment defined for the destination.
+
+
+
+⸻
+
+
+
+Destination-Based Billing Increment Management
+
+
+
+Each destination should maintain a default billing increment.
+
+
+
+Examples
+
+
+
+Destination	Default Increment
+
+India Mobile	60/60
+
+India Fixed	60/60
+
+Pakistan Mobile	60/60
+
+Pakistan Fixed	60/60
+
+USA Mobile	6/6
+
+UK Mobile	1/1
+
+
+
+When rates are generated, the increment should automatically be pulled from the destination definition.
+
+
+
+This increment applies to all products under that destination unless specifically overridden.
+
+
+
+⸻
+
+
+
+Customer-Level Override
+
+
+
+The system should allow customer-specific increment overrides.
+
+
+
+Example
+
+
+
+Default
+
+
+
+India Mobile = 60/60
+
+
+
+Customer A
+
+
+
+•⁠  ⁠Use Default (60/60)
+
+
+
+Customer B
+
+
+
+•⁠  ⁠Override to 1/1
+
+
+
+Customer C
+
+
+
+•⁠  ⁠Override to 60/1
+
+
+
+Customer D
+
+
+
+•⁠  ⁠Override to Custom Increment
+
+
+
+In this case, the destination remains 60/60 globally, but selected customers can receive different increments.
+
+
+
+⸻
+
+
+
+System-Wide Override
+
+
+
+Administrators should have the option to apply a billing increment across the entire platform.
+
+
+
+Examples
+
+
+
+Apply:
+
+
+
+1/1
+
+
+
+or
+
+
+
+60/60
+
+
+
+or
+
+
+
+60/1
+
+
+
+to:
+
+
+
+•⁠  ⁠All Customers
+
+•⁠  ⁠All Products
+
+•⁠  ⁠All Destinations
+
+
+
+This should be controlled through an administrative setting.
+
+
+
+⸻
+
+
+
+Priority Logic
+
+
+
+The system should determine the billing increment using the following order:
+
+
+
+Priority 1
+
+
+
+Customer Override
+
+
+
+If configured, use customer-specific increment.
+
+
+
+Priority 2
+
+
+
+Destination Default
+
+
+
+If no customer override exists, use destination increment.
+
+
+
+Priority 3
+
+
+
+System Default
+
+
+
+If neither exists, use system-wide default increment.
+
+
+
+⸻
+
+
+
+Rate Sheet Generation
+
+
+
+When generating customer rate sheets, the system should automatically display the correct increment according to the hierarchy above.
+
+
+
+Example:
+
+
+
+India Mobile
+
+
+
+Default Increment = 60/60
+
+
+
+Customer A = 60/60
+
+
+
+Customer B = 1/1
+
+
+
+Customer C = 60/1
+
+
+
+The generated rate sheet should reflect the increment assigned to that specific customer.
+
+
+
+⸻
+
+
+
+Administrative Controls
+
+
+
+The platform should provide:
+
+
+
+Destination Increment Manager
+
+
+
+Manage default increments per destination.
+
+
+
+Customer Increment Override Manager
+
+
+
+Override increments for individual customers.
+
+
+
+Global Increment Manager
+
+
+
+Apply a platform-wide increment rule when required.
+
+
+
+Audit Log
+
+
+
+Track:
+
+
+
+•⁠  ⁠Previous Increment
+
+•⁠  ⁠New Increment
+
+•⁠  ⁠User
+
+•⁠  ⁠Date & Time
+
+
+
+⸻
+
+
+
+Expected Outcome
+
+
+
+Billing increments are controlled centrally at the destination level while still allowing customer-specific or system-wide overrides when required.
+
+
+
+This ensures:
+
+
+
+•⁠  ⁠Consistent routing and billing behavior.
+
+•⁠  ⁠Simplified destination management.
+
+•⁠  ⁠Flexible customer agreements.
+
+•⁠  ⁠Accurate rate sheet generation.
+
+•⁠  ⁠Full administrative control over billing increments.

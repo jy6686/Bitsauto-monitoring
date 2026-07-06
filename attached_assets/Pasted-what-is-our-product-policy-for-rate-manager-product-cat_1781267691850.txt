@@ -1,0 +1,212 @@
+what is our product policy for rate manager, product catelogue 
+
+Based on all the decisions we've made, the Product Policy should be very clear because this is the foundation for Billing, Rates, Margin, Invoicing, and Commercial Identity.
+
+Product Policy — BitsAuto
+Principle #1: Products are Commercial Classes, Not Destinations
+
+Products:
+
+FC = First Class
+BC = Business Class
+SB = Standard Business
+SC = Super Class
+
+Products are pricing/routing strategies, not prefixes.
+
+Wrong
+1923 Pakistan
+2923 Pakistan
+6923 Pakistan
+7923 Pakistan
+Correct
+923 Pakistan Mobile
+
+with:
+
+FC Rate = 0.0230
+BC Rate = 0.0194
+SB Rate = 0.0320
+SC Rate = 0.0400
+Product Catalog Policy
+Product Catalog owns
+Commercial Definitions
+Product
+Description
+Priority
+Status
+
+Example:
+
+Product	Prefix	Status
+FC	1	Active
+BC	2	Active
+SB	6	Active
+SC	7	Active
+Routing Templates
+
+Example:
+
+BC
+ ├ PTCL
+ ├ SB7
+ └ Vendor C
+Pricing Templates
+
+Example:
+
+BC
+923 → 0.0194
+291 → 0.1320
+852 → 0.0450
+Customer Assignment
+
+Example:
+
+Customer A → BC
+Customer B → FC
+Customer C → BC + SC
+Rate Manager Policy
+
+Rate Manager is internal only.
+
+Its job is:
+
+Import
+Compare
+Reconcile
+Publish
+
+not customer presentation.
+
+Rate Manager may show
+Product
+Vendor
+Internal Prefix
+Tariff
+
+Example:
+
+BC
+Prefix 2923
+Tariff BC-PK
+
+because operations needs it.
+
+Rate Manager must NOT generate customer-facing exports
+
+using:
+
+1923
+2923
+6923
+7923
+
+These are routing prefixes only.
+
+Destination Catalog Policy
+
+Destination Catalog becomes the authority.
+
+One destination
+923 Pakistan Mobile
+
+contains:
+
+Product	Rate
+FC	0.0230
+BC	0.0194
+SB	0.0320
+SC	0.0400
+Approval Workflow
+Upload
+↓
+Reconcile
+↓
+Review
+↓
+Approve
+↓
+Available
+
+You approve destinations before they become sellable.
+
+Rate Sheet Policy
+
+Customers and partners receive:
+
+923 Pakistan Mobile
+9230 Jazz
+9231 Zong
+291 Eritrea
+852 Hong Kong
+
+Never:
+
+1923
+2923
+6923
+7923
+Billing Policy
+
+Billing should use:
+
+Destination
+Product
+Rate
+
+Example:
+
+Destination: Pakistan Mobile
+Prefix: 923
+Product: BC
+Rate: 0.0194
+
+Internally:
+
+Product Prefix = 2
+
+but invoice never shows it.
+
+Future-Proof Policy
+
+Never hardcode:
+
+1 FC
+2 BC
+6 SB
+7 SC
+
+in business logic.
+
+Use:
+
+product_registry
+product_prefixes
+pricing_templates
+routing_templates
+
+so future products can be added:
+
+Premium Asia
+Gold Route
+A2P Voice
+Retail Voice
+Wholesale Voice
+
+without changing code.
+
+Final Rule
+
+Customers buy destinations.
+Operations manage products.
+
+So:
+
+Customer sees:
+923 Pakistan Mobile
+
+Operations sees:
+FC | BC | SB | SC
+
+That separation should be enforced across Product Catalog, Destination Catalog, Rate Manager, Billing, Invoicing, and future Rate Sheet exports.

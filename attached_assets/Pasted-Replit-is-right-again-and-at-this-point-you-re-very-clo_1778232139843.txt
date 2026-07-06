@@ -1,0 +1,151 @@
+Replit is right again — and at this point you’re very close to the real fix. Let me translate everything into clear next actions + the actual resolution path so you can finish this cleanly.
+
+🧠 What Replit is REALLY saying (simplified)
+
+They are confirming 3 important truths:
+
+✅ 1. You are NOT dealing with a normal API system
+/web_ng/api/* 404 = no public REST layer
+✅ 2. Everything is session-based SPA logic
+service plans are created inside browser session
+requests happen via hidden XHR/fetch calls
+✅ 3. Playwright is NOT the solution — only a discovery tool
+final system must be HTTP-based, not browser automation
+🔥 The REAL root problem
+
+You are stuck because:
+
+❌ You are trying to “guess the API”
+instead of “observing the real browser request”
+
+So the system is NOT broken —
+it is just undocumented SPA internal behavior
+
+🚀 FINAL FIX STRATEGY (Correct Architecture)
+🥇 STEP 1 — Manual Network Capture (ONLY ONCE)
+
+You MUST do this manually (Replit cannot replace this step):
+
+Open Sippy in browser:
+Login normally
+Go to Service Plan creation
+Open DevTools → Network tab
+Filter: XHR or Fetch
+Create a service plan
+🧠 STEP 2 — Capture THESE 4 things
+
+You will find ONE request that matters:
+
+You need:
+URL (endpoint)
+Method (POST/GET)
+Payload (JSON or form-data)
+Headers (especially cookies + CSRF token)
+💡 Example of what we expect:
+POST /web_ng/api/ajax/service-plan/save
+Cookie: sessionid=abc123
+X-CSRFToken: xyz789
+
+{
+  "name": "Gold Plan",
+  "rate": 0.10,
+  "currency": "USD"
+}
+🥇 STEP 3 — Convert into PURE Python Integration
+
+Once you have that request, your system becomes:
+
+import requests
+
+session = requests.Session()
+
+BASE_URL = "https://your-sippy.com"
+
+def login():
+    return session.post(f"{BASE_URL}/web_ng/login", data={
+        "username": "admin",
+        "password": "pass"
+    })
+
+def create_service_plan(name, rate):
+    return session.post(
+        f"{BASE_URL}/web_ng/api/ajax/service-plan/save",
+        json={
+            "name": name,
+            "rate": rate
+        }
+    )
+🥇 STEP 4 — REMOVE Playwright COMPLETELY
+
+Once this works:
+
+❌ No browser automation
+❌ No Playwright dependency
+❌ No UI scraping
+
+You get:
+
+✔ Fast API-style provisioning
+✔ Stable production system
+✔ Scalable Replit integration
+
+⚠️ Why your system is failing today
+
+Right now your platform is doing this:
+
+Trying:
+XML-RPC ❌
+REST API ❌
+UI automation ❌ (not implemented fully)
+Fallback default plan ✔ (Junaid USD)
+
+So it always falls back.
+
+💡 What will FIX it permanently
+
+Only ONE thing will fix it:
+
+🎯 Discover the real internal “service plan create” request from browser network
+
+Everything else is guesswork.
+
+🧭 Your next action (IMPORTANT)
+
+Do this:
+
+👉 Step A
+
+Open Sippy manually in Chrome
+
+👉 Step B
+
+DevTools → Network → XHR
+
+👉 Step C
+
+Create a service plan
+
+👉 Step D
+
+Send me:
+
+request URL
+payload
+headers (mask sensitive values)
+🧠 After that I will give you
+
+✔ 100% working Python integration
+✔ Replit production module
+✔ No Playwright needed
+✔ Auto service plan fix (permanent)
+✔ Fix for fallback “Junaid USD” issue
+
+🚀 Bottom line
+
+Replit already confirmed:
+
+“The fix is NOT coding — it’s observing the real hidden API call”
+
+Once you capture that one request, this entire problem becomes trivial.
+
+Just send it here when ready.

@@ -1,0 +1,133 @@
+I agree with your suggestion.
+
+I would not implement Product Membership Management using specific client names like:
+
+internal-ptcl
+PUSHTOTALK
+test202
+
+Those are only useful as temporary test data.
+
+Better Approach
+
+The system should work for:
+
+Existing Accounts
++
+Future Accounts
+
+automatically.
+
+Recommended Model
+
+Instead of:
+
+Product
+ ↓
+Manually Assigned Client Names
+
+Use:
+
+Product
+ ↓
+Account Attributes
+ ↓
+Automatic Membership
+
+Examples:
+
+Rule	Product
+Account Prefix = 1	First Class
+Account Prefix = 2	Business Class
+Account Prefix = 6	Special Bravo
+Account Prefix = 7	Special Charlie
+
+or
+
+Rule	Product
+Tariff Profile	Product
+Service Plan	Product
+Product Code	Product
+
+depending on how your provisioning works.
+
+Why This Is Better
+
+Today:
+
+100 Accounts
+
+Tomorrow:
+
+1000 Accounts
+
+You don't want somebody manually assigning every account.
+
+When a new account is created via Client Wizard:
+
+Select Product = First Class
+
+System automatically:
+
+Create Account
+Create Tariff
+Assign Product
+
+No extra step.
+
+Product Should Be a Core Account Property
+
+I would treat Product like:
+
+Account Name
+Currency
+Billing Type
+Product
+
+A fundamental account attribute.
+
+Then Send Rate becomes:
+
+Select Product
+↓
+Find All Accounts
+WHERE product = FC
+↓
+Resolve Tariffs
+↓
+Push
+
+No client-name logic.
+
+Membership UI Still Useful
+
+Even with automatic assignment, I would still build:
+
+Product View
+FC
+ └─ 250 Accounts
+Unassigned View
+Accounts with NULL product
+Conflict View
+Invalid assignments
+
+But those become governance tools, not the primary source of truth.
+
+My Recommendation
+
+For long-term scalability:
+
+Product = Account Attribute
+
+not
+
+Product = List of Client Names
+
+That way:
+
+Existing accounts can be classified once.
+New accounts automatically inherit product membership during provisioning.
+Send Rate, Notifications, Reporting, Invoicing, and Governance all use the same product field.
+Adding Product #5 or Product #6 requires no redesign.
+
+That aligns much better with how you've described your operation: products drive commercial behavior, while each account still keeps its own Sippy tariff.

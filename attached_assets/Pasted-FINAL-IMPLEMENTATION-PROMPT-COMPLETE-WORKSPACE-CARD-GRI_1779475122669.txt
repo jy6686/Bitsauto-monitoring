@@ -1,0 +1,282 @@
+FINAL IMPLEMENTATION PROMPT — COMPLETE WORKSPACE CARD GRID ROLLOUT
+
+Goal:
+Upgrade ALL remaining workspace homes to use the new enterprise “Operational Card Grid Launch Surface” architecture already implemented for Vendors and Intelligence.
+
+Already completed:
+
+Vendors workspace card grid
+Intelligence workspace card grid
+
+Now extend the same architecture to:
+
+Live Ops
+Clients
+Security
+Analytics
+Finance
+
+Keep:
+
+Settings workspace as lightweight QuickCard layout
+Live Ops operationally dense
+Existing KPI strips
+Existing live feeds
+Existing operational APIs
+
+Workspace layout order:
+
+Workspace Header
+KPI Strip
+Quick Access Operational Card Grid
+Live Feed / Context Panel
+Supporting Operational Content
+
+Cards are:
+
+operational launch surfaces
+workflow entry points
+NOT decorative dashboard widgets
+
+Reuse existing:
+
+OpsCardGrid
+OpsCard
+QuickCard
+liveStats query system
+existing API endpoints
+workspace-home.tsx structure
+
+DO NOT:
+
+create fake/demo data
+add new polling systems
+use gradients
+make oversized marketing cards
+
+Visual style:
+
+dark operational UI
+subtle hover
+solid left accent border
+dense enterprise spacing
+telecom operational feel
+
+Card structure:
+
+┌────────────────────────────────────┐
+│▌ Fraud Engine WARNING │
+│ Monitor FAS and IRSF activity │
+│ │
+│ 2 active events · updated 1m ago │
+└────────────────────────────────────┘
+
+Card content:
+
+icon
+title
+operational description
+urgency/live badge
+live footer
+freshness timestamp
+
+PRIMARY CARDS:
+
+2-column span
+operationally critical workflows
+stronger emphasis
+urgency-capable
+
+SECONDARY CARDS:
+
+compact utility workflows
+smaller visual weight
+supporting operational tools
+
+IMPORTANT:
+Keep Live Ops operationally dense.
+Do NOT convert NOC into decorative dashboard.
+
+PRIMARY:
+
+BitsEye 2
+NOC Command
+
+SECONDARY:
+
+Live Calls
+Alerts
+SIP Trace
+Call Replay
+Console
+Diagnostics
+
+Live badges:
+
+active calls
+active alerts
+degraded carriers
+open incidents
+
+Accent color:
+violet
+
+PRIMARY:
+
+Accounts
+Billing
+
+SECONDARY:
+
+DIDs
+Client Portal
+Resellers
+Recordings
+Create Account Wizard
+Permissions
+
+Live badges:
+
+pending approvals
+low balance clients
+open disputes
+pending onboarding
+
+Accent color:
+amber
+
+PRIMARY:
+
+Fraud Engine
+Approval Queue
+
+SECONDARY:
+
+Firewall
+IP Whitelist
+Audit Log
+Compliance
+STIR/SHAKEN
+Authentication Rules
+
+Live badges:
+
+active FAS events
+active incidents
+pending approvals
+compliance warnings
+
+Accent color:
+rose
+
+PRIMARY:
+
+Traffic Analytics
+Revenue Heatmap
+
+SECONDARY:
+
+CDR Viewer
+ASR/ACD
+Forecasting
+Reports
+Cost Analysis
+QoS Analytics
+
+Live badges:
+
+degraded ASR
+reporting anomalies
+traffic alerts
+
+Accent color:
+blue
+
+PRIMARY:
+
+Billing
+Cost Optimisation
+
+SECONDARY:
+
+Rate Cards
+Balance Monitor
+Revenue Analytics
+Margin Analysis
+Payments
+Invoices
+
+Live badges:
+
+low balances
+margin degradation
+unpaid invoices
+pending disputes
+
+Accent color:
+emerald
+
+Update:
+
+statKey types
+resolveStat()
+liveStats map
+OPS_CARD_MAP
+useOpsGrid logic
+
+Add support for:
+
+activeCalls
+activeAlerts
+degradedCarriers
+pendingApprovals
+lowBalances
+
+Use existing endpoints only:
+
+/api/ai/incidents
+/api/approvals/pending-count
+/api/vendor-balances
+/api/carrier-scores
+/api/sippy/live-calls
+
+Desktop:
+
+responsive 2–4 column layout
+primary cards span 2 columns
+secondary cards compact
+
+Mobile:
+
+single-column stack
+maintain urgency badges
+maintain live footer visibility
+
+Cards must communicate:
+
+why this matters
+why now
+what requires attention
+
+Cards must feel like:
+“operational launch surfaces”
+
+NOT:
+
+decorative widgets
+analytics cards
+marketing tiles
+
+All 8 enterprise domains should now support:
+
+workspace header
+KPI strip
+operational card grid
+contextual live feed
+enterprise telecom workflow navigation
+
+The platform should feel like:
+“carrier-grade telecom operations software”
+
+NOT:
+“admin dashboard with telecom pages”.

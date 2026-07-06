@@ -1,0 +1,2762 @@
+
+<html>
+<head>
+<meta http-equiv="content-type" content="text/html">
+<meta name="menu-title" content="ICHIBAAN">
+
+
+
+<link rel="stylesheet" type="text/css" href="/js/extjs/resources/css/ext-all.css">
+<link rel="stylesheet" type="text/css" href="/js/extjs/ext-ssp.css">
+<script type="text/javascript" src="/js/extjs/adapter/ext/ext-base.js"></script>
+<script type="text/javascript" src="/js/extjs/ext-all.js"></script>
+<script type="text/javascript" src="/js/extjs/ext-ssp.js"></script>
+
+<script language=javascript type=text/javascript>
+    // reference local blank image
+    Ext.BLANK_IMAGE_URL = '/js/extjs/resources/images/default/s.gif';
+</script>
+
+
+<script type="text/javascript" src="/js/utils.js"></script>
+
+<link href="styles.css" type="text/css" rel="stylesheet"> 
+<title>ICHIBAAN - Customers Call Records (CDRs)</title>
+
+
+
+
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="/static/js/jquery-3.3.1.min.js" type="text/javascript"></script>
+<script src="/static/js/menumaker.min.js" type="text/javascript"></script>
+<script src="/static/js/menumaker.local.js"></script>
+<link rel="stylesheet" href="/static/css/fontawesome-all.min.css">
+<link rel="stylesheet" href="/static/css/font-OpenSans.css">
+<link rel="stylesheet" href="/static/css/menumaker.css">
+
+</head>
+<body>
+
+
+
+    <script>
+
+    function hide_ssl_certificate_warning() {
+        Ext.Ajax.request({
+            url: 'system.php',
+            params: {
+                action: 'hide_ssl_certificate_warning'
+            }
+        });
+        var d = document.getElementById('warning_ssl_certificate');
+        d.style.display = 'none';
+    }
+
+</script>
+
+<div id="warning_ssl_certificate" class="security_vulnerability">
+    <div style="position: relative; top: 0; right: 0; float: right; padding: 0 0 0 20px;">
+        <span onClick="hide_ssl_certificate_warning();"><i class="hide_button fas fa-times"></i></span>
+    </div>
+   Warning: A SSL certificate has not been added. Please <a href="https://support.sippysoft.com/solution/articles/78262-generating-and-installing-ssl-certificate">upload your own</a> SSL certificate
+   or create a SSL certificate <a href="https://support.sippysoft.com/solution/articles/3000070011-ssl-certificates-for-web">using LetsEncrypt</a>.
+</div>
+
+    <div id="warning_setup_firewall" class="security_vulnerability">
+   Warning: For your security please review your <a href="firewall_rules.php">Firewall Rules</a>
+   and create rules to allow or deny access to your SoftSwitch. For some
+   suggestions visit our support documentation <a href="https://support.sippysoft.com/solution/articles/3000058057--security-management">here</a>.
+</div>
+
+            <div id="cssmenu">
+            <ul>
+
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-users"></i> Customers</a>
+                    <ul>
+
+    
+                        <li class="has-sub"><a>My Customers</a>
+                            <ul>
+
+                                        <li><a href="accounts.php">Accounts</a></li>
+        
+                                        <li><a href="subcustomers.php">Customers</a></li>
+        
+        
+                                        <li><a href="account_classes.php">Account Classes</a></li>
+        
+        
+                                        <li><a href="account_lookup.php">Account Lookup</a></li>
+        
+                            </ul>
+                        </li>
+    
+    
+                        <li class="has-sub"><a>
+                                                Tariffs &amp;
+                                                Currencies</a>
+                            <ul>
+                                    <li><a href="tariffs.php">Tariffs</a></li>
+                                    <li><a href="service_plans.php">Service Plans</a></li>
+                                <li><a href="xrates.php">Exchange Rates</a></li>
+                            </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Payments</a>
+                            <ul>
+                                    <li><a href="payment_processors.php">Payment Processors</a></li>
+    
+    
+                                    <li><a href="payments_history_root.php">Payments History</a></li>
+    
+                                    <li><a href="vouchers.php">Top-Up Vouchers</a></li>
+                                </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Invoicing</a>
+                            <ul>
+                                <li><a href="invoices.php">Invoices</a></li>
+                                <li><a href="invoice_templates.php">Invoice Templates</a></li>
+                                <li><a href="images.php">Images</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-exchange-alt"></i> Vendors</a>
+                    <ul>
+                            <li class="has-sub"><a>My Vendors</a>
+                            <ul>
+                                <li><a href="vendors.php">Vendors</a></li>
+                                <li><a href="registrations.php">Registrations</a></li>
+                            </ul>
+                        </li>
+                        <li class="has-sub"><a>Routing</a>
+                            <ul>
+                                <li><a href="destination_sets.php">Destination Sets</a></li>
+                                <li><a href="routing_groups.php">Routing Groups</a></li>
+                                    <li><a href="test_dialplan.php">Test Dialplan</a></li>
+                            </ul>
+                        </li>
+    
+                            <li class="has-sub"><a>DID Numbers</a>
+                            <ul>
+                                <li><a href="dids_charging_groups.php">Charging Groups</a></li>
+                                <li><a href="dids.php">DID Pool</a></li>
+                            </ul>
+                        </li>
+    
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-sliders-h"></i> System Management</a>
+                    <ul>
+
+                        <li><a href="web_users.php">Users</a></li>
+
+                        <li><a href="ivr_applications.php">IVR Applications</a></li>
+
+                        <li><a href="destinations.php">Destinations</a></li>
+                        <li><a href="system.php">System Parameters</a></li>
+                        <li><a href="external_services.php">External Services</a></li>
+                        <li><a href="show_graphs.php">Monitoring</a></li>
+
+                        <li><a href="activecalls.php">Active Calls</a></li>
+
+                        <li><a href="system_information.php">System Information</a></li>
+
+                        <li class="has-sub"><a href="tools.php">Tools</a>
+                            <ul>
+                                <li><a href="csrs.php">CSR Generator</a></li>
+                                <li><a href="tcpdump.php">Network Traffic Capture</a></li>
+                                <li><a href="looking_glass.php">Looking Glass</a></li>
+                                <li><a href="rerate_cdrs.php">Rerate CDRs</a></li>
+                                <li><a href="firewall_rules.php">IP Firewall</a></li>
+                                <li><a href="sip_logs.php">SIP Logs Viewer</a></li>
+                                <li><a href="audit_logs.php">Audit Logs Viewer</a></li>
+                            </ul>
+                        </li>
+
+
+                    </ul>
+                </li>
+                <li class="has-sub"><a><i class="fa fa-fw fa-file-excel"></i> Reports</a>
+                    <ul class="wide">
+
+                        <li><a href="cdrs_customer.php">Customers Call Records (CDRs)</a></li>
+                        <li><a href="customer_reports.php">Customer Summary Reports</a></li>
+
+                        <li><a href="profit_loss_report.php">Customer Profit &amp; Loss Reports</a></li>
+                        <li><a href="sales_report.php">Customer Sales Reports</a></li>
+
+                        <li><a href="cdrs_vend.php">Vendors Call Records (CDRs)</a></li>
+                        <li><a href="vendors_reports.php">Vendor Summary Reports</a></li>
+
+                        <li><a href="cdrs_dids.php">DIDs Call Records (CDRs)</a></li>
+
+                        <li><a href="asr_acd.php">ASR/ACD Reports</a></li>
+
+                    </ul>
+                </li>
+
+                <li class="has-sub align-right"><a class="none-text-transform"><i class="fa fa-fw fa-cogs"></i>&nbsp;
+                                                    ssp-root
+                                                </a>
+                    <ul class="wide">
+                        <li><a class="bold">Accounts balance: -2418275.7180824 USD</a></li>
+                        <li><a class="bold">Customers balance: 0.0000000 USD</a></li>
+                        <li><a href="customer_prefs.php">My Preferences</a></li>
+
+
+                        <li><a href="logout.php"><i class="fa fa-fw fa-sign-out-alt"></i> Logout</a></li>
+                    </ul>
+                </li>
+
+<script>
+    function menu_search_reset() {
+        var e = document.getElementById("menu_search");
+
+        var ul = document.getElementById('menu_search_results');
+        if (ul) {
+            e.removeChild(ul);
+        }
+    }
+
+    function menu_search(event) {
+        var len = event.target.value.length;
+
+        var e = document.getElementById("menu_search");
+
+        var ul = document.getElementById('menu_search_results');
+        if (ul) {
+            e.removeChild(ul);
+        }
+
+        if (len == 0) {
+            document.getElementById("menu_search_icon").classList.remove('fa-times-circle');
+            document.getElementById("menu_search_icon").classList.add('fas-search');
+            document.getElementById("menu_search_icon").removeEventListener('click');
+            return;
+        } else if (len < 3) {
+            document.getElementById("menu_search_icon").classList.remove('fas-search');
+            document.getElementById("menu_search_icon").classList.add('fa-times-circle');
+            document.getElementById("menu_search_icon").addEventListener('click', function() {
+                document.getElementById("menu_search_pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu_search_pattern").dispatchEvent(event);
+            });
+            return;
+        } else {
+            document.getElementById("menu_search_icon").classList.remove('fas-search');
+            document.getElementById("menu_search_icon").classList.add('fa-times-circle');
+            document.getElementById("menu_search_icon").addEventListener('click', function() {
+                document.getElementById("menu_search_pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu_search_pattern").dispatchEvent(event);
+            });
+
+            ul = document.createElement("ul");
+            ul.setAttribute('id', 'menu_search_results');
+            ul.classList.add("wide");
+
+            var m, i;
+            try {
+                m = document.getElementById("cssmenu").getElementsByTagName('li');
+                for (i = 0; i < m.length; i++) {
+                    if (m[i].classList.contains("has-sub")) {
+                        continue;
+                    };
+
+                    var n, j;
+                    n = m[i].getElementsByTagName('a');
+                    for (j = 0; j < n.length; j++) {
+                        if (!n[j].hasAttribute('href')) {
+                            continue;
+                        }
+                        var re = new RegExp(event.target.value, 'i');
+                        if (n[j].innerText.match(re)) {
+                            ul.appendChild(m[i].cloneNode(true));
+                        }
+                    }
+                }
+            } finally {
+                if (ul.childNodes.length > 0) {
+                    e.appendChild(ul);
+                }
+            }
+        }
+    }
+
+    addLoadEvent(function() {
+        var e = document.getElementById('menu_search_pattern');
+        e.addEventListener('input', menu_search);
+    });
+</script>
+
+
+                <li id="menu_search" class="has-sub align-right">
+                    <a>
+                        <input id="menu_search_pattern" type="text" name="menu_search_pattern">
+                        <i id="menu_search_icon" class="fas fa-search"></i>
+                    </a>
+                </li>
+
+            </ul>
+        </div>
+
+    <div style="width: auto; height: 2px; background: #ff9900;"></div>
+    <div id="main">
+                
+<script language=javascript type=text/javascript>
+
+Ext.onReady(function() {
+
+    var updateReportButton = new Ext.Button({
+	renderTo: 'update_report',
+	minWidth: 110,
+	text: 'Update Report',
+	handler: function() {
+			Ext.get('action').set({value: ''});
+			Ext.getDom('mainform').submit();
+		}
+    });
+
+    var downloadReportButton = new Ext.Button({
+	renderTo: 'download_report',
+	minWidth: 110,
+	text: 'Download',
+	handler: function() {
+			Ext.get('action').set({value: 'csv'});
+			Ext.getDom('mainform').submit();
+		 }
+    });
+
+    var sendReportButton = new Ext.Button({
+	renderTo: 'send_report',
+	minWidth: 110,
+	text: 'Send By E-Mail',
+	handler: function() {show_send_by_email(); }
+    });
+
+    var sendEMailForm = new Ext.form.FormPanel({
+	id: 'sendEMailForm',
+        baseCls: 'x-plain',
+        labelWidth: 92,
+        defaultType: 'textfield',
+	url: 'webjob_wrapper.php',
+	waitMsgTarget: 'sendEMailWindow',
+
+        items: [{
+            fieldLabel: 'Send To',
+            name: 'email_mailto',
+	    allowBlank: false,
+	    regex: /^[a-z0-9][\w.+-]*@(([A-z0-9][\w\-\.]+\.[A-z0-9]{2,6})|(localhost))$/,
+	    value: '',
+            anchor: '100%'
+        },{
+            fieldLabel: 'Subject',
+            name: 'email_subject',
+	    allowBlank: false,
+	    value: 'Call Records from ${DATE_FROM} to ${DATE_TO}',
+            anchor: '100%'
+        }, {
+            fieldLabel: 'Zip the Report',
+            xtype: 'checkbox',
+            name: 'email_zip',
+	    checked: true
+        }, {
+            xtype: 'textarea',
+            hideLabel: true,
+            name: 'email_message',
+	    value: 'Please see attached file.',
+            anchor: '100% -90'
+        }]
+    });
+    
+
+    var sendEMailWindow = new Ext.Window({
+	id: 'sendEMailWindow',
+        title: 'Send by E-Mail',
+        width: 500,
+        height:300,
+        minWidth: 300,
+        minHeight: 200,
+        layout: 'fit',
+        plain: true,
+        bodyStyle: 'padding: 5px;',
+        buttonAlign: 'center',
+        items: sendEMailForm,
+	closeAction: 'hide',
+	modal: true,
+
+        buttons: [{
+            text: 'Send',
+	    handler: function() {
+			var params = new Object;
+
+			var mainform = document.getElementById('mainform');
+			for (var i = 0; i < mainform.elements.length; i++) {
+				params[mainform.elements[i].name] = mainform.elements[i].value;
+			}
+
+			var url = document.URL.split('?');
+			url = url[0].split('/');
+			url = url[url.length - 1];
+
+			params['wrapped_file_name'] = url;
+			params['action'] = 'send_by_email';
+
+			var f = sendEMailForm.getForm();
+			f.submit({ success: function(form, action) {
+					sendEMailWindow.hide();
+				 },
+				   failure: function(form, action) {
+					var fn = function() { sendEMailWindow.hide(); };
+					if (typeof action.failureType == 'string') {
+					    if (action.failureType == Ext.form.Action.CLIENT_INVALID) {
+						msg = "Please fill in \'Send To\' and \'Subject\' fields.";
+						fn = Ext.emptyFn;
+					    } else {
+						msg = 'Unable to send the request.';
+						msg += ' Error code: ' + action.failureType;
+					    }
+					} else {
+					    msg = action.result.error_message;
+					}
+					Ext.Msg.show({
+						title: 'Error!!!',
+						closable: false,
+						icon: Ext.MessageBox.ERROR,
+						buttons: Ext.MessageBox.OK,
+						msg: msg,
+						fn: fn
+					});
+				 },
+				   params: params,
+				   waitMsg: 'Please wait...'
+			});
+		     }
+        },{
+            text: 'Cancel',
+	    handler: function() { sendEMailWindow.hide(); }
+        }]
+    });
+
+});
+
+function show_send_by_email() {
+    var w = Ext.getCmp('sendEMailWindow');
+    w.show();
+    w.center();
+}
+
+</script>
+
+
+
+<script>
+
+function queue_sip_log(call_id, cli, cld, call_ts) {
+    var s = ' class="mb-cnf-msg"';
+    var msg = '<p' + s + '>You are about to queue SIP Log extraction task for call with Call-Id ' + call_id + '</p>';
+    msg += '<p' + s + '>Do you wish to proceed?</p>';
+
+    Ext.Msg.show({
+        title: 'Confirmation',
+        icon: Ext.MessageBox.QUESTION,
+        msg: msg,
+        width: 300,
+        closable: false,
+        fn : function(btn) {
+                if (btn === 'yes') {
+                    Ext.Ajax.request({
+                        url: 'sip_logs.php',
+                        params: { action: 'queue',
+                                  call_id: call_id,
+                                  description: cli + ' => ' + cld + ' @ ' + call_ts
+                        },
+                        success: function(response) {
+                            var r = JSON.parse(response.responseText);
+                            if (r.success) {
+                                Ext.Msg.show({
+                                    title: 'Task has been queued.',
+                                    closable: false,
+                                    width: 300,
+                                    icon: Ext.MessageBox.INFO,
+                                    buttons: Ext.MessageBox.OK,
+                                    msg: 'The SIP Log extraction task has been queued. Check <a href=sip_logs.php>SIP Logs<\/a> for details.'
+                                });
+                            } else {
+                                Ext.Msg.show({
+                                    title: 'Error!!!',
+                                    closable: false,
+                                    width: 300,
+                                    icon: Ext.MessageBox.ERROR,
+                                    buttons: Ext.MessageBox.OK,
+                                    msg: 'Unable to queue the SIP Log extraction task. Check server logs for details.'
+                                });
+                            }
+                        },
+                        failure: function() {
+                            Ext.Msg.show({
+                                title: 'Error!!!',
+                                closable: false,
+                                width: 300,
+                                icon: Ext.MessageBox.ERROR,
+                                buttons: Ext.MessageBox.OK,
+                                msg: 'Unable to queue the SIP Log extraction task. Check server logs for details.'
+                            });
+                        }
+                    });
+                }
+            },
+        buttons: {yes: 'Yes',
+                no: 'No'}
+    });
+}
+
+</script>
+
+
+
+
+<script language="javascript">
+    function gotopage(n) {
+        form = document.getElementById("navform");
+        form.n.value = n;
+        form.submit();
+    }
+
+    function init_filter_fields(val) {
+        var form = document.getElementById("mainform");
+        var btPattern = Ext.getCmp('bt_pattern');
+
+        if (val == '0_1') {
+            form.bt_clause.disabled = false;
+            btPattern.enable();
+            form.account_class.disabled = false;
+        } else {
+            form.bt_clause.disabled = true;
+            btPattern.disable();
+            form.account_class.disabled = true;
+        }
+    }
+</script>
+
+<script type="text/javascript">
+
+// create namespace
+Ext.namespace('sspExt');
+
+Ext.onReady(function() {
+    var startDate = new Ext.ssp.form.DateField({
+        applyTo: 'startDate',
+        format: 'd-m-Y H:i:s',
+        value: '1 hour ago'
+    });
+
+    var endDate = new Ext.ssp.form.DateField({
+        applyTo: 'endDate',
+        format: 'd-m-Y H:i:s',
+        value: 'now'
+    });
+
+    var store_bt = new Ext.data.SimpleStore({
+        fields: ['batch_tag'],
+        data: []
+    });
+
+    var batchPattern = new Ext.form.ComboBox({
+        id: 'bt_pattern',
+        applyTo: 'bt_pattern',
+        store: store_bt,
+        displayField: 'batch_tag',
+        typeAhead: true,
+        mode: 'local',
+        selectOnFocus: true,
+        triggerAction: 'all',
+        width: 176,
+        cls: 'dp3',
+        emptyClass: 'dp3',
+        fieldClass: 'dp3',
+        focusClass: 'dp3',
+        value: ''
+    });
+
+
+
+        var menu_1 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749341&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('HU81mCu4SmwWU0-8Ov6aoCo',
+                                                              '+989911609461',
+                                                              '7923363568029',
+                                                              '10 Apr 2026 18:11:37'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_1 = new Ext.ssp.Button({
+        renderTo: 'mb_1',
+        tooltip: 'Additional Options',
+        menu: menu_1
+    });
+        var menu_2 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749338&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('bc90mCu4SmwWU0-8Ov6aoCo',
+                                                              '+97471237223',
+                                                              '7923331578384',
+                                                              '10 Apr 2026 18:11:36'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_2 = new Ext.ssp.Button({
+        renderTo: 'mb_2',
+        tooltip: 'Additional Options',
+        menu: menu_2
+    });
+        var menu_3 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749340&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('b1968ddc063616c6c0012bf75@148.251.245.199',
+                                                              '971506071883',
+                                                              '1923379734109',
+                                                              '10 Apr 2026 18:11:36'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_3 = new Ext.ssp.Button({
+        renderTo: 'mb_3',
+        tooltip: 'Additional Options',
+        menu: menu_3
+    });
+        var menu_4 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749342&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('c15b6873e63616c6cf58c2737@203.90.232.82',
+                                                              '96879576247',
+                                                              '1923342914177',
+                                                              '10 Apr 2026 18:11:36'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_4 = new Ext.ssp.Button({
+        renderTo: 'mb_4',
+        tooltip: 'Additional Options',
+        menu: menu_4
+    });
+        var menu_5 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749336&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('fu0.lCu4SmwWU0-8Ov6aoCo',
+                                                              '+989222962078',
+                                                              '792335027966',
+                                                              '10 Apr 2026 18:11:34'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_5 = new Ext.ssp.Button({
+        renderTo: 'mb_5',
+        tooltip: 'Additional Options',
+        menu: menu_5
+    });
+        var menu_6 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749337&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('s27bbb3d063616c6c2fb98677@31.25.199.2',
+                                                              '+17347676533',
+                                                              '7923221372960',
+                                                              '10 Apr 2026 18:11:34'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_6 = new Ext.ssp.Button({
+        renderTo: 'mb_6',
+        tooltip: 'Additional Options',
+        menu: menu_6
+    });
+        var menu_7 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749331&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('E134f776363616c6c1d84cdd9@31.25.199.3',
+                                                              '966530916900',
+                                                              '7923364074048',
+                                                              '10 Apr 2026 18:11:33'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_7 = new Ext.ssp.Button({
+        renderTo: 'mb_7',
+        tooltip: 'Additional Options',
+        menu: menu_7
+    });
+        var menu_8 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749334&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('8U1ZlCu4SmwWU0-8Ov6aoCo',
+                                                              '+97471237223',
+                                                              '7923331578384',
+                                                              '10 Apr 2026 18:11:33'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_8 = new Ext.ssp.Button({
+        renderTo: 'mb_8',
+        tooltip: 'Additional Options',
+        menu: menu_8
+    });
+        var menu_9 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749325&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('z78275c1563616c6c1d84cdd0@31.25.199.3',
+                                                              '966531092559',
+                                                              '7923340054832',
+                                                              '10 Apr 2026 18:11:32'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_9 = new Ext.ssp.Button({
+        renderTo: 'mb_9',
+        tooltip: 'Additional Options',
+        menu: menu_9
+    });
+        var menu_10 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749330&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('146f1091363616c6c2fb98658@31.25.199.2',
+                                                              '+96598148846',
+                                                              '7923305537456',
+                                                              '10 Apr 2026 18:11:32'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_10 = new Ext.ssp.Button({
+        renderTo: 'mb_10',
+        tooltip: 'Additional Options',
+        menu: menu_10
+    });
+        var menu_11 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749326&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('b5dfff4c663616c6c1e97d33e@31.25.199.4',
+                                                              '966504418730',
+                                                              '7923305596675',
+                                                              '10 Apr 2026 18:11:32'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_11 = new Ext.ssp.Button({
+        renderTo: 'mb_11',
+        tooltip: 'Additional Options',
+        menu: menu_11
+    });
+        var menu_12 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749327&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('r4270096363616c6c21c5aaaf@31.25.199.5',
+                                                              '966573602163',
+                                                              '7923377657195',
+                                                              '10 Apr 2026 18:11:32'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_12 = new Ext.ssp.Button({
+        renderTo: 'mb_12',
+        tooltip: 'Additional Options',
+        menu: menu_12
+    });
+        var menu_13 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749328&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('e27931b7563616c6c2fb98652@31.25.199.2',
+                                                              '966579528276',
+                                                              '7923367809138',
+                                                              '10 Apr 2026 18:11:32'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_13 = new Ext.ssp.Button({
+        renderTo: 'mb_13',
+        tooltip: 'Additional Options',
+        menu: menu_13
+    });
+        var menu_14 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749324&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('330VlCu4SmwWU0-8Ov6aoCo',
+                                                              '+97450930202',
+                                                              '7923336602827',
+                                                              '10 Apr 2026 18:11:32'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_14 = new Ext.ssp.Button({
+        renderTo: 'mb_14',
+        tooltip: 'Additional Options',
+        menu: menu_14
+    });
+        var menu_15 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749322&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('h0cb5ecac63616c6c21c5aaad@31.25.199.5',
+                                                              '966535039562',
+                                                              '7923342221802',
+                                                              '10 Apr 2026 18:11:31'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_15 = new Ext.ssp.Button({
+        renderTo: 'mb_15',
+        tooltip: 'Additional Options',
+        menu: menu_15
+    });
+        var menu_16 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749329&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('V7a20411a63616c6cf58c23f3@203.90.232.82',
+                                                              '8801712145788',
+                                                              '1923325438807',
+                                                              '10 Apr 2026 18:11:31'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_16 = new Ext.ssp.Button({
+        renderTo: 'mb_16',
+        tooltip: 'Additional Options',
+        menu: menu_16
+    });
+        var menu_17 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749323&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('C50474df563616c6c2fb9864e@31.25.199.2',
+                                                              '966557193850',
+                                                              '7923330199240',
+                                                              '10 Apr 2026 18:11:31'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_17 = new Ext.ssp.Button({
+        renderTo: 'mb_17',
+        tooltip: 'Additional Options',
+        menu: menu_17
+    });
+        var menu_18 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749316&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('G7dQlCu4SmwWU0-8Ov6aoCo',
+                                                              '+96598148846',
+                                                              '7923305537456',
+                                                              '10 Apr 2026 18:11:30'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_18 = new Ext.ssp.Button({
+        renderTo: 'mb_18',
+        tooltip: 'Additional Options',
+        menu: menu_18
+    });
+        var menu_19 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749315&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('C76NlCu4SmwWU0-8Ov6aoCo',
+                                                              '+989373696138',
+                                                              '7923361026115',
+                                                              '10 Apr 2026 18:11:30'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_19 = new Ext.ssp.Button({
+        renderTo: 'mb_19',
+        tooltip: 'Additional Options',
+        menu: menu_19
+    });
+        var menu_20 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749320&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('o05220a7463616c6cf309f156@203.90.232.81',
+                                                              '966534152901',
+                                                              '1923302912061',
+                                                              '10 Apr 2026 18:11:30'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_20 = new Ext.ssp.Button({
+        renderTo: 'mb_20',
+        tooltip: 'Additional Options',
+        menu: menu_20
+    });
+        var menu_21 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749319&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('XibSlCu4SmwWU0-8Ov6aoCo',
+                                                              '+97455436471',
+                                                              '7923306782517',
+                                                              '10 Apr 2026 18:11:30'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_21 = new Ext.ssp.Button({
+        renderTo: 'mb_21',
+        tooltip: 'Additional Options',
+        menu: menu_21
+    });
+        var menu_22 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749318&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('QtcRlCu4SmwWU0-8Ov6aoCo',
+                                                              '+60113007333',
+                                                              '7923378201747',
+                                                              '10 Apr 2026 18:11:30'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_22 = new Ext.ssp.Button({
+        renderTo: 'mb_22',
+        tooltip: 'Additional Options',
+        menu: menu_22
+    });
+        var menu_23 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749313&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('zN8Sbx2zwp@87.252.96.200',
+                                                              '97366381786',
+                                                              '1923242394072',
+                                                              '10 Apr 2026 18:11:29'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_23 = new Ext.ssp.Button({
+        renderTo: 'mb_23',
+        tooltip: 'Additional Options',
+        menu: menu_23
+    });
+        var menu_24 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749311&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('b76f0ac2763616c6c004df250@23.106.62.37-b2b_3',
+                                                              '+395744734',
+                                                              '1923268650062',
+                                                              '10 Apr 2026 18:11:28'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_24 = new Ext.ssp.Button({
+        renderTo: 'mb_24',
+        tooltip: 'Additional Options',
+        menu: menu_24
+    });
+        var menu_25 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749314&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('13ee3d81f63616c6cf58c214d@203.90.232.82',
+                                                              '9664436820153',
+                                                              '1923351881476',
+                                                              '10 Apr 2026 18:11:28'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_25 = new Ext.ssp.Button({
+        renderTo: 'mb_25',
+        tooltip: 'Additional Options',
+        menu: menu_25
+    });
+        var menu_26 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749312&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('pmfFlCu4SmwWU0-8Ov6aoCo',
+                                                              '+60113007333',
+                                                              '7923378201747',
+                                                              '10 Apr 2026 18:11:28'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_26 = new Ext.ssp.Button({
+        renderTo: 'mb_26',
+        tooltip: 'Additional Options',
+        menu: menu_26
+    });
+        var menu_27 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749308&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('b4919bd0e63616c6c004df24d@23.106.62.37-b2b_3',
+                                                              '+395744734',
+                                                              '1923268650062',
+                                                              '10 Apr 2026 18:11:27'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_27 = new Ext.ssp.Button({
+        renderTo: 'mb_27',
+        tooltip: 'Additional Options',
+        menu: menu_27
+    });
+        var menu_28 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749307&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('HKbElCu4SmwWU0-8Ov6aoCo',
+                                                              '+447376503093',
+                                                              '7923348566784',
+                                                              '10 Apr 2026 18:11:26'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_28 = new Ext.ssp.Button({
+        renderTo: 'mb_28',
+        tooltip: 'Additional Options',
+        menu: menu_28
+    });
+        var menu_29 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749309&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('kWdDlCu4SmwWU0-8Ov6aoCo',
+                                                              '+96598148846',
+                                                              '7923305537456',
+                                                              '10 Apr 2026 18:11:26'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_29 = new Ext.ssp.Button({
+        renderTo: 'mb_29',
+        tooltip: 'Additional Options',
+        menu: menu_29
+    });
+        var menu_30 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749299&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('D1aab314e63616c6c1e97d307@31.25.199.4',
+                                                              '966579622993',
+                                                              '7923343266008',
+                                                              '10 Apr 2026 18:11:25'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_30 = new Ext.ssp.Button({
+        renderTo: 'mb_30',
+        tooltip: 'Additional Options',
+        menu: menu_30
+    });
+        var menu_31 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749298&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('q2746070363616c6c1d84cd84@31.25.199.3',
+                                                              '966508197341',
+                                                              '7923329989905',
+                                                              '10 Apr 2026 18:11:25'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_31 = new Ext.ssp.Button({
+        renderTo: 'mb_31',
+        tooltip: 'Additional Options',
+        menu: menu_31
+    });
+        var menu_32 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749304&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('74208043e63616c6c2fb98613@31.25.199.2',
+                                                              '+60113007333',
+                                                              '7923378201747',
+                                                              '10 Apr 2026 18:11:25'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_32 = new Ext.ssp.Button({
+        renderTo: 'mb_32',
+        tooltip: 'Additional Options',
+        menu: menu_32
+    });
+        var menu_33 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749300&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('s19bc3d5763616c6c2fb9860f@31.25.199.2',
+                                                              '+14423336268',
+                                                              '7923288220518',
+                                                              '10 Apr 2026 18:11:25'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_33 = new Ext.ssp.Button({
+        renderTo: 'mb_33',
+        tooltip: 'Additional Options',
+        menu: menu_33
+    });
+        var menu_34 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749294&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('kzczlCu4SmwWU0-8Ov6aoCo',
+                                                              '+60132688897',
+                                                              '7923314078368',
+                                                              '10 Apr 2026 18:11:23'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_34 = new Ext.ssp.Button({
+        renderTo: 'mb_34',
+        tooltip: 'Additional Options',
+        menu: menu_34
+    });
+        var menu_35 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749321&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('22e2ce1e563616c6c089b9aaf@149.20.187.181',
+                                                              '97333154056',
+                                                              '1923403395978',
+                                                              '10 Apr 2026 18:11:23'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_35 = new Ext.ssp.Button({
+        renderTo: 'mb_35',
+        tooltip: 'Additional Options',
+        menu: menu_35
+    });
+        var menu_36 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749295&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('UC8AlCu4SmwWU0-8Ov6aoCo',
+                                                              '+60113007333',
+                                                              '7923378201747',
+                                                              '10 Apr 2026 18:11:23'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_36 = new Ext.ssp.Button({
+        renderTo: 'mb_36',
+        tooltip: 'Additional Options',
+        menu: menu_36
+    });
+        var menu_37 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749296&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('h94BlCu4SmwWU0-8Ov6aoCo',
+                                                              '+447376503093',
+                                                              '7923348566784',
+                                                              '10 Apr 2026 18:11:23'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_37 = new Ext.ssp.Button({
+        renderTo: 'mb_37',
+        tooltip: 'Additional Options',
+        menu: menu_37
+    });
+        var menu_38 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749290&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('bhgeaibbncclgf6061307@87.252.96.213',
+                                                              '97334347413',
+                                                              '1923047302808',
+                                                              '10 Apr 2026 18:11:22'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_38 = new Ext.ssp.Button({
+        renderTo: 'mb_38',
+        tooltip: 'Additional Options',
+        menu: menu_38
+    });
+        var menu_39 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749339&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('b6d9d21cf63616c6c0012befb@148.251.245.199',
+                                                              '971506071560',
+                                                              '1923409105841',
+                                                              '10 Apr 2026 18:11:22'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_39 = new Ext.ssp.Button({
+        renderTo: 'mb_39',
+        tooltip: 'Additional Options',
+        menu: menu_39
+    });
+        var menu_40 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749292&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('568c926bc63616c6c2fb985e4@31.25.199.2',
+                                                              '+60113007333',
+                                                              '7923378201747',
+                                                              '10 Apr 2026 18:11:22'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_40 = new Ext.ssp.Button({
+        renderTo: 'mb_40',
+        tooltip: 'Additional Options',
+        menu: menu_40
+    });
+        var menu_41 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749291&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('U2d123c5863616c6c21c5aa79@31.25.199.5',
+                                                              '966508924171',
+                                                              '7923339646926',
+                                                              '10 Apr 2026 18:11:22'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_41 = new Ext.ssp.Button({
+        renderTo: 'mb_41',
+        tooltip: 'Additional Options',
+        menu: menu_41
+    });
+        var menu_42 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749293&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('30120327963616c6c2fb985e9@31.25.199.2',
+                                                              '966538042745',
+                                                              '7923305177136',
+                                                              '10 Apr 2026 18:11:22'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_42 = new Ext.ssp.Button({
+        renderTo: 'mb_42',
+        tooltip: 'Additional Options',
+        menu: menu_42
+    });
+        var menu_43 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749284&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('24584573d63616c6c1e97d2df@31.25.199.4',
+                                                              '60143956455',
+                                                              '7923332377454',
+                                                              '10 Apr 2026 18:11:21'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_43 = new Ext.ssp.Button({
+        renderTo: 'mb_43',
+        tooltip: 'Additional Options',
+        menu: menu_43
+    });
+        var menu_44 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749288&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('201c7922463616c6c1e97d2ee@31.25.199.4',
+                                                              'Anonymous',
+                                                              '7923291006759',
+                                                              '10 Apr 2026 18:11:21'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_44 = new Ext.ssp.Button({
+        renderTo: 'mb_44',
+        tooltip: 'Additional Options',
+        menu: menu_44
+    });
+        var menu_45 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749287&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('FyeylCu4SmwWU0-8Ov6aoCo',
+                                                              '+96598148846',
+                                                              '7923305537456',
+                                                              '10 Apr 2026 18:11:21'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_45 = new Ext.ssp.Button({
+        renderTo: 'mb_45',
+        tooltip: 'Additional Options',
+        menu: menu_45
+    });
+        var menu_46 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749283&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('j5exlCu4SmwWU0-8Ov6aoCo',
+                                                              '+989332254548',
+                                                              '7923301356092',
+                                                              '10 Apr 2026 18:11:20'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_46 = new Ext.ssp.Button({
+        renderTo: 'mb_46',
+        tooltip: 'Additional Options',
+        menu: menu_46
+    });
+        var menu_47 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749282&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('b58b2a47e63616c6cf58c1c2c@203.90.232.82',
+                                                              '880711712145788',
+                                                              '1923325438807',
+                                                              '10 Apr 2026 18:11:20'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_47 = new Ext.ssp.Button({
+        renderTo: 'mb_47',
+        tooltip: 'Additional Options',
+        menu: menu_47
+    });
+        var menu_48 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749286&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('_t6vlCu4SmwWU0-8Ov6aoCo',
+                                                              '+447376503093',
+                                                              '7923348566784',
+                                                              '10 Apr 2026 18:11:20'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_48 = new Ext.ssp.Button({
+        renderTo: 'mb_48',
+        tooltip: 'Additional Options',
+        menu: menu_48
+    });
+        var menu_49 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749276&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('o0acecaf863616c6c1d84cd50@31.25.199.3',
+                                                              '966534152901',
+                                                              '7923302912061',
+                                                              '10 Apr 2026 18:11:19'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_49 = new Ext.ssp.Button({
+        renderTo: 'mb_49',
+        tooltip: 'Additional Options',
+        menu: menu_49
+    });
+        var menu_50 = new Ext.menu.Menu({
+        items: [ { text: 'Call Details',
+                   href: 'cdrs_customer_detail.php?i_cdr=117749279&type=1&n=0&startDate=1%20hour%20ago&endDate=now&expStartDate=2026-04-10%2017%3A11%3A37&expEndDate=2026-04-10%2018%3A11%3A37&source=&destination=&caller=0_0&calls_select=1&cdr_currency=USD&cli_clause=0&cld_clause=0&bt_clause=0&bt_pattern=&account_class=0',
+                   icon: '/images/zoom.gif'
+                 }, {
+                   text: 'Queue SIP Log Extraction',
+                   handler: function() { queue_sip_log('47atlCu4SmwWU0-8Ov6aoCo',
+                                                              '+60113007333',
+                                                              '7923378201747',
+                                                              '10 Apr 2026 18:11:19'
+                                                             );},
+                   icon: '/images/sheduled-task.png'
+                 }
+                ]
+    });
+
+    var mb_50 = new Ext.ssp.Button({
+        renderTo: 'mb_50',
+        tooltip: 'Additional Options',
+        menu: menu_50
+    });
+    
+
+
+    Ext.QuickTips.init();
+    Ext.apply(Ext.QuickTips.getQuickTip(), {
+        maxWidth: 500
+    });
+
+    var ds = new Ext.data.Store({
+        url: 'cdrs_customer.php',
+        baseParams: {action: 'get_filter_callers_list'},
+        reader: new Ext.data.XmlReader({
+                        totalRecords: "total",
+                        record: "row",
+                        id: "id"},
+                [{name: 'id'}, {name: 'value'}])
+    });
+    var resultTpl = new Ext.XTemplate(
+        '<tpl for="."><div class="callerSearch-item">',
+            '{value}',
+        '</div></tpl>'
+    );
+    ds.add([ new Ext.data.Record({ id: '0_0', value: 'All' }) ]);
+
+    var caller = new Ext.form.ComboBox({
+        applyTo: '_caller',
+        id: 'caller',
+        forceSelection: true,
+        store: ds,
+        displayField: 'value',
+        valueField: 'id',
+        hiddenName: 'caller',
+        width: 175,
+        listWidth: 250,
+        tpl: resultTpl,
+        itemSelector: 'div.callerSearch-item',
+        minChars: 0,
+        pageSize: 20,
+        queryDelay: 1000,
+        typeAhead: true,
+        cls: 'dp3',
+        emptyClass: 'vi2',
+        fieldClass: 'vi2',
+        focusClass: 'vi2',
+        listeners:{
+            change: function(combo, newVal, oldVal) {
+                        init_filter_fields(newVal)
+                   } 
+        }
+    });
+
+    ds.add([ new Ext.data.Record({ id: '0_0', value: 'All' }) ]);
+    caller.setValue('0_0');
+
+    init_filter_fields('0_0');
+});
+
+
+
+</script>
+
+<form action="cdrs_customer.php" method="GET" id="mainform">
+<table cellpadding="5" cellspacing="0" width="100%"> 
+<tr>
+    <td class="Headline" width="100%">
+        Customers Call Records (CDRs)    </td>
+</tr> 
+</table>
+
+<div class="formcol">
+
+  <div class="grouptitle">
+        Filter  </div>
+
+</div>
+<div class="formcol">
+
+  <div class="groupdata">
+
+    <div class="dataname" style="padding-top: 1px;">
+      <table cellspacing="0" cellpadding="0" width="175">
+       <tr>
+        <td align="left" valign="top" style="padding-top: 2px;">CLI</td>
+        <td align="right">
+        <select class="sel2" style="width: 80px;" name="cli_clause">
+          <option value="0">is like</option>
+          <option value="1" >is not like</option>
+        </select>
+        </td>
+       </tr>
+      </table>
+    </div>
+    <div class="dataval">
+        <input type="text" name="source" value="" class="sel2">
+    </div>
+
+    <div class="dataname">
+        Start Date/Time    </div>
+    <div class="dataval">
+        <input type="text" id="startDate" name="startDate" class="dp2">
+    </div>
+
+    <div class="dataname">
+        Caller    </div>
+    <div class="dataval">
+        <input type="text" class="vi2" id="_caller" >
+    </div>
+
+    <div class="dataname" style="padding-top: 0px;">
+      <table cellspacing="0" cellpadding="0" width="175">
+       <tr>
+        <td align="left" valign="top" style="padding-top: 2px;">Batch Tag</td>
+        <td align="right">
+        <select class="sel2" style="width: 80px;" name="bt_clause">
+          <option value="0">is like</option>
+          <option value="1" >is not like</option>
+        </select>
+        </td>
+       </tr>
+      </table>
+    </div>
+    <div class="dataval">
+        <input type="text" id="bt_pattern" name="bt_pattern" class="dp2">
+    </div>
+
+    <div class="dataname">
+        Account Class    </div>
+    <div class="dataval">
+        <select class="sel2" name="account_class">
+          <option value="0">Any</option>
+                  <option value="1" >Default</option>
+                  <option value="2" >404 & 500 sip CC to 503</option>
+                </select>
+    </div>
+
+  </div>
+
+  <div class="groupdata">
+
+    <div class="dataname" style="padding-top: 1px;">
+      <table cellspacing="0" cellpadding="0" width="175">
+       <tr>
+        <td align="left" valign="top" style="padding-top: 2px;">CLD</td>
+        <td align="right">
+        <select class="sel2" style="width: 80px;" name="cld_clause">
+          <option value="0">is like</option>
+          <option value="1" >is not like</option>
+        </select>
+        </td>
+       </tr>
+      </table>
+    </div>
+    <div class="dataval">
+        <input type="text" name="destination" value="" class="sel2">
+    </div>
+
+    <div class="dataname">
+        End Date/Time    </div>
+    <div class="dataval">
+        <input type="text" id="endDate" name="endDate" class="dp2">
+    </div>
+
+    <div class="dataname">
+        Currency    </div>
+    <div class="dataval">
+        <select name="cdr_currency" class="sel2">
+                            <option value="USD" selected>US Dollar (USD)</option>
+                    </select>           
+    </div>
+
+    <div class="dataname">
+        Show Call Records    </div>
+    <div class="dataval">
+        <select name="calls_select" class="sel2">
+            <option value="3">Non-zero Duration &amp; Errors</option>
+<option value="4">Non-zero Duration</option>
+<option value="5">Complete</option>
+<option value="1" selected="selected">All</option>
+<option value="2">Incomplete</option>
+<option value="6">Errors</option>
+
+        </select>
+    </div>
+
+  </div>
+
+</div>
+<div class="formcol">
+
+  <div class="genrep">
+    <div id="update_report"></div>
+    <div id="download_report"></div>
+    <div id="send_report"></div>
+    <input type="hidden" name="from_form" value="1">
+    <input type="hidden" id="action" name="action" value="">
+  </div>
+
+</div>
+
+</form>
+
+<form id="navform" method="GET" action="cdrs_customer.php">
+        <input type="hidden" name="n" value="0">
+        <input type="hidden" name="action" value="">
+        <input type="hidden" name="startDate" value="1 hour ago">
+        <input type="hidden" name="endDate" value="now">
+        <input type="hidden" name="expStartDate" value="2026-04-10 17:11:37">
+        <input type="hidden" name="expEndDate" value="2026-04-10 18:11:37">
+        <input type="hidden" name="source" value="">
+        <input type="hidden" name="destination" value="">
+        <input type="hidden" name="caller" value="0_0">
+        <input type="hidden" name="calls_select" value="1">
+        <input type="hidden" name="cdr_currency" value="USD">
+        <input type="hidden" name="cli_clause" value="0">
+        <input type="hidden" name="cld_clause" value="0">
+        <input type="hidden" name="bt_clause" value="0">
+        <input type="hidden" name="bt_pattern" value="">
+        <input type="hidden" name="account_class" value="0">
+</form>
+
+<div style="width: 100%;">
+
+<table width=100% border=0>
+<tr><td>
+<center><strong>Call Detail Report</strong><br></center>
+</td></tr>
+</table>
+
+<table class="grouptitle" width="100%">
+    <tr>
+				<td width="50">
+	    		</td>
+		<td width="50">
+	    		</td>
+		<td align="center">Page 1 of 248, total 12372 rows</td>
+			<td width="50" align="right">
+	    		  <a href="#" onClick="javascript:gotopage(1);"><img src="images/next.gif" border="0" HEIGHT="13" WIDTH="13" alt="Next Page"></a>
+	    		</td>
+		<td width="50" align="right">
+	    		  <a href="#" onClick="javascript:gotopage(247);"><img src="images/last.gif" border="0" HEIGHT="13" WIDTH="13" alt="Last Page"></a>
+	    		</td>
+		    </tr>
+</table>
+
+<div class="separator"></div>
+
+<TABLE width="100%" cellpadding=0 cellspacing=0>
+      <TR bgcolor="#DDDDDD">
+        <TD align=center width="36" class=borderall>&nbsp;</TD>
+        <TD align=center noWrap class=borderallbutleft><b>Caller</b></TD>
+        <TD align=center noWrap class=borderallbutleft><b>CLI</b></TD>
+        <TD align=center noWrap class=borderallbutleft><b>CLD</b></TD>
+        <TD align=center noWrap class=borderallbutleft><b>Country</b></TD>
+        <TD align=center noWrap class=borderallbutleft><b>Description</b></TD>
+        <TD align=center width="160" class=borderallbutleft><b>Setup Time</b></TD>
+        <TD align=center width="100" class=borderallbutleft><b>Duration, mm:ss</b></TD>
+        <TD align=center width="100" class=borderallbutleft><b>Billed Duration, mm:ss</b></TD>
+        <TD align=center width="100" class=borderallbutleft><b>Charged Amount, USD</b></TD>
+      </TR>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_1' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+989911609461</td>
+            <td nowrap align="left" class="borderbottomright">7923363568029</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:37</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_2' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+97471237223</td>
+            <td nowrap align="left" class="borderbottomright">7923331578384</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:36</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_3' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=40">Acct.&nbsp;centredtel</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">971506071883</td>
+            <td nowrap align="left" class="borderbottomright">1923379734109</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:36</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_4' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=26">Acct.&nbsp;Quickcomm-Globe</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">96879576247</td>
+            <td nowrap align="left" class="borderbottomright">1923342914177</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:36</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_5' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/messagebox_warning.png" width=16 height=16 ext:qtip='Address Is Incomplete'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+989222962078</td>
+            <td nowrap align="left" class="borderbottomright">792335027966</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:34</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_6' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+17347676533</td>
+            <td nowrap align="left" class="borderbottomright">7923221372960</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Warid</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:34</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_7' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">966530916900</td>
+            <td nowrap align="left" class="borderbottomright">7923364074048</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:33</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_8' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+97471237223</td>
+            <td nowrap align="left" class="borderbottomright">7923331578384</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:33</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_9' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">966531092559</td>
+            <td nowrap align="left" class="borderbottomright">7923340054832</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:32</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_10' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/messagebox_warning.png" width=16 height=16 ext:qtip='Call has been canceled by calling party'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+96598148846</td>
+            <td nowrap align="left" class="borderbottomright">7923305537456</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:32</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_11' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">966504418730</td>
+            <td nowrap align="left" class="borderbottomright">7923305596675</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:32</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_12' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">966573602163</td>
+            <td nowrap align="left" class="borderbottomright">7923377657195</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:32</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_13' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">966579528276</td>
+            <td nowrap align="left" class="borderbottomright">7923367809138</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:32</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_14' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+97450930202</td>
+            <td nowrap align="left" class="borderbottomright">7923336602827</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:32</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_15' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">966535039562</td>
+            <td nowrap align="left" class="borderbottomright">7923342221802</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:31</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_16' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=26">Acct.&nbsp;Quickcomm-Globe</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">8801712145788</td>
+            <td nowrap align="left" class="borderbottomright">1923325438807</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:31</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_17' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">966557193850</td>
+            <td nowrap align="left" class="borderbottomright">7923330199240</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:31</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_18' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+96598148846</td>
+            <td nowrap align="left" class="borderbottomright">7923305537456</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:30</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_19' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+989373696138</td>
+            <td nowrap align="left" class="borderbottomright">7923361026115</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:30</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_20' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=26">Acct.&nbsp;Quickcomm-Globe</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">966534152901</td>
+            <td nowrap align="left" class="borderbottomright">1923302912061</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:30</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_21' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+97455436471</td>
+            <td nowrap align="left" class="borderbottomright">7923306782517</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:30</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_22' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+60113007333</td>
+            <td nowrap align="left" class="borderbottomright">7923378201747</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:30</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_23' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=30">Acct.&nbsp;Via-Cloud</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">97366381786</td>
+            <td nowrap align="left" class="borderbottomright">1923242394072</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Warid</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:29</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_24' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/messagebox_warning.png" width=16 height=16 ext:qtip='No Routes Found'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=41">Acct.&nbsp;In2net-Technologies</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+395744734</td>
+            <td nowrap align="left" class="borderbottomright">1923268650062</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Warid</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:28</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_25' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=26">Acct.&nbsp;Quickcomm-Globe</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">9664436820153</td>
+            <td nowrap align="left" class="borderbottomright">1923351881476</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:28</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_26' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 486'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+60113007333</td>
+            <td nowrap align="left" class="borderbottomright">7923378201747</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:28</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_27' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/messagebox_warning.png" width=16 height=16 ext:qtip='No Routes Found'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=41">Acct.&nbsp;In2net-Technologies</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+395744734</td>
+            <td nowrap align="left" class="borderbottomright">1923268650062</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Warid</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:27</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_28' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+447376503093</td>
+            <td nowrap align="left" class="borderbottomright">7923348566784</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:26</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_29' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+96598148846</td>
+            <td nowrap align="left" class="borderbottomright">7923305537456</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:26</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_30' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">966579622993</td>
+            <td nowrap align="left" class="borderbottomright">7923343266008</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:25</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_31' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">966508197341</td>
+            <td nowrap align="left" class="borderbottomright">7923329989905</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:25</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_32' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+60113007333</td>
+            <td nowrap align="left" class="borderbottomright">7923378201747</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:25</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_33' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+14423336268</td>
+            <td nowrap align="left" class="borderbottomright">7923288220518</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Warid</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:25</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_34' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+60132688897</td>
+            <td nowrap align="left" class="borderbottomright">7923314078368</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:23</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_35' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/messagebox_warning.png" width=16 height=16 ext:qtip='Call has been canceled by calling party'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=123">Acct.&nbsp;astra-global</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">97333154056</td>
+            <td nowrap align="left" class="borderbottomright">1923403395978</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Telenor</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:23</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_36' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+60113007333</td>
+            <td nowrap align="left" class="borderbottomright">7923378201747</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:23</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_37' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+447376503093</td>
+            <td nowrap align="left" class="borderbottomright">7923348566784</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:23</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_38' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=30">Acct.&nbsp;Via-Cloud</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">97334347413</td>
+            <td nowrap align="left" class="borderbottomright">1923047302808</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Mobilink</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:22</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_39' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/messagebox_warning.png" width=16 height=16 ext:qtip='Call has been canceled by calling party'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=40">Acct.&nbsp;centredtel</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">971506071560</td>
+            <td nowrap align="left" class="borderbottomright">1923409105841</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Telenor</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:22</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_40' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+60113007333</td>
+            <td nowrap align="left" class="borderbottomright">7923378201747</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:22</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_41' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">966508924171</td>
+            <td nowrap align="left" class="borderbottomright">7923339646926</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:22</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_42' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">966538042745</td>
+            <td nowrap align="left" class="borderbottomright">7923305177136</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:22</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_43' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">60143956455</td>
+            <td nowrap align="left" class="borderbottomright">7923332377454</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:21</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_44' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">Anonymous</td>
+            <td nowrap align="left" class="borderbottomright">7923291006759</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Warid</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:21</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_45' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+96598148846</td>
+            <td nowrap align="left" class="borderbottomright">7923305537456</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:21</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_46' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+989332254548</td>
+            <td nowrap align="left" class="borderbottomright">7923301356092</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:20</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_47' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=26">Acct.&nbsp;Quickcomm-Globe</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">880711712145788</td>
+            <td nowrap align="left" class="borderbottomright">1923325438807</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan - Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:20</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_48' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 486'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+447376503093</td>
+            <td nowrap align="left" class="borderbottomright">7923348566784</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:20</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#FFFFFF" class="list-tr">
+            <td id='mb_49' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 503'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=8">Acct.&nbsp;Manor-It</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">966534152901</td>
+            <td nowrap align="left" class="borderbottomright">7923302912061</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:19</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+        <tr bgcolor="#EEEEEE" class="list-tr">
+            <td id='mb_50' align="left" class="borderallbuttop" style="padding: 0 0 0 2px;">
+                <img src="images/ledred.png" width=16 height=16 ext:qtip='SIP error 404'>
+            </td>
+            <td nowrap align="left" class="borderbottomright">
+  <a href="accounts.php?action=edit&account=29">Acct.&nbsp;Vovida</a>
+              </td>
+            <td nowrap align="left" class="borderbottomright">+60113007333</td>
+            <td nowrap align="left" class="borderbottomright">7923378201747</td>
+            <td nowrap align="center" class="borderbottomright">PAKISTAN</td>
+            <td nowrap align="center" class="borderbottomright">Pakistan Mobile Ufone</td>
+            <td nowrap align="right" class="borderbottomright">10 Apr 2026 18:11:19</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">00:00</td>
+            <td nowrap align="right" class="borderbottomright">0.0000000</td>
+        </tr>
+</table>
+
+                                <div class="total">
+                    Total - Calls: 12372
+                        &nbsp;- Duration, mm:ss: 703:12
+                        &nbsp;- Billed Duration, mm:ss: 707:39
+                        &nbsp;- Charged Amount,&nbsp;USD: 10.5007800
+                </div>
+                
+<div class="separator"></div>
+
+<table class="grouptitle" width="100%">
+    <tr>
+				<td width="50">
+	    		</td>
+		<td width="50">
+	    		</td>
+		<td align="center">Page 1 of 248, total 12372 rows</td>
+			<td width="50" align="right">
+	    		  <a href="#" onClick="javascript:gotopage(1);"><img src="images/next.gif" border="0" HEIGHT="13" WIDTH="13" alt="Next Page"></a>
+	    		</td>
+		<td width="50" align="right">
+	    		  <a href="#" onClick="javascript:gotopage(247);"><img src="images/last.gif" border="0" HEIGHT="13" WIDTH="13" alt="Last Page"></a>
+	    		</td>
+		    </tr>
+</table>
+
+</div>
+        </div>
+
+
+<script>
+    var e = document.getElementsByClassName("Headline");
+    if (e.length > 0) {
+        // add datetime
+        var tr = e[0].parentElement;
+        var td = document.createElement("td");
+        td.className = "Headline style1";
+        td.style.textAlign = "right";
+        var t = document.createTextNode("10 Apr 2026 18:11:38 (Etc/UTC)");
+        td.appendChild(t);
+        tr.appendChild(td);
+
+        // move navigation bar before main div
+        e = tr;
+        while (e = e.parentElement) {
+            if (e.tagName != "TABLE") {
+                continue;
+            }
+            break;
+        }
+        if (e) {
+            e = e.parentElement.removeChild(e);
+            var main_div = document.getElementById('main');
+            main_div.parentElement.insertBefore(e, main_div);
+            main_div.className = "main_div";
+        }
+    }
+</script>
+
+
+</body>
+</html>

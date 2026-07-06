@@ -1,0 +1,106 @@
+I think we've reached the point where we should stop guessing. Based on everything you've shown over the last two days, this is no longer a database migration problem.
+
+Here's why:
+
+✅ global_destinations = 150,408
+✅ destinations = 150,408
+✅ destinations_v = 150,408
+✅ Bidirectional EXCEPT parity = 0 differences
+✅ Build succeeds
+✅ Server starts
+✅ View exists
+✅ Read migration completed
+
+Yet:
+
+❌ Destination Catalog shows 0
+❌ Rate Manager country dropdown shows No results
+
+Those two screens use the same destination dataset. When two independent UIs fail while the database is correct, the next place to investigate is the API response and the React code, not SQL.
+
+I want to verify the API first
+
+Instead of modifying more code, let's inspect the actual response.
+
+1. Find the endpoint in the browser
+
+Open Chrome DevTools (F12) → Network tab.
+
+Reload the Destination Catalog page.
+
+Look for:
+
+/api/product-registry/destinations
+
+Click it and tell me:
+
+Status (200? 401? 500?)
+Response Preview (empty array? error? data?)
+2. Or use curl from inside Replit (authenticated)
+
+Since localhost returned 401 before, use the browser Network tab first. It will include your session cookie automatically.
+
+I also want to inspect the frontend
+
+The screenshots strongly suggest the frontend is throwing away the data.
+
+Please show me these sections:
+
+Destination Catalog
+client/src/pages/destination-catalog.tsx
+
+Search for:
+
+useQuery(
+
+and
+
+buildTree
+
+or
+
+flatNodes
+
+or
+
+setNodes
+Rate Manager
+
+Search in:
+
+client/src/pages/rate-manager.tsx
+
+for
+
+countryOptions
+
+or
+
+destinations
+
+or
+
+product-registry/destinations
+I also noticed something important
+
+Earlier you asked:
+
+"How did we upload destination codes originally and why aren't we following the same process?"
+
+From our previous work, the original destination catalog was populated from the canonical destination import pipeline (global destination import and alias normalization), not by manually creating countries. The migration we've been doing intentionally preserved those 150,408 rows—they're still there.
+
+So the problem is not that the data disappeared. It's that the UI isn't consuming it anymore.
+
+I would not make any more backend changes yet
+
+At this stage, the fastest path is:
+
+Verify what /api/product-registry/destinations actually returns in the browser.
+Inspect the React component that builds the tree.
+
+That will tell us whether:
+
+the backend is returning data and the frontend is discarding it, or
+the endpoint is still returning an unexpected payload.
+
+I don't think we should touch the database or migration again until we see those two pieces of evidence.

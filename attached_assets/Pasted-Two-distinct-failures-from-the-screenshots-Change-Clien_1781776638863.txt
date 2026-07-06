@@ -1,0 +1,104 @@
+Two distinct failures from the screenshots:
+
+Change Client Rates — portal_csv is being attempted but returning 0/1 rate(s) updated — Some pushes failed
+Send Rate submit — button appears non-functional
+Let me pull server logs to see the actual push errors, then read the Send Rate submit handler:
+
+
+2 actions
+I need to see the actual push error and the Send Rate submit handler. Both in parallel:
+
+
+3 actions
+Two submit handlers to diagnose in parallel — the SendRateTab handleSubmit at line 984 and the ChangeClientRateModal at line 445:
+
+
+3 actions
+Two issues visible from screenshots:
+
+Change Client Rates: portal_csv attempted but fails silently — error message is hidden (shows method not message on failure)
+Send Rate: submit button disabled because canSubmit is false — need to find what blocks it
+Let me find both:
+
+
+3 actions
+I have a clear picture now:
+
+Send Rate: canSubmit = selectedProduct && clients.length > 0 && price && resolvedDialPrefix && !pushing. The user filled in product + clients but left price and Country/Operator selection empty — both are required but the button gives no feedback on what's missing.
+
+Change Client Rates: The result display shows r.method ?? r.message — so when success: false with method: "portal_csv", the real error message is swallowed. Also need to find the permissionBlocked check.
+
+Let me read those two things in parallel:
+
+
+3 actions
+Now I have the full picture for both failures. Three fixes needed:
+
+Change Client Rates result display: {r.method ?? r.message} hides the real error when success: false — shows "portal_csv" instead of the actual error message
+Change Client Rates error detail: need to show r.message on failure row
+Send Rate submit disabled: no feedback on why the button is greyed — user doesn't know they need Country → Operator → Price in the right panel
+Let me read the exact result display lines and submit button areas:
+
+
+3 actions
+Now I have exactly what I need. Three edits simultaneously — all precise:
+
+
+2 actions
+All three edits in one shot:
+
+
+3 actions
+Now let me check the new server logs to find the actual portal_csv error message from the push attempt:
+
+
+3 actions
+Let me check the probe endpoint and the portal CSV path failure details simultaneously:
+
+
+4 actions
+Let me read the probe endpoint and portal upload failure path to understand exactly what's happening:
+
+
+4 actions
+Good — now I understand the full failure chain. The portal CSV path runs but either:
+
+No credential can access /c1/rates.php → clear message about permissions
+Upload is accepted (HTTP 200) but verification shows rate didn't change → "Portal CSV accepted but rate unchanged"
+My result display fix will now show these real messages. Let me also check the Send Rate push results display, then verify compilation is clean:
+
+
+6 actions
+Server is clean. No compilation errors. Let me write the commit message:
+
+
+2 actions
+Here's a summary of the two UX fixes just applied — both visible immediately without a page refresh:
+
+What changed
+Change Client Rates — real error now visible
+
+Before: result row showed portal_csv (the method name) regardless of whether it succeeded or failed.
+
+After:
+
+Failure: shows the actual error message in red — e.g. "No credential pair has access to the Sippy rates page. Grant 'Edit Tariff Rates' permission..." or "Portal CSV accepted but rate unchanged — check tariff permissions or prefix mapping"
+Secondary line shows: via portal_csv · tariff=33
+Success: still shows the method name in green (no change)
+The portal_csv failures you're seeing are a Sippy permission configuration issue — the connected ssp-root account is a reseller and can't write rates via the portal upload form. The error message now says exactly what to do: go to Sippy Admin Panel → grant ssp-root (or a dedicated rate-admin account) the "Edit Tariff Rates" permission, OR add a dedicated rate admin account in Settings → Sippy → Rate Admin Credentials.
+
+Send Rate submit — now tells you what's missing
+
+Before: Submit button went grey with no explanation when Product + Clients were filled but Country/Operator/Price were not.
+
+After: amber hint lines appear below the Submit button once the user has started filling the form:
+
+· Select Country → Operator in detail panel →
+· Enter rate price in detail panel →
+
+This makes it clear that the right panel (Notification Detail) must be completed before the push can fire.
+
+The underlying rate push failure (portal_csv permission) is a Sippy configuration requirement, not a code bug — it requires one of:
+
+Grant ssp-root "Edit Tariff Rates" permission in the Sippy admin panel
+Configure a separate rate-admin account in Settings that has that permission

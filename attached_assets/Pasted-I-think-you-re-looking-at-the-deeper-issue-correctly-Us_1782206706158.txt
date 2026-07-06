@@ -1,0 +1,476 @@
+I think you're looking at the deeper issue correctly.
+
+Using:
+
+SELECT *
+FROM sippy_accounts
+WHERE i_account > 0
+
+as the only source is also dangerous.
+
+Why?
+
+You currently have two different concepts:
+
+Sippy Account (Execution Layer)
+iAccount = 588
+username = internal-ptcl
+iTariff = 101
+
+This is a live switching/rating object inside Sippy.
+
+customer_product_assignments (BitsAuto Business Layer)
+customer_id
+product_id
+status
+assigned_by
+created_at
+
+This is a commercial/business relationship.
+
+The problem
+
+If you completely replace product assignments with:
+
+SELECT * FROM sippy_accounts
+
+then every account in Sippy becomes visible everywhere.
+
+Example:
+
+internal-test
+lab-account
+fraud-test
+temp-routing
+old-customer
+disabled-customer
+
+will all appear in Rate Manager.
+
+That is usually wrong.
+
+What I would do instead
+
+Make Sippy Accounts the source of truth for existence.
+
+Make Product Assignments the source of truth for entitlement.
+
+Architecture:
+
+Sippy Account
+    ↓
+Exists?
+    ↓
+YES
+    ↓
+BitsAuto Product Assignment?
+    ↓
+YES
+    ↓
+Visible in Rate Manager
+Bigger issue I see
+
+Looking at your data:
+
+customer_product_assignments
+iAccount=588
+customer_name=internal-ptcl
+
+sippy_accounts
+?
+
+You need to verify that:
+
+customer_product_assignments.iAccount
+=
+sippy_accounts.iAccount
+
+for every row.
+
+Because many of your bugs smell like this:
+
+Assignment table says:
+iAccount = 588
+
+Sippy cache says:
+account_id = 588
+
+React expects:
+id = 588
+
+Another endpoint returns:
+i_account = 588
+
+and one layer is joining on the wrong field.
+
+What I would change
+
+Instead of:
+
+assignedIds.has(account.iAccount)
+
+I would build a reconciliation layer:
+
+interface AccountAssignment {
+  iAccount: number;
+  username: string;
+  assignedProducts: number[];
+  existsInSippy: boolean;
+}
+
+Then:
+
+Load all Sippy accounts
++
+Load all product assignments
++
+Merge by iAccount
+
+and expose one unified API:
+
+/api/accounts/by-product/:productId
+
+The UI should never query raw assignment tables directly.
+
+For future-proofing
+
+When a new account is created:
+
+Create Sippy account
+      ↓
+Sync account catalog
+      ↓
+Auto-create assignment record
+      ↓
+Visible everywhere
+
+No manual seeding.
+
+No tariff-sync scripts.
+
+No cache warm-up dependency.
+
+From what you've shown, I would not remove customer_product_assignments.
+
+I would instead make:
+
+sippy_accounts
+
+the master account catalog,
+
+and make:
+
+customer_product_assignments
+
+a mapping table only.
+
+That keeps future accounts automatic while still allowing product-level control (First Class, Business Class, Bravo, Charlie) and prevents test/internal accounts from appearing where they shouldn't.
+
+as per my knowledge if we do this then customer would be disapper 
+SELECT * FROM sippy_accounts
+please check some account was created by customer API and and account created by Admon API 
+
+Yes, that's exactly why I would not replace everything with SELECT * FROM sippy_accounts.
+
+Based on the BitsAuto architecture you've described over the last few weeks, there are actually multiple account creation paths:
+
+Path 1 — Created directly in Sippy
+Admin
+  ↓
+Sippy Portal
+  ↓
+Account Created
+  ↓
+Exists in sippy_accounts
+Path 2 — Created from BitsAuto Customer Wizard
+Customer API
+   ↓
+BitsAuto customer
+   ↓
+Commercial profile
+   ↓
+Product assignment
+   ↓
+Service plan / tariff mapping
+   ↓
+Sippy account created later (or failed)
+Path 3 — Legacy imported customers
+Existing database
+   ↓
+customer_product_assignments
+   ↓
+No matching Sippy account yet
+
+If you switch Rate Manager to:
+
+SELECT * FROM sippy_accounts
+
+then these customers can disappear:
+
+Customer exists in BitsAuto
+Customer assigned to First Class
+Customer visible in Commercial module
+
+BUT
+
+No Sippy account yet
+
+Result:
+
+Rate Manager = customer disappears
+
+which is worse than today's bug.
+
+What I suspect is happening
+
+Your screenshots show:
+
+Badge: First Class = 12 clients
+Dropdown = 12 clients
+Database = 24 assignments
+
+So the issue is probably not that accounts don't exist.
+
+The issue is likely:
+
+accounts-by-product endpoint
+    ↓
+joining against Sippy cache
+    ↓
+discarding accounts not found in cache
+
+Something like:
+
+assignedIds.has(account.iAccount)
+
+or
+
+cache.get(iAccount)
+
+filtering them out.
+
+What I would verify next
+
+Run this query:
+
+SELECT
+    cpa.i_account,
+    cpa.customer_name,
+    sa.i_account as sippy_iaccount,
+    sa.username
+FROM customer_product_assignments cpa
+LEFT JOIN sippy_accounts sa
+    ON sa.i_account = cpa.i_account
+WHERE cpa.product_id = 1
+ORDER BY cpa.i_account;
+
+This will immediately show:
+
+588 internal-ptcl      → exists in sippy_accounts?
+589 internal-citc      → exists?
+683 internaltelstra    → exists?
+If some rows return NULL
+
+Example:
+
+588 internal-ptcl      588 internal-ptcl
+589 internal-citc      NULL NULL
+683 internaltelstra    NULL NULL
+
+Then we found the problem.
+
+Those accounts exist commercially but not in Sippy.
+
+If Rate Manager uses only Sippy accounts, they disappear.
+
+My recommendation
+
+Use a merged view:
+
+customer_product_assignments   ← authoritative for product membership
+            +
+sippy_accounts                ← authoritative for live routing/tariff data
+
+and show:
+
+PUSHTOTALK          ✓ Active
+internal-ptcl       ✓ Active
+internaltelstra     ⚠ Missing in Sippy
+internal-citc       ⚠ Missing in Sippy
+
+instead of hiding them.
+
+That gives Operations visibility and prevents customers from vanishing from the UI.
+
+Before changing architecture, I would run the LEFT JOIN query above. My suspicion is that the missing accounts are exactly the ones that are assigned in customer_product_assignments but are missing or mismatched in sippy_accounts, which would explain why you have 24 assignments but only 12 visible clients.
+
+account wizard is use Admin API, to create account we have to resolve this first all the platform will be use admin API instead of customer API 
+if we rectify this platform will be work smoothly 
+
+I think this is the correct strategic direction.
+
+Looking at all the issues we've been chasing:
+
+Missing accounts in Rate Manager
+Product assignment mismatches
+Customer Wizard vs Admin-created accounts
+Cache inconsistencies
+Accounts appearing in one module but not another
+Notification recipients tied to different account sources
+Push History showing inconsistent names
+
+These are all symptoms of the same architectural problem:
+
+Today
+
+Customer Wizard
+    ↓
+Customer Tables
+    ↓
+Product Assignment
+
+Admin API
+    ↓
+Sippy Account
+    ↓
+Tariff
+
+Tariff Sync
+    ↓
+Assignment Sync
+
+Rate Manager
+    ↓
+Different lookup
+
+Notifications
+    ↓
+Different lookup
+
+You effectively have multiple account authorities.
+
+Recommended Architecture
+Single Source of Truth
+
+Everything should originate from the Admin API provisioning flow.
+
+Admin API
+    ↓
+Create Customer
+    ↓
+Create Sippy Account
+    ↓
+Create Tariff
+    ↓
+Assign Product
+    ↓
+Create Service Plan
+    ↓
+Create Notification Profile
+    ↓
+Create Portal Access
+
+One transaction.
+
+BitsAuto Master Account
+
+Create a master account record:
+
+account_master
+--------------
+account_id
+i_account
+username
+customer_name
+product_id
+tariff_id
+status
+created_at
+source
+
+Source:
+
+admin_api
+wizard
+import
+sync
+Every Module Uses account_master
+
+Rate Manager:
+
+account_master
+
+Notifications:
+
+account_master
+
+Push History:
+
+account_master
+
+KAM:
+
+account_master
+
+Portal:
+
+account_master
+
+Analytics:
+
+account_master
+
+No module should directly decide whether to read:
+
+sippy_accounts
+customer_product_assignments
+companies
+customers
+
+independently.
+
+Before Vendor Rate Work
+
+I would prioritize this:
+
+Phase 1 – Account Governance
+Audit all account creation paths.
+Make Admin API the only creation path.
+Ensure Customer Wizard calls Admin API internally.
+Build/update a master account table.
+Make every module read from the same account source.
+Phase 2 – Product Assignment Governance
+
+Automatically create:
+
+Customer
+→ Product Assignment
+→ Tariff Mapping
+→ Notification Mapping
+
+during account creation.
+
+No manual sync jobs.
+
+Why this matters
+
+Right now you're spending time fixing:
+
+internal-ptcl missing
+internaltelstra missing
+1/1 client
+dropdown mismatch
+
+But those are downstream effects.
+
+If account creation and account ownership are standardized through the Admin API and one master account model, most of these recurring issues disappear across the whole platform.
+
+So before starting Vendor Rate automation, I would finish:
+
+Account Governance Layer
+    ↓
+Single Account Source
+    ↓
+Unified Product Assignment
+
+because Vendor Rate, Client Rate, Notifications, Push History, KAM, and Reporting all depend on the same account foundation.

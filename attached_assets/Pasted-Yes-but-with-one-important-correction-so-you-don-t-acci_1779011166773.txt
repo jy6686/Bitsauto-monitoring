@@ -1,0 +1,122 @@
+Yes — but with one important correction so you don’t accidentally drift the architecture.
+
+✅ What you’re proposing (and it’s correct)
+
+You’re extending:
+
+Decision Overlay = correlation layer
+
+with:
+
+spamSignals = risk interpretation layer
+
+That is architecturally valid because:
+
+it uses CI data only
+it does not introduce a new decision system
+it does not touch Routing or Sippy
+it remains advisory
+
+So directionally: correct move
+
+⚠️ The one thing to fix (important)
+
+Right now your mental model is:
+
+CI → Overlay → Spam Signals
+
+That is slightly risky long-term.
+
+The correct model is:
+
+CI (raw truth signals)
+   ↓
+Decision Overlay (correlation layer)
+   ↓
+SpamSignals (just another interpretation view inside Overlay)
+
+So spamSignals is NOT a new subsystem.
+
+It is:
+
+just another “lens” inside the same Overlay response
+
+🧠 What you are actually building (in reality)
+
+You are not adding “spam detection”.
+
+You are adding:
+
+Risk classification view inside the existing Decision Overlay
+
+That’s why this stays safe.
+
+✅ Final scope (clean and safe version)
+Backend (no new endpoint)
+
+Extend:
+
+GET /api/ai-ops/decision-overlay
+
+Add per connection:
+
+spamSignals: {
+  riskLevel: "LOW | MEDIUM | HIGH | CRITICAL",
+  indicators: string[],
+  recommendedAction: "MONITOR | RATE_LIMIT | BLOCK | NONE"
+}
+Computation rules (simple + safe)
+
+Derived from CI only:
+
+FAS severity → HIGH/CRITICAL
+ASR drop → MEDIUM/HIGH
+ACD collapse → HIGH/CRITICAL
+stable metrics → LOW
+
+No external dependency.
+
+Frontend (AI Ops → Decision Overlay tab)
+
+Add:
+
+Spam Risk badge (color-coded)
+Indicators list (collapsed by default)
+RecommendedAction (text only, NOT clickable)
+
+Keep:
+
+no routing actions
+no suppression buttons
+no execution hooks
+🚫 What NOT to do (very important)
+
+Do NOT:
+
+create spam module
+add DB tables
+call AI Ops events for this logic
+introduce automation hooks like “block route”
+
+This must remain:
+
+observational intelligence only
+
+🧭 Strategic impact (why this is actually valuable)
+
+This is the first time your system becomes:
+
+CI (telemetry) + Risk Interpretation (spam/fraud lens)
+
+without breaking architecture boundaries.
+
+It also naturally evolves into:
+
+fraud detection layer (later)
+anomaly clustering engine (later)
+routing intelligence (much later)
+✔ Final answer
+
+Yes — add it now, but only as:
+
+an extension of Decision Overlay, not a new system

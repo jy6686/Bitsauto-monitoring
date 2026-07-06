@@ -1,0 +1,255 @@
+first Problem: account name not matching
+second Eror: A not accepting , U is working perfectly 
+third error always Upload with all codes instead of only change request code, if you upload only changes requested code other all code would be delete form tarif and traffic would be strt failing which cause business loss 
+
+
+Excellent. Your manual test has revealed the actual root causes.
+
+1. Account Name Mismatch (Confirmed)
+
+Generated file:
+
+sippy_tariff33_19230_1781793477285.xlsx
+
+Downloaded tariff:
+
+internal-ptcl_Rates.xlsx
+
+BitsAuto is generating files using:
+
+tariffId + prefix + timestamp
+
+while Sippy uses:
+
+<CustomerName>_Rates.xlsx
+
+This is not the upload failure, but it confirms BitsAuto is not following Sippy's native workflow.
+
+The generated file should be:
+
+internal-ptcl_Rates.xlsx
+
+or preferably:
+
+internal-ptcl_Rates_20260618_1447.xlsx
+
+for audit/version history.
+
+2. A is Wrong, U Works (Confirmed)
+
+Your screenshots prove this.
+
+Downloaded tariff:
+
+Id = 41
+Prefix = 19230
+Price = 0.0275
+
+Generated upload:
+
+Prefix = 19230
+Price = 0.10
+Action = A
+Id = blank
+
+Since 19230 already exists:
+
+A = Add
+
+is incorrect.
+
+Sippy already has:
+
+Id = 41
+
+Therefore the upload row should be:
+
+Action = U
+Id = 41
+Prefix = 19230
+...
+Price = 0.0274
+
+This matches your manual testing.
+
+So:
+
+❌ A is wrong
+
+❌ SA is unreliable
+
+✅ U + existing Id works
+
+3. Biggest Issue — Full Tariff Upload (Critical)
+
+This is the most important finding.
+
+Generated file currently contains:
+
+19230 only
+
+but Sippy tariff contains:
+
+1880
+192
+1923
+19230
+19231
+19232
+19233
+19234
+
+If Sippy treats upload as:
+
+replace tariff
+
+instead of:
+
+merge tariff
+
+then uploading a single-row file is extremely dangerous.
+
+You could accidentally remove:
+
+19231
+19232
+19233
+19234
+
+and live traffic starts failing.
+
+For telecom production systems this is unacceptable.
+
+Correct Enterprise Workflow
+
+BitsAuto should:
+
+Step 1
+
+Download current tariff.
+
+Example:
+
+internal-ptcl_Rates.xlsx
+Step 2
+
+Load all rows.
+
+1880
+192
+1923
+19230
+19231
+19232
+19233
+19234
+Step 3
+
+Modify only selected row.
+
+Example:
+
+Before:
+
+19230 = 0.0275
+
+After:
+
+19230 = 0.0274
+Step 4
+
+Preserve:
+
+Id
+Prefix
+Country
+Intervals
+Grace
+Activation Date
+Step 5
+
+Generate full tariff file.
+
+internal-ptcl_Rates.xlsx
+
+with all 8 rows.
+
+Step 6
+
+Upload full tariff.
+
+Step 7
+
+Verify.
+
+19230 = 0.0274
+
+while:
+
+19231 = unchanged
+19232 = unchanged
+19233 = unchanged
+What this means for the implementation
+
+The current approach:
+
+Generate new XLSX
+1 row
+Action=A
+Blank Id
+Upload
+
+is fundamentally wrong for production telecom billing.
+
+The upload engine should become:
+
+Read current tariff
+↓
+Modify requested rows
+↓
+Keep existing IDs
+↓
+Generate complete tariff
+↓
+Upload complete tariff
+↓
+Verify
+↓
+Archive uploaded file
+
+which is exactly how your manual Sippy workflow works today.
+
+Another important clue from your screenshot
+
+Downloaded tariff contains:
+
+Id = 41
+Prefix = 19230
+
+BitsAuto already reads tariff #33 successfully.
+
+Therefore BitsAuto already knows:
+
+Id = 41
+
+There is no reason to upload:
+
+Id = blank
+Action = A
+
+It should use:
+
+Action = U
+Id = 41
+
+for existing destinations.
+
+My conclusion
+
+Your manual comparison identified three real defects:
+
+Wrong filename convention (minor)
+Wrong action code (A instead of U) (major)
+Uploading only changed rows instead of full tariff (critical production risk)
+
+The third issue is the one I would fix first because it can cause live route failures and customer-impacting outages if Sippy replaces tariff contents during import.

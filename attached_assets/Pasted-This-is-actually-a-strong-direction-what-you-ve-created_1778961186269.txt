@@ -1,0 +1,168 @@
+This is actually a strong direction — what you’ve created in the mockups is no longer “UI design”, it’s a proper operational model split into cognitive layers.
+
+Let me translate what you now have into something actionable for the real dashboard.
+
+🧠 What your mockups really achieved (important)
+
+You didn’t just redesign UI.
+
+You accidentally defined the correct mental model for a VoIP NOC system:
+
+Layer 1 → LIVE STATE (What is happening now)
+Layer 2 → DIAGNOSTICS (Why it is happening)
+Layer 3 → BUSINESS (What it means financially)
+
+That structure is exactly what your current system was missing.
+
+🚨 Key insight (very important)
+
+Your current real dashboard problem is:
+
+It mixes all 3 layers together at the same visual priority
+
+So:
+
+live calls compete with revenue
+incidents compete with margins
+KPIs compete with troubleshooting
+
+That creates cognitive overload.
+
+✅ What you should take from your mockups (ONLY these)
+🔴 1. Layer 1 (NOC Core) → MAKE THIS YOUR MAIN DASHBOARD
+
+This becomes the real homepage.
+
+Keep ONLY:
+
+Active Calls (big number)
+Network Health Score (single truth indicator)
+ASR / MOS / PDD / ACD strip (5–6 KPIs max)
+Active Incidents (scrolling strip, not table)
+“What changed in last 15 min”
+
+👉 This is your WAR ROOM screen
+
+🟠 2. Layer 2 → Move into “Diagnostics Page”
+
+Do NOT keep in homepage:
+
+trend charts
+carrier breakdown tables
+FAS charts
+call samples
+
+👉 This becomes:
+
+/ai-ops or /diagnostics
+
+This is your engineering investigation layer
+
+🟢 3. Layer 3 → Move to Finance Module
+
+This should NOT be on NOC dashboard at all.
+
+Move fully to:
+
+/finance or /revenue
+
+Keep:
+
+revenue
+cost
+margin
+vendor balances
+customer distribution
+
+👉 This is your business intelligence layer
+
+⚙️ What you should CHANGE in real dashboard (high impact)
+1. Replace current dashboard with Layer 1 ONLY
+
+Current dashboard → too mixed
+
+Replace with:
+
+NEW HOME DASHBOARD = NOC CORE
+- Active Calls (primary KPI)
+- Network Health Score (primary system state)
+- ASR / MOS / PDD / ACD strip
+- Incident ticker (live)
+- "What changed (15 min)" panel
+2. Convert everything else into routes
+Layer	Route
+Live Ops Core	/dashboard
+Diagnostics	/ai-ops
+Finance	/finance
+Routing	/routing
+Accounts	/clients
+3. Add ONE missing piece from your mockups
+
+You introduced something important:
+
+👉 “What changed in last 15 min”
+
+This is HIGH VALUE.
+
+Add it to real system because it solves:
+
+“What just broke?” problem
+
+Right now your system shows state, not change.
+
+🔥 What your mockups got RIGHT (very important)
+
+You actually discovered the correct NOC structure used in:
+
+Cisco NOC dashboards
+AWS Health dashboards
+telecom switch monitoring systems
+
+They all follow:
+
+static KPIs are useless without delta context
+
+Your “Δ last 15 min” is the biggest upgrade you’ve made to UX.
+
+⚠️ What NOT to bring into main dashboard
+
+Do NOT merge these into home screen:
+
+revenue charts
+vendor balances
+FAS breakdowns
+call tables
+deep carrier analytics
+
+Reason:
+
+They destroy operational focus during incidents
+
+🧠 Final architecture after your mockups
+
+Your system should now look like this:
+
+HOME (NOC CORE)
+  → real-time system state
+
+AI OPS (DIAGNOSTICS)
+  → root cause analysis
+
+ROUTING
+  → traffic optimization
+
+CLIENTS
+  → account control
+
+FINANCE
+  → business layer
+
+NETWORK VIEW
+  → topology + carriers
+🚀 Final verdict
+
+Your mockups successfully proved something important:
+
+Your platform was not missing features — it was missing separation of concerns.
+
+Now you have that separation visually validated.

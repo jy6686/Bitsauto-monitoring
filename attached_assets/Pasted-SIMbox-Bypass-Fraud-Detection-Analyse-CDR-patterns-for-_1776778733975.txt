@@ -1,0 +1,19 @@
+SIMbox / Bypass Fraud Detection — Analyse CDR patterns for SIM box signatures: low MOS-proxy indicators (short duration, high early-disconnect, repeated same CLI to same CLD, odd time patterns). Add a "SIMbox Risk" score per vendor alongside FAS.
+
+Scheduled Test Call Campaigns — Extend your Click-to-Call to support scheduled batches: define a list of destinations + CLI, run at a set time, store results, trend MOS/CLI delivery/FAS over time per vendor route.
+
+NER (Network Effectiveness Ratio) — Add NER alongside ASR in all your stats views. NER = (answered + busy + reject + ring-no-answer) / total attempts. Excludes subscriber-unavailable from denominator. A fairer SLA metric.
+
+CLI Delivery Verification Flag — On CDRs, detect when the inbound CLI (P-Asserted-Identity) differs from the outbound CLD to identify CLI stripping/spoofing vendors. Flag these CDRs in your CDR Viewer.
+
+Scheduled ASR/ACD/NER Reports (Auto-Email) — Add a "Scheduled Reports" feature in Settings: pick metrics, time window, recipient email(s), frequency (daily/weekly). Runs as a background cron and emails formatted HTML reports.
+
+Billing Dispute Tracker — A simple module where you log CDR discrepancies between your Sippy billing and a vendor's invoice. Status tracking (Open / Under Review / Resolved), notes, resolution amount. Linked to Rate Cards.
+
+Origin-Based Rate Display — In your LCR Analyser and Rate Cards, add support for origin-zone prefixes (e.g. UK mobile originating → Pakistan is a different rate than UK fixed originating → Pakistan). Show origin-adjusted rates in the LCR result table.
+
+Rate Sheet Auto-Import (Email/SFTP) — Allow vendors to submit rate sheets via a dedicated email address or SFTP drop. Auto-parse CSV/XLS, map to a rate card, flag changes vs current rates.
+
+Route QoS Heatmap — A destination × time grid showing ASR/ACD colour-coded per hour of day. Useful for spotting off-peak degradation patterns per vendor route.
+
+Vendor SLA Breach Log — Automatic logging whenever a vendor's ASR/ACD/PDD crosses below their SLA thresholds. Timestamped, with duration of breach, exported to PDF for contractual evidence.

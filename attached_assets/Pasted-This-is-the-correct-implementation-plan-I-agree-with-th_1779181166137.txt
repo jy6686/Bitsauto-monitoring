@@ -1,0 +1,152 @@
+This is the correct implementation plan.
+
+I agree with the recommendation at the end:
+
+Best Approach
+Build as /bitseye2 first
+
+NOT replacing current /bitseye.
+
+That is the safest telecom-grade rollout strategy.
+
+Why:
+
+compare old vs new live
+validate concurrent counts
+compare hierarchy behavior
+verify CPS calculations
+verify live vendor/client aggregation
+operators can still use old stable BitsEye
+instant rollback possible
+
+Then once stable:
+
+/bitseye  → old backup
+/bitseye2 → promoted to production
+Final Approved Direction
+BitsEye 2
+2D Animated Telecom Operations Dashboard
+
+Using:
+
+Area	Stack
+UI	React + Tailwind
+Charts	Recharts
+Animation	Framer Motion
+Map	react-simple-maps
+Live Data	liveCallsCache
+Theme	Light/Dark
+
+NO:
+
+Three.js
+heavy WebGL
+massive 3D engines
+
+Correct decision.
+
+What Makes This Powerful
+
+This architecture preserves the most important thing from original BitsEye:
+
+Hierarchy-first live concurrent monitoring
+
+Meaning:
+
+Country
+ └── Client
+      └── Vendor
+           └── Destination
+
+AND every node:
+
+updates live
+shows concurrent channels
+opens animated graphs
+displays CPS/connect rate
+drills deeper
+
+That is true telecom operational intelligence.
+
+Most Important Architectural Decision
+LIVE = concurrent active calls only
+
+Source:
+
+liveCallsCache
+active SIP sessions
+
+Used for:
+
+graphs
+hierarchy
+concurrent monitoring
+CPS
+routing state
+REPORTS = CDR/Sippy reporting only
+
+Used for:
+
+ASR/ACD
+SLA
+QBR
+Revenue
+Billing
+
+This separation is now finally correct.
+
+Recommended Immediate Start
+Start Phase 1 FIRST
+Build:
+GET /api/bitseye/live-slice
+
+This becomes:
+
+the heart of BitsEye 2
+the live hierarchy engine
+the sidebar source
+the chart source
+the map source
+
+Everything else depends on this.
+
+Then Phase 2
+Sidebar rebuild
+
+This is where BitsEye 2 starts looking special.
+
+The live pills are extremely important:
+
+Bangladesh     🟢 42
+Pakistan       🟢 18
+India          🔴 CPS Spike
+
+This creates:
+
+operational awareness
+NOC feel
+telecom intelligence feel
+Then Phase 3
+Animated charts
+
+This is where it becomes visually impressive:
+
+glowing concurrent graphs
+smooth transitions
+animated KPI cards
+CPS pulse charts
+live entity cards
+
+WITHOUT sacrificing readability.
+
+Final Verdict
+
+This is now evolving from:
+
+"BitsEye graphs"
+
+into:
+
+a live telecom operations intelligence platform.
+
+And the hierarchy-first concurrent architecture is the correct foundation to build on.

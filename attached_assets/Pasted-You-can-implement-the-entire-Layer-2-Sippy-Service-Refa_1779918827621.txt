@@ -1,0 +1,404 @@
+You can implement the entire Layer 2 Sippy Service Refactor in one coordinated implementation pass — but only if it is done as:
+
+infrastructure replacement
+
+NOT:
+
+feature expansion.
+
+That distinction matters.
+
+Do NOT try to implement:
+
+invoices,
+portals,
+reconciliation,
+AI,
+tariff versioning,
+or QuickBooks sync
+
+inside the same sprint.
+
+Instead:
+
+implement the complete middleware architecture in one go,
+
+then future layers become dramatically easier.
+
+Below is the correct master implementation prompt for the:
+
+Sippy Service Layer Refactor
+
+which is now your highest-priority foundational work.
+
+BitsAuto — Sippy Service Layer Refactor Master Prompt
+Objective
+
+Refactor the current monolithic:
+
+server/sippy.ts
+
+into a modular telecom middleware architecture.
+
+This is NOT cleanup work.
+
+This is:
+
+prerequisite infrastructure
+
+required before:
+
+rating verification
+tariff versioning
+invoice automation
+reconciliation
+revenue intelligence
+QuickBooks integration
+AI operations
+
+can be built reliably.
+
+MOST IMPORTANT ARCHITECTURAL RULE
+
+ALL telecom operations MUST follow:
+
+Route
+→ BitsAuto Service Layer
+→ Sippy Service Module
+→ XML-RPC/API
+
+NEVER:
+
+Route
+→ XML-RPC directly
+
+No direct XML-RPC calls may remain in:
+
+routes
+cron jobs
+UI handlers
+controllers
+
+All Sippy communication must be centralized.
+
+TARGET DIRECTORY STRUCTURE
+
+Create:
+
+server/services/sippy/
+REQUIRED MODULES
+1. sippy-auth.service.ts
+Responsibilities
+XML-RPC session management
+authentication lifecycle
+credential loading
+retries
+timeout governance
+reconnect handling
+request wrappers
+centralized error normalization
+Required Features
+
+Implement:
+
+executeRpcCall()
+withRetry()
+withTimeout()
+normalizeSippyError()
+Rules
+No XML-RPC credentials outside this service
+No direct XML-RPC client creation elsewhere
+2. sippy-client.service.ts
+Responsibilities
+create client/account
+update client
+suspend/reactivate
+authentication config
+SIP account sync
+client profile sync
+Required Methods
+createAccount()
+updateAccount()
+suspendAccount()
+activateAccount()
+syncClientProfile()
+3. sippy-tariff.service.ts
+MOST IMPORTANT MODULE
+
+This becomes:
+
+Telecom Economics Middleware
+Responsibilities
+tariff retrieval
+tariff sync
+interval changes
+rate uploads
+tariff version detection
+Morocco workflows
+rate validation
+prefix normalization
+Required Methods
+getTariffsList()
+getTariffInfo()
+getTariffRatesList()
+uploadRates()
+updateTariffRate()
+detectTariffChanges()
+syncTariffVersions()
+REQUIRED SUPPORT
+
+Must support:
+
+interval_1
+interval_n
+price_1
+price_n
+free_seconds
+grace_period
+connect_fee
+post_call_surcharge
+IMPORTANT
+
+This service must later support:
+
+tariff versioning
+invoice reproducibility
+reconciliation
+revenue assurance
+
+Design accordingly.
+
+4. sippy-routing.service.ts
+Responsibilities
+LCR updates
+vendor routing
+failover routing
+route assignments
+route validation
+route sync
+Required Methods
+updateLCR()
+assignVendorRoute()
+syncRoutingGroups()
+validateRoutingConfig()
+5. sippy-reporting.service.ts
+Responsibilities
+ASR/ACD reporting
+sales reports
+client summary
+vendor summary
+profit/loss reports
+QoS analytics normalization
+Required Methods
+getAsrAcdReport()
+getSalesReport()
+getClientSummary()
+getVendorSummary()
+getProfitLossReport()
+IMPORTANT
+
+This becomes:
+
+normalized telecom analytics infrastructure
+
+Future:
+
+dashboards
+profitability
+QoS intelligence
+AI analytics
+
+must consume this layer.
+
+6. sippy-cdr.service.ts
+Responsibilities
+CDR sync
+normalization
+caching
+aggregation
+prefix matching
+timezone normalization
+Required Methods
+syncCdrs()
+normalizeCdr()
+aggregateCdrs()
+getCdrByPrefix()
+7. sippy-finance.service.ts
+Responsibilities
+invoices
+balances
+payments
+finance sync
+reconciliation preparation
+Required Methods
+getInvoices()
+getInvoiceDetails()
+getBalances()
+recordPayment()
+syncFinanceState()
+IMPORTANT
+
+Finance logic must NEVER exist in:
+
+routes
+cron jobs
+frontend handlers
+
+All finance interactions go through this service.
+
+REQUIRED SHARED INFRASTRUCTURE
+Create:
+server/services/sippy/types.ts
+server/services/sippy/constants.ts
+server/services/sippy/errors.ts
+server/services/sippy/utils.ts
+TYPES.TS
+
+Centralize:
+
+Sippy response types
+Tariff types
+CDR types
+Report types
+Finance types
+
+No inline XML-RPC response typing allowed.
+
+ERRORS.TS
+
+Implement normalized telecom errors:
+
+SippyAuthError
+SippyTimeoutError
+SippyValidationError
+SippyRateUploadError
+SippyFinanceError
+UTILS.TS
+
+Implement:
+
+prefix normalization
+timezone helpers
+rate parsers
+XML-RPC response guards
+retry utilities
+REQUIRED REFACTOR RULES
+1. NO BUSINESS LOGIC IN ROUTES
+
+Routes may ONLY:
+
+validate request
+call service
+return response
+
+NO:
+
+XML-RPC
+retries
+telecom calculations
+normalization
+report parsing
+
+inside routes.
+
+2. CENTRALIZED LOGGING
+
+Create:
+
+sippy-audit.service.ts
+
+Track:
+
+tariff updates
+routing changes
+finance operations
+failed XML-RPC calls
+retries
+sync operations
+3. RETRY GOVERNANCE
+
+ALL XML-RPC operations must support:
+
+retries
+exponential backoff
+timeout handling
+normalized error responses
+4. QUEUE-READY DESIGN
+
+Services must be designed so future:
+
+cron jobs
+queues
+background sync
+reconciliation jobs
+
+can reuse them safely.
+
+5. NO DUPLICATE XML-RPC CODE
+
+ALL XML-RPC wrappers centralized.
+
+No duplicated request payloads across modules.
+
+REQUIRED NEXT-COMPATIBILITY
+
+This refactor must be designed to support future:
+
+Tariff Versioning
+Rating Verification
+Invoice Automation
+QuickBooks Sync
+Commercial Notifications
+Communication Policies
+Revenue Assurance
+AI Intelligence
+Multi-Switch Support
+
+without structural rewrites.
+
+IMPORTANT NON-GOALS
+
+DO NOT implement yet:
+
+invoice rendering
+partner portals
+AI routing
+acknowledgement tracking
+reconciliation UI
+rating snapshots
+QuickBooks sync
+tariff version database
+
+ONLY:
+
+middleware governance layer.
+SUCCESS CRITERIA
+
+The refactor is complete when:
+
+✅ No direct XML-RPC calls remain in routes
+✅ All telecom operations flow through service modules
+✅ Auth/retry/timeout logic centralized
+✅ Tariff logic isolated cleanly
+✅ Reporting normalized
+✅ Finance isolated
+✅ CDR sync isolated
+✅ Queue-safe architecture established
+✅ Logging/audit centralized
+✅ Future Layer 4–7 work can safely stack on top
+
+FINAL OBJECTIVE
+
+Transform BitsAuto from:
+
+“frontend talking to Sippy”
+
+into:
+
+Telecom Middleware & Revenue Operations Platform
+
+where:
+
+Sippy executes telecom operations
+BitsAuto governs business operations
+and all future finance/intelligence layers stack on stable middleware governance.

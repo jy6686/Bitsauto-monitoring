@@ -1,0 +1,225 @@
+This is actually a very important convergence point — and the system behavior is now clear enough to make a correct architectural decision.
+Let me separate what is correct, what is misleading, and what is the real fix.
+
+🧠 1. WHAT YOU HAVE NOW (CONFIRMED STATE)
+You are no longer in “integration debugging”.
+You are in:
+
+🟢 Sippy permission-bound provisioning limitation scenario
+
+Confirmed facts:
+✔ Login works
+
+
+/index.php
+
+
+session = PHPSESSID
+
+
+/c1/ access works
+
+
+✔ Service plan endpoint exists
+
+
+/c1/service_plans.php
+
+
+✔ Tariff creation works
+
+
+API path is valid
+
+
+DB writes succeed
+
+
+❌ Service plan creation fails
+
+
+"Cannot insert"
+
+
+HTTP 500 / silent reject
+
+
+XML-RPC returns fault / not supported
+
+
+
+🚨 2. ROOT CAUSE (IMPORTANT CORRECTION)
+This is NOT a bug in your code anymore.
+It is NOT:
+
+
+wrong login
+
+
+wrong endpoint
+
+
+wrong payload
+
+
+session issue
+
+
+
+🔴 REAL CAUSE:
+
+🧱 Sippy ROLE-BASED PERMISSION RESTRICTION
+
+Customer session can:
+✔ View plans
+✔ Read tariffs
+✔ Use portal
+BUT CANNOT:
+❌ Create service plans
+❌ Insert billing plans
+❌ Modify provisioning layer
+
+🧠 3. WHY YOUR SYSTEM KEEPS FAILING
+Even after all fixes:
+
+
+login works ✔
+
+
+session works ✔
+
+
+endpoint correct ✔
+
+
+payload correct ✔
+
+
+Still fails because:
+
+🔒 You are authenticated as customer-level account, not reseller/admin provisioning role
+
+So Sippy enforces:
+"Cannot insert"
+without proper privilege escalation.
+
+⚠️ 4. CRITICAL INSIGHT (THIS IS THE TURNING POINT)
+Your system is currently trying to do:
+
+“Provision infrastructure using a read-level session”
+
+That will NEVER work on this Sippy build.
+
+🧭 5. CORRECT ARCHITECTURE (FINAL TRUTH)
+You now have only 2 valid paths:
+
+🟢 OPTION A — RECOMMENDED (REAL FIX)
+Use ADMIN / RESELLER credentials ONLY for provisioning
+
+
+ssp-root (customer) → ❌ cannot create plans
+
+
+reseller/admin account → ✔ required for INSERT
+
+
+👉 Fix is NOT code
+👉 Fix is credential context
+
+🟡 OPTION B — HYBRID DESIGN (your current direction)
+Keep:
+
+
+customer session → UI / read / monitoring
+
+
+Add:
+
+
+separate admin session → provisioning engine
+
+
+UI (customer)   ↓Intelligence Layer   ↓Admin Provisioning Service (separate credentials)   ↓Sippy /c1/
+
+🔴 OPTION C — NOT POSSIBLE
+
+
+customer-only provisioning via XML-RPC ❌
+
+
+customer-only service plan creation ❌
+
+
+This is blocked by Sippy design.
+
+💡 6. WHY YOUR CURRENT FIXES ARE STILL GOOD
+Even though provisioning fails, your fixes are still correct:
+✔ login fix
+✔ correct endpoint
+✔ session validation
+✔ redirect verification
+✔ UI improvements
+These are ALL correct infrastructure fixes.
+
+🚀 7. WHAT YOU SHOULD DO NOW (IMPORTANT)
+Step 1 — Stop debugging code
+This is NOT a code issue anymore.
+
+Step 2 — Verify role access
+Check:
+
+
+what account can create service plans in Sippy UI manually?
+
+
+👉 That is your required credential set
+
+Step 3 — Split system roles
+You need:
+🔵 Monitoring Role
+
+
+customer session
+
+
+🔴 Provisioning Role
+
+
+admin/reseller session (must be different credentials)
+
+
+
+🧠 8. FINAL SYSTEM TRUTH
+Your platform is now:
+
+🟢 Fully correct technically
+🔴 Blocked by Sippy RBAC (Role-Based Access Control)
+
+
+🧭 9. NEXT LOGICAL STEP
+If you want this fully working production system, the next evolution is:
+✔ Add separate “Provisioning Credentials Vault”
+✔ Route service plan creation through admin session only
+✔ Keep customer session for everything else
+
+🚀 BOTTOM LINE
+You are NOT stuck due to bugs anymore.
+You are stuck due to:
+
+🔒 “Sippy does not allow service plan creation from customer-level sessions”
+
+
+If you want, I can next help you design:
+🧠 Correct multi-role VoIP architecture
+
+
+KAM layer
+
+
+provisioning layer
+
+
+monitoring layer
+
+
+fraud/intelligence layer

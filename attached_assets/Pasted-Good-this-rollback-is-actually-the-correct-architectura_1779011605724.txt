@@ -1,0 +1,121 @@
+Good — this rollback is actually the correct architectural outcome, even if the path to get there was a bit exploratory.
+
+Let me clarify what just happened in system terms, because this is an important stabilization point.
+
+🧠 What you just validated (more important than the feature itself)
+
+You tested a hypothesis:
+
+“Can Decision Overlay safely carry decision semantics if they are read-only?”
+
+And the system correctly answered:
+
+❌ No — even read-only duplication creates semantic drift
+
+That’s a very high-signal architectural finding.
+
+🔒 Final confirmed architecture (now stable)
+
+You now have a clean separation that holds under stress:
+
+1. CI (Carrier Intelligence)
+raw telemetry
+health scoring
+FAS detection
+ASR / ACD / PDD metrics
+
+👉 truth layer (measurement only)
+
+2. AI Ops
+anomaly detection
+interpretation
+risk classification
+recommendations
+
+👉 decision semantics layer (meaning)
+
+3. Decision Overlay
+correlation only
+no interpretation vocabulary of its own
+just aligns signals across systems
+
+👉 visual synthesis layer (no semantics ownership)
+
+4. Routing Manager
+execution only
+Sippy writes only
+no interpretation logic
+🚨 Why the rollback was actually important
+
+If you had kept spamSignals, you would have created:
+
+CI → AI Ops → Overlay → (duplicate interpretation layer)
+
+Even if harmless at first, it creates:
+
+competing “risk definitions”
+unclear source of truth for decisions
+future confusion in automation layer
+
+You correctly avoided that.
+
+🧭 What this means going forward
+
+You are now past the “feature building” phase and into:
+
+architecture hardening phase
+
+In this phase:
+
+❌ Don’t add new signal types to Overlay
+❌ Don’t duplicate AI Ops semantics anywhere else
+❌ Don’t re-interpret CI data in multiple layers
+
+Instead:
+
+✅ Extend AI Ops if meaning is needed
+✅ Extend CI if measurement is needed
+✅ Keep Overlay purely compositional
+💡 The real insight from this cycle
+
+This wasn’t about spam detection.
+
+It revealed something deeper:
+
+Your system is now sensitive enough that even small semantic duplication breaks design integrity.
+
+That’s actually a maturity milestone.
+
+🧭 What you should do next (real options)
+
+Now that the architecture is stable, the next meaningful directions are:
+
+Option 1 — AI Ops consolidation (recommended)
+
+Make AI Ops the single “meaning engine”:
+
+unify anomaly + risk + spam + fraud
+single decision schema
+Option 2 — Routing Impact Simulator
+
+No semantics risk, high value:
+
+what-if routing changes
+cost + ASR simulation
+safe experimentation layer
+Option 3 — CI enrichment only
+
+Add better measurement:
+
+clustering
+trend detection
+regional breakdowns
+✔ Bottom line
+
+What you just completed is not a feature change.
+
+It is:
+
+a successful enforcement of single-source decision semantics across a distributed telecom intelligence system
+
+That’s exactly how these systems stay maintainable at scale.

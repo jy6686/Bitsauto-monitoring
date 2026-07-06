@@ -1,0 +1,266 @@
+Your portal security level is now already above a normal SaaS admin panel, but once external partners and clients start using it heavily, you need to evolve it into:
+
+telecom-grade operational security.
+
+Right now your architecture is strong because:
+
+portals are separated,
+scoped APIs exist,
+partner auth is isolated,
+navigation is governed,
+adapters restrict visibility,
+KAM/NOC/Finance separation exists.
+
+That is a very good foundation.
+
+But for production carrier environments, you should think in:
+
+5 security layers.
+Current Security Level
+
+(what you already have)
+
+Security Area	Status
+Portal separation	✅
+Role-based routing	✅
+Scoped data access	✅
+HMAC portal codes	✅
+Read-only client portal	✅
+Admin-gated governance	✅
+Portal-specific navigation	✅
+Hidden module filtering	✅
+
+This is already:
+
+medium-high enterprise SaaS security.
+What You MUST Add Next
+
+(for real telecom carrier deployment)
+
+Layer 1 — Identity & Session Security
+
+(HIGHEST PRIORITY)
+
+Add Immediately
+1. MFA / 2FA
+
+For:
+
+Finance,
+Admin,
+NOC,
+Partner portals.
+
+Required.
+
+Use:
+
+TOTP,
+backup recovery codes,
+optional enforced MFA per portal.
+2. Session Governance
+
+Per portal:
+
+session timeout,
+idle timeout,
+concurrent session limits,
+device fingerprinting,
+revoke-all-sessions.
+
+Especially important for:
+
+Finance Portal
+3. IP Restrictions
+
+Critical for:
+
+NOC,
+Finance,
+Admin.
+
+Allow:
+
+allowed_ip_ranges
+
+per role/company.
+
+Very common in telecom carriers.
+
+Layer 2 — Data Scope Security
+
+(CRITICAL)
+
+Your biggest future risk is:
+
+cross-tenant leakage.
+
+You must enforce:
+
+scope filtering
+
+AT QUERY LEVEL,
+not UI level.
+
+Meaning:
+
+WHERE client_id IN assignedClients
+
+must exist server-side everywhere.
+
+Never trust:
+
+hidden buttons,
+hidden pages,
+frontend filtering.
+Layer 3 — Operational Permission Matrix
+
+(VERY IMPORTANT)
+
+You now need:
+
+granular permissions.
+
+NOT:
+
+finance role
+
+Instead:
+
+invoice.view
+invoice.approve
+invoice.send
+invoice.void
+
+Same for:
+
+disputes,
+DMR,
+notifications,
+reconciliation,
+AI assurance,
+governance.
+
+This becomes:
+
+RBAC matrix.
+Layer 4 — Audit & Traceability
+
+(telecom requirement)
+
+Every critical action should log:
+
+Action	Required
+Invoice approval	user + IP + timestamp
+Rate send	recipient + template
+Portal login	geo + device
+Governance changes	before/after JSON
+Dispute closure	actor + evidence
+Credit note apply	immutable ledger event
+
+You already started this well.
+
+Now formalize:
+
+immutable operational audit trail.
+Layer 5 — Partner Isolation
+
+(VERY IMPORTANT)
+
+Eventually:
+
+partner portals become attack surface.
+
+Must isolate:
+
+data,
+API limits,
+sessions,
+uploads,
+downloads.
+
+Recommended:
+
+Feature	Recommendation
+Rate limits	per partner
+Download limits	invoice abuse prevention
+Signed URLs	secure exports
+Watermarks	exported reports
+Portal branding isolation	scoped assets
+CSP headers	strict
+File uploads	malware scan
+VERY IMPORTANT FUTURE SECURITY
+Route-Level Portal Isolation
+
+Eventually:
+
+/portal/*
+
+should become:
+
+kam.bitsauto.com
+finance.bitsauto.com
+partner.bitsauto.com
+
+This matters because:
+
+cookies isolate,
+sessions isolate,
+CSP isolates,
+attack surface reduces.
+
+Huge future security improvement.
+
+Recommended Security Level Per Portal
+Portal	Security
+Client	Medium
+Partner	Medium-High
+KAM	High
+Finance	Very High
+NOC	Critical
+Admin	Critical
+Most Important Rule
+NOC and Finance must NEVER share session scope.
+
+Very important.
+
+Eventually:
+
+separate auth middleware,
+separate session namespaces,
+separate timeout policies.
+Security Maturity Target
+
+Right now:
+
+SaaS-grade secure
+
+Target:
+
+carrier-grade operational security
+
+Difference is:
+
+operational auditability,
+session governance,
+tenant isolation,
+permission granularity,
+traceability,
+infrastructure segregation.
+Recommended NEXT Security Sprint
+Sprint 1
+MFA
+RBAC matrix
+audit hardening
+Sprint 2
+IP restrictions
+session governance
+device/session management
+Sprint 3
+subdomain isolation
+signed exports
+advanced partner controls
+
+That would make the platform:
+
+enterprise telecom deployment-ready.

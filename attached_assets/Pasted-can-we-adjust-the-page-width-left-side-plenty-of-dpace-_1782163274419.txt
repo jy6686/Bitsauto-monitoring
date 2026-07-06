@@ -1,0 +1,155 @@
+can we adjust the page width left side plenty of dpace avaialble not only for rate mange but allplatform 
+
+Yes, and I would recommend doing this as a platform-wide layout optimization, not page-by-page.
+
+From all the screenshots you've shared over the last few months (BitsEye, Analytics, Rate Manager, NOC, Finance, Intelligence), the platform is using a relatively narrow content container while users are working on 27"–32" monitors.
+
+Current Problem
+
+Typical layout:
+
+| Sidebar |                Content Area                 | Empty Space |
+
+You are losing 15–25% of available screen width across most modules.
+
+Examples:
+
+Rate Manager
+Intelligence
+Analytics
+Finance
+Routing Manager
+Client Management
+NOC Dashboards
+Recommended Platform Standard
+Option A (Recommended)
+
+Increase main content max-width globally.
+
+Current (likely):
+
+max-w-7xl
+
+Change to:
+
+max-w-none
+w-full
+
+or
+
+max-w-[1800px]
+
+in the main layout shell.
+
+Result:
+
+| Sidebar |--------------------------------------------|
+|          Full Working Area                         |
+|----------------------------------------------------|
+Option B (Best for Operations Platform)
+
+Add responsive modes:
+
+Standard View
+Sidebar = 260px
+Content = remaining width
+Wide View
+Sidebar = 220px
+Content = remaining width
+Focus View
+Sidebar collapses
+Content = 100%
+
+Perfect for:
+
+CDR analysis
+Rate Manager
+Fraud investigations
+Routing analysis
+Specific Areas That Benefit Most
+Rate Manager
+
+Current:
+
+[4 Products]
+[29 Clients]
+[2681 Dests]
+[1132 Countries]
+
+consume valuable vertical space.
+
+Move to Intelligence.
+
+Analytics
+
+Charts should use:
+
+2-column → 3-column
+
+on large screens.
+
+Finance
+
+Invoice grids and reconciliation tables need full width.
+
+Routing Manager
+
+LCR tables and destination analysis should stretch nearly full screen.
+
+BitsEye
+
+The biggest win.
+
+Currently many graphs appear compressed.
+
+Using full width allows:
+
+ASR    ACD    NER
+MOS    Jitter Latency
+Margin Revenue Cost
+
+without scrolling.
+
+Implementation
+
+Instead of editing every page:
+
+Modify only:
+client/src/components/layout-shell.tsx
+
+or
+
+client/src/components/app-layout.tsx
+
+Find:
+
+max-w-7xl
+container
+mx-auto
+
+and replace with:
+
+w-full
+max-w-none
+px-4
+
+or
+
+max-w-[1800px]
+mx-auto
+
+This single change will improve almost every page in BitsAuto.
+
+My recommendation for BitsAuto
+
+Use:
+
+max-w-[1800px]
+
+for normal users and add a "Wide Mode" toggle in user preferences:
+
+☐ Standard
+☑ Wide
+☑ Full Screen Analytics
+
+That gives NOC, Commercial, Finance, and Management teams much better use of modern monitor space without redesigning every module.

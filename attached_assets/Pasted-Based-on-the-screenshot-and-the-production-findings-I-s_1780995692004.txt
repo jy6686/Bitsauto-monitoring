@@ -1,0 +1,100 @@
+Based on the screenshot and the production findings, I still think there is something that needs deeper validation.
+
+The key issue is not whether the analytics is using callee or caller — it is whether the value stored in callee is actually the true destination number in every governance scenario.
+
+From the screenshot:
+
+United States/Canada (+1) → 447 calls
+Pakistan (+92) → 77 calls
+United Kingdom (+44) → 42 calls
+Egypt (+20) → 49 calls
+
+However, operationally we were intentionally testing/governing primarily:
+
+Pakistan
+Eritrea
+
+So the destination mix looks suspicious and needs verification.
+
+Validation Required
+
+Please take 20–30 governed calls from today and compare:
+
+Governed Call	Stored Callee	Actual Destination in Sippy CDR	Match?
+Call 1	?	?	✅ / ❌
+Call 2	?	?	✅ / ❌
+Call 3	?	?	✅ / ❌
+
+I want to confirm that:
+
+governed_calls.callee
+=
+actual destination number from Sippy CDR
+
+for every call.
+
+Possible Concern
+
+In this environment we use:
+
+routing prefixes,
+CLD manipulation,
+governance prefixes,
+vendor prefixes,
+product prefixes,
+translation rules.
+
+If governance is capturing the number before or after a translation stage, then country detection may still be incorrect even though it is reading the callee field.
+
+Catch-All Rule
+
+The explanation regarding the catch-all rule is valid:
+
+dest = *
+
+will naturally capture:
+
+USA
+UK
+Egypt
+Pakistan
+Eritrea
+everything else
+
+So multiple countries appearing is expected if the catch-all rule is active.
+
+However, I want to verify:
+
+Which rule generated the Pakistan calls?
+Which rule generated the Eritrea calls?
+Which rule generated the North America calls?
+Which rule generated the UK calls?
+
+Adding a "Rule Name" column to the Destination Activity panel would make this immediately obvious.
+
+Recommended Enhancement
+
+Destination Activity should show:
+
+Destination	Rule	Calls	Cut	Passed	Gov Min
+Pakistan	Pakistan 10s Rule	X	X	X	X
+Eritrea	Eritrea 15s Rule	X	X	X	X
+USA/Canada	Catch-All	X	X	X	X
+
+This would instantly prove whether the traffic is being governed by:
+
+a destination-specific rule,
+or the global catch-all rule.
+My Conclusion
+
+I am not yet convinced the analytics is wrong, but I am also not convinced the destination classification is fully validated.
+
+The next step is to compare:
+
+governed_calls.callee
+actual Sippy CDR destination
+matched governance rule
+
+for a sample of today's Pakistan and Eritrea calls.
+
+That will definitively confirm whether the governance analytics is reflecting the real destination traffic.

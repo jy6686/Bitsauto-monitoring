@@ -1,0 +1,177 @@
+If all of those Phase 3 enhancements are now live, then I would not add another major workspace immediately.
+
+You now have a coherent commercial stack:
+
+Global Destination Catalog
+        ↓
+Product Registry
+        ↓
+Customer Assignments
+        ↓
+Deal Workspace
+        ↓
+(Next) Pricing Intelligence
+
+That's enough foundation to start thinking about commercial governance, not more screens.
+
+What I Would Do Before Pricing Intelligence
+1. Deal → Product → Destination Enforcement
+
+Right now I would ensure:
+
+Deal
+  ↓
+Customer
+  ↓
+Assigned Product
+  ↓
+Allowed Destination
+
+cannot be bypassed.
+
+Example:
+
+Customer = Quickcom
+
+Assigned Products:
+✓ First Class
+✓ Business Class
+
+✗ Special Bravo
+
+Then:
+
+Quickcom
+
+cannot create a Special Bravo deal.
+
+This prevents commercial leakage.
+
+2. Commercial Visibility Model
+
+You already identified this correctly.
+
+KAM
+
+Can see:
+
+Offer Rate
+Target Rate
+Deal Status
+Expiry
+Trading Manager
+
+Can see:
+
+Buy Rate
+Sell Rate
+Commercial Health
+Management
+
+Can see:
+
+True Cost
+True Margin
+Profit
+Portfolio Profitability
+
+This should be enforced platform-wide before Pricing Intelligence.
+
+3. Product Performance Dashboard
+
+Before rate automation.
+
+Add:
+
+Products
+├ Dashboard
+├ Catalog
+├ Destinations
+├ Assignments
+├ Customer Assignments
+├ Performance
+├ Routing Templates
+├ Pricing Templates
+├ History
+
+Metrics:
+
+Revenue
+Minutes
+Customers
+Active Deals
+Margin Band
+
+per product.
+
+4. Commercial Expiry Center
+
+You already added expiry intelligence.
+
+Now centralize it.
+
+Voice Trading
+├ Dashboard
+├ Deal Board
+├ Simulator
+├ Profitability
+├ Expiry Center
+├ Approvals
+├ History
+
+Show:
+
+Expiring in 7 days
+Expiring in 30 days
+Grace period
+Renewal candidates
+
+This will likely become one of the most-used tabs by KAMs.
+
+Then Build Pricing & Rate Intelligence
+
+When you start it, I would NOT begin with email parsing.
+
+Start with:
+
+Product Rate Repository
+Pakistan Jazz
+    ↓
+First Class
+    ↓
+Buy Rate
+    ↓
+Sell Rate
+
+Everything else comes later.
+
+Pricing Workspace
+Rate Management
+├ Dashboard
+├ Product Rates
+├ Vendor Cost Impact
+├ Approval Center
+├ History
+
+Only after this is stable should you add:
+
+Mailbox Parsing
+Automatic Imports
+Customer Notifications
+7-Day Notice Queue
+One Important Observation
+
+The Excel files you uploaded earlier were useful, but the file-search system is also reporting that some previously uploaded files have expired and are no longer available. If you want me to re-analyze any earlier deal sheets, rate sheets, or compare them against the current implementation, please upload those files again.
+
+My recommendation
+
+Pause major feature expansion now.
+
+Focus next on:
+
+Commercial permissions (KAM vs Trading vs Management)
+Product Performance
+Expiry Center
+Deal governance
+
+Then move into Pricing & Rate Intelligence as the next major workspace. That sequence is lower risk and aligns with how your commercial operation actually works.

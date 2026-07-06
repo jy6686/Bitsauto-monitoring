@@ -1,0 +1,232 @@
+I can see the issue — all 60 cuts show "No CDR" because the CLI stored in governed_calls is a Sippy internal number (e.g., 20609234280920059), not the real calling party CLI that appears in the CDR cache. The matching needs to use CLD-only matching as primary, with a wider time window.
+
+Let me fix the CDR matching logic:
+
+
+2 actions
+The fix is clear — require only CLD match (the destination number is reliable), and widen the time window. CLI match is optional bonus since it's an internal Sippy number:
+
+
+2 actions
+Now let me verify the server restarted cleanly and check if CDR matching works by looking at what the CDR cache has for recent calls:
+
+
+2 actions
+The fix is live — the CDR matching now uses CLD (destination number) only with a ±10 minute time window, which handles the Sippy internal CLI issue. Go to the Billing Check tab now and click refresh.
+
+What you should see change:
+
+"No CDR yet" count drops, "OK" count rises
+Customer Billed column fills in with actual seconds
+Status changes from grey "No CDR" to green "OK" or amber "Check"
+If it still shows No CDR for some rows, there are two possible reasons:
+
+CDR not in cache yet — The cache refreshes every 5 minutes. Calls cut in the last few minutes may not have a CDR visible yet. Wait one refresh cycle.
+
+Number format mismatch — Sippy may store the CLD differently than what Asterisk reports in the bridge event. If after refreshing you still see "No CDR" on old cuts, share the callee value shown in the table (e.g., +16044721274) and I'll check how that number appears in the CDR cache.
+
+To verify in the meantime, you can cross-check manually in Sippy: find a CDR for a destination number that shows "No CDR" on our tab and note the exact CLD format Sippy stores — that'll tell us if there's a normalization gap to fix.
+
+
+Checkpoint made
+6 days ago
+
+Worked for 2 minutes
+
+Published your app
+6 days ago
+Optimized Agent memory
+
+Attached Image
+
+Attached Image
+sippy showing 129, but in our platform cdr is without 1,
+
+thats the difference
+
+Yes — and this is actually a very strong clue.
+
+From your note:
+
+Sippy CDR:
+129xxxxxxxxx
+
+BitsAuto Billing Check:
+29xxxxxxxxx
+
+or
+
+Sippy:
++129...
+
+BitsAuto:
+29...
+
+then the matching fix using CLD only will still fail because the numbers are not normalized before comparison.
+
+The matching logic should not be:
+
+governed_call.cld === cdr.cld
+
+It should be:
+
+normalize(governed_call.cld)
+==
+normalize(cdr.cld)
+What Is Likely Happening
+Asterisk / Governance
+
+Stores:
+
+2944721274
+Sippy CDR
+
+Stores:
+
+12944721274
+
+because:
+
+Product Prefix = 1
+
+(First Class)
+
+or:
+
+Tech Prefix = 1
+
+was prepended before routing.
+
+This Is Actually Related To Your Product Architecture
+
+Remember:
+
+First Class  = 1
+Business     = 2
+Bravo        = 6
+Charlie      = 7
+
+Internally:
+
+Pakistan Jazz
+
+becomes
+
+192300xxxx
+
+inside Sippy.
+
+So Billing Check must understand:
+
+Commercial Number
+≠
+Sippy Routing Number
+Proper Solution
+
+Before matching:
+
+Convert:
+
+12944721274
+
+to:
+
+2944721274
+
+or vice versa.
+
+Better Matching Strategy
+
+Instead of:
+
+CLD exact match
+
+Use:
+
+Match Priority 1
+Call-ID
+
+(best)
+
+Match Priority 2
+Normalized CLD
++
+Time Window
+Match Priority 3
+Last 8-10 Digits
+
+Example:
+
+12944721274
+2944721274
+
+Both end with:
+
+2944721274
+
+Match.
+
+Why This Explains Your Symptoms
+
+You reported:
+
+60 cuts
+0 CDR matches
+
+That is exactly what happens when:
+
+All CLDs differ by a prefix
+
+Every lookup fails.
+
+Every row becomes:
+
+No CDR
+
+even though CDRs exist.
+
+What I Would Add
+
+In Billing Check add:
+
+Governance CLD
+CDR CLD
+Match Reason
+
+Example:
+
+Governance	Sippy CDR	Match
+2944721274	12944721274	Prefix Removed
+92300123456	192300123456	Product Prefix
+
+This makes troubleshooting much easier.
+
+Vendor Cost Issue
+
+This may also explain part of the Eritrea problem.
+
+If:
+
+CDR correlation fails
+
+then:
+
+Vendor Cost
+Revenue
+Margin
+
+cannot attach to the governed call.
+
+So the chain becomes:
+
+Prefix mismatch
+      ↓
+CDR match fails
+      ↓
+Vendor Cost missing
+      ↓
+Profit/Loss missing
+      ↓
+Billing Check empty
+
+which matches exactly what you've been seeing.

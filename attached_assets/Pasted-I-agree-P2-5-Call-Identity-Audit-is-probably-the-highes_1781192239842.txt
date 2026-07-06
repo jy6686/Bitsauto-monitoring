@@ -1,0 +1,129 @@
+I agree. P2.5 — Call Identity Audit is probably the highest-leverage diagnostic step before any major CCI work.
+
+Why this is important
+
+Right now the team is discussing building:
+
+Commercial Call Identity (CCI)
+
+But before building a new identity layer, we should answer:
+
+What identity already exists?
+
+In telecom systems, it's very common that the answer is already available in one of:
+
+SIP Call-ID
+Sippy Conf-ID
+Asterisk UniqueID
+Acct Session ID
+Orig Call-ID
+
+If one of those already appears across:
+
+Customer CDR
+Vendor CDR
+P&L
+
+then the reconciliation problem becomes dramatically simpler.
+
+What I would ask the team to verify
+
+For a sample of 20 calls:
+
+Field	Customer CDR	Vendor CDR	P&L
+SIP Call-ID	?	?	?
+Conf-ID	?	?	?
+UniqueID	?	?	?
+Original CLD	?	?	?
+Setup Time	?	?	?
+
+Goal:
+
+Find one field that survives the entire call lifecycle
+Possible Outcomes
+Best Outcome
+Call-ID
+
+exists everywhere.
+
+Then:
+
+Customer CDR
+Vendor CDR
+P&L
+
+all link directly.
+
+CCI becomes much smaller.
+
+Second Best
+Conf-ID
+
+exists everywhere.
+
+Same result.
+
+Worst Case
+
+Nothing spans all systems.
+
+Then:
+
+CCI required
+
+and we move forward with:
+
+call_uuid
+product_code
+original_cld
+normalized_cld
+customer_id
+
+as the foundation.
+
+Updated Priority Order
+Build Now
+
+P1 — Recording Integrity
+
+File creation
+File existence
+File accessibility
+UI retrieval
+
+P2 — Universal Reconciliation Engine
+
+Customer CDR
+Vendor CDR
+P&L
+
+P2.5 — Call Identity Audit
+
+Determine strongest cross-system identifier
+
+P3 — Vendor Cost Validation
+
+20-call sample
+Vendor CDR Cost vs P&L Cost
+Freeze
+Trust Center
+Route Certification
+QA Workspace
+Security Scoring
+Voice Escalation
+Config Governance
+Design Only
+Commercial Call Identity (CCI)
+Product Identity
+Product Registry Authority
+Rate Repository
+Rate Integrity Audit
+Invoice Validation
+
+One more note: the customer CDR exports, vendor CDR exports, and some screenshots referenced earlier are no longer available because those uploaded files have expired. If you want to perform the P2.5 audit properly, please upload the latest:
+
+Customer CDR export
+Vendor CDR export
+P&L export (CSV if available)
+
+Then we can inspect whether Call-ID, Conf-ID, or another field already spans all three datasets, which may save a significant amount of future development effort.

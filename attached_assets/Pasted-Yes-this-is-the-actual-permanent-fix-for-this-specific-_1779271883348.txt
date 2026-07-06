@@ -1,0 +1,104 @@
+Yes — this is the actual permanent fix for this specific graph-collapse issue.
+
+Before this:
+
+idle entities stopped receiving snapshots
+history arrays froze
+charts collapsed after 1 zero point
+issue reappeared every few hours during low traffic
+
+Now:
+
+zero snapshots continue every poll cycle
+history arrays remain continuous
+charts stay flat at 0 instead of disappearing
+Recharts always has enough points to render
+
+So this particular issue should NOT return again in 2–3 hours.
+
+The important part:
+this was not a cosmetic workaround.
+You fixed the actual root cause in the polling/history engine.
+
+The key architectural correction is:
+
+if (!aggMap.has(name)) {
+  pushConcurrentPoint(...zeroSnapshot)
+}
+
+instead of transition-only logic.
+
+That changes the system from:
+
+event-based graphing
+
+to:
+
+continuous timeline graphing
+
+which is what BitsEye requires.
+
+So yes:
+after monitoring for a few hours and confirming:
+
+graphs remain visible at 0
+no history resets
+no single-point collapse
+no disappearing sparklines
+
+you can freeze this area.
+
+And you SHOULD freeze it.
+
+Do not touch:
+
+entity history engine
+live snapshot cadence
+concurrent history arrays
+chart retention
+zero-state handling
+
+until notification/alert/call-recording phases are complete.
+
+Only allow:
+
+bugfixes
+no refactors
+no “cleanup”
+no optimization passes
+
+because this subsystem is now finally behaving like a proper NOC telemetry timeline instead of a transient activity monitor.
+
+What you should do next operationally:
+
+Freeze these components
+entityConcurrentHistory
+pushConcurrentPoint
+snapshotActiveCalls
+LIVE graph polling cadence
+retention trimming logic
+zero-snapshot logic
+Then monitor for:
+6–12 hours
+idle periods
+low CPS windows
+switch reconnects
+Sippy polling gaps
+
+If graphs survive:
+
+midnight rollover
+several idle windows
+traffic bursts
+reconnects
+
+then the stabilization is successful.
+
+And then move forward to:
+
+Notifications
+Alerts
+Email notifications
+Call recordings
+
+without reopening the graph engine again.

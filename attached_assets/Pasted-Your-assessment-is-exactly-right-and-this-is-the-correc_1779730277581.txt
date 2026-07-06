@@ -1,0 +1,274 @@
+Your assessment is exactly right, and this is the correct moment to pause feature expansion briefly and formalize the platform architecture before Sprint 3.
+
+Because BitsAuto is now crossing a threshold:
+
+feature-rich telecom platform
+        ↓
+enterprise operational system
+
+And once:
+
+governance
+routing ownership
+automation
+approvals
+portals
+intelligence
+
+start interacting, informal architecture stops scaling.
+
+Most Important Point You Identified
+
+This is the key sentence:
+
+The stabilization work is primarily a product/design exercise, not a build exercise.
+
+Correct.
+
+Sprint 3 SHOULD NOT start with code.
+
+It should start with:
+
+architecture definition
+
+Otherwise:
+
+workflows drift
+permissions become inconsistent
+routing governance breaks
+duplicate navigation reappears
+approvals become unclear
+Final Recommended Stabilization Program
+
+(Before Sprint 3)
+
+WORKSTREAM 1 — Navigation & Information Architecture
+
+(HIGHEST PRIORITY)
+
+Goal:
+
+single authoritative platform structure
+Deliverables
+1. Canonical Domain Ownership Matrix
+
+Every page must belong to:
+
+exactly ONE primary domain
+optionally ONE secondary context
+
+Example:
+
+Page	Primary	Secondary
+Vendor RCA	Intelligence	Operations
+Traffic Steering	Intelligence	Operations
+Revenue Heatmap	Analytics	Finance
+Billing	Finance	—
+Organization Management	Company	—
+
+This eliminates:
+
+navigation ambiguity
+IMPORTANT RULE
+
+Secondary context:
+
+searchable
+linkable
+discoverable
+
+BUT:
+
+not duplicated as primary ownership
+
+This is critical.
+
+WORKSTREAM 2 — COMPANY Lifecycle Architecture
+
+(VERY IMPORTANT)
+
+You correctly identified:
+
+Organization Management is a governance entity
+
+NOT:
+
+wizard step
+profile form
+onboarding screen
+COMPANY should formally become:
+customer lifecycle domain
+Final Workflow
+Company List
+    ↓
+Organization Management
+    ↓
+Onboarding Wizard
+    ↓
+Create Account Wizard
+    ↓
+Operational Activation
+Organization Management becomes:
+authoritative company record
+
+Containing:
+
+commercial identity
+billing ownership
+banking
+compliance contacts
+dispute contacts
+departments
+reseller ownership
+KAM ownership
+onboarding status
+
+This is extremely important long-term.
+
+WORKSTREAM 3 — Governance & Route Ownership
+
+(CRITICAL BEFORE SPRINT 3)
+
+This is now the single most important architecture definition.
+
+You correctly identified:
+
+Sprint 3 cannot proceed without ownership model
+
+Correct.
+
+Required Governance Definitions
+Destination Manager
+
+Must formally define:
+
+Capability	Allowed?
+approve failover	yes
+reject failover	yes
+modify traffic %	yes
+edit failover vendor whitelist	yes
+override recommendation	yes
+trigger routing execution	NO
+bypass policy rules	NO
+view competitor carrier intelligence	scoped
+modify routing tables directly	NO
+
+This prevents:
+
+governance ambiguity
+Routing Admin
+Capability	Allowed?
+execute approved routing changes	yes
+modify route order	yes
+rollback failover	yes
+bypass approval	restricted
+modify policy thresholds	NO
+NOC
+Capability	Allowed?
+monitor incidents	yes
+acknowledge alerts	yes
+trigger advisory investigation	yes
+modify routing	NO
+
+This role separation should be documented BEFORE implementation.
+
+WORKSTREAM 4 — Policy-Governed Automation Model
+
+You correctly refined:
+
+conditional auto-heal
+
+instead of:
+
+AI auto-routing
+
+That distinction should now become:
+
+formal platform policy
+Final Automation Levels
+Level	Description
+L1	Advisory only
+L2	Policy-governed failover
+L3	Semi-autonomous optimisation
+L4	Closed-loop autonomous routing
+
+BitsAuto currently enters:
+
+L2
+
+ONLY for:
+
+standard routes
+pre-approved failover vendors
+bounded traffic shift
+temporary failover window
+rollback-protected routes
+
+This must become written governance policy.
+
+WORKSTREAM 5 — Intelligence Architecture Boundaries
+
+You identified the key unresolved question:
+
+What belongs to Intelligence vs Operations?
+
+This MUST be finalized now.
+
+Recommended Rule
+OPERATIONS
+
+=
+execution systems
+
+Examples:
+
+Routing Manager
+Connections
+Translation Rules
+Route Tester
+Carrier Ops
+INTELLIGENCE
+
+=
+decision systems
+
+Examples:
+
+Recommendations
+RCA
+Traffic Steering
+Simulation
+Optimisation
+Prefix Intelligence
+Stability Intelligence
+
+This is the cleanest separation.
+
+FINAL RECOMMENDATION
+
+Before any Sprint 3 implementation:
+
+create a formal architecture/governance specification
+
+Containing:
+
+navigation ownership matrix
+COMPANY lifecycle model
+role ownership matrix
+automation governance levels
+intelligence vs operations boundary
+routing governance workflow
+approval authority model
+
+Because once:
+
+approvals
+automation
+simulations
+policy failover
+
+start interacting:
+
+architecture mistakes become extremely expensive to reverse
+
+You are at the exact right moment to formalize it.

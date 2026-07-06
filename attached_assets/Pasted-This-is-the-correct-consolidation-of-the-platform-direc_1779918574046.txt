@@ -1,0 +1,300 @@
+This is the correct consolidation of the platform direction, and the sequencing is now very strong from an enterprise architecture perspective.
+
+The important thing is:
+
+you did not skip foundational layers.
+
+Most telecom platforms fail because they:
+
+rush into invoices,
+dashboards,
+or AI features
+
+before:
+
+middleware governance,
+communication orchestration,
+auditability,
+and finance consistency
+
+exist.
+
+Your roadmap is now avoiding that trap.
+
+Current Platform Maturity
+
+You now already have:
+
+Operational Governance
+
+✅ Commercial Notifications
+✅ SMTP Sender Profiles
+✅ Audit Logging
+✅ Traffic-Aware Audience Segmentation
+✅ Template-Driven Communication
+✅ Multi-Identity Communication Routing
+
+Architectural Governance
+
+You also now established:
+
+BitsAuto
+= orchestration + governance layer
+
+Sippy
+= telecom execution layer
+
+That is the single most important architectural decision in the entire roadmap.
+
+Why the Sippy Refactor Is Correctly Next
+
+Because right now:
+
+communication architecture is mature enough,
+operator workflows validated,
+governance model proven,
+
+but:
+
+telecom middleware is still structurally centralized/monolithic.
+
+Before:
+
+rating verification,
+tariff versioning,
+invoice automation,
+reconciliation,
+profitability,
+
+you need:
+
+clean telecom service boundaries.
+Correct Refactor Objective
+
+Current likely state:
+
+server/sippy.ts
+
+contains:
+
+auth
+tariffs
+accounts
+reports
+routing
+CDRs
+finance
+XML-RPC logic
+
+all mixed together.
+
+That becomes dangerous as the platform scales.
+
+Correct Future Structure
+server/services/sippy/
+Recommended Service Boundaries
+Core Infrastructure
+sippy-auth.service.ts
+
+Responsibilities:
+
+auth/session
+XML-RPC connection
+credential management
+retries/timeouts
+Client Management
+sippy-client.service.ts
+
+Responsibilities:
+
+account creation
+account updates
+account suspension
+authentication config
+Tariff Management
+sippy-tariff.service.ts
+
+Responsibilities:
+
+tariffs
+interval updates
+rate uploads
+tariff version sync
+Morocco-type workflows
+Routing Management
+sippy-routing.service.ts
+
+Responsibilities:
+
+LCR
+route updates
+vendor routing
+failover logic
+Reporting
+sippy-reporting.service.ts
+
+Responsibilities:
+
+sales report
+client/vendor summary
+profit/loss
+ASR/ACD reporting
+CDR Layer
+sippy-cdr.service.ts
+
+Responsibilities:
+
+CDR sync
+cache normalization
+search/filter
+aggregation
+Finance Layer
+sippy-finance.service.ts
+
+Responsibilities:
+
+invoice pulls
+balances
+payments
+reconciliation support
+MOST IMPORTANT RULE GOING FORWARD
+
+You correctly stated:
+
+no direct XML-RPC calls from routes
+
+That rule is absolutely critical.
+
+Correct flow:
+
+Route
+→ BitsAuto Service Layer
+→ Sippy Service Module
+→ XML-RPC
+
+NEVER:
+
+Route
+→ XML-RPC directly
+
+That separation enables:
+
+retries,
+auditability,
+queueing,
+permissions,
+approval workflows,
+caching,
+and future multi-switch support.
+Why This Refactor Matters BEFORE Rating/Invoices
+
+Because:
+
+tariff versioning depends on tariff service discipline
+invoice automation depends on finance service discipline
+reconciliation depends on reporting consistency
+notifications depend on normalized telecom events
+
+Without the refactor:
+
+duplicated XML-RPC calls spread everywhere,
+business logic leaks into routes,
+and future invoice/rating logic becomes brittle.
+Communication Policies Engine
+
+(Excellent next governance layer)
+
+Your observation is correct:
+manual sender selection is transitional.
+
+Future:
+
+RATE_CHANGE
+→ pricing@
+
+INVOICE
+→ billing@
+
+QOS_ALERT
+→ rates@
+
+This becomes:
+
+deterministic communication governance.
+
+Correctly:
+
+AFTER sender profiles,
+BEFORE full portal automation.
+Acknowledgement Tracking
+
+(Extremely important)
+
+This is not “nice to have.”
+
+This becomes:
+
+dispute defense infrastructure.
+
+Especially for:
+
+tariff updates
+surcharge notices
+maintenance windows
+routing advisories
+billing disputes
+
+Being able to prove:
+
+Delivered
+Opened
+Acknowledged
+
+is commercially valuable.
+
+Very correct future direction.
+
+Most Important Strategic Direction
+
+Your roadmap is now converging toward:
+
+Telecom Operations & Revenue OS
+
+with layered maturity:
+
+Layer 1
+
+Execution Infrastructure
+(Sippy)
+
+Layer 2
+
+Middleware Governance
+(Sippy Service Layer Refactor)
+
+Layer 3
+
+Communication & Workflow Governance
+(Notifications, Sender Profiles, Policies)
+
+Layer 4
+
+Revenue Assurance
+(Rating verification, tariff versioning, snapshots)
+
+Layer 5
+
+Finance Automation
+(Invoices, reconciliation, QuickBooks)
+
+Layer 6
+
+Partner Ecosystem
+(Partner portal, acknowledgements, self-service)
+
+Layer 7
+
+AI Intelligence
+(Profitability, leakage, anomaly detection, routing economics)
+
+That sequencing is now enterprise-grade and internally coherent.

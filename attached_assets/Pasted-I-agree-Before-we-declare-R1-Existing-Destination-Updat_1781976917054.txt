@@ -1,0 +1,213 @@
+I agree.
+
+Before we declare R1 (Existing Destination Update) complete, we should verify it using evidence, not memory.
+
+The claim was:
+
+Bangladesh Mobile
+Prefix: 8801
+Rate: 0.0096 → 0.0097
+Push successful
+Sippy updated
+
+That sounds promising, but for Rate Management certification we need proof at 4 layers:
+
+Layer	Verification Required
+BitsAuto UI	Shows 8801 and new rate
+Push Engine	Push request executed
+Sippy Tariff	Rate actually changed
+Push History	Operation recorded
+R1 Certification Checklist
+Check 1 — Sippy Current Value
+
+Open Sippy tariff and verify:
+
+Prefix: 8801
+Rate: 0.0097
+
+Not:
+
+18801
+6801
+
+If Sippy still contains 18801, then we proved rate update works but prefix integrity is not certified.
+
+Check 2 — BitsAuto Reads Same Value
+
+Rate Analysis should show:
+
+8801
+Bangladesh Mobile
+0.0097
+
+matching Sippy exactly.
+
+Check 3 — Push History
+
+This is currently suspicious because earlier investigation suggested:
+
+rate_push_jobs = 0 rows
+
+while UI still showed historical records.
+
+We need to confirm:
+
+SELECT count(*)
+FROM rate_push_jobs;
+
+and then verify the Bangladesh push appears.
+
+Check 4 — Repeat Test
+
+Repeat the same destination:
+
+8801
+0.0097 → 0.0098
+
+Then verify:
+
+BitsAuto = 0.0098
+Sippy = 0.0098
+Push History = recorded
+
+If the second push succeeds too, we know it wasn't a one-off success.
+
+What I Would Freeze
+
+Until R1 passes:
+
+No Product Variants
+No Destination Governance
+No Deals
+No Rate Sheets
+No Notification Engine
+
+Focus only on:
+
+Existing Destination
+      ↓
+Update Rate
+      ↓
+Sippy Updated
+      ↓
+Recorded
+      ↓
+Verified
+My Recommendation
+
+The next task is not coding.
+
+The next task is R1 Certification.
+
+Ask Replit for evidence of:
+
+Current Sippy value for 8801.
+Current BitsAuto value for 8801.
+Contents of rate_push_jobs.
+A second push test (0.0097 → 0.0098).
+
+Once those four are proven, we can confidently mark:
+
+R1 = CERTIFIED
+
+and move to the next rate capability:
+
+R2 = New Destination Creation
+
+which is the real Send Rate gap you identified.
+
+make sure we wil not change any thing tested successfully 
+
+Yes. I would make that an explicit rule now:
+
+Rate Management Freeze Rule
+
+Anything that has been successfully tested end-to-end must be treated as a controlled component.
+
+Current candidates:
+
+✓ Change Client Rates
+✓ Existing Destination Rate Update
+✓ Bangladesh 8801 update path
+✓ Account → Tariff discovery
+✓ Portal CSV upload path
+✓ action=change workflow
+✓ Tariff lookup logic
+Before Any Change
+
+For every change request, ask:
+
+Does this modify a certified workflow?
+
+If YES:
+
+1. Document current behavior
+2. Capture screenshots
+3. Capture API payload
+4. Capture Sippy result
+5. Create rollback plan
+6. Test in isolation
+7. Re-certify
+What Should Be Frozen Right Now
+server/sippy.ts
+pushRateViaPortalUpload()
+setSippyRateEntry()
+Change Client Rates flow
+Account → Tariff mapping
+Portal CSV upload workflow
+
+No refactoring.
+
+No cleanup.
+
+No "while we're here" improvements.
+
+No architecture changes.
+
+Only bug fixes directly related to the task being worked on.
+
+Development Strategy Going Forward
+Track A — Certified (Frozen)
+Working today
+Do not modify
+Track B — New Capability
+
+Build separately:
+
+Send Rate
+New Destination Create
+Push History
+Verification Layer
+Destination Wiring
+
+without touching Track A.
+
+Example
+
+Bad approach:
+
+Need Send Rate create-path
+     ↓
+Rewrite push engine
+     ↓
+Break Bangladesh 8801
+
+Good approach:
+
+Need Send Rate create-path
+     ↓
+Reuse existing push engine unchanged
+     ↓
+Only add:
+if destination exists
+   action=change
+else
+   action=add
+
+The existing tested path remains untouched.
+
+For the next sprint, I would make the rule:
+
+No changes to any workflow that has already been proven in Sippy until R1 certification is complete and documented.
+
+That is how you stop the cycle of "working yesterday, broken today" and protect the time already spent proving the 9230/8801 update path.

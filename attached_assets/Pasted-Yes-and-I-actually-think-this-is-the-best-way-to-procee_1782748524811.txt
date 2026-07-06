@@ -1,0 +1,402 @@
+Yes—and I actually think this is the best way to proceed.
+
+Instead of trying to govern 151,741 destinations, let's govern your commercial catalogue first.
+
+That becomes the foundation for everything else.
+
+I recommend this workflow
+Reference Data (Global)
+        │
+        ▼
+Commercial Destination Catalogue
+        │
+        ▼
+Approved Products
+        │
+        ▼
+Vendor Rates
+        │
+        ▼
+Client Rates
+        │
+        ▼
+LCR
+        │
+        ▼
+Margin
+        │
+        ▼
+Sippy Publishing
+
+The important distinction is:
+
+Global Destinations = Reference data (everything that exists)
+Commercial Destination Catalogue = What Voxonex/BitsAuto actually sells
+What I'll do with your destination list
+
+Once you share it, I'll help build a governed catalogue.
+
+For every destination I'll identify:
+
+Field	Example
+Canonical Name	Pakistan Mobile Jazz
+Country	Pakistan
+Type	Mobile
+Operator	Jazz
+Prefixes	92300, 92301...
+Commercial Status	Approved
+Products	First Class, Business Class, Premium...
+Route Types	IGW, Open RTP...
+Destination Set	Telstra Premium
+Aliases	Mobilink, Warid, Pak Jazz
+Everything else becomes blocked
+
+Every destination not in your approved commercial catalogue should automatically be:
+
+Commercial Status = Blocked
+
+Meaning:
+
+❌ Cannot be sold
+❌ Cannot receive vendor rates
+❌ Cannot receive client rates
+❌ Cannot be routed
+❌ Cannot be published to Sippy
+❌ Hidden from commercial users (or shown as unavailable)
+
+Only after review does it become:
+
+Draft
+      ↓
+Review
+      ↓
+Approved
+      ↓
+Available
+This also simplifies Vendor Rate Manager
+
+When a vendor uploads:
+
+Pakistan Mobile XYZ
+
+The system asks only one question:
+
+Does this destination exist in our approved commercial catalogue?
+
+If YES
+
+→ Import normally.
+
+If NO
+
+→ Put it into an approval queue.
+
+New Destination Candidate
+
+Country:
+Pakistan
+
+Vendor:
+Telstra
+
+Vendor Name:
+Pakistan Mobile XYZ
+
+Prefix:
+92389
+
+Status:
+Pending Commercial Review
+
+No automatic creation.
+
+I would also classify destinations
+
+Your catalogue could have four states:
+
+Approved
+
+Commercially available.
+
+Planned
+
+Will be offered later.
+
+Blocked
+
+Not offered.
+
+Retired
+
+Previously offered but removed.
+
+This is much more useful than a simple Active/Inactive flag.
+
+One recommendation
+
+I would not delete the remaining destinations from the reference data.
+
+Instead:
+
+Global Destinations
+151,741 rows
+        │
+        ▼
+Commercial Catalogue
+≈ 2,500–5,000 approved destinations
+
+The rest remain in the reference database but are marked as Not Commercially Available.
+
+This gives you two major advantages:
+
+If a vendor starts sending rates for a destination you don't currently sell, the system can recognize it and offer to add it instead of treating it as completely unknown.
+When your business expands into new countries or operators, you can approve existing reference destinations instead of recreating them from scratch.
+I think this is the right strategic move
+
+Instead of building a platform that understands every possible telecom destination, you're building a platform that governs your company's commercial offerings.
+
+That means every downstream module—Vendor Rate Manager, Client Rate Manager, LCR, Margin Analysis, Routing, and Sippy publishing—will operate only on approved commercial destinations, while the global dataset remains as a reference source for future expansion. This is a much cleaner and more manageable architecture.
+
+QUICKCOM FIRST CLASS 202606100825 FULL (1)Rates
+lets start with first class , first we have to check duplicates name in offer destaitnion just i saw Pak, and Pakistan need to check carefully 
+Stopped thinking
+
+Yes. This is exactly where I would start.
+
+Before building Vendor Rate Manager or governance workflows, we should clean and approve the First Class commercial destination catalogue. Everything else will inherit from this.
+
+I checked the First Class rate sheet you uploaded.
+
+Initial observations
+Total rate rows: 8,365
+Sheet: Rates
+Columns available: Country, Destination, Prefix, Rate, Status, Billing Increment, Effective Date, Effective Time
+
+For Pakistan, the sheet currently contains these destination names:
+
+PAKISTAN - FIXED
+PAKISTAN - FIXED KASHMIR
+PAKISTAN - MOBILE
+PAKISTAN - MOBILE MOBILINK
+PAKISTAN - MOBILE TELENOR
+PAKISTAN - MOBILE UFONE
+PAKISTAN - MOBILE WARID
+PAKISTAN - MOBILE ZONG
+
+I did not find abbreviations like "Pak" or "PK" in this particular First Class sheet. The names consistently use "PAKISTAN". That means the "Pak vs Pakistan" inconsistency is likely coming from other vendor sheets or from your existing destination tables, not from this file.
+
+I recommend a Commercial Catalogue Audit before importing anything
+
+Rather than jumping straight to duplicate detection, let's build the catalogue in phases.
+
+Phase 1 – Naming Standard
+
+Every destination must follow one format.
+
+For example:
+
+Country
+Country Fixed
+Country Fixed Region
+Country Mobile
+Country Mobile Operator
+
+Examples:
+
+Pakistan Fixed
+Pakistan Fixed Kashmir
+
+Pakistan Mobile
+Pakistan Mobile Jazz
+Pakistan Mobile Telenor
+Pakistan Mobile Ufone
+Pakistan Mobile Zong
+
+No hyphens, no abbreviations, consistent title case.
+
+Phase 2 – Duplicate Audit
+
+Check for:
+
+Pak vs Pakistan
+PK vs Pakistan
+Mobilink vs Jazz
+Warid vs Jazz (depending on your commercial decision)
+Double spaces
+Different punctuation
+Different capitalization
+Phase 3 – Prefix Audit
+
+For every destination verify:
+
+duplicate prefixes
+overlapping prefixes
+missing prefixes
+prefixes assigned to multiple destinations
+Phase 4 – Commercial Approval
+
+Every destination receives:
+
+Approved
+Planned
+Blocked
+Retired
+
+Only Approved destinations are available for:
+
+Vendor Rates
+Client Rates
+Routing
+Sippy Publishing
+One important commercial decision
+
+I noticed something significant.
+
+The sheet still contains both:
+
+PAKISTAN - MOBILE MOBILINK
+PAKISTAN - MOBILE WARID
+
+Today's telecom market is different from when many legacy rate sheets were created.
+
+This raises a business question:
+
+Do you want your commercial catalogue to preserve legacy operator names (Mobilink, Warid), or do you want to modernize them into your own canonical naming (for example, treating them under your approved operator strategy)?
+
+That is a commercial governance decision, and once you make it, every future vendor import can be normalized consistently.
+
+What I recommend next
+
+Let's make First Class the "golden catalogue."
+
+For every destination in this sheet, we'll review and approve:
+
+Canonical destination name
+Country
+Destination type (Fixed/Mobile)
+Operator
+Prefix list
+Commercial status
+Product availability
+Legacy aliases (if any)
+
+Once First Class is clean, we can use it as the template for Business Class, Special Bravo, Special Charlie, and the remaining commercial products. That will ensure every product in BitsAuto is built on the same governed destination catalogue rather than each evolving independently.
+
+I did not find abbreviations like "Pak" or "PK" in this particular First Class sheet*not in shhet im tslking about platform 
+
+Ah, that's a much bigger issue—and I completely agree. I'm not talking about the First Class sheet anymore, I'm talking about your BitsAuto platform data.
+
+Before we do anything else, we need to clean the Destination Catalogue in the platform.
+
+Step 1: Find duplicate naming conventions
+
+For example, we need to identify situations like:
+
+ID	Current Name	Problem
+101	Pak Fixed	Uses "Pak"
+205	Pakistan Fixed	Uses "Pakistan"
+310	PK Fixed	Uses "PK"
+411	Pakistan - Fixed	Uses hyphen
+512	Pakistan Fixed	Canonical
+
+These are all the same commercial destination but represented differently.
+
+Step 2: Define ONE naming convention
+
+For example:
+
+Country Fixed
+
+Country Fixed Region
+
+Country Mobile
+
+Country Mobile Operator
+
+Examples:
+
+Pakistan Fixed
+
+Pakistan Fixed Kashmir
+
+Pakistan Mobile
+
+Pakistan Mobile Jazz
+
+Pakistan Mobile Telenor
+
+Pakistan Mobile Ufone
+
+Pakistan Mobile Zong
+
+No:
+
+Pak
+PK
+PAK
+Pakistan -
+Pakistan_Mobile
+Mobile Pakistan
+Step 3: Check the entire platform
+
+Not just global_destinations.
+
+We should audit:
+
+global_destinations
+destination_product_rates
+destination_sets
+rate_cards
+vendor_rate_sheet_rows
+any destination cache tables
+
+Every destination should resolve to one canonical commercial name.
+
+Step 4: Build a Duplicate Review Screen
+
+Instead of changing data automatically, create a review queue like:
+
+Existing Name	Suggested Canonical	Reason
+Pak Mobile Jazz	Pakistan Mobile Jazz	Abbreviation
+PK Mobile Jazz	Pakistan Mobile Jazz	Country abbreviation
+Pakistan - Mobile Jazz	Pakistan Mobile Jazz	Formatting
+Pakistan Mobile Jazz	Pakistan Mobile Jazz	Double space
+Pakistan Mobile Warid	Pakistan Mobile Jazz (if that's your commercial policy)	Legacy operator
+
+Commercial users approve the change before it's applied.
+
+Step 5: Lock the convention
+
+After cleanup, the system should reject new destinations that don't follow the standard.
+
+Examples:
+
+❌ Pak Jazz
+
+❌ PK Fixed
+
+❌ Pakistan-Mobile
+
+❌ Pakistan Mobile_Jazz
+
+✅ Pakistan Mobile Jazz
+
+I think this should actually be Sprint 2A.1
+
+Before Destination Governance, I'd run a Platform Destination Audit.
+
+The audit should produce a report like:
+
+Total destinations
+Duplicate names
+Duplicate prefixes
+Prefix conflicts
+"Pak" vs "Pakistan"
+"PK" vs "Pakistan"
+Double spaces
+Hyphen inconsistencies
+Legacy operator names
+Case inconsistencies
+Orphan destinations (not linked to any product)
+
+Once that report is clean, First Class becomes the first approved commercial catalogue, and every other product (Business Class, Special Bravo, Special Charlie, etc.) will inherit the same canonical destination definitions instead of creating their own variations. This one-time cleanup will pay dividends across every module in BitsAuto.

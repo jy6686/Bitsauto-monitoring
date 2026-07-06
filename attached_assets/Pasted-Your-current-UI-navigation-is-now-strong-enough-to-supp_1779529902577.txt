@@ -1,0 +1,372 @@
+Your current UI/navigation is now strong enough to support:
+
+full telecom customer lifecycle workflows
+
+The next correct step is:
+
+Clients Workspace Maturity
+
+You should implement it in 3 layers:
+
+Layer	Purpose
+Company Profile	master customer entity
+Client List	operational/customer management
+Create Account Wizard	telecom onboarding workflow
+
+This should NOT be:
+
+simple CRUD forms
+
+It should behave like:
+
+telecom operational onboarding system
+1. COMPANY PROFILE — MASTER CUSTOMER ENTITY
+
+Route:
+
+/company-profile/:id
+
+Purpose:
+Single operational overview for a telecom customer/reseller.
+
+Think:
+
+Customer Command Center
+
+NOT:
+
+profile form
+Layout Structure
+Header Section
+Company Name
+Status Badge
+Balance
+Credit Limit
+Traffic Health
+Assigned KAM
+
+Actions:
+
+Suspend
+Activate
+Reset Password
+Open Portal
+Add Account
+Add DID
+Generate Invoice
+Tabs
+1. Overview
+
+KPIs:
+
+ASR
+ACD
+NER
+CPS
+Active Calls
+Revenue
+Margin
+Open Incidents
+
+Charts:
+
+traffic trend
+balance trend
+quality trend
+2. Accounts
+
+Show:
+
+SIP accounts
+sub-accounts
+routing groups
+IP auth
+codec policy
+
+Actions:
+
+edit auth
+assign routing
+assign rate cards
+3. Billing
+
+Show:
+
+balances
+invoices
+payments
+disputes
+thresholds
+
+Widgets:
+
+low balance alerts
+payment aging
+revenue trend
+4. Routing & Quality
+
+Show:
+
+assigned vendors
+route quality
+top destinations
+degraded routes
+FAS exposure
+
+Include:
+
+Q-score table
+Prefix Intelligence summary
+RCA shortcuts
+5. Security
+
+Show:
+
+allowed IPs
+auth rules
+fraud events
+audit logs
+approval history
+6. Portal & Access
+
+Show:
+
+portal users
+permissions
+MFA
+reseller branding
+API keys
+Right Sidebar (Important)
+
+Sticky operational sidebar:
+
+LIVE STATUS
+
+Contains:
+
+active calls
+balance health
+incidents
+fraud alerts
+degraded routes
+pending approvals
+
+This makes the page feel:
+
+operational
+
+instead of static CRM.
+
+2. CLIENT LIST — OPERATIONAL CUSTOMER DIRECTORY
+
+Route:
+
+/clients
+
+Purpose:
+Operational telecom customer management.
+
+NOT:
+
+basic table
+Layout
+Top Toolbar
+Search
+Filters
+Segment selector
+Export
+Bulk actions
+Create Client
+Smart Filters
+Operational Filters
+low balance
+degraded quality
+fraud risk
+inactive
+suspended
+high traffic
+reseller
+enterprise
+prepaid/postpaid
+Table Columns
+Column	Notes
+Company	logo + status
+Balance	color-coded
+Traffic	current load
+ASR	quality
+Revenue	live metric
+Incidents	count
+KAM	assigned owner
+Last Activity	freshness
+Row Behavior
+
+Click row:
+→ opens Company Profile drawer/page
+
+Hover row:
+→ quick actions
+
+Quick Actions
+Add Balance
+Suspend
+Open Portal
+View RCA
+Reset Password
+Assign Vendor
+Generate Invoice
+Smart Indicators
+
+Badges:
+
+LOW BALANCE
+DEGRADED
+FRAUD RISK
+NEW
+VIP
+
+This becomes:
+
+telecom customer operations directory
+3. CREATE ACCOUNT WIZARD — TELECOM ONBOARDING FLOW
+
+Route:
+
+/clients/create
+
+This is VERY important.
+
+Do NOT make:
+
+single-page form
+
+Build:
+
+multi-step onboarding wizard
+Wizard Steps
+STEP 1 — Company Info
+company name
+contact
+timezone
+country
+KAM assignment
+STEP 2 — Billing Model
+prepaid/postpaid
+currency
+credit limit
+tax profile
+billing cycle
+STEP 3 — SIP & Authentication
+username/password
+IP auth
+registration mode
+concurrent call limit
+codec policy
+
+Important:
+
+IP approval workflow integration
+
+No auth rules unless IP approved.
+
+STEP 4 — Routing Assignment
+routing group
+vendor preference
+destination sets
+translation rules
+CLI rewrite
+
+Include:
+
+test routing preview
+STEP 5 — Fraud & Security
+CPS limits
+FAS monitoring
+geo restrictions
+CLI validation
+anti-fraud profile
+STEP 6 — Portal Access
+portal user
+permissions
+MFA
+reseller branding
+STEP 7 — Review & Provision
+
+Show:
+
+full summary
+generated configs
+assigned routing
+billing profile
+fraud policies
+
+Buttons:
+
+Save Draft
+Provision
+Provision & Send Welcome Email
+CRITICAL TELECOM FEATURE
+
+Before provisioning:
+
+run validation engine
+
+Check:
+
+duplicate IPs
+invalid routing
+missing rate cards
+fraud conflicts
+invalid CLI rules
+unsupported codecs
+
+This is VERY important.
+
+IMPORTANT UX RULES
+Use:
+stepper wizard
+autosave drafts
+validation indicators
+inline telecom warnings
+RCA-style explainability
+Avoid:
+giant forms
+generic CRM UI
+hidden telecom settings
+flat CRUD tables
+ENTERPRISE BEHAVIOR
+
+The onboarding wizard should feel like:
+
+carrier provisioning workflow
+
+NOT:
+
+customer registration form
+FUTURE EXTENSIONS
+
+Later:
+
+clone customer setup
+template provisioning
+AI onboarding recommendations
+auto-route suggestions
+fraud-risk prediction
+onboarding validation score
+FINAL TARGET
+
+Clients Workspace becomes:
+
+Telecom Customer Operations System
+
+with:
+
+operational customer directory
+telecom provisioning workflows
+routing-aware onboarding
+billing intelligence
+fraud-aware account creation
+live operational visibility
+
+NOT:
+
+simple CRM module

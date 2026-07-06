@@ -1,0 +1,233 @@
+I think this is the first time the platform problem has been described at the correct architectural level.
+
+The mistake over the last few days has been treating these as separate issues:
+
+Call Governance Billing Check
+P&L Extraction
+Vendor Cost
+Invoice Verification
+Deal Margin Truth
+Rate Integrity
+
+They are all symptoms of the same missing foundation.
+
+What BitsAuto is actually missing
+
+A new core platform layer:
+
+Commercial Identity Layer (CCI)
+
+Not a feature.
+
+Not a page.
+
+Not a tab.
+
+A platform foundation.
+
+Current Architecture
+
+Today every module is doing this:
+
+Call
+↓
+Find CDR
+↓
+Guess Product
+↓
+Guess Tariff
+↓
+Guess Margin
+
+Billing Verification does it.
+
+Deal Workspace does it.
+
+Revenue Assurance does it.
+
+Future Invoicing will do it.
+
+Future Margin Intelligence will do it.
+
+Future Vendor Impact Engine will do it.
+
+Everyone is solving the same problem independently.
+
+Future Architecture
+
+Instead:
+
+Asterisk
+↓
+Commercial Identity Layer
+↓
+Customer CDR
+Vendor CDR
+P&L
+↓
+Verified Commercial Record
+↓
+All Platform Modules
+
+One source of truth.
+
+What should be in Commercial Identity Layer
+
+Every call should have:
+
+call_uuid
+customer_id
+product_code
+product_prefix
+original_cld
+normalized_cld
+tariff_id
+routing_template_id
+pricing_template_id
+vendor_id
+start_time
+
+Not inferred later.
+
+Stamped when the call starts.
+
+Why Asterisk is the correct starting point
+
+This suggestion is probably the most important one made:
+
+__BITSAUTO_PRODUCT=FC
+__BITSAUTO_PRODUCT=BC
+__BITSAUTO_PRODUCT=SB
+__BITSAUTO_PRODUCT=SC
+
+Because Asterisk already knows:
+
+which product generated the call
+
+At that moment.
+
+No guessing required.
+
+Then:
+
+Bridge Event
+↓
+governed_calls.product_code
+
+gets written immediately.
+
+Why Product Registry becomes a prerequisite
+
+Right now Product Registry is being viewed as:
+
+Commercial Module
+
+I don't think that's correct anymore.
+
+It is becoming:
+
+Billing Infrastructure
+
+Because:
+
+Product
+↓
+Pricing Template
+↓
+Tariff
+↓
+Rate
+↓
+Revenue
+
+is the billing chain.
+
+Without an authoritative Product Registry, Commercial Identity cannot be authoritative.
+
+What I would change in the roadmap
+
+Current:
+
+0.2 P&L
+0.3 Billing
+0.5 Governance
+1.0 Trust Center
+
+I would restructure:
+
+0.2 Commercial Identity Layer
+
+0.3 Product Registry Authority
+
+0.4 Rate Repository
+
+0.5 Reconciliation Engine
+(Customer CDR + Vendor CDR + P&L)
+
+0.6 Rate Integrity Audit
+
+0.7 Invoice Validation
+
+1.0 Governance Validation
+
+2.0 Trust Center
+Why this matters
+
+If you solve Commercial Identity correctly:
+
+Billing Check
+
+Fixed automatically.
+
+Deal Workspace Margin Truth
+
+Fixed automatically.
+
+Revenue Protection
+
+Fixed automatically.
+
+Vendor Impact Analysis
+
+Fixed automatically.
+
+Finance Cockpit
+
+Fixed automatically.
+
+Invoice Generation
+
+Trusted automatically.
+
+Future AI Pricing
+
+Gets clean data.
+
+One thing I would ask the team immediately
+
+Before any more work on:
+
+Trust Center
+Quality Assurance
+Route Certification
+Security Scoring
+
+I would ask:
+
+Where does product_code originate?
+
+And require an answer.
+
+If the answer is:
+
+We derive it later from CLD
+
+then Commercial Identity does not exist yet.
+
+If the answer becomes:
+
+Asterisk stamps product_code at call creation
+
+then the foundation finally exists.
+
+That is the single architectural decision that will determine whether BitsAuto becomes a collection of features or a true telecom operating system with a single financial truth model.

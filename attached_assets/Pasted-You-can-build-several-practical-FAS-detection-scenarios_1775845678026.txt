@@ -1,0 +1,272 @@
+You can build several practical FAS detection scenarios in Replit using Node.js, Python, SIP logs, RTP packet analysis, and simple ML/rule engines.
+
+Scenario 1: Early Answer Detection
+
+Detect when billing starts before the called party actually answers.
+
+Logic:
+
+SIP 200 OK arrives too early after 180 Ringing or 183 Session Progress
+RTP contains only ringback tone or silence for several seconds after answer
+Example threshold:
+Call marked answered
+No speech detected within first 5–10 seconds
+Suspicious FAS score increases
+
+Example rule:
+
+if sip_answer_time - ring_start_time < 2:
+    risk_score += 30
+
+if speech_detected_after_answer > 8:
+    risk_score += 40
+
+This helps catch the case where the wholesaler starts charging before the real callee answers.
+
+Scenario 2: Fake Ringback After Billing Starts
+
+Detect when the call is already answered but RTP audio still contains ringback tones.
+
+Logic:
+
+SIP shows 200 OK
+Billing has started
+RTP still contains repetitive ringback frequencies such as 400 Hz + 450 Hz patterns
+No actual human voice
+
+You can use:
+
+FFT analysis
+Tone pattern matching
+WebRTC VAD for voice detection
+
+Suspicious example:
+
+if answered and ringback_detected and no_human_voice:
+    risk_score += 70
+
+This is one of the most common FAS tricks where the caller hears fake ringing even though billing already started.
+
+Scenario 3: Silence Detection After Answer
+
+Detect silent calls that continue billing.
+
+Logic:
+
+SIP shows call connected
+RTP packets continue
+Audio energy remains near zero for more than 10–15 seconds
+No voice detected
+
+Example:
+
+if connected and silence_duration > 15:
+    risk_score += 50
+
+Useful tools:
+
+WebRTC Voice Activity Detection
+RMS audio energy detection
+pydub
+librosa
+scipy
+
+This helps catch silent-answer fraud where the user is billed without any real conversation.
+
+Scenario 4: Call Ends on B-Leg but Billing Continues on A-Leg
+
+Detect extra billed seconds after the callee disconnects.
+
+Logic:
+
+Called party disconnects at time T1
+Caller hangs up at time T2
+Gap exceeds normal threshold like 3–5 seconds
+Frequent repetition on same vendor route
+
+Example:
+
+extra_seconds = caller_disconnect - callee_disconnect
+
+if extra_seconds > 5:
+    risk_score += extra_seconds * 2
+
+This detects cases where wholesalers keep the A-leg alive after B-leg disconnects.
+
+Scenario 5: Voicemail / IVR Fraud Detection
+
+Detect fake voicemail or looping audio pretending to be a live callee.
+
+Logic:
+
+Audio repeats identical phrases
+Spectrogram fingerprints are repeated across many calls
+Same RTP audio pattern appears on multiple calls from same vendor
+Duration of call is very similar every time
+
+Example:
+
+if same_audio_hash_seen > 20:
+    risk_score += 80
+
+You can:
+
+Hash MFCC audio fingerprints
+Compare spectrogram similarity
+Detect repeated prerecorded audio patterns
+
+This catches cases where fake voicemail or prerecorded audio is played to increase billable duration.
+
+Scenario 6: Route Fraud Scoring Dashboard
+
+Build a Replit dashboard showing suspicious vendors.
+
+Metrics:
+
+Average post-answer silence
+Average delay between SIP answer and first voice
+Average extra billed seconds
+Percentage of calls with fake ringback
+Fraud score per route/provider
+
+Formula example:
+
+𝐹
+𝑟
+𝑎
+𝑢
+𝑑
+ 
+𝑆
+𝑐
+𝑜
+𝑟
+𝑒
+=
+0.3
+(
+𝐸
+𝑎
+𝑟
+𝑙
+𝑦
+ 
+𝐴
+𝑛
+𝑠
+𝑤
+𝑒
+𝑟
+)
++
+0.25
+(
+𝑆
+𝑖
+𝑙
+𝑒
+𝑛
+𝑐
+𝑒
+)
++
+0.25
+(
+𝑅
+𝑖
+𝑛
+𝑔
+𝑏
+𝑎
+𝑐
+𝑘
+ 
+𝐴
+𝑓
+𝑡
+𝑒
+𝑟
+ 
+𝐴
+𝑛
+𝑠
+𝑤
+𝑒
+𝑟
+)
++
+0.2
+(
+𝐸
+𝑥
+𝑡
+𝑟
+𝑎
+ 
+𝐵
+𝑖
+𝑙
+𝑙
+𝑖
+𝑛
+𝑔
+)
+Fraud Score=0.3(Early Answer)+0.25(Silence)+0.25(Ringback After Answer)+0.2(Extra Billing)
+
+Then rank vendors:
+
+Green = Safe
+Yellow = Suspicious
+Red = High FAS probability
+Scenario 7: RTP Audio Classification Model
+
+Train a small ML classifier.
+
+Input features:
+
+Silence percentage
+Voice percentage
+Ringback percentage
+Audio repetition score
+Average call duration
+Delay to first speech
+RTP jitter / packet loss
+
+Possible output:
+
+Legitimate call
+Early answer fraud
+Silent fraud
+Fake ringback fraud
+Voicemail fraud
+
+You can use:
+
+Python
+scikit-learn
+RandomForestClassifier
+XGBoost
+Good Replit Stack
+Backend: Python Flask or FastAPI
+Audio analysis: librosa, scipy, pydub, webrtcvad
+SIP/CDR parser: pandas
+Dashboard: Streamlit
+Database: SQLite
+Charts: Plotly
+
+A simple first MVP in Replit could be:
+
+Upload CSV of CDRs
+Upload WAV RTP recordings
+Parse SIP answer time and disconnect time
+Detect silence/ringback/voice
+Generate fraud score per call
+Show suspicious routes in dashboard
+
+FAS usually appears as:
+
+Too many short calls
+Long silence after answer
+Caller hangs up almost every time
+Same audio patterns repeated
+Extra billed seconds after disconnect

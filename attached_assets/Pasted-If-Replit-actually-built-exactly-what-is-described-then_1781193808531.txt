@@ -1,0 +1,125 @@
+If Replit actually built exactly what is described, then I think that was the right implementation.
+
+The reason is that Reconciliation Lab is not another operational workspace. It is a diagnostic workspace to prove or disprove assumptions before building larger features.
+
+What I would do next
+
+Don't immediately start CCI, Trust Center, Product Registry expansion, or Invoice Automation.
+
+Instead use the new Reconciliation Lab to answer 5 questions:
+
+1. Recording Integrity
+
+Look at:
+
+File OK
+Missing
+Empty
+No Path
+
+If you see:
+
+Missing > 0
+
+then the recording problem is still a live production defect and should remain Priority #1.
+
+2. CDR Reconciliation
+
+Measure:
+
+Matched %
+Partial %
+Missing %
+
+Target:
+
+>90% matched
+
+before trusting Billing Verification.
+
+3. Identity Audit
+
+This is the most important output.
+
+Question:
+
+Does Call-ID survive across:
+Customer CDR
+Vendor CDR
+P&L?
+
+Possible outcomes:
+
+Result	Action
+Call-ID spans all 3	Use Call-ID as reconciliation key
+Conf-ID spans all 3	Use Conf-ID
+Nothing spans all 3	Build Commercial Call Identity (CCI)
+
+This tab determines whether Sprint 3 becomes much smaller.
+
+4. Vendor Cost Validation
+
+Once the lab is populated:
+
+Take 20–50 calls.
+
+Verify:
+
+Vendor CDR Cost
+=
+P&L Cost
+
+If not equal, stop all margin-related work.
+
+5. Product Identity Validation
+
+This is still the largest commercial risk.
+
+You have already shown examples where:
+
+1923 rate = 0.0230
+2923 rate = 0.0194
+7923 rate = 0.0400
+
+Different products.
+
+Different billing.
+
+Different margins.
+
+Therefore the next thing I would add to Reconciliation Lab is:
+
+Commercial Identity Audit
+
+showing:
+
+Original CLD
+Product Prefix
+Product
+Tariff
+Rate
+
+before invoice automation is ever allowed.
+
+Revised Priority After Reconciliation Lab Exists
+Immediate
+Review Recording Integrity results
+Review Identity Audit results
+Review Reconciliation Match Rate
+Next
+Vendor Cost Validation
+Commercial Identity Audit
+Product Registry Authority
+Later
+Commercial Call Identity (only if audit proves necessary)
+Rate Integrity Audit
+Invoice Validation
+Still Frozen
+Trust Center
+Route Certification
+QA Workspace
+Security Scoring
+Voice Escalation
+Config Governance
+
+One more thing: several of the customer CDR exports, vendor CDR exports, summary reports, and screenshots referenced earlier have expired and are no longer available. If you want to verify the Identity Audit results or perform Vendor Cost Validation against real data, please upload the latest exports again. That will allow validation against current production traffic rather than historical samples.

@@ -1,0 +1,115 @@
+Good — this is the first point where the system design discussion is actually finished and we’re just choosing execution order.
+
+So I’ll be direct: yes, build B2 next (Auth Exposure Scorer).
+
+Not because it’s “the next phase on a roadmap”, but because it does something the platform currently cannot do at all:
+
+Right now the system answers:
+
+“Is this account behaving badly?”
+
+B2 adds:
+
+“Is this account structurally unsafe even if it looks fine?”
+
+That’s not a refinement. That’s a missing dimension in the model.
+
+Why B2 is the correct next build (in your current state)
+
+You already have:
+
+HealthScore (behavioral state)
+FraudRisk (activity-based abuse signals)
+AnomalyScore (statistical deviation)
+QualityScore (service degradation signals)
+
+But all of those are observational.
+
+What you do NOT have yet is:
+
+A structural vulnerability layer that explains blast radius if compromised
+
+That’s what Auth Exposure introduces.
+
+Without it:
+
+recommendations stay generic (“reduce CPS”, “check traffic”)
+incident cards stay reactive
+AI Ops remains descriptive, not predictive in a security sense
+
+With it:
+
+recommendations become security-aware decisions
+incidents gain root-cause context (why this account is dangerous)
+account state becomes a real “operational risk object”
+What B2 actually unlocks (practically)
+
+After B2, every account in your system gains:
+
+auth_exposure_score (0–100) → “how exploitable is this account”
+exposure_risk_level → instant operator signal (green/yellow/red)
+auth_exposure_signals[] → explainability layer
+
+And critically:
+
+AI Ops stops saying:
+
+“Account is suspicious”
+
+It starts saying:
+
+“Account is suspicious AND structurally open (IP unrestricted + CLI auth + broad access), so impact risk is HIGH”
+
+That’s the real upgrade.
+
+Why NOT C1 first (confirmed)
+
+We already implicitly proved this across your prior builds:
+
+You already have suggestedAction
+You already have incident cards with recommendations
+You already have UI surfaces for operator decisions
+
+So C1 without B2 would:
+
+reorganize output
+not improve intelligence quality
+
+That’s wasted iteration.
+
+Final execution order (no ambiguity left)
+B2 — Auth Exposure Scorer (NOW)
+
+Core build:
+
+DB migration (auth_exposure_score + fields)
+server/auth-exposure.ts
+hook into existing updateAccountState → runIncidentEngine
+emit ACCOUNT_EXPOSURE incidents
+minimal UI (badge + AI Ops section)
+then immediately after:
+C1 — Recommendation Engine upgrade
+consumes exposure + fraud + anomaly + health
+produces ranked, multi-signal actions
+One important framing shift (this matters for later)
+
+Stop thinking:
+
+“We are adding another score”
+
+Think:
+
+“We are adding a missing axis of risk”
+
+Because after B2, your model becomes:
+
+Behavioral risk (fraud/anomaly/quality)
+Structural risk (auth exposure) ← NEW
+Financial risk (balance/ACD — later)
+Network risk (routing/carrier — already emerging)
+
+That’s when the platform stops being “AI monitoring” and becomes “operational decision system.”
+
+So the answer is simple
+
+Yes — build B2 now.

@@ -1,0 +1,150 @@
+Good — this is exactly the right level of thinking before you move anything into production.
+
+Let me consolidate the real operational truth so there’s no ambiguity:
+
+🧭 What actually happens when you move to a custom domain (truth layer)
+1. Nothing changes in your operations model
+
+A custom domain on Replit is:
+
+DNS → points to Replit deployment
+Replit → still runs your server, DB, logs, deploys
+
+So:
+
+You still debug in Replit
+You still deploy from Replit
+You still see logs in Replit
+You still fix code in Replit
+
+👉 You are not “moving off Replit” — you are only masking the URL.
+
+2. What does change (important)
+Before:
+https://vo-ip-watcher--junaid70.replit.app/portal/xxx
+After:
+https://portal.bitsauto.com/portal/xxx
+
+That’s it.
+
+Everything else is identical.
+
+3. Support / failure model (real-world version)
+A. Your responsibility (90% of issues)
+
+You handle:
+
+API bugs
+CDR/Sippy logic issues
+SLA calculations
+UI bugs
+DB issues
+authentication logic
+export failures
+console / incidents / tickets
+
+👉 This is your engineering responsibility layer
+
+You already effectively operate here.
+
+B. Replit responsibility (infrastructure only)
+
+Replit handles:
+
+server uptime
+container crashes
+networking
+deployment runtime
+SSL for custom domain
+underlying Postgres availability (if managed by Replit)
+
+If something breaks here:
+
+you check status page
+you open Replit support ticket
+you wait for infra recovery
+4. The key operational truth most people miss
+
+Even with a custom domain:
+
+Your platform is still “Replit-hosted software” — just branded differently.
+
+So:
+
+Custom domain ≠ independence
+Custom domain = branding + trust layer
+⚠️ The real risk you should be aware of (important)
+
+For a VoIP NOC / SLA system, your real constraint is:
+
+Single-region dependency
+
+If Replit deployment region has:
+
+outage
+latency spike
+partial failure
+
+👉 Your entire console + SLA + tickets go down together
+
+This is NOT caused by custom domain — it already exists today.
+
+5. Operational impact for your use case (honest view)
+
+Given your platform:
+
+Live traffic monitoring
+SLA reporting
+incident console
+billing exposure
+
+You are in a:
+
+“soft real-time operational system” category
+
+So:
+
+acceptable at current stage:
+
+✔ Replit hosting
+✔ custom domain
+✔ single-region deployment
+✔ manual fixes via logs
+
+not acceptable at enterprise scale later:
+
+❌ no failover
+❌ no staging/prod separation
+❌ no rollback strategy
+❌ no external health monitoring
+
+6. Recommended progression (clean and realistic)
+Phase 1 (NOW — correct stage)
+custom domain
+token → session auth
+SLA + console + tickets (already done directionally)
+keep Replit infra
+Phase 2 (when clients grow)
+external monitoring (Pingdom / Better Uptime)
+deployment rollback strategy
+staging environment
+Phase 3 (enterprise stage)
+move backend to VPS or cloud (AWS / Hetzner)
+multi-region or active-passive failover
+queue-based ingestion layer for Sippy
+🧠 Direct answer to your core concern
+
+“If we face bugs or downtime, what happens?”
+
+Answer:
+Your bugs → you fix them in Replit and redeploy
+Replit downtime → Replit fixes infrastructure
+Custom domain does NOT change this model at all
+👍 Bottom line
+
+Custom domain is safe, correct, and recommended now because:
+
+improves client trust immediately
+no architecture risk
+no migration cost
+no impact on debugging or operations

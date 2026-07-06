@@ -1,0 +1,261 @@
+The direction is correct, but I would not approve it yet. There are several architectural issues that need to be fixed before implementation.
+
+1. Biggest Issue: Send Rate should NOT directly push rates
+
+The proposed flow is:
+
+Send Rate
+↓
+Push All
+↓
+Update Tariffs
+
+This is risky.
+
+For your environment:
+
+10 destinations
+×
+100 clients
+=
+1000 tariff updates
+
+or
+
+50 destinations
+×
+1000 clients
+=
+50,000 tariff updates
+
+The UI should never wait for this.
+
+Instead:
+
+Send Rate
+↓
+Create Push Job
+↓
+Push Queue
+↓
+Background Workers
+↓
+Push History
+
+User immediately gets:
+
+Job #RP-100245 created
+Status: Queued
+
+and the processing happens in background.
+
+2. Submit button should not depend on resolvedDialPrefix
+
+I agree with the fix.
+
+Current logic:
+
+Country
+↓
+Network
+↓
+Operator
+↓
+resolvedDialPrefix
+↓
+Submit Enabled
+
+This creates too many dependencies.
+
+Better:
+
+Country Required
+Rate Required
+At least 1 Client Required
+
+Then resolve prefixes during processing.
+
+3. Destination Queue is correct
+
+I strongly agree with:
+
+Add Destination
+↓
+Queue
+↓
+Add Another Destination
+↓
+Queue
+↓
+Submit
+
+Because telecom teams usually send:
+
+Pakistan Mobile
+Pakistan Jazz
+Pakistan Zong
+UAE Mobile
+Saudi Mobile
+
+in a single operation.
+
+4. Missing Effective Date / Time
+
+The design summary missed the most important field.
+
+Every queued destination must store:
+
+Destination
+Rate
+Effective Date
+Effective Time
+
+Example:
+
+Pakistan Mobile
+0.0265
+19-Jun-2026
+13:30 GMT
+
+Otherwise you lose future scheduling.
+
+5. Missing Notification Type
+
+The old BitsAuto had:
+
+Default
+Changes Only
+Full Sheet
+
+Your new Send Rate must include:
+
+Notification Type
+
+○ Full Sheet
+○ Changes Only
+○ Partial Destination
+
+Because this determines:
+
+Attachment
+Email Body
+Push History
+6. Missing Product Snapshot
+
+Critical for auditing.
+
+When user clicks Submit:
+
+Store:
+
+Product
+Client
+Tariff
+Destination
+Old Rate
+New Rate
+Effective Date
+
+inside Push Job.
+
+Never rely on live tariff data later.
+
+7. Missing SBC Stage
+
+Current proposal jumps from:
+
+Tariff Updated
+↓
+Email Sent
+
+But your requirement is:
+
+Tariff Updated
+↓
+SBC Updated
+↓
+Verification
+↓
+Email Sent
+
+Push History must show:
+
+Queued
+Processing
+Tariff Updated
+SBC Updated
+Verified
+Email Sent
+Completed
+8. Multi-Client Logic Needs Protection
+
+Current proposal:
+
+Client A
+Client B
+Client C
+
+selected together.
+
+Before creating the job:
+
+Validate:
+
+Tariff Exists
+Web Login Exists
+Rate Admin Access Exists
+Product Exists
+
+Otherwise:
+
+997 succeed
+3 fail
+
+and users don't know why.
+
+Run pre-validation first.
+
+What I would implement next
+Phase 1 (Immediate)
+
+✅ Destination Queue
+✅ Multi-Client Selection
+✅ Effective Date/Time
+✅ Notification Type
+✅ Create Push Job button
+
+Phase 2
+
+✅ Push Queue Engine
+✅ Background Workers
+✅ Progress Tracking
+✅ Retry Engine
+
+Phase 3
+
+✅ SBC Update Stage
+✅ Email Notification Engine
+✅ Push History Detail Page
+✅ Rollback
+
+Phase 4
+
+✅ Bulk Product Updates
+✅ Scheduled Future Changes
+✅ Mass Client Rate Campaigns
+
+One more important point:
+
+Since you have now proven that action=change works directly in Sippy, I would completely separate:
+
+Rate Manager
+
+from
+
+Send Rate
+
+Rate Manager = modify tariff.
+
+Send Rate = distribute tariff changes to clients (notifications, approvals, push jobs, email workflow).
+
+Mixing both into a single screen will become very difficult to manage when you reach hundreds or thousands of client tariffs.

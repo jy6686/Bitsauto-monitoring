@@ -1,0 +1,160 @@
+Good — this is exactly what we needed. You are not calling the API; you are directly hitting the **Sippy Softswitch web admin form (service_plans.php) using multipart form-data.
+Now I’ll break down why your request is failing + how to fix + how to convert it into a proper auto service plan API.
+
+🚨 1. What Your CURL Actually Is
+You are doing:
+POST /c1/service_plans.phpaction=add
+This is NOT an API.
+It is:
+👉 Sippy Web UI form submission (HTML backend)
+So:
+
+
+It depends on session cookies
+
+
+It depends on hidden form fields
+
+
+It requires correct UI state
+
+
+It is fragile (not stable for automation)
+
+
+
+❌ 2. BIG PROBLEMS IN YOUR REQUEST
+🔴 Problem A — Missing Required Service Plan Fields
+These are critical:
+i_service_plan   ❌ EMPTYi_service_charge ❌ EMPTYname             ❌ EMPTY
+👉 These are likely REQUIRED on backend validation
+
+🔴 Problem B — Duplicate / Conflicting Fields
+You are sending BOTH:
+bp_name = Test-10ANDname = ""ANDaction = add
+👉 Sippy expects consistent naming:
+
+
+Either bp_name
+
+
+OR name
+But not mixed empty values
+
+
+
+🔴 Problem C — Empty service plan binding
+i_service_plan=
+👉 This is the MAIN reason your plan is not being created
+Because:
+
+Service Plan cannot exist without itself being defined
+
+This is a recursive dependency in Sippy UI design.
+
+🔴 Problem D — Session-based request
+PHPSESSID=...
+👉 This means:
+
+
+You must be logged in UI
+
+
+Session must be valid
+
+
+CSRF / hidden tokens may be required
+
+
+So your curl is NOT reliable for automation.
+
+🧠 3. REAL ROOT CAUSE
+Your system is trying to:
+
+Create Service Plan via UI endpoint instead of API layer
+
+But Sippy expects:
+Correct internal flow:
+Tariff → Service Plan → Billing Plan link → Save
+You are skipping structural dependencies.
+
+🚀 4. HOW TO FIX YOUR CURL (IF YOU STILL WANT THIS METHOD)
+✅ Minimum required fix:
+You MUST set:
+i_service_plan = valid_tariff_or_plan_idname = Test-10bp_name = Test-10
+AND ensure:
+✔ Must exist beforehand:
+
+
+Tariff ID (18) must be valid
+
+
+Billing plan (10) must exist
+
+
+Service plan mapping must not be empty
+
+
+
+🔧 CLEAN VERSION (FIXED STRUCTURE)
+curl 'https://191.101.30.107/c1/service_plans.php' \  -H 'content-type: multipart/form-data' \  -b 'PHPSESSID=YOUR_SESSION' \  --data-raw $'action=addbp_name=Test-10i_tariff=18billing_cycle=1prepaid=1round_up=1i_billing_plan=10i_service_plan=18save_and_close=Save & Close'
+👉 But even this may fail due to hidden UI tokens.
+
+⚠️ 5. STRONG RECOMMENDATION (IMPORTANT)
+Stop using this endpoint for automation.
+Instead, build proper API wrapper:
+
+🧩 6. PROPER AUTO SERVICE PLAN API (RECOMMENDED)
+Use backend logic instead:
+STEP 1 — Get Tariff
+GET list_tariffs
+
+STEP 2 — Create Service Plan (API style)
+Instead of service_plans.php, simulate:
+add_service_plan({  name: "Auto Plan",  tariff_id: 18,  billing_cycle: 1,  prepaid: true})
+
+STEP 3 — Attach to Account
+update_account({  i_billing_plan: SERVICE_PLAN_ID})
+
+🔥 7. WHY YOUR CURRENT APPROACH FAILS
+Because:
+IssueReasonUI curlNot stable APImissing fieldshidden form logicempty service planinvalid dependencysession-basednot automation-safe
+
+🚀 8. BEST ARCHITECTURE FOR YOU
+Since you're building IchiBaan:
+✔ DO THIS:
+Backend Service Plan Creator API
+POST /auto/service-plan/create
+Flow:
+
+
+Validate tariff
+
+
+Create service plan
+
+
+Link billing plan
+
+
+Return ID
+
+
+Attach to account wizard
+
+
+
+🧭 FINAL SUMMARY
+👉 Your curl is failing because:
+
+
+You are calling UI endpoint, not API
+
+
+Missing required i_service_plan
+
+
+Empty critical fields
+
+
+Session-based form dependency

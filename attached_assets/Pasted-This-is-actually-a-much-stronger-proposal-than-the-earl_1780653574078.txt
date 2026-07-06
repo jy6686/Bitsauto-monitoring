@@ -1,0 +1,284 @@
+This is actually a much stronger proposal than the earlier generic "Rate Management" module.
+
+After reviewing the uploaded design, my recommendation is:
+
+YES — Build This
+But only after Routing Control Plane and Provisioning Studio stabilization.
+
+This is not a rate import feature.
+
+This is:
+
+Product Pricing Intelligence
+
+And it fits extremely well with the direction BitsAuto is already taking.
+
+What Makes This Proposal Valuable
+
+Most telecom platforms can tell you:
+
+Vendor Cost Changed
+
+Very few can tell you:
+
+Which customers are affected?
+Which products are affected?
+What is the margin impact?
+Who must be notified?
+Who has already been notified?
+
+That is where the real business value lives.
+
+The Biggest Insight
+
+The uploaded analysis correctly identified the missing piece:
+
+You currently have:
+
+Tariffs
+Rate Cards
+Notifications
+Margin Analytics
+
+But you do NOT have:
+
+Products
+
+Everything is currently operating at:
+
+Prefix
+Route
+Tariff
+
+level.
+
+Your business operates at:
+
+First Class
+Business Class
+Bravo
+Charlie
+
+level.
+
+That is the gap.
+
+What I Would Build First
+Phase 1 — Product Registry
+
+Highest priority.
+
+Create:
+
+Product
+├── First Class
+├── Business Class
+├── Bravo Special
+└── Special Charlie
+
+Every:
+
+rate sheet
+tariff
+notification
+customer offer
+routing template
+
+should become product-aware.
+
+Without this, the rest becomes messy.
+
+Phase 2 — Customer Offer History
+
+This is where things become powerful.
+
+Example:
+
+Customer:
+ABC Telecom
+
+Product:
+Pakistan First Class
+
+Offered:
+0.024
+
+Date:
+2026-06-01
+
+Later:
+
+Vendor Cost Increased
+
+BitsAuto instantly knows:
+
+ABC Telecom
+Affected
+
+because it knows what was sold.
+
+Today you don't have that memory layer.
+
+Phase 3 — Vendor Cost Impact Engine
+
+This is the most valuable part.
+
+Vendor uploads:
+
+Pakistan Jazz
+0.020 → 0.027
+
+System computes:
+
+Affected Customers:
+143
+
+Negative Margin:
+27
+
+Margin Below Threshold:
+39
+
+Safe:
+77
+
+This is the operational intelligence layer.
+
+Phase 4 — 7-Day Notification Engine
+
+I strongly agree with this.
+
+But:
+
+Never auto-send initially.
+
+Instead:
+
+Detect
+Generate Draft
+Require Approval
+Dispatch
+Track Delivery
+
+This follows the governance doctrine.
+
+What I Like Most
+
+The dedupe requirement.
+
+Without it:
+
+Vendor uploads rate sheet
+
+twice.
+
+System sends:
+
+143 emails
+143 emails
+143 emails
+
+again.
+
+Operators will hate it.
+
+The proposed:
+
+customer
++ product
++ prefix
++ effective date
+
+dedupe key is exactly right.
+
+Product-Level Dashboard
+
+This should eventually show:
+
+Product	Margin	Customers	Risk
+First Class	18.4%	321	Healthy
+Business Class	11.2%	148	Warning
+Bravo	8.1%	92	Risk
+Charlie	21.0%	55	Healthy
+
+This becomes executive-level visibility.
+
+What I Would NOT Build Yet
+Automatic Customer Notification
+
+Not yet.
+
+Start with:
+
+Draft
+Review
+Approve
+Send
+
+Only after trust is built should notification automation happen.
+
+Exactly the same principle as your routing governance.
+
+Priority vs Other Roadmap Items
+
+If I rank upcoming modules:
+
+Module	Priority
+Routing Control Plane	1
+Provisioning Studio	2
+Product Registry	3
+Product Pricing Intelligence	4
+Vendor Cost Impact Engine	5
+Notification Engine	6
+Multi-Server Federation	Later
+One Additional Feature I Would Add
+Customer Exposure Report
+
+Before sending notices:
+
+Show:
+
+Customer:
+ABC Telecom
+
+Products:
+First Class
+Business Class
+
+Affected Prefixes:
+147
+
+Revenue:
+$42,000/month
+
+Margin Before:
+18.2%
+
+Margin After:
+12.4%
+
+This allows management to decide:
+
+Absorb Cost
+OR
+Pass Cost To Customer
+
+Very powerful commercial tool.
+
+Overall Assessment
+
+The uploaded proposal is not really a "rate management" enhancement.
+
+It is the foundation for:
+
+Product Pricing Intelligence
+
+which becomes the commercial counterpart to:
+
+Routing Intelligence
+Provisioning Intelligence
+Operational Intelligence
+
+already emerging in BitsAuto.
+
+I would absolutely build it — but only after Product Registry is introduced and the Provisioning Studio workflow stabilizes, because Product Registry becomes the dependency that ties onboarding, routing, pricing, notifications, and reporting together.

@@ -1,0 +1,430 @@
+Your suggestion is actually very close to what I would recommend, but with one important distinction.
+
+Current Send Rate
+Destination Catalogue
+      ↓
+Product
+      ↓
+Client(s)
+      ↓
+Generate
+      ↓
+Send / Push
+Your Proposed Model
+Destination Catalogue
+      ↓
+Approved Destinations
+      ↓
+Product
+      ↓
+Client(s)
+      ↓
+Rate Analysis Logic
+      ↓
+Send / Push
+
+I agree with the Approved Destinations part.
+
+I do not agree with replacing Send Rate with Rate Analysis logic.
+
+What should be reused from Rate Analysis?
+
+Only the certified Sippy execution layer.
+
+Rate Analysis
+      ↓
+Validate Prefix
+      ↓
+resolveSippyPrefix()
+      ↓
+pushRateToSippy()
+      ↓
+Verify Result
+
+Send Rate
+      ↓
+Validate Prefix
+      ↓
+resolveSippyPrefix()
+      ↓
+pushRateToSippy()
+      ↓
+Verify Result
+
+Same backend execution.
+
+Different business workflow.
+
+Recommended Future Flow
+Destination Catalogue
+      ↓
+commercialStatus = approved
+      ↓
+Product Variant
+(FC-W, BC-W, SB-W, SB-R, SC-W, SC-R, PM-R, BS-R, NP)
+      ↓
+Client(s)
+      ↓
+Generate Rates
+      ↓
+Validation Rules
+      ↓
+Sippy Verification Layer
+      ↓
+Send / Push
+      ↓
+Push History
+      ↓
+Notification History
+Why Approved Destinations are Critical
+
+Because you already have:
+
+150,000+ destinations
+
+but only a subset should be commercially available.
+
+Example:
+
+USA
+ ├─ Mobile
+ ├─ Fixed
+ ├─ Premium
+ ├─ Satellite
+ ├─ Inmarsat
+ └─ Iridium
+
+You do not want:
+
+USA Satellite
+USA Inmarsat
+USA Iridium
+
+appearing automatically in:
+
+Send Rate
+Rate Manager
+Customer Pricing
+Product Rates
+
+unless explicitly approved.
+
+My Recommendation
+
+Keep Send Rate exactly as a commercial tool.
+
+Change only the source data:
+
+Destination Catalogue
+        ↓
+Approved Destinations Only
+        ↓
+Send Rate
+
+and
+
+Destination Catalogue
+        ↓
+Approved Destinations Only
+        ↓
+Rate Analysis
+
+and
+
+Destination Catalogue
+        ↓
+Approved Destinations Only
+        ↓
+Product Rates
+
+This gives you:
+
+One commercial master destination repository
+One approval mechanism
+One hierarchy
+One prefix architecture
+One Sippy execution layer
+
+while keeping Rate Analysis and Send Rate as separate business functions.
+
+That is much safer than trying to make Send Rate "work like Rate Analysis", because yesterday's 9230/8801 success proves the execution layer works; the problem is consistency of destination selection, approval filtering, logging, and verification around it.
+
+Codes DataPrice list
+take a breath 
+
+150k keep as side now!
+if 150k destinations are making confusion/issue let replace it
+attichng sheet for refernce can we remove 150k destination from DB and upload this sheet as our main destination catalogue,   same name convension, same biling increment 
+
+
+
+make this sheet a BASE 
+Stopped thinking
+
+Yes — and based on everything you've explained, I would seriously consider it.
+
+After looking at your sheet, this is not just a rate file. It already contains the core commercial master data:
+
+Destination Name
+Country Code
+Area Code / Prefix
+Billing Increment (1/1, 60/1, etc.)
+Increment Start Date
+Price Status
+CLI
+Effective Dates
+Naming convention already standardized
+
+Example rows:
+
+Afghanistan Mobile AWCC      70     60/1
+Afghanistan Mobile Etisalat  73     1/1
+Afghanistan Mobile MTN       76     1/1
+Afghanistan Mobile Roshan    72     1/1
+
+This is exactly the type of structure you described as your commercial source of truth.
+
+What I would NOT do
+
+I would not immediately delete 150k destinations.
+
+Because many modules currently reference:
+
+global_destinations.id
+destination_product_rates
+deal destinations
+rate manager mappings
+historical push records
+routing mappings
+
+Deleting first and thinking later is risky.
+
+What I WOULD do
+Phase 1 — Create New Base Catalogue
+
+Import this spreadsheet into a new structure:
+
+master_destination_catalog
+
+or
+
+global_destinations_v2
+
+containing:
+
+Destination
+Country Code
+Area Code
+Billing Increment Initial
+Billing Increment Following
+Billing Increment Start Date
+CLI
+Price Status
+Commercial Status
+High Cost Flag
+Phase 2 — Compare
+
+Run comparison:
+
+Current Catalog
+      VS
+Codes Data.xlsx
+
+Show:
+
+Existing Destinations: 150,000
+New Catalogue: X
+
+Matched:
+Missing:
+Duplicate:
+Different Prefix:
+Different Name:
+
+Then you'll know whether the 150k database is actually useful or just noise.
+
+Phase 3 — Switch Platform Source
+
+After validation:
+
+Rate Manager
+Send Rate
+Rate Analysis
+Product Rates
+Voice Trading
+Customer Pricing
+
+all read from:
+
+Master Destination Catalogue
+
+instead of the old dataset.
+
+Why I think this may be the right direction
+
+You've repeatedly found issues around:
+
+9233
+19233
+
+8801
+18801
+
+and hierarchy inconsistencies.
+
+Your spreadsheet already appears to contain:
+
+Country
+Operator
+Breakout
+Prefix
+Increment
+Commercial Naming
+
+which is exactly what your commercial team uses daily.
+
+In practice, many telecom platforms end up with:
+
+Routing Data
+
+and
+
+Commercial Destination Catalogue
+
+being completely different things.
+
+The sheet you uploaded looks much closer to a commercial destination catalogue than the current 150k imported data.
+
+My recommendation
+
+Before deleting anything:
+
+Import this sheet into a separate catalog table.
+Count destinations.
+Compare against current 150k records.
+Identify what percentage of the 150k data is actually used.
+If this sheet covers your commercial business correctly:
+Make it the master catalogue.
+Archive the old 150k dataset.
+Rewire modules gradually.
+
+That gives you a safe migration path instead of a destructive replacement.
+
+And I agree with one thing completely:
+
+Billing increments should come from this destination catalogue and become the platform-wide source of truth, not from products and not from user input. The sheet already contains the increment information that commercial teams actually use.
+
+but 150k codes are not wired yet with platform 
+
+That's actually the key point.
+
+If the 150k destinations are not fully wired into the platform yet, then the migration risk is much lower than it would be in a mature production system.
+
+From everything you've described:
+
+Module	Fully dependent on 150k catalog?
+Rate Analysis	❌ Reads primarily from Sippy
+Change Client Rates	❌ Reads from Sippy tariffs
+Send Rate	⚠ Partially
+Product Rates	⚠ Partially
+Voice Trading Desk	❌ Not fully implemented
+Client Tariff Profiles	❌ Not implemented
+Rate Sheet Engine	❌ Not implemented
+Destination Approval Workflow	⚠ Started but not completed
+
+So today the 150k dataset appears to be:
+
+Imported
+↓
+Stored
+↓
+Partially used
+
+rather than:
+
+Imported
+↓
+Core dependency of entire platform
+
+That changes the decision significantly.
+
+What I would do
+Option A (Recommended)
+
+Keep current table as archive:
+
+global_destinations
+
+Rename:
+
+global_destinations_legacy
+
+Import your spreadsheet as:
+
+global_destinations
+
+Then:
+
+Rate Manager
+Send Rate
+Product Rates
+Destination Approval
+Future Rate Sheets
+
+all start from the new catalogue.
+
+Benefits:
+
+No data loss
+Easy rollback
+Clean commercial naming
+Billing increments included
+No 150k legacy confusion
+Why your spreadsheet is attractive
+
+Because it already contains the things you've repeatedly said are important:
+
+Destination Name
+Prefix
+Billing Increment
+Effective Date
+CLI
+Status
+
+Whereas the 150k import appears to be focused more on raw destination records and hierarchy.
+
+For commercial operations, the spreadsheet looks closer to your actual business source of truth.
+
+One thing I would verify first
+
+Before replacing anything, answer:
+
+How many rows are in Codes Data.xlsx?
+
+If it contains:
+
+2,000 - 10,000 destinations
+
+and covers all countries/operators you sell, then it may be a much better commercial catalogue than the current 150k import.
+
+If it only contains:
+
+200 - 500 destinations
+
+then it may be a reference list rather than a complete replacement.
+
+My recommendation
+
+Do not delete the 150k table.
+
+Do:
+
+1. Archive 150k catalog
+2. Import Codes Data.xlsx as new master catalog
+3. Wire platform to new catalog
+4. Test Send Rate
+5. Test Product Rates
+6. Test Rate Sheets
+7. If successful → retire legacy catalog
+
+Given your repeated issues with hierarchy, prefixes, and billing increments, I think evaluating this spreadsheet as the new commercial master catalogue is a reasonable direction before investing more effort into wiring the current 150k dataset.

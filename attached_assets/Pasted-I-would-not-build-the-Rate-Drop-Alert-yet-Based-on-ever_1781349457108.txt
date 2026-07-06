@@ -1,0 +1,417 @@
+I would not build the Rate Drop Alert yet.
+
+Based on everything we've been working through, the priority should remain:
+
+Current Priority Stack
+✅ Recording Integrity (resolved, verify with fresh calls)
+🟡 Vendor Cost Coverage Investigation (P3.2)
+🟡 Commercial Identity Audit (P3.3)
+🟡 GDS Reconciliation & Approval Workflow validation
+⏸ Rate Drop Alerts
+❄ Trust Center
+Why wait on Rate Drop Alerts?
+
+Because alerts are only useful when the underlying commercial data is trusted.
+
+First we need to verify:
+
+GDS Upload
+↓
+Destination Mapping
+↓
+FC / BC / SB / SC Rates
+↓
+Approval Workflow
+↓
+Committed Rates
+
+is working correctly.
+
+Then alerts become meaningful.
+
+Otherwise you'll get:
+
+Bad Import
+↓
+Bad Rate
+↓
+False Alert
+
+which creates noise.
+
+What I would test first
+Destination Catalog
+
+Verify:
+
+923 Pakistan Mobile
+9230 Jazz
+9231 Zong
+291 Eritrea
+
+appear correctly.
+
+No:
+
+1923
+2923
+6923
+7923
+
+anywhere in commercial views.
+
+GDS Reconciliation
+
+Verify one destination:
+
+Prefix	FC	BC	SB	SC
+923	0.0230	0.0194	0.0320	0.0400
+
+and confirm:
+
+Destination
+↓
+Product Rates
+↓
+Approval
+
+works end-to-end.
+
+Approval Workflow
+
+I particularly like your idea:
+
+Upload
+↓
+Reconcile
+↓
+Review
+↓
+Approve
+↓
+Available To Partners
+
+because it prevents accidental exposure of bad rates.
+
+One thing to note
+
+The server restart issue is now resolved, but several files uploaded earlier in this conversation have expired and are no longer accessible. If you want me to review any previous:
+
+GDS spreadsheets
+Rate sheets
+Reconciliation exports
+Destination Catalog imports
+
+please upload them again and I'll review them against the new GDS Reconciliation design.
+
+My recommendation: review and validate the new GDS Rates tab first, then implement Rate Drop Alerts afterward. That keeps the commercial truth layer solid before adding automation on top of it.
+
+please share road map list and what are pending items remainingto implement 
+
+Based on everything we've reviewed, implemented, validated, and deliberately frozen, this is the current BitsAuto roadmap and status board.
+
+🚦 Priority 0 — Financial Truth Layer (Highest Priority)
+0.1 CDR Reconciliation
+Status: 🟡 Partially Complete
+
+Completed:
+
+Customer CDR access
+P&L matching
+Reconciliation Lab
+Coverage diagnostics
+
+Remaining:
+
+Improve match coverage
+Fix XML-RPC CLD normalization matching
+Increase enrichment rate beyond current levels
+Verify 24h/48h/7d coverage trends
+0.2 P&L Extraction
+Status: ✅ Complete
+
+Completed:
+
+Revenue extraction
+Cost extraction
+Margin extraction
+P&L row matching
+P3.1 vendor cost fix
+
+Verified:
+
+Revenue → cdrCost
+Cost → cdrVendorCost
+Margin → Revenue - Cost
+0.3 Billing Verification
+Status: 🟡 In Progress
+
+Completed:
+
+Billing Verification foundation
+Revenue visibility
+Cost visibility
+Margin visibility
+
+Remaining:
+
+Increase coverage
+Validate 20–50 fresh calls
+Customer CDR ↔ Vendor CDR ↔ P&L verification
+0.4 Universal Reconciliation Engine
+Status: ❌ Not Complete
+
+Goal:
+
+Governed Call
+↓
+Customer CDR
+↓
+Vendor CDR
+↓
+P&L
+↓
+Single Truth Record
+
+Remaining:
+
+Unified reconciliation object
+Cross-source linking
+Coverage monitoring
+0.5 Governance Validation
+Status: ⏸ Waiting
+
+Requirement:
+
+5–7 days
+stable production traffic
+
+Must validate:
+
+Match rate
+Cost accuracy
+Margin accuracy
+Coverage rate
+
+before moving further.
+
+📞 Recording Integrity
+Status: ✅ Infrastructure Fixed
+
+Completed:
+
+Root cause found
+Disk full identified
+Filesystem expanded
+MariaDB restored
+SSH diagnostics added
+Recording diagnostics added
+
+Pending:
+
+Make 2–3 fresh calls
+Verify:
+File exists
+Audio plays
+Size > 0
+
+Then P1 closes permanently.
+
+🧾 Commercial Identity Program
+P3.2 Vendor Cost Validation
+Status: 🟡 Active
+
+Completed:
+
+Vendor cost extraction
+
+Remaining:
+
+Coverage investigation
+Match funnel analysis
+Validate fresh calls
+P3.3 Commercial Identity Audit
+Status: ✅ Complete
+
+Confirmed:
+
+2060 = Sippy routing access code
+2 = BC product
+
+Confirmed:
+
+2xxx → 1xxx
+
+is normalisation, not product loss.
+
+Commercial Call Identity (CCI)
+Status: ⏸ Deferred
+
+Not building now.
+
+Reason:
+
+Current investigation shows routing identity is preserved.
+
+Revisit later.
+
+📊 Product Registry & Rates
+Product Registry
+Status: ✅ Phase A Complete
+
+Built:
+
+Routing Templates
+Pricing Templates
+Provisioning Wizard
+Product Assignments
+Destination Catalog
+Status: 🟡 Active Development
+
+Completed:
+
+Product-aware architecture
+Clean telecom prefixes
+
+Correct:
+
+923
+9230
+9231
+
+Not:
+
+1923
+2923
+6923
+7923
+GDS Reconciliation
+Status: 🟡 Recently Built
+
+Completed:
+
+Product matrix
+FC/BC/SB/SC separation
+Approval workflow foundation
+
+Remaining:
+
+Validate uploads
+Validate reconciliation
+Approve destinations
+Rate Governance
+Status: 🟡 Planned
+
+Planned:
+
+Upload
+↓
+Reconcile
+↓
+Review
+↓
+Approve
+↓
+Publish
+
+Remaining:
+
+Approval workflow validation
+Rate history
+Change tracking
+Rate Drop Alerts
+Status: ⏸ Deferred
+
+Planned:
+
+WhatsApp alert
+Notification Center alert
+Governance queue
+
+Trigger:
+
+Rate decrease > threshold
+
+Not started.
+
+🔬 Reconciliation Lab
+Status: ✅ Live
+
+Tabs:
+
+Recording Integrity
+CDR Reconciliation
+Identity Audit
+Vendor Cost Validation
+P&L Validation
+Commercial Identity Audit
+
+Next:
+
+Monitor coverage improvements
+💰 Revenue Protection
+Status: ❌ Not Started
+
+Planned:
+
+Overdraft Protection
+Balance Risk
+Exposure
+Runaway Calls
+ACD Protection
+No ACD
+Active Calls
+Risk Exposure
+
+Priority after Financial Truth Layer.
+
+🔐 Trust Center
+Status: ❄ Frozen
+
+Not starting until:
+
+CDR Reconciliation
+Billing Verification
+Governance Validation
+
+are proven.
+
+Planned phases:
+
+Protected Environments
+Drift Detection
+Alerting
+Enforcement
+Voice Escalation
+📈 Quality Assurance Workspace
+Status: ❄ Frozen
+
+Includes:
+
+Route Certification
+Test Campaigns
+Operator Coverage
+Q-Score
+Carrier Benchmarking
+
+Not starting yet.
+
+🎯 What I Would Work On Next
+Immediate
+Verify fresh recordings after disk expansion
+Monitor Reconciliation Lab coverage for 24–48h
+Complete Vendor Cost Validation
+Complete Billing Verification
+After That
+Destination Catalog + GDS validation
+Rate Governance
+Revenue Protection (ACD / Overdraft)
+Still Frozen
+Trust Center
+QA Workspace
+Route Certification
+Security Scoring
+Voice Escalation
+Config Governance
+
+One note: some of the files/screenshots uploaded earlier in this conversation have expired and are no longer accessible. If you want me to review any earlier GDS uploads, rate sheets, vendor reports, or reconciliation exports again, please upload them again.

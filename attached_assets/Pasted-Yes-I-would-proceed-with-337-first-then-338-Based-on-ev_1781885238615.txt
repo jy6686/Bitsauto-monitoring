@@ -1,0 +1,142 @@
+Yes, I would proceed with #337 first, then #338.
+
+Based on everything you've uncovered from the legacy BitsAuto system, the dependency chain is now very clear:
+
+#337 Configuration Values
+        ↓
+#338 Validation Rules Engine
+        ↓
+#336 Approval Workflow (already built)
+        ↓
+Future Enforcement Layer
+        ↓
+Vendor Rate Processing
+Rate Notifications
+Client Onboarding Controls
+Why #337 should go first
+
+Right now #338 would contain rules like:
+
+Effective Date Greater Than Allowed Limit
+    → Reject Country
+
+But "Allowed Limit" comes from Configuration Values:
+
+Client.Future Effective Date = 15 days
+Vendor.Future Effective Date = 14 days
+
+Without #337, the rule engine has nothing authoritative to reference.
+
+What I would slightly improve in #337
+
+From the legacy screenshots and your commercial roadmap, I'd create these categories:
+
+Category	Purpose
+Vendor	Vendor rate processing
+Client	Client rate notifications
+Commercial	Approval workflow, onboarding, governance
+Global	Platform settings
+A-Z	Reserved
+BSR	Reserved
+Commercial examples
+Require Approval For Initial Rates = true
+Require Approval For Rate Increase = true
+Require Approval For Rate Decrease = false
+Default Effective Date Offset = 7
+Maximum Notifications Per Day = 10
+Auto Activate After Send = true
+
+These directly support Sprint #336 and future onboarding workflows.
+
+What I would improve in #338
+
+Instead of naming it:
+
+Client Validation Rules
+
+make it:
+
+Validation Rules
+
+with a scope field:
+
+Vendor
+Client
+Commercial
+Global
+
+Then the screenshot matrix becomes:
+
+Group	Rule	Action
+Rate Changes	Rate Increase Notice Violation	Ignore
+Rate Changes	Suspect Rate Increase	Ignore
+Rate Changes	Suspect Rate Decrease	Reject Country
+Suspicious	Pending Increases Exceeded	Ignore
+Suspicious	Effective Date Greater Than Limit	Reject Country
+Suspicious	Effective Date Older Than Limit	Ignore
+
+Exactly matching legacy behavior.
+
+Priority Recommendation
+Sprint 1
+
+✅ #337 Configuration Values
+
+Sprint 2
+
+✅ #338 Validation Rules Engine
+
+Sprint 3
+
+✅ Rule Consumption Layer
+
+This is where the platform actually starts reading:
+
+Configuration Values
+      +
+Validation Rules
+
+and enforcing them.
+
+Sprint 4
+
+✅ Validation Profiles
+
+FC Wholesale Profile
+BC Wholesale Profile
+Special Bravo Profile
+Special Charlie Profile
+Sprint 5
+
+✅ Client Wizard Integration
+
+At that point the Step 6 screen from the legacy wizard becomes profile-driven rather than manually configured for every customer.
+
+One thing I would NOT do now
+
+Do not wire #337 or #338 into:
+
+Send Rate
+Rate Push Engine
+Sippy Upload Engine
+Approval Workflow #336
+
+yet.
+
+Keep them as:
+
+Storage
++
+UI
++
+API
+
+only.
+
+That follows the same discipline you used for Send Rate certification:
+
+Build configuration layer
+→ Validate data
+→ Later consume data
+
+without risking any regressions in the already-working onboarding and rate notification workflows.

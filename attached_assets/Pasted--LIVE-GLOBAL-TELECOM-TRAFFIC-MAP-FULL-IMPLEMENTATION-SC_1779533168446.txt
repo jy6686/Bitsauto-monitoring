@@ -1,0 +1,761 @@
+# LIVE GLOBAL TELECOM TRAFFIC MAP — FULL IMPLEMENTATION SCRIPT / MASTER PROMPT
+
+GOAL:
+Implement a carrier-grade LIVE GLOBAL TELECOM TRAFFIC MAP for the BitsAuto VoIP Monitoring Platform.
+
+This is NOT:
+
+* a decorative globe
+* a demo animation
+* a marketing visualization
+
+This MUST behave like:
+
+# telecom operational traffic intelligence
+
+Use ONLY:
+
+* real live calls
+* real CDR cache
+* real prefix intelligence
+* real routing intelligence
+
+NO:
+
+* fake traffic
+* synthetic flows
+* placeholder metrics
+* random demo arcs
+
+====================================================
+PRIMARY OBJECTIVE
+=================
+
+Visualize:
+
+```text
+Origin Country → Destination Country
+```
+
+using:
+
+* real telecom traffic
+* real routing quality
+* real fraud signals
+* real degradation intelligence
+
+Examples:
+
+* Pakistan → UK
+* Bangladesh → UAE
+* USA → Nigeria
+* France → Saudi Arabia
+
+====================================================
+IMPLEMENTATION PHASES
+=====================
+
+Implement strictly in this order:
+
+Phase A → Backend Engine
+Phase B → 2D Operational Map
+Phase C → Dashboard Embed
+Phase D → Operational Layers
+Phase E → Live Refresh
+Phase F → 3D Globe (optional later)
+Phase G → Timeline Playback (last)
+
+DO NOT:
+start with 3D.
+
+====================================================
+PHASE A — BACKEND ENGINE
+========================
+
+CREATE:
+
+```text
+server/live-traffic-map.ts
+```
+
+Purpose:
+Aggregate live telecom traffic into:
+
+```text
+country-pair operational flows
+```
+
+====================================================
+DATA SOURCES
+============
+
+Use ONLY existing:
+
+* cdrCache
+* carrierQualityScores
+* fasEvents
+* consoleIncidents
+* vendorStabilitySnapshots
+* recommendation engine
+* degradation engine
+
+NO new Sippy API calls.
+
+====================================================
+CDR EXTRACTION
+==============
+
+For every call extract:
+
+* ANI
+* CLI
+* Destination Number
+* Vendor
+* Duration
+* ASR
+* NER
+* PDD
+* Disconnect Cause
+* Codec
+* CPS
+* Timestamp
+* Revenue
+
+====================================================
+PREFIX RESOLUTION
+=================
+
+Reuse:
+
+```text
+vendor-prefix-intelligence.ts
+```
+
+Perform:
+E.164 longest-prefix matching.
+
+Determine:
+
+* originCountry
+* destinationCountry
+* destinationType
+
+IMPORTANT:
+Store:
+
+```text
+country + destination type
+```
+
+Examples:
+
+* Pakistan Mobile
+* Pakistan Fixed
+* Bangladesh Mobile
+* UAE Premium
+* UK Fixed
+
+NOT country only.
+
+====================================================
+COUNTRY COVERAGE VALIDATION
+===========================
+
+Before implementation:
+verify coverage for:
+
+* PK
+* BD
+* GB
+* UAE
+* SA
+* US
+* NG
+* IN
+* FR
+* DE
+
+Verify:
+
+* overlapping ranges
+* mobile/fixed splits
+* longest-prefix precedence
+
+If gaps exist:
+create:
+
+```text
+LIGHTWEIGHT_PREFIX_SUPPLEMENT
+```
+
+DO NOT:
+rewrite the entire prefix engine.
+
+====================================================
+FLOW AGGREGATION
+================
+
+Aggregate into:
+
+```ts
+{
+  fromCountry,
+  toCountry,
+  fromCode,
+  toCode,
+
+  destinationType,
+
+  callCount,
+  concurrentCalls,
+  cps,
+
+  asr,
+  acd,
+  pdd,
+
+  qScore,
+
+  fasRisk,
+  fraudRisk,
+
+  degraded,
+  unstable,
+
+  topVendor,
+  topPrefix,
+
+  revenue,
+
+  health,
+
+  updatedAt
+}
+```
+
+====================================================
+Q-SCORE FORMULA
+===============
+
+Reuse EXACT existing formula.
+
+DO NOT create another scoring model.
+
+Use:
+
+* ASR 40%
+* NER 30%
+* FAS penalty 20%
+* PDD 10%
+
+Same formula as:
+
+* Vendor RCA
+* Prefix Intelligence
+* Stability Timeline
+
+====================================================
+FLOW HEALTH CLASSIFICATION
+==========================
+
+Compute backend classification:
+
+Possible states:
+
+* healthy
+* warning
+* degraded
+* fraud-risk
+* unstable
+
+Frontend must ONLY render.
+
+DO NOT duplicate business logic in UI.
+
+====================================================
+FRAUD CORRELATION
+=================
+
+Integrate:
+
+```text
+fasEvents
+```
+
+Compute:
+
+* FAS risk %
+* suspicious burst score
+* fraud severity
+
+====================================================
+DEGRADATION CORRELATION
+=======================
+
+If degradation engine flagged:
+
+* vendor
+* destination
+* prefix
+* route
+
+mark:
+
+```ts
+degraded = true
+```
+
+====================================================
+PERFORMANCE RULES
+=================
+
+DO NOT:
+render every call.
+
+ONLY aggregate:
+
+```text
+country-pair flows
+```
+
+Limit:
+top 50–100 flows.
+
+====================================================
+CACHE STRATEGY
+==============
+
+Use:
+30-second in-memory cache.
+
+DO NOT:
+hammer DB on every refresh.
+
+====================================================
+API ROUTE
+=========
+
+CREATE:
+
+```text
+GET /api/live-traffic-map
+```
+
+Protected:
+
+* admin
+* noc
+* management
+
+====================================================
+API RESPONSE
+============
+
+```json
+{
+  "flows": [],
+  "countries": [],
+  "totals": {},
+  "updatedAt": "..."
+}
+```
+
+====================================================
+FLOW RESPONSE EXAMPLE
+=====================
+
+```json
+{
+  "from": "Pakistan",
+  "to": "United Kingdom",
+
+  "fromCode": "PK",
+  "toCode": "GB",
+
+  "destinationType": "mobile",
+
+  "calls": 128,
+  "concurrentCalls": 32,
+  "cps": 4.2,
+
+  "asr": 61,
+  "acd": 3.4,
+  "pdd": 1.8,
+
+  "qScore": 72,
+
+  "fasRisk": 4,
+  "fraudRisk": false,
+
+  "degraded": false,
+  "unstable": false,
+
+  "topVendor": "Callntalk",
+  "topPrefix": "447",
+
+  "revenue": 182.44,
+
+  "health": "healthy",
+
+  "updatedAt": "..."
+}
+```
+
+====================================================
+PHASE B — FRONTEND PAGE
+=======================
+
+CREATE:
+
+```text
+client/src/pages/live-traffic-map.tsx
+```
+
+ROUTE:
+
+```text
+/live-traffic-map
+```
+
+====================================================
+DEFAULT MODE
+============
+
+DEFAULT:
+2D operational map
+
+NOT:
+3D globe.
+
+====================================================
+MAP STACK
+=========
+
+Use:
+
+* react-simple-maps
+* d3
+* SVG overlays
+
+====================================================
+MAP LAYOUT
+==========
+
+HEADER:
+
+* title
+* LIVE badge
+* refresh timestamp
+* 2D / 3D toggle
+* layer selector
+* timeframe selector
+
+====================================================
+ARC RENDERING
+=============
+
+Render:
+country → country arcs.
+
+====================================================
+ARC COLOR LOGIC
+===============
+
+Healthy:
+emerald
+
+Warning:
+amber
+
+Critical:
+rose
+
+Fraud:
+purple
+
+====================================================
+ARC THICKNESS
+=============
+
+Based on:
+
+```text
+concurrentCalls
+```
+
+====================================================
+ANIMATION RULES
+===============
+
+Use:
+subtle flow pulse only.
+
+DO NOT:
+
+* use neon effects
+* use particles
+* use gaming aesthetics
+* use flashy animations
+
+Maintain:
+
+```text
+carrier-grade operational feel
+```
+
+====================================================
+TOOLTIPS
+========
+
+Hover flow:
+show:
+
+* origin
+* destination
+* destination type
+* calls
+* ASR
+* Q-score
+* FAS risk
+* CPS
+* revenue
+* top vendor
+
+====================================================
+CLICK BEHAVIOR
+==============
+
+Every flow MUST be clickable.
+
+Click:
+open:
+
+* Vendor RCA
+* Routing Intelligence
+* Prefix Intelligence
+
+Pass:
+origin/destination filters.
+
+====================================================
+RIGHT SIDEBAR PANELS
+====================
+
+Add stacked panels:
+
+1. Top Routes
+2. High Risk Destinations
+3. Top Vendors
+4. Revenue Routes
+
+====================================================
+HIGH RISK DESTINATIONS
+======================
+
+Examples:
+
+* Bangladesh Mobile
+* Pakistan Mobile
+* UAE Mobile
+
+Show:
+
+* degradation
+* FAS
+* instability
+* recommendations
+
+====================================================
+PHASE C — LIVE OPS DASHBOARD EMBED
+==================================
+
+Embed compact version into:
+
+```text
+Live Ops Workspace Home
+```
+
+PLACE:
+between:
+
+* Smart Priorities
+  and:
+* Traffic Analytics
+
+This becomes:
+
+```text
+the operational centerpiece
+```
+
+====================================================
+EMBED MODE
+==========
+
+Compact:
+
+* top 20 flows
+* simplified rendering
+* lightweight tooltips
+* quick hover
+
+Button:
+
+```text
+Open Full Traffic Map
+```
+
+====================================================
+PHASE D — OPERATIONAL LAYERS
+============================
+
+Add layer toggle:
+
+1. Traffic Volume
+2. ASR Quality
+3. FAS Risk
+4. Vendor Stability
+5. Revenue
+6. CPS Bursts
+
+====================================================
+LAYER LOGIC
+===========
+
+ONLY:
+change rendering logic.
+
+DO NOT:
+change backend aggregation.
+
+====================================================
+PHASE E — LIVE MODE
+===================
+
+Auto-refresh:
+every 10 seconds.
+
+Use:
+TanStack Query polling.
+
+Pause:
+when tab is backgrounded.
+
+====================================================
+PHASE F — OPTIONAL 3D MODE
+==========================
+
+Toggle:
+
+```text
+2D | 3D
+```
+
+3D uses:
+
+* globe.gl
+  or
+* three.js
+
+3D is:
+secondary showcase mode.
+
+2D remains:
+default operational mode.
+
+====================================================
+3D RULES
+========
+
+* smooth globe
+* subtle arcs
+* dark enterprise theme
+* performance safe
+
+DO NOT:
+
+* over-glow
+* over-animate
+* create gaming visuals
+
+====================================================
+PHASE G — TIMELINE PLAYBACK
+===========================
+
+Add replay mode:
+
+* last 1h
+* 24h
+* incident windows
+
+Use:
+historical snapshots.
+
+====================================================
+OPERATIONAL UX RULES
+====================
+
+DO:
+
+* preserve telecom density
+* preserve enterprise feel
+* make every flow actionable
+* use operational language
+* keep UI calm and trustworthy
+
+DO NOT:
+
+* create decorative map
+* create marketing visualization
+* use excessive motion
+* render fake traffic
+
+====================================================
+CLICKABLE OPERATIONAL WORKFLOWS
+===============================
+
+Every visual element should launch:
+
+* RCA
+* routing intelligence
+* investigations
+* recommendations
+* fraud analysis
+
+Dashboard must behave like:
+
+```text
+telecom operational command center
+```
+
+NOT:
+
+```text
+read-only dashboard
+```
+
+====================================================
+FINAL TARGET
+============
+
+Transform Live Ops into:
+
+```text
+Carrier-Grade Global Telecom Traffic Intelligence Cockpit
+```
+
+with:
+
+* real-time country routing flows
+* quality-aware visualization
+* fraud-aware traffic intelligence
+* routing-aware drilldowns
+* RCA integration
+* live operational telemetry
+* telecom investigation workflows
+
+NOT:
+
+* animated demo globe
+* decorative dashboard
+* marketing animation

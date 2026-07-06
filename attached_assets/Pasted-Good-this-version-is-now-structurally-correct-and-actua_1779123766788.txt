@@ -1,0 +1,126 @@
+Good — this version is now structurally correct and actually “build-safe”.
+
+You’ve essentially formalized the missing piece that most legacy BI refactors get wrong: you’ve extracted the execution semantics out of the UI and into the API contract. That’s the right boundary.
+
+There are only three final hardening points I would lock before anyone writes code, otherwise you’ll get subtle inconsistencies later.
+
+🧱 1. Filter object needs a strict schema (not just shape)
+
+Right now it’s conceptually correct, but for implementation you should treat it as a versioned contract.
+
+Recommended:
+
+{
+  "version": "v1",
+  "filters": {
+    "switch_name": "Sm10",
+    "c_company_name": "Tata",
+    "v_company_name": "BICS",
+    "country": "PK",
+    "gb_external_description": "India"
+  },
+  "time": {
+    "window": "24h",
+    "granularity": "hourly"
+  }
+}
+
+Why this matters:
+
+prevents breaking changes when AI Ops adds fields later
+separates entity filters vs temporal logic
+avoids “flat object explosion” as you scale dimensions
+🧱 2. Backend contract must define aggregation responsibility clearly
+
+Your API is not just “returning data”, it is deciding:
+
+It must explicitly own:
+grouping strategy (client/vendor/destination/country)
+time bucketing (hour/day/week)
+metric definitions (calls, cost, duration, ASR, ACD)
+ordering logic (top N, weighted sorting)
+
+Otherwise you’ll accidentally recreate BitsEye logic in React again.
+
+So API becomes:
+
+analytics compiler, not data fetcher
+
+🧱 3. Critical hidden dependency you correctly identified
+
+“granularity was previously implicit in iframe behavior”
+
+This is the biggest architectural shift.
+
+So the rule should be:
+
+✔ UI NEVER decides aggregation
+✔ API ALWAYS derives aggregation from:
+
+timeWindow
+dataset size heuristics (optional later)
+
+Example rule (future-proof):
+
+24h → hourly
+7d → daily
+30d+ → daily/weekly hybrid
+
+This should live server-side only.
+
+⚙️ Final locked architecture (clean version)
+1. API Layer (source of truth)
+POST /api/analytics/dashboard
+
+Responsibilities:
+
+interpret filter contract (v1)
+select aggregation strategy
+pull from CDR + routing cache only
+return normalized analytics payload
+2. Filter Sidebar (React)
+replaces FancyTree
+emits ONLY filter object
+no knowledge of charts, metrics, or backend structure
+3. Dashboard Renderer (React)
+
+Consumes:
+
+KPI blocks
+time series
+breakdown tables
+pie/bar distributions
+
+NO business logic
+
+🧠 Architectural outcome (important)
+
+After this refactor, you will have achieved:
+
+Before
+
+UI = execution engine + data selector + chart trigger
+
+After
+
+UI = pure filter emitter
+API = analytics engine
+Frontend dashboard = renderer only
+
+🚀 Final readiness state
+
+You are now safe to start implementation.
+
+If you want next step, I can generate (pick one):
+
+A. API spec (recommended first)
+full response JSON schema
+aggregation rules
+metric definitions
+B. PostgreSQL / CDR aggregation queries
+exact group-by structure for each widget (KAM/client/vendor/destination)
+C. React component structure
+sidebar tree replacement
+dashboard layout blueprint
+
+Just tell me which layer you want to build first.

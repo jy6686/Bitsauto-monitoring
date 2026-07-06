@@ -1,0 +1,1287 @@
+why destiaion wire is importantan and forgot incremantal rate completely 
+Destination Catalog Wiring & Approved Destination Logic
+
+Purpose of Wiring the Destination Catalog
+
+The reason we need to properly wire and implement the Destination Catalog is that we have a very large destination database consisting of tens of thousands of destination codes.
+
+For example:
+
+•⁠  ⁠Approximately 65,000 destination codes may exist within a single product.
+•⁠  ⁠When multiplied across multiple products (First Class, Business Class, Special Bravo, Special Charlie, etc.), the total number of destination records can exceed 150,000 entries.
+
+These destinations are uploaded into the system as the master destination repository.
+
+⸻
+
+Approved Destination Workflow
+
+The objective is not to offer all uploaded destinations commercially.
+
+Instead, the workflow should be:
+
+Step 1
+
+Load all destination codes into the Destination Catalog.
+
+Step 2
+
+Review and approve only the destinations that should be commercially available.
+
+Step 3
+
+Approved destinations automatically become available throughout the platform, including:
+
+•⁠  ⁠Rate Manager
+•⁠  ⁠Rate Editor
+•⁠  ⁠Send Rates
+•⁠  ⁠Voice Trading Desk
+•⁠  ⁠Product Management
+•⁠  ⁠Routing Management
+
+Any destination that is not approved should remain unavailable for commercial use.
+
+⸻
+
+Destination Hierarchy Enforcement
+
+The platform must follow the destination hierarchy.
+
+Example:
+
+Pakistan
+└── Mobile
+└── Ufone
+
+If only Ufone is approved, then only Ufone should appear in the commercial modules.
+
+If additional operators are approved later, they should automatically become available.
+
+At present, if only:
+
+•⁠  ⁠Pakistan
+•⁠  ⁠Pakistan Mobile
+•⁠  ⁠Ufone
+
+are visible, while other operators or breakouts are missing, then the hierarchy mapping and wiring need to be reviewed and corrected.
+
+⸻
+
+High-Cost Destination Protection
+
+Some destinations contain extremely expensive breakout codes.
+
+Example:
+
+USA
+└── Premium
+└── Satellite
+└── Inmarsat
+└── Iridium
+└── Specialized High-Cost Routes
+
+Certain codes may cost:
+
+•⁠  ⁠$2.00
+•⁠  ⁠$2.50
+•⁠  ⁠$3.00+
+
+per minute.
+
+Offering these codes unintentionally can create significant revenue losses.
+
+Therefore:
+
+Default Rule
+
+High-cost destinations should remain blocked by default.
+
+Approval Rule
+
+Only explicitly approved destinations and breakouts should be made commercially available.
+
+Commercial Rule
+
+If a destination is not approved, it should not:
+
+•⁠  ⁠Appear in Rate Manager
+•⁠  ⁠Appear in Send Rates
+•⁠  ⁠Appear in Product Pricing
+•⁠  ⁠Be included in customer rate sheets
+
+⸻
+
+Destination Availability Logic
+
+The platform should operate according to the following rule:
+
+Approved Destination
+
+Visible and available for:
+
+•⁠  ⁠Pricing
+•⁠  ⁠Rate generation
+•⁠  ⁠Customer offers
+•⁠  ⁠Product assignment
+
+Unapproved Destination
+
+Hidden from commercial users.
+
+Not available for:
+
+•⁠  ⁠Rate generation
+•⁠  ⁠Customer pricing
+•⁠  ⁠Product creation
+•⁠  ⁠Customer offers
+
+⸻
+
+Naming Convention Review
+
+The current destination naming structure should be reviewed and standardized.
+
+The system should maintain consistent naming for:
+
+•⁠  ⁠Country
+•⁠  ⁠Fixed
+•⁠  ⁠Mobile
+•⁠  ⁠Operator
+•⁠  ⁠Breakout
+•⁠  ⁠Premium Services
+•⁠  ⁠Satellite Services
+
+This naming convention should be used consistently across:
+
+•⁠  ⁠Destination Catalog
+•⁠  ⁠Rate Sheets
+•⁠  ⁠Product Management
+•⁠  ⁠Voice Trading Desk
+•⁠  ⁠Customer Pricing
+
+⸻
+
+Expected Outcome
+
+The Destination Catalog should become the master destination repository for the entire platform.
+
+All destinations are loaded once, but only approved destinations become commercially available.
+
+This ensures:
+
+•⁠  ⁠Controlled destination offerings.
+•⁠  ⁠Protection against high-cost routing losses.
+•⁠  ⁠Consistent destination hierarchy.
+•⁠  ⁠Proper visibility in Rate Manager and commercial modules.
+•⁠  ⁠Standardized destination naming across the platform.
+•⁠  ⁠Accurate product and rate management.
+
+Without proper Destination Catalog wiring, approved destinations will not appear correctly in commercial modules, hierarchy relationships will be incomplete, and destination visibility across the platform will remain inconsistent.
+Customer Rate Sheet Rules & Format Management Requirements
+
+Overview
+
+The platform should include a comprehensive Rate Sheet Rules Engine similar to advanced carrier trading platforms, where customer rate sheets are generated based on predefined templates, pricing rules, billing increments, and customer-specific preferences.
+
+The objective is to standardize rate sheet generation while allowing flexibility for different customer requirements.
+
+⸻
+
+Customer Rate Sheet Template Management
+
+The system should support configurable rate sheet templates.
+
+Each template should define:
+
+Required Columns
+
+•⁠  ⁠Destination Name
+•⁠  ⁠Breakout Name
+•⁠  ⁠Dial Code / Prefix
+•⁠  ⁠Product Name
+•⁠  ⁠Rate
+•⁠  ⁠Currency
+•⁠  ⁠Effective Date
+•⁠  ⁠Billing Increment
+•⁠  ⁠Minimum Duration (Optional)
+•⁠  ⁠Product Type
+•⁠  ⁠Notes (Optional)
+
+⸻
+
+Rate Sheet Format Rules
+
+The platform should allow administrators to define:
+
+Column Mapping
+
+Example:
+
+Column A = Destination
+
+Column B = Breakout
+
+Column C = Prefix
+
+Column D = Rate
+
+Column E = Billing Increment
+
+Column F = Effective Date
+
+Column G = Product
+
+Different customers may require different formats.
+
+The system should support multiple export templates.
+
+⸻
+
+Effective Date Management
+
+Every rate sheet should include:
+
+•⁠  ⁠Effective Date
+•⁠  ⁠Rate Change Date
+•⁠  ⁠Notice Period
+
+Examples:
+
+Effective Immediately
+
+Effective in 7 Days
+
+Effective in 15 Days
+
+Effective on Specific Date
+
+⸻
+
+Billing Increment Management
+
+The platform should support customer-specific billing increments.
+
+Examples
+
+1/1
+
+6/6
+
+30/6
+
+30/30
+
+60/1
+
+60/60
+
+90/90
+
+Custom Increment
+
+⸻
+
+Customer-Level Increment Rules
+
+Each customer profile should contain:
+
+Billing Increment Profile
+
+Customer A
+
+•⁠  ⁠1/1
+
+Customer B
+
+•⁠  ⁠60/60
+
+Customer C
+
+•⁠  ⁠60/1
+
+Customer D
+
+•⁠  ⁠30/6
+
+When generating a rate sheet, the correct billing increment should automatically appear.
+
+⸻
+
+Product-Level Increment Rules
+
+Different products may have different increments.
+
+Example:
+
+First Class
+
+1/1
+
+Business Class
+
+60/60
+
+Special Bravo
+
+60/1
+
+Special Charlie
+
+30/6
+
+The system should support both:
+
+•⁠  ⁠Product-based increments
+•⁠  ⁠Customer-based increments
+
+Priority rules can be configured.
+
+⸻
+
+Rate Sheet Generation Logic
+
+When generating customer pricing:
+
+The system should automatically determine:
+
+•⁠  ⁠Customer
+•⁠  ⁠Product
+•⁠  ⁠Destination
+•⁠  ⁠Rate
+•⁠  ⁠Billing Increment
+•⁠  ⁠Effective Date
+•⁠  ⁠Currency
+
+and generate the correct output format.
+
+⸻
+
+Bulk Customer Rate Distribution
+
+Users should be able to:
+
+Select
+
+•⁠  ⁠Single Customer
+•⁠  ⁠Multiple Customers
+•⁠  ⁠Customer Groups
+
+Generate
+
+•⁠  ⁠Product-Based Rate Sheets
+•⁠  ⁠Destination-Based Rate Sheets
+•⁠  ⁠Full Rate Sheets
+•⁠  ⁠Delta Rate Sheets (Only Changes)
+
+⸻
+
+Rate Sheet Validation Rules
+
+Before sending:
+
+The system should verify:
+
+•⁠  ⁠Destination exists
+•⁠  ⁠Product exists
+•⁠  ⁠Rate exists
+•⁠  ⁠Effective Date exists
+•⁠  ⁠Billing Increment exists
+
+Missing values should trigger validation errors.
+
+⸻
+
+Approval Rules
+
+If a rate sheet contains:
+
+•⁠  ⁠Aggressive pricing
+•⁠  ⁠Margin exceptions
+•⁠  ⁠Special discounts
+
+Approval should be required before distribution.
+
+⸻
+
+Rate Sheet History
+
+Store every generated rate sheet.
+
+Track:
+
+•⁠  ⁠Customer
+•⁠  ⁠Product
+•⁠  ⁠Effective Date
+•⁠  ⁠Billing Increment
+•⁠  ⁠User
+•⁠  ⁠Version Number
+
+Users should be able to compare:
+
+•⁠  ⁠Previous Rate Sheet
+•⁠  ⁠Current Rate Sheet
+
+⸻
+
+Customer Profile Settings
+
+Each customer should have configurable options:
+
+Pricing
+
+•⁠  ⁠Wholesale
+•⁠  ⁠Retail
+
+Billing Increment
+
+•⁠  ⁠1/1
+•⁠  ⁠60/60
+•⁠  ⁠60/1
+•⁠  ⁠Custom
+
+Notice Period
+
+•⁠  ⁠Immediate
+•⁠  ⁠7 Days
+•⁠  ⁠15 Days
+•⁠  ⁠Custom
+
+Preferred Rate Sheet Format
+
+•⁠  ⁠Standard Template
+•⁠  ⁠Customer Template
+•⁠  ⁠Custom Mapping
+
+⸻
+
+Expected Outcome
+
+The platform should automatically generate customer-specific rate sheets using predefined templates and business rules.
+
+The system must support:
+
+•⁠  ⁠Customer-specific formats
+•⁠  ⁠Product-specific formats
+•⁠  ⁠Billing increments (1/1, 60/60, 60/1, etc.)
+•⁠  ⁠Effective dates
+•⁠  ⁠Notice periods
+•⁠  ⁠Approval workflows
+•⁠  ⁠Historical tracking
+
+This ensures that every customer receives the correct rate sheet format with the correct pricing, billing increment, and effective date based on their commercial agreement and operational requirements.
+
+This is actually the biggest missing piece in the current architecture, and you're right to call it out.
+
+Everyone is discussing:
+
+Products
+Validation Rules
+Approvals
+Rate Push
+Notifications
+
+But the Destination Catalog is the real foundation of the commercial platform.
+
+Without Destination Catalog governance:
+
+Rate Manager
+Send Rate
+Product Pricing
+Voice Trading Desk
+Customer Rate Sheets
+
+all become dangerous because users can accidentally expose destinations that should never be sold.
+
+Why Destination Catalog Wiring Is Critical
+
+Today most people think:
+
+Destination Catalog
+      ↓
+Just a lookup table
+
+But in reality it should be:
+
+Destination Catalog
+      ↓
+Commercial Approval Layer
+      ↓
+Rate Manager
+      ↓
+Send Rates
+      ↓
+Products
+      ↓
+Customer Rate Sheets
+      ↓
+Voice Trading Desk
+
+Meaning:
+
+NOT APPROVED
+      ↓
+Cannot be used anywhere
+
+APPROVED
+      ↓
+Available everywhere
+The Missing Layer
+
+Currently:
+
+Destination Catalog
+      ↓
+Everyone can see everything
+
+Should become:
+
+Destination Catalog
+      ↓
+Approved Destinations
+      ↓
+Commercial Modules
+
+Example:
+
+Pakistan
+ ├── Mobile
+ │    ├── Jazz
+ │    ├── Ufone
+ │    ├── Telenor
+ │    └── Zong
+ │
+ └── Premium
+      ├── Satellite
+      ├── Inmarsat
+      └── Iridium
+
+Commercial team approves:
+
+✓ Jazz
+✓ Ufone
+✓ Telenor
+
+✗ Inmarsat
+✗ Iridium
+✗ Satellite
+
+Then:
+
+Rate Manager
+
+Shows:
+
+Jazz
+Ufone
+Telenor
+
+Does NOT show:
+
+Inmarsat
+Iridium
+Satellite
+High Cost Protection
+
+This is where most telecom systems lose money.
+
+Example:
+
+USA Satellite
+Rate: $2.50/min
+
+USA Mobile
+Rate: $0.009/min
+
+One mistake:
+
+Customer receives satellite route
+
+Margin destroyed instantly.
+
+Therefore:
+
+Destination Approval
+
+is not a UI feature.
+
+It is a:
+
+Revenue Protection System
+Incremental Billing Is Missing Completely
+
+This is the second major gap.
+
+You're absolutely correct.
+
+Everybody focused on:
+
+Rate
+Prefix
+Product
+
+and forgot:
+
+Increment
+
+But in wholesale VoIP:
+
+Rate
++
+Increment
+=
+Commercial Price
+
+Example:
+
+Same Rate
+0.0200
+
+Customer A:
+
+1/1
+
+Customer B:
+
+60/60
+
+Actual commercial value is completely different.
+
+Customer Profile Must Contain
+Customer
+ ├── Currency
+ ├── Notice Period
+ ├── Increment Profile
+ ├── Rate Sheet Template
+ ├── Product Variant
+ └── Commercial Type
+
+Example:
+
+Customer A
+
+Increment:
+1/1
+
+Notice:
+Immediate
+
+Template:
+Wholesale Standard
+Product-Level Increment
+
+You also correctly identified:
+
+First Class
+    1/1
+
+Business Class
+    60/60
+
+Special Bravo
+    60/1
+
+Special Charlie
+    30/6
+
+But customer may override.
+
+Therefore hierarchy becomes:
+
+Customer Increment
+        ↓
+Product Increment
+        ↓
+Platform Default
+Rate Sheet Engine Is Much Bigger Than Current Design
+
+Current thinking:
+
+Destination
+Prefix
+Rate
+
+Legacy reality:
+
+Destination
+Breakout
+Prefix
+Rate
+Currency
+Increment
+Effective Date
+Notice Period
+Status
+Product
+Notes
+
+The screenshot you shared proves this.
+
+The old platform already had:
+
+Header
+Attachment
+Dial Code Format
+Date & Time
+Status
+Rates
+
+which means it already understood:
+
+Increments
+Effective Dates
+Status Codes
+Formatting
+Correct Future Architecture
+Layer 1
+
+Destination Catalog
+
+All Destinations
+Layer 2
+
+Approved Destination Catalog
+
+Commercially Available
+Layer 3
+
+Product Pricing
+
+FC-W
+BC-W
+SB-W
+SB-R
+SC-W
+SC-R
+Premium
+Business
+Layer 4
+
+Customer Commercial Profile
+
+Customer
+ ├── Increment
+ ├── Currency
+ ├── Notice Period
+ ├── Template
+ ├── Variant
+Layer 5
+
+Rate Sheet Generator
+
+Automatically builds:
+
+Customer
+Product
+Destination
+Prefix
+Rate
+Increment
+Currency
+Effective Date
+Notice Period
+Layer 6
+
+Notification Engine
+
+Full Sheet
+Changes Only
+Delta Sheet
+
+using:
+
+N
+NC
+I
+D
+PI
+PD
+B
+R
+DC
+
+status logic from the legacy platform.
+
+What I Would Prioritize Before #339
+
+Priority 1:
+
+Destination Catalog Approval Layer
+
+because every commercial module depends on it.
+
+Priority 2:
+
+Increment Profile Engine
+
+because rates without increments are incomplete.
+
+Priority 3:
+
+Customer Commercial Profile
+
+because this drives rate sheet generation.
+
+Priority 4:
+
+Legacy Client Tariff Profile modernization
+
+because that is where Full Sheet vs Changes Only actually belongs.
+
+In short, the platform currently treats rate as the commercial object. In telecom wholesale, the commercial object is actually:
+
+Destination
++
+Rate
++
+Increment
++
+Effective Date
++
+Notice Period
++
+Product Variant
++
+Customer Profile
+
+The Destination Catalog Approval Layer and Increment Profile Engine are the two largest missing foundations before continuing with advanced rate-sheet and notification development.
+
+The reviewer has now given us everything needed to freeze the architecture before any sprint begins. Let me synthesize this into a single authoritative document.
+
+Architecture Freeze Point — Full Specification
+1. Product Identity Model (locked)
+product_registry:
+  id              — primary key (FK stays everywhere as-is)
+  name            — "First Class - Wholesale"    (display name)
+  productClass    — "FC"                          (routing identity)
+  commercialType  — "Wholesale"                   (commercial identity)
+  productFamily   — "FC"                          (reporting group; FC shares a family even if FC-W and FC-R exist)
+  trunkPrefix     — "1"                           (Sippy-internal only)
+  code            — "FC-W"                        (canonical short code)
+  segment         — REMOVED (replaced by commercialType)
+
+Fixed Platform Variants — seeded, not user-created:
+
+Code	Name	productClass	commercialType	productFamily	trunkPrefix
+FC-W	First Class - Wholesale	FC	Wholesale	FC	1
+BC-W	Business Class - Wholesale	BC	Wholesale	BC	2
+SB-W	Special Bravo - Wholesale	SB	Wholesale	SB	6
+SB-R	Special Bravo - Retail	SB	Retail	SB	6
+SC-W	Special Charlie - Wholesale	SC	Wholesale	SC	7
+SC-R	Special Charlie - Retail	SC	Retail	SC	7
+PM-R	Premium	PM	Retail	PM	TBD
+BS-R	Business	BS	Retail	BS	TBD
+productFamily enables reporting aggregation:
+
+Revenue by Family (all SB variants combined) vs Revenue by Variant (SB-W vs SB-R separately)
+ASR, Margin, Traffic all follow the same grouping
+2. Validation Profile Layer (locked design, future build)
+The reviewer's profile intermediary is the correct abstraction:
+
+Global Rules  →  Validation Profile  →  Product Variant  →  Client Override
+
+DB structure (to build in #338B):
+
+validation_profiles
+  id, name ("Wholesale Profile", "Retail Profile"), description
+validation_profile_rules
+  id, profileId, ruleType, action, approvalRequired
+product_variant_profiles
+  productId, profileId   (product inherits from a profile)
+client_validation_overrides
+  companyId, productId, ruleType, action, approvalRequired
+
+Rule resolution at runtime:
+
+1. Does client have an override for this product+rule?  → Use client override
+2. Does product's profile have a rule?                  → Use profile rule
+3. Fall back to global default
+
+Reduces 144 rule records to ~2 profiles:
+
+Profile	Suspect Increase	Suspect Decrease >50%	Effective Date > Limit
+Wholesale Profile	Ignore, No Approval	Reject, No Approval	Reject Country, No Approval
+Retail Profile	Ignore, Yes Approval	Reject, No Approval	Reject Country, No Approval
+The key addition the reviewer made: Action and Approval Required are separate fields.
+
+action:           Ignore / Reject Country / Reject Destination / Reject Rate Sheet / Auto Adjust
+approvalRequired: true / false
+
+This allows:
+
+Variant	Rule	Action	Approval Required
+FC-W	Suspect Increase	Ignore	No
+SB-R	Suspect Increase	Ignore	Yes
+SC-R	Suspect Increase	Reject Country	No
+PM-R	Suspect Increase	Ignore	Yes
+Without this separation, "Approval Required" is not a configurable policy — it's hardcoded into the action name, which prevents the commercial team from toggling it without a code change.
+
+3. Prefix Architecture (locked)
+trunkPrefix  = BitsAuto internal routing class (1/2/6/7) — NEVER sent to Sippy
+dialPrefix   = Real telecom prefix (9233, 8801, etc.)    — ONLY value Sippy receives
+fullPrefix   = trunkPrefix + dialPrefix                  — AUDIT only (rate_push_jobs)
+
+resolveSippyPrefix(prefix, trunkPrefix) — single helper, no route builds prefixes manually.
+
+4. Governance Rule Inheritance Map (locked roadmap)
+Sprint	What it builds	Status
+#337	Global Configuration Values	✅ Done
+#338	Global Validation Rules	✅ Done
+#338B	Validation Profiles + Product Variant Profile assignment	Future
+#338C	Client Validation Overrides	Future
+Correct Sprint Sequence
+Phase A — Prefix Foundation (blocked on Build mode switch):
+
+Fix routes-rate-manager.ts line 300 (prefix: dialPrefix not fullPrefix)
+Add resolveSippyPrefix() helper to server/sippy.ts
+Run hierarchy certification: FC/BC/SB/SC × PK-UFONE/PK-Jazz/PK-PTCL/BD-Grameen
+Phase B — Product Variant Architecture (dedicated sprint):
+
+Schema: add productClass, commercialType, productFamily to product_registry; remove segment
+Seed the 8 fixed product variants (data migration — rename 4 existing, add 4 new)
+Update all UI labels/dropdowns to show full variant names (rate-manager, product-registry, client-wizard, push-history, reporting)
+No FK changes anywhere — productId stays stable
+Phase C — Client Tariff Profile (after legacy screens gathered):
+
+Gather all legacy screens (list view, all tabs including Status and Rates)
+Reverse-engineer N/NC/I/D/PI/PD/B/R/DC status codes
+Design modern Client Tariff Profile as commercial wrapper over existing foundation
+Phase D — Commercial Layer (after Phase C):
+
+Rate Sheet Engine
+Changes Only / Full Sheet logic (now driven by status codes)
+PDF/Excel notification engine
+What Remains a Question Before Phase B
+One outstanding question from the reviewer's table:
+
+What are the trunk prefixes for PM (Premium) and BS (Business)?
+
+These two variants don't appear in the existing FC=1/BC=2/SB=6/SC=7 encoding. Before seeding them as platform records, their trunk prefix assignment needs to be confirmed. If they use the same routing infrastructure as existing classes (e.g., PM is effectively First Class quality = trunk prefix 1), the prefix should match. If they're separate routing tiers, new trunk digits need to be allocated.
+
+Everything else in the architecture is resolved and ready to build.
+
+I agree with about 95% of this architecture freeze. The remaining 5% is important because it directly affects Destination Catalog, Increment Management, and Client Tariff Profiles.
+
+What Is Fully Locked
+1. Product Identity Model
+
+I agree with:
+
+productClass
+commercialType
+productFamily
+
+and removing:
+
+segment
+
+completely.
+
+This is much cleaner than the current implementation.
+
+2. Fixed Product Variants
+
+These should absolutely be platform-seeded:
+
+FC-W  First Class - Wholesale
+BC-W  Business Class - Wholesale
+
+SB-W  Special Bravo - Wholesale
+SB-R  Special Bravo - Retail
+
+SC-W  Special Charlie - Wholesale
+SC-R  Special Charlie - Retail
+
+PM-R  Premium
+BS-R  Business
+
+No user-created products.
+
+No blueprint wizard.
+
+No dynamic variant creation.
+
+3. Prefix Architecture
+
+This should be considered frozen immediately:
+
+fullPrefix
+    = audit only
+
+dialPrefix
+    = Sippy only
+
+trunkPrefix
+    = BitsAuto routing classification
+
+And:
+
+resolveSippyPrefix()
+
+must become mandatory across every Sippy write path.
+
+The Missing Piece
+
+The freeze document still treats:
+
+Product
+
+as the commercial object.
+
+In reality your business operates on:
+
+Destination Approval
++
+Product Variant
++
+Increment Profile
+Destination Catalog Needs Its Own Architecture
+
+This is bigger than Product Variants.
+
+Today:
+
+Destination Catalog
+
+is mostly data.
+
+It needs to become:
+
+Destination Catalog
+        ↓
+Commercial Approval
+        ↓
+Commercial Availability
+
+Example:
+
+Pakistan
+ └── Mobile
+      ├── Jazz
+      ├── Ufone
+      ├── Telenor
+      └── Zong
+
+Loaded:
+
+All destinations
+
+Approved:
+
+Jazz
+Ufone
+
+Available in:
+
+Rate Manager
+Send Rate
+Trading Desk
+Product Pricing
+Rate Sheets
+
+Only:
+
+Jazz
+Ufone
+
+Everything else hidden.
+
+This Is Why Wiring Matters
+
+Without wiring:
+
+Destination Catalog
+
+and
+
+Rate Manager
+
+become disconnected.
+
+Then:
+
+Approved destination
+
+may not appear.
+
+or
+
+Unapproved destination
+
+may appear accidentally.
+
+Both are dangerous.
+
+High Cost Protection Must Be Part Of Destination Catalog
+
+Example:
+
+USA Mobile
+$0.01
+
+vs
+
+USA Satellite
+$3.00
+
+These should never be treated equally.
+
+I would add:
+
+destination_catalog
+
+approved_for_sale
+high_cost
+restricted
+requires_commercial_approval
+
+Example:
+
+Iridium
+approved_for_sale = false
+
+Inmarsat
+approved_for_sale = false
+
+USA Premium
+approved_for_sale = false
+Increment Profiles Are Missing Entirely
+
+This is the biggest commercial gap today.
+
+Because:
+
+0.0200 @ 1/1
+
+and
+
+0.0200 @ 60/60
+
+are not the same product.
+
+Your freeze document discusses:
+
+Rate
+
+but not:
+
+Increment
+
+which is equally important.
+
+Increment Hierarchy
+
+I would lock:
+
+Customer Increment
+       ↓
+Product Increment
+       ↓
+Global Default
+
+Example:
+
+Customer A
+1/1
+
+Overrides:
+
+FC-W
+60/60
+
+Result:
+
+1/1
+
+because customer wins.
+
+Customer Tariff Profile Will Depend On This
+
+The old screenshot proves it.
+
+Client Tariff Profile wasn't just:
+
+Destination
+Rate
+
+It included:
+
+Destination
+Prefix
+Rate
+Increment
+Effective Date
+Notice Period
+Status
+
+So before Phase C starts, Increment Profiles must exist.
+
+Otherwise the new Client Tariff Profile will be incomplete from day one.
+
+One Additional Table I Would Add To The Freeze
+
+Between:
+
+Destination Catalog
+
+and
+
+Product Rates
+
+Add:
+
+approved_destinations
+
+Example:
+
+destination_id
+product_family
+approved
+approved_by
+approved_at
+reason
+
+Then:
+
+Destination Catalog
+        ↓
+Approved Destinations
+        ↓
+Product Pricing
+        ↓
+Rate Manager
+        ↓
+Rate Sheets
+
+Everything commercial reads from the approved layer.
+
+My Recommended Final Freeze
+Foundation Layer
+Destination Catalog
+Approved Destinations
+Product Variants
+Validation Profiles
+Configuration Values
+Commercial Layer
+Product Rates
+Increment Profiles
+Customer Profiles
+Distribution Layer
+Rate Sheet Generator
+Notification Engine
+Push Engine
+Governance Layer
+Validation Rules
+Approval Policies
+Governance Review
+
+The one thing I would add to your freeze document before approving it is:
+
+New Phase B0
+Destination Approval Architecture
+Increment Profile Architecture
+
+before:
+
+Phase B Product Variant Architecture
+
+because every future module (Rate Manager, Send Rates, Trading Desk, Client Tariff Profile, Customer Rate Sheets) depends on those two foundations being correct. Right now Product Variants are well defined, but Destination Approval and Increment Profiles are still only described conceptually and not yet formalized in the architecture.

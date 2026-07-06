@@ -1,0 +1,183 @@
+The investigation confirms this is NOT a frontend/UI problem.
+
+There are:
+
+two separate architectural failures
+
+causing the huge mismatch between:
+
+Sippy native ASR/ACD
+BitsAuto ASR/ACD
+PRIMARY ROOT CAUSE
+Sippy ASR/ACD portal authentication is failing
+
+The intended flow is:
+
+BitsAuto
+→ login to Sippy admin portal
+→ POST /asr_acd.php
+→ receive aggregated SQL results
+→ render exact Sippy totals
+
+But production logs show:
+
+Portal login failed: unable to log in with any credentials
+
+So the platform NEVER reaches:
+
+/asr_acd.php aggregation layer
+
+That means:
+
+the REAL Sippy aggregation engine is never being used
+WHAT HAPPENS INSTEAD
+
+The platform falls back to:
+
+/c1/cdrs_customer.php
+
+which is:
+
+only a paginated HTML browsing page
+
+NOT:
+
+the actual reporting engine
+
+That page only exposes:
+
+~50 rows/page
+~5 usable pages
+~250 visible CDRs
+
+which EXACTLY matches your platform result:
+
+250 CDRs
+
+This confirms:
+
+the platform is reading the browsing layer
+
+NOT the reporting layer
+
+WHY SIPPY SHOWS 20,232
+
+Because Sippy native report executes:
+
+COUNT(*)
+SUM()
+GROUP BY
+
+directly against:
+
+the full live CDR database
+
+So:
+
+20k+ calls = correct
+250 calls = fallback scrape subset only
+SECONDARY ROOT CAUSE
+Vendor resolution is broken in fallback mode
+
+Platform shows:
+
+Callntalk / Unknown Connection
+
+because:
+
+scraped portal CDR rows do NOT contain:
+remoteIp
+iConnection
+vendor_id
+
+So vendor mapping fails.
+
+The investigation confirmed:
+
+termKey()
+
+never checked:
+
+vendorName
+vendorResolved
+
+from Mera enrichment.
+
+That caused:
+
+Unknown Vendor / Unknown Connection
+
+even when vendor identity already existed elsewhere.
+
+THIRD ISSUE
+Mera enrichment itself is failing
+
+Production logs show:
+
+HTTP 401
+exportVendorsCDRs_Mera
+
+Meaning:
+
+vendor enrichment auth is also broken
+
+So:
+
+portal auth broken
+Mera auth broken
+fallback scraper incomplete
+
+All three combine into:
+
+severely degraded analytics accuracy
+WHY THIS IS CRITICAL
+
+Because ALL higher intelligence layers depend on:
+
+accurate CDR ground truth
+
+If ASR/NER/CDR totals are wrong:
+then:
+
+route optimization becomes unreliable
+traffic steering becomes unreliable
+simulation projections become unreliable
+failover confidence becomes unreliable
+trust analytics becomes invalid
+
+This is:
+
+foundational data integrity issue
+
+—not merely a reporting issue.
+
+CONFIRMED FIX DIRECTION
+
+The investigation already identified the correct remediation path:
+
+Priority	Fix
+P1	Fix Sippy admin portal authentication
+P2	Ensure /asr_acd.php aggregation path succeeds
+P3	Treat HTML CDR scrape as emergency fallback only
+P4	Fix vendor enrichment authentication
+P5	Improve fallback vendor labeling
+P6	Reduce stale refresh intervals
+MOST IMPORTANT CONCLUSION
+
+The platform architecture itself was:
+
+conceptually correct
+
+The failure occurred because:
+
+the primary aggregation path silently failed
+
+and the system degraded into:
+
+low-fidelity scrape mode
+
+without sufficiently warning the operator that:
+
+analytics accuracy had degraded
+
+That is the real architectural lesson from this issue.

@@ -1,0 +1,39 @@
+Here's the full consolidated suggestion across all 5 steps — organized clearly, nothing implemented:
+
+Step 1 — Department & Company
+Field	Change
+Department	Replace dropdown → 4 clickable toggle pills side by side: Retail · Wholesale · Enterprise · Carrier. One click selects, the active pill highlights. No dropdown needed for 4 fixed options.
+Company	Keep as dropdown but filter by selected Department — once Retail is picked, only retail-type companies appear. Add inline "＋ Create Company" link below the dropdown so users don't abandon the wizard.
+Display Name	Auto-filled from Company name when a company is selected. User can still override. Currently it's blank and requires manual typing.
+Sippy Username	Auto-mirrors Display Name (already does this). Add a lock/unlock icon — unlocked = keeps mirroring, locked = user value is frozen even if Display Name changes.
+Password	Add a copy icon next to the field so password can be captured without toggling visibility.
+Notification Email	Auto-filled from Company's billing/commercial contact if one exists in the Company Profile.
+A2Z Notification	Replace Yes/No dropdown → single toggle switch (boolean, 2 options, dropdown is overkill).
+Step 2 — Rate Sheet Config
+Field	Change
+Invoice Template	Replace dropdown → 4 clickable tiles: Standard / Retail / Wholesale / Custom, each with a one-line description of what it produces.
+3 Rate Sheet Format dropdowns	Collapse into one multi-select tag field — tick which formats to generate (Full CSV, Excel XLSX, PDF, Partial Update, A2Z). Eliminates repetitive dropdowns.
+Dialcode Format	Replace dropdown → 2-option toggle: E.164 · National
+Prefix Style	Replace dropdown → 2-option toggle: +44... · 44... (show a live example based on selection)
+Step 3 — Technical Config
+Field	Change
+Trunk Name	Replace free text → 4 product tiles: First Class (amber) · Business Class (blue) · Special Charlie (violet) · Special Bravo (emerald). Clicking a tile sets the trunk name AND colour-codes the trunk panel border. Plus a "Custom…" free-text fallback pre-filled from company short code (e.g. IPTCL-TRUNK-1).
+Max Sessions / CPS	Add quick-pick chips below each input: [Unlimited] [10] [50] [100] — one click fills the field.
+Codec	Replace dropdown → visual codec tiles: G.711u / G.711a / G.729 / G.722 each shown as a selectable card with bitrate note.
+Media Relay	Replace dropdown → 3-way segmented control: Default · Always · Never
+Prefix + CLD Rule	Add a live translation preview below both fields: Incoming: 88881234 → After rule: 1234 — updates as you type.
+Checkboxes	Keep as checkboxes but visually separate Allow Registration / Blocked (they're opposites — should not sit side by side).
+Step 4 — IPs & Products
+Field	Change
+IP Address rows	Add paste-multiple detection: if user pastes 1.2.3.4\n5.6.7.8\n9.10.11.12, auto-split into 3 rows instantly.
+Trunk column per IP	Replace free text → dropdown from trunks configured in Step 3 — no retyping trunk names.
+Products Offered	If trunk names match product names (from Step 3 suggestion above), this section becomes auto-derived and read-only — just a confirmation of what was set in Step 3. Add "Select All / Clear All" shortcut.
+Step 5 — Review & Save
+Field	Change
+Each review section	Make clickable to jump back to that step — clicking the Trunk Config row jumps directly to Step 3. Saves repeated Back clicks.
+Trunk CLD preview	Add the same live translation: 888812345 → 12345
+Save Draft button	Move "Save Draft" to all steps (not just Step 5) so progress can be captured mid-wizard and resumed from the company card.
+Cross-cutting
+Enter key advances to Next when required fields on the current step are valid
+Inline validation on blur — errors appear when you leave a field, not just when clicking Next
+Step pills show a small completion indicator (e.g. green dot or "3/4 fields done") so the user knows at a glance which steps are complete

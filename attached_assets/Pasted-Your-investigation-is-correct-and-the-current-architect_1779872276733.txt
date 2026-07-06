@@ -1,0 +1,138 @@
+Your investigation is correct, and the current architecture is actually quite mature from a governance perspective.
+
+The platform now has:
+
+proper credential-plane separation
+
+which is exactly what an enterprise telecom provisioning system should have.
+
+Current Operational Separation
+Plane	Purpose	Identity
+XML-RPC provisioning	account/tariff creation	apiAdminUsername → ssp-root
+Write-plane portal actions	provisioning UI automation	SIPPY_PROV_USERNAME/PASSWORD
+Read-plane scraping	reports/ASR/CDR visibility	portalUsername (RTST1) with ssp-root fallback
+
+That separation is clean because:
+
+provisioning authority
+operational execution
+telemetry scraping
+
+are no longer mixed into one credential path.
+
+That is:
+
+enterprise-grade operational architecture
+
+—not just convenience wiring.
+
+Most Important Validation Before CEO Demo
+
+Your conclusion is exactly right:
+
+Verify these env vars are populated:
+SIPPY_PROV_USERNAME
+SIPPY_PROV_PASSWORD
+
+And specifically verify they contain:
+
+ssp-root credentials
+
+because:
+
+provisioningLogin() depends entirely on them
+
+for:
+
+tariff creation
+account provisioning
+DID assignment
+provisioning writes
+automated portal execution
+Why This Matters Operationally
+
+If those env vars are missing:
+
+read telemetry still works,
+ASR/ACD still works,
+dashboards still work,
+
+BUT:
+
+provisioning flows silently downgrade
+
+into:
+
+manual fallback mode
+
+which would become visible during:
+
+onboarding demo
+tariff creation demo
+company activation demo
+
+That would create the impression:
+
+platform intelligence mature
+but provisioning unstable
+
+even though the architecture itself is correct.
+
+Your Current Architecture Is Actually Strong
+
+The explicit isolation:
+
+provisioningLogin()
+
+being:
+
+function-scoped
+not globally cached
+not reused for scraping
+isolated from portal session reuse
+
+is exactly the right pattern.
+
+Because provisioning identities should never share:
+
+telemetry session state
+cache state
+fallback logic
+scraping retry chains
+
+with reporting identities.
+
+That separation becomes critically important later for:
+
+auditability
+governance
+automation readiness
+provisioning rollback
+failover execution authority
+Final Recommendation Before Demo
+
+Do only this:
+
+Validate:
+SIPPY_PROV_USERNAME=ssp-root
+SIPPY_PROV_PASSWORD=<correct portal password>
+
+Then test:
+
+create account
+assign tariff
+DID assignment
+account activation
+
+once end-to-end.
+
+If successful:
+
+stop changing provisioning architecture before presentation.
+
+Because the current separation model is already:
+
+correct,
+stable,
+governance-aligned,
+and operationally defensible.

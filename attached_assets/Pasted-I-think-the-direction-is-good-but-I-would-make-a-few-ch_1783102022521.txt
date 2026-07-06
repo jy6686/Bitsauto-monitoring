@@ -1,0 +1,248 @@
+I think the direction is good, but I would make a few changes based on how your platform operates. Since BitsAuto is a NOC/orchestration platform, the goal shouldn't just be to poll less—it should be to poll intelligently.
+
+Overall assessment
+
+Score: 9.5/10
+
+This addresses Sippy's concern while preserving the platform's monitoring capability. I would change a few defaults and add safeguards.
+
+What I'd change
+1. CDR Cache
+
+Your proposal:
+
+5 min → 15 min
+
+I agree for the heavy historical cache, but I'd distinguish between operational CDRs and historical reconciliation.
+
+Instead of one scheduler:
+
+CDR Cache
+
+I'd split it into:
+
+Operational CDR Cache
+
+Purpose:
+
+Live dashboard
+Recent calls
+Fraud
+SIP errors
+Traffic
+Every 15 min
+Fetch only NEW CDRs since last successful timestamp
+
+instead of
+
+Last 24 hours
+1000 rows
+every run
+
+If Sippy supports incremental fetching (by time or last CDR ID), use that. Otherwise, keep the 15-minute interval.
+
+2. Vendor Balance
+
+I would remove continuous polling entirely.
+
+Instead of
+
+5 minutes
+
+I'd do:
+
+On page open
+Manual Refresh
+
+plus an optional scheduled refresh every 15–30 minutes if the balance widget is displayed on the NOC dashboard.
+
+That eliminates dozens of unnecessary XML-RPC calls.
+
+3. P&L Cache
+
+Your proposal:
+
+30 minutes
+
+I'd go one step further.
+
+On demand
+Cache for 120 minutes
+
+When a user requests a report:
+
+Generate
+Cache
+Serve cached result
+
+Only regenerate if:
+
+cache expired
+manual refresh
+requested parameters changed
+4. Tariff Sync
+
+Earlier you proposed:
+
+whenever rate pushed by KAM
+
+I completely agree.
+
+Polling tariffs is unnecessary.
+
+Use:
+
+Rate Push
+      ↓
+Refresh affected tariff only
+
+Plus:
+
+Nightly reconciliation
+
+to detect manual changes made directly in Sippy.
+
+Telemetry
+
+This is the strongest part of your proposal.
+
+I would make it slightly richer.
+
+Instead of
+
+method
+duration
+rows
+caller
+
+I'd log:
+
+Field	Why
+timestamp	obvious
+method	XML-RPC method
+durationMs	latency
+rowCount	payload size
+caller	scheduler/module
+success	failures
+HTTP status	transport issues
+bytes	response size
+warning	slow call (>2s)
+Ring Buffer
+
+500 entries is fine.
+
+I would expose:
+
+Last 500
+
+Last hour
+
+Summary
+
+No database needed.
+
+Dashboard
+
+Instead of merely a table:
+
+I'd show
+
+Sippy Load
+
+Current calls/hour
+
+Current reports/hour
+
+Slow calls
+
+Average duration
+
+Top 10 callers
+
+Top 10 methods
+
+Example:
+
+Method                  Calls/hr
+
+getAccountCDRs           42
+exportVendorsCDRs        12
+getAccountInfo          110
+listActiveCalls          60
+
+That immediately identifies the load.
+
+Settings
+
+Excellent idea.
+
+I'd add:
+
+Polling Intervals
+
+CDR Refresh
+
+Vendor Balance
+
+P&L
+
+SIP Probe
+
+Traffic Snapshot
+
+Tariff Sync
+
+Enable/Disable
+
+No code changes needed afterward.
+
+One thing I'd add
+
+This is the biggest improvement.
+
+Scheduler Ownership
+
+Every scheduler should register itself.
+
+Scheduler
+
+name
+
+interval
+
+lastRun
+
+nextRun
+
+duration
+
+status
+
+callerTag
+
+Then your telemetry automatically knows:
+
+caller = cdr-cache
+
+caller = pnl-cache
+
+caller = vendor-balance
+
+instead of guessing from stack traces.
+
+Production Safety
+
+Since your platform is production-first, I would deploy this in phases:
+
+Sprint 1
+XML-RPC telemetry
+No interval changes
+Observe for 24–48 hours
+Sprint 2
+Increase intervals
+Compare calls/hour before and after
+Sprint 3
+Convert heavy schedulers to event-driven/on-demand
+Keep telemetry to verify the reduction
+
+This phased approach lets you measure the impact and provides evidence back to the Sippy team that the load has been reduced, while minimizing the risk of accidentally affecting live monitoring.

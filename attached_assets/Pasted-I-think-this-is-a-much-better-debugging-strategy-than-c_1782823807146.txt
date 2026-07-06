@@ -1,0 +1,78 @@
+I think this is a much better debugging strategy than continuing to tweak startup code blindly.
+
+The evidence we have so far is:
+
+✅ The application builds successfully.
+✅ The production bundle runs locally.
+❌ The promoted container crashes in Replit's deployment environment.
+❌ We don't yet have the runtime stack trace from the deployed container.
+
+That makes this a deployment regression investigation, not an application architecture problem.
+
+I would slightly refine the plan
+
+Instead of immediately re-applying everything after a rollback, first identify exactly what changed.
+
+Phase 1 – Compare the last known good commit
+
+Run:
+
+git diff --stat 3403d5f5..HEAD
+git diff --name-status 3403d5f5..HEAD
+
+Then, for the files that changed:
+
+git diff 3403d5f5..HEAD -- server/index.ts
+git diff 3403d5f5..HEAD -- server/routes.ts
+git diff 3403d5f5..HEAD -- server/routes-vendor-rates.ts
+git diff 3403d5f5..HEAD -- server/services/
+
+This will tell you whether the regression is likely in startup, routing, migrations, schedulers, or the vendor import work.
+
+Phase 2 – Check startup safety
+
+I agree with checking runSafeMigrations(), but I'd broaden it.
+
+Verify that every startup task follows this pattern:
+
+try {
+  await runSafeMigrations();
+} catch (err) {
+  console.error(err);
+  // decide whether startup should continue or exit
+}
+
+Do the same for:
+
+database initialization
+scheduler initialization
+Sippy polling initialization
+background worker startup
+
+An uncaught exception in any of these can terminate the process before the health check succeeds.
+
+Phase 3 – Binary search the regression
+
+If 3403d5f5 is confirmed as the last successful deployment:
+
+Deploy 3403d5f5 unchanged.
+Confirm it promotes successfully.
+Reapply changes in logical groups, for example:
+Startup gate
+Scheduler timeout guards
+Vendor import async worker
+Governance/index changes
+
+This narrows the failure much faster than changing multiple areas at once.
+
+One thing I would not do
+
+I wouldn't ask Replit AI to "roll back and reapply everything" automatically. That's a fairly large operation and can introduce unrelated changes.
+
+Instead, ask it to:
+
+Compare commit 3403d5f5 with HEAD, identify every startup-related file that changed, explain which changes execute before app.listen(), and determine which of those could terminate the process during container startup. Do not modify code until the analysis is complete.
+
+That keeps the investigation focused and minimizes the chance of creating new regressions.
+
+So yes, I agree with the rollback-based isolation strategy. The first concrete artifact to collect is the diff between 3403d5f5 and HEAD, because that gives you a finite list of candidate changes instead of continuing to guess.

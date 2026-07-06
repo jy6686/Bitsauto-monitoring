@@ -1,0 +1,220 @@
+action would b U on all the codes, changeing or not doesnot matter Action U for all code 
+
+Yes — your screenshot confirms the correct approach.
+
+The generated tariff should look exactly like your Excel screenshot:
+
+Action	ID	Prefix
+U	46	1880
+U	40	192
+U	42	1923
+U	41	19230
+U	44	19231
+U	45	19232
+U	43	19233
+U	39	19234
+
+Not:
+
+Action	ID	Prefix
+U	41	19230
+
+and not:
+
+Action	ID	Prefix
+A	blank	19230
+Why U on every row is correct
+
+Your manual Sippy test already proved:
+
+Existing tariff rows have IDs.
+Sippy accepts U.
+Sippy updates existing prefixes correctly.
+Full tariff upload works safely.
+No rows are lost.
+
+So the safest upload file is:
+
+Download tariff
+↓
+Modify requested destinations only
+↓
+Keep all existing rows
+↓
+Keep all existing IDs
+↓
+Set Action = U for every row
+↓
+Upload complete tariff
+
+Exactly what your screenshot shows.
+
+Changed row example
+
+Current tariff:
+
+41 | 19230 | 0.0274
+44 | 19231 | 0.0350
+45 | 19232 | 0.0275
+
+User changes only 19230 to 0.0270.
+
+Generated file should be:
+
+U | 46 | 1880  | 0.0090
+U | 40 | 192   | 0.0335
+U | 42 | 1923  | 0.0325
+U | 41 | 19230 | 0.0270   <-- changed
+U | 44 | 19231 | 0.0350
+U | 45 | 19232 | 0.0275
+U | 43 | 19233 | 0.0340
+U | 39 | 19234 | 0.0300
+
+Only one rate changes.
+
+Everything else remains identical.
+
+Another thing your screenshot confirms
+
+The ID column is mandatory.
+
+For example:
+
+19230 = ID 41
+19231 = ID 44
+19232 = ID 45
+
+Those IDs come from Sippy's downloaded tariff.
+
+BitsAuto should never invent IDs.
+
+Workflow should be:
+
+getTariffRatesList()
+↓
+capture iRate / ID
+↓
+build full XLSX
+↓
+Action = U
+↓
+ID = original Sippy ID
+↓
+upload
+Recommendation to Replit
+
+Tell them:
+
+Do not use A or SA.
+
+Generate a full tariff XLSX from the existing tariff.
+
+Preserve every row and every existing ID.
+
+Set Action='U' on every row.
+
+Modify only the requested prefixes.
+
+Upload the complete tariff back to Sippy.
+
+Keep an archive copy of the before.xlsx and after.xlsx files for 90 days.
+
+That matches exactly what your successful manual upload demonstrated in Sippy.
+
+Action: A is for new code addition 
+Action: U is for update the existing codes in tariff
+D: Delete existing Code
+
+Exactly. Your manual testing has now established the Sippy action behavior, so there is no need to guess anymore.
+
+Action	Purpose	When to Use
+A	Add new prefix	Prefix does not exist in tariff
+U	Update existing prefix	Prefix already exists and has an ID
+D	Delete existing prefix	Remove prefix from tariff
+S / SA	Bulk import/upsert variants (depends on Sippy version)	Not needed for your current workflow
+
+Based on your downloaded tariff:
+
+ID	Prefix
+41	19230
+44	19231
+45	19232
+
+These already exist.
+
+Therefore:
+
+U | 41 | 19230
+U | 44 | 19231
+U | 45 | 19232
+
+is correct.
+
+Not:
+
+A | | 19230
+
+because 19230 already exists.
+
+Correct BitsAuto Workflow
+Existing Destination Rate Change
+Download tariff from Sippy
+↓
+Read all rows
+↓
+Keep original IDs
+↓
+Modify requested rate(s)
+↓
+Action = U on all existing rows
+↓
+Upload full tariff
+↓
+Verify updated rate
+New Destination Addition
+
+Example:
+
+99999 Pakistan New Mobile
+
+does not exist in tariff.
+
+Then BitsAuto should append:
+
+A | | 99999 | PAKISTAN, Mobile | 1 | 1 | 0.025 | 0.025
+
+while all existing rows remain:
+
+U | 41 | 19230
+U | 44 | 19231
+...
+What this means for Replit
+
+The upload builder should follow:
+
+if (existingRate.id) {
+   action = 'U';
+   id = existingRate.id;
+} else {
+   action = 'A';
+   id = '';
+}
+
+and generate the entire tariff sheet, not just the changed rows.
+
+One more important observation
+
+Your screenshot proves Sippy exported:
+
+Action | Id | Prefix | Country | Interval1 | IntervalN | Price1 | PriceN | Forbidden | Grace Period | Activation Date
+
+Therefore BitsAuto should use the downloaded tariff as the source template and only modify:
+
+Action
+Price1
+PriceN
+Activation Date (if changed)
+
+Everything else should be preserved exactly as downloaded.
+
+That is the safest implementation because it mirrors the same file that Sippy itself generated and successfully accepted during your manual upload test.

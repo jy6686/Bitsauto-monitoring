@@ -1,0 +1,193 @@
+I would stop them again before they merge this.
+
+There are still some assumptions in their response that are dangerous.
+
+1. The biggest red flag
+
+They wrote:
+
+"0233 shown earlier was from test data where the user had typed 0233 as the dial prefix."
+
+I would not accept that explanation without proof.
+
+Your screenshot showed:
+
+Full Prefix = 19233
+
+and the system itself displayed:
+
+Pakistan Ufone Mobile
+
+So before closing this issue they should verify:
+
+SELECT
+  full_prefix,
+  dial_prefix,
+  destination_name
+FROM rate_push_jobs
+ORDER BY created_at DESC;
+
+Expected:
+
+full_prefix	dial_prefix	destination_name
+19233	9233	Pakistan Ufone Mobile
+
+Not:
+
+full_prefix	dial_prefix
+19233	0233
+
+The database should prove the fix.
+
+2. Product Segment should NOT be optional
+
+They implemented:
+
+Retail
+Wholesale
+Both
+
+I would challenge "Both".
+
+Your legacy process says:
+
+Create Product
+     ↓
+Create Retail Variant
+Create Wholesale Variant
+
+Example:
+
+Mega - Retail
+Mega - Wholesale
+
+Not:
+
+Mega - Both
+
+If "Both" exists:
+
+Notifications become ambiguous
+Rate jobs become ambiguous
+Reporting becomes ambiguous
+Client Wizard becomes ambiguous
+
+I would recommend:
+
+Retail
+Wholesale
+
+only.
+
+3. Notification Type is correct but incomplete
+
+Good:
+
+Default
+Changes Only
+Full Sheet
+
+stored in Push History.
+
+Missing:
+
+Legacy also tracked module:
+
+Rate Editor
+Send Rate Notification
+
+These are different operational actions.
+
+Eventually Push History should also store:
+
+source_module
+
+so operators know:
+
+This came from Send Rate
+
+vs
+
+This came from Notification Workflow
+4. Destination should be stored as ID, not only Name
+
+Current implementation:
+
+destination_name
+
+stored.
+
+Better:
+
+destination_id
+destination_name
+dial_prefix
+
+stored.
+
+Reason:
+
+Names change.
+
+Example:
+
+Pakistan Ufone Mobile
+
+becomes:
+
+Pakistan PTCL Mobile
+
+later.
+
+History should remain immutable.
+
+5. Product Registry needs inheritance
+
+This is the most important future-proofing point.
+
+You showed the legacy product creation document.
+
+When somebody creates:
+
+Mega
+Prefix 5
+
+the platform should automatically create:
+
+Mega - Retail
+Mega - Wholesale
+
+and everything should immediately appear in:
+
+Client Wizard
+Product Rates
+Rate Manager
+Notifications
+Governance
+Reporting
+
+without further coding.
+
+Otherwise every new product will reopen the same development cycle.
+
+My recommendation
+
+Approve:
+
+✅ Notification Type
+
+✅ Destination Name stored at push time
+
+✅ Business-centric Push History
+
+Hold:
+
+⚠ Product Segment = Both
+
+⚠ Prefix issue until database proves it
+
+⚠ Destination stored only as name
+
+⚠ Missing source_module
+
+The direction is correct, but I would ask Replit for a final validation pass before considering the Push History redesign complete.

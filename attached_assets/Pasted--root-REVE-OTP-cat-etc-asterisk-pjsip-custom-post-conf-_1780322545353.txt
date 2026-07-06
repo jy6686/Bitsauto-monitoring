@@ -1,0 +1,49 @@
+[root@REVE-OTP ~]# cat /etc/asterisk/pjsip_custom_post.conf
+[root@REVE-OTP ~]# asterisk -rx "module show like res_pjsip"
+Module                         Description                              Use Count  Status      Support Level
+res_pjsip.so                   Basic SIP resource                       47         Running              core
+res_pjsip_acl.so               PJSIP ACL Resource                       0          Running              core
+res_pjsip_authenticator_digest.so PJSIP authentication resource            0          Running              core
+res_pjsip_caller_id.so         PJSIP Caller ID Support                  1          Running              core
+res_pjsip_config_wizard.so     PJSIP Config Wizard                      1          Running              core
+res_pjsip_dialog_info_body_generator.so PJSIP Extension State Dialog Info+XML Pr 0          Running              core
+res_pjsip_diversion.so         PJSIP Add Diversion Header Support       1          Running              core
+res_pjsip_dlg_options.so       SIP OPTIONS in dialog handler            0          Running              core
+res_pjsip_dtmf_info.so         PJSIP DTMF INFO Support                  0          Running              core
+res_pjsip_empty_info.so        PJSIP Empty INFO Support                 0          Running              core
+res_pjsip_endpoint_identifier_anonymous.so PJSIP Anonymous endpoint identifier      0          Running              core
+res_pjsip_endpoint_identifier_ip.so PJSIP IP endpoint identifier             0          Running              core
+res_pjsip_endpoint_identifier_user.so PJSIP username endpoint identifier       0          Running              core
+res_pjsip_exten_state.so       PJSIP Extension State Notifications      0          Running              core
+res_pjsip_header_funcs.so      PJSIP Header Functions                   0          Running              core
+res_pjsip_history.so           PJSIP History                            0          Running          extended
+res_pjsip_logger.so            PJSIP Packet Logger                      0          Running              core
+res_pjsip_messaging.so         PJSIP Messaging Support                  0          Running              core
+res_pjsip_mwi.so               PJSIP MWI resource                       0          Running              core
+res_pjsip_mwi_body_generator.so PJSIP MWI resource                       0          Running              core
+res_pjsip_nat.so               PJSIP NAT Support                        0          Running              core
+res_pjsip_notify.so            CLI/AMI PJSIP NOTIFY Support             0          Running              core
+res_pjsip_one_touch_record_info.so PJSIP INFO One Touch Recording Support   0          Running              core
+res_pjsip_outbound_authenticator_digest.so PJSIP authentication resource            0          Running              core
+res_pjsip_outbound_publish.so  PJSIP Outbound Publish Support           2          Running              core
+res_pjsip_outbound_registration.so PJSIP Outbound Registration Support      0          Running              core
+res_pjsip_path.so              PJSIP Path Header Support                0          Running              core
+res_pjsip_pidf_body_generator.so PJSIP Extension State PIDF Provider      0          Running              core
+res_pjsip_pidf_digium_body_supplement.so PJSIP PIDF Sangoma presence supplement   0          Running              core
+res_pjsip_pidf_eyebeam_body_supplement.so PJSIP PIDF Eyebeam supplement            0          Running              core
+res_pjsip_publish_asterisk.so  PJSIP Asterisk Event PUBLISH Support     0          Running              core
+res_pjsip_pubsub.so            PJSIP event resource                     12         Running              core
+res_pjsip_refer.so             PJSIP Blind and Attended Transfer Suppor 1          Running              core
+res_pjsip_registrar.so         PJSIP Registrar Support                  0          Running              core
+res_pjsip_rfc3326.so           PJSIP RFC3326 Support                    0          Running              core
+res_pjsip_sdp_rtp.so           PJSIP SDP RTP/AVP stream handler         0          Running              core
+res_pjsip_send_to_voicemail.so PJSIP REFER Send to Voicemail Support    0          Running              core
+res_pjsip_session.so           PJSIP Session resource                   19         Running              core
+res_pjsip_sips_contact.so      UAC SIPS Contact support                 0          Running              core
+res_pjsip_stir_shaken.so       PJSIP STIR/SHAKEN Module for Asterisk    0          Running              core
+res_pjsip_t38.so               PJSIP T.38 UDPTL Support                 0          Running              core
+res_pjsip_transport_websocket.so PJSIP WebSocket Transport Support        0          Not Running          core
+res_pjsip_xpidf_body_generator.so PJSIP Extension State PIDF Provider      0          Running              core
+43 modules loaded
+[root@REVE-OTP ~]# asterisk -rx "pjsip show endpoints"
+No objects found.

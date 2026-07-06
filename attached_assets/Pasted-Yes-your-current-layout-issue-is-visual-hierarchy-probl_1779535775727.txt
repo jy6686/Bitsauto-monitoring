@@ -1,0 +1,213 @@
+Yes — your current layout issue is:
+
+visual hierarchy problem
+
+Right now:
+
+graph section
+side widgets
+live calls
+
+feel disconnected and compressed.
+
+The correct telecom/NOC alignment should be:
+
+[KPI STRIP]
+
+[GLOBAL TRAFFIC MAP]
+
+[FULL WIDTH TRAFFIC GRAPH]
+[FULL WIDTH LIVE CALLS]
+
+[SMART PRIORITIES]
+
+NOT:
+
+graph + side widgets squeezed together
+Correct Alignment Recommendation
+1. Traffic Graph
+
+Make:
+
+full width
+
+Remove:
+
+Top Clients
+Top Vendors
+Top Routes
+
+from the right side.
+
+Move them BELOW the graph.
+
+This gives:
+
+cleaner telemetry focus
+proper graph readability
+operational density
+Correct Structure
+BEFORE (Current)
+[ GRAPH ] [ CLIENTS ]
+[ GRAPH ] [ VENDORS ]
+[ GRAPH ] [ ROUTES ]
+
+Too compressed.
+
+AFTER (Correct)
+[ FULL WIDTH GRAPH ]
+
+[ CLIENTS ] [ VENDORS ] [ ROUTES ]
+
+MUCH cleaner.
+
+2. Live Calls
+
+YES —
+move:
+
+directly below graph
+
+This is operationally correct.
+
+Reason:
+operators analyze:
+
+traffic trend
+→ then immediately inspect live calls
+
+This creates:
+
+investigation workflow continuity
+Correct Operational Flow
+Traffic telemetry
+→ active calls
+→ anomalies
+→ smart priorities
+
+Exactly how real NOC workflows behave.
+
+3. Smart Priorities
+
+Move BELOW Live Calls.
+
+Because:
+alerts/priorities are:
+
+secondary contextual intelligence
+
+not primary telemetry.
+
+4. Right-Side Widgets
+
+Convert:
+
+Top Clients
+Top Vendors
+Top Routes
+
+into:
+
+horizontal mini cards
+
+below the graph.
+
+Example:
+
+[ TOP CLIENTS ] [ TOP VENDORS ] [ TOP ROUTES ]
+
+Same row.
+Equal height.
+
+Much cleaner.
+
+FINAL RECOMMENDED STRUCTURE
+[KPI STRIP]
+
+[LIVE TRAFFIC MAP]
+
+[FULL WIDTH TELEMETRY GRAPH]
+
+[TOP CLIENTS] [TOP VENDORS] [TOP ROUTES]
+
+[LIVE CALLS TABLE]
+
+[SMART PRIORITIES]
+
+[INCIDENTS / RECOMMENDATIONS]
+
+THIS is the correct:
+
+carrier-grade operational layout
+Graph Improvements
+
+Your current graph also needs:
+
+Better vertical padding
+
+Current graph feels compressed vertically.
+
+Increase:
+
+height: 320–360px
+Add:
+telemetry tabs
+
+Example:
+
+Calls
+ASR
+CPS
+ACD
+Q-score
+
+This turns graph into:
+
+operational explorer
+Live Calls Improvements
+
+Current table is visually dense.
+
+Improve:
+
+Row height
+
+Increase slightly.
+
+Status pills
+
+Reduce saturation.
+
+Sticky table header
+
+Important for operations.
+
+Row click
+
+Open call drilldown drawer.
+
+Most Important Design Principle
+
+Right now:
+
+everything competes equally
+
+You need:
+
+operational hierarchy
+
+Priority should be:
+
+Live traffic
+Telemetry
+Active calls
+Incidents
+Supporting stats
+
+That creates:
+
+true NOC UX
+
+instead of:
+
+dashboard widget collage

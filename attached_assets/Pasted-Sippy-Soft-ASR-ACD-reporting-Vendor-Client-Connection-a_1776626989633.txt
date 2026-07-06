@@ -1,0 +1,240 @@
+Sippy Soft ASR/ACD reporting
+Vendor + Client + Connection analytics
+Revenue & Margin Analytics page (important addition)
+Default 1-hour live data refresh
+Scalable API + frontend architecture
+🧠 FULL SYSTEM ARCHITECTURE (REPLIT READY)
+sippy-analytics-dashboard/
+│
+├── backend/
+│   ├── server.js
+│   ├── routes/
+│   │   ├── reportRoutes.js
+│   │   ├── analyticsRoutes.js
+│   │   ├── sippyRoutes.js
+│   │
+│   ├── controllers/
+│   │   ├── reportController.js
+│   │   ├── analyticsController.js
+│   │
+│   ├── services/
+│   │   ├── sippyService.js        # API integration with Sippy Soft
+│   │   ├── calculationService.js  # ASR, ACD, Margin logic
+│   │   ├── groupService.js        # vendor/client grouping
+│   │
+│   ├── utils/
+│   │   ├── timeUtils.js
+│   │   ├── formatUtils.js
+│   │
+│   ├── config/
+│   │   ├── config.js
+│   │
+│   └── middleware/
+│       ├── auth.js
+│       ├── errorHandler.js
+│
+│
+├── frontend/
+│   ├── src/
+│   │   ├── pages/
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── VendorReport.jsx
+│   │   │   ├── ClientReport.jsx
+│   │   │   ├── ConnectionReport.jsx
+│   │   │   ├── RevenueMarginAnalytics.jsx   ⭐ NEW PAGE
+│   │   │
+│   │   ├── components/
+│   │   │   ├── Table.jsx
+│   │   │   ├── Filters.jsx
+│   │   │   ├── SummaryCards.jsx
+│   │   │   ├── ChartRevenueMargin.jsx
+│   │   │   ├── LiveTimer.jsx
+│   │   │
+│   │   ├── services/
+│   │   │   ├── api.js
+│   │   │
+│   │   ├── context/
+│   │   │   ├── DataContext.js
+│   │   │
+│   │   ├── App.jsx
+│   │   ├── routes.jsx
+│   │
+│   ├── package.json
+│
+│
+├── shared/
+│   ├── calculations.js   # shared ASR/ACD logic (frontend + backend consistency)
+│
+├── package.json
+├── .env
+└── README.md
+🔥 CORE FEATURE FLOW
+1. Data Flow (Sippy → Dashboard)
+Sippy Soft API
+     ↓
+sippyService.js
+     ↓
+calculationService.js (ASR / ACD / Margin)
+     ↓
+Grouped Analytics Engine
+     ↓
+Frontend Dashboard Pages
+⏱ DEFAULT TIME LOGIC (GLOBAL)
+
+Used everywhere:
+
+start_time = now - 1 hour
+end_time = now
+
+If user selects filters → override.
+
+📊 MAIN REPORT TYPES
+1. Vendor Report
+Vendor / Connection
+Calls
+Billable Calls
+Duration
+ACD
+ASR
+PDD
+Cost
+2. Client Report
+Caller / Client
+Calls
+Billable Calls
+Duration
+ACD
+ASR
+PDD
+Revenue
+3. Connection Drilldown
+Per route performance
+per trunk analytics
+quality metrics
+💰 ⭐ REVENUE & MARGIN ANALYTICS (NEW PAGE)
+
+This is your business intelligence layer
+
+Page: RevenueMarginAnalytics.jsx
+📌 Must show:
+1. Revenue
+Total Client Revenue
+2. Cost
+Total Vendor Cost
+3. Margin
+Margin = Revenue - Cost
+4. Margin %
+Margin % = (Margin / Revenue) * 100
+Backend calculation service:
+export function calculateMargin(data) {
+    const revenue = data.reduce((a, b) => a + b.revenue, 0);
+    const cost = data.reduce((a, b) => a + b.cost, 0);
+
+    const margin = revenue - cost;
+
+    return {
+        revenue,
+        cost,
+        margin,
+        margin_percent: revenue ? (margin / revenue) * 100 : 0
+    };
+}
+UI Layout (Revenue Page)
+[ Revenue Card ]   [ Cost Card ]   [ Margin Card ]   [ Margin % ]
+
+-----------------------------------------------------------
+| Chart: Revenue vs Cost Trend                            |
+-----------------------------------------------------------
+
+-----------------------------------------------------------
+| Table: Vendor-wise Margin Breakdown                     |
+-----------------------------------------------------------
+⚙️ BACKEND CORE FILES
+server.js
+import express from "express";
+import reportRoutes from "./routes/reportRoutes.js";
+import analyticsRoutes from "./routes/analyticsRoutes.js";
+
+const app = express();
+app.use(express.json());
+
+app.use("/api/reports", reportRoutes);
+app.use("/api/analytics", analyticsRoutes);
+
+app.listen(3000, () => {
+    console.log("Sippy Dashboard running on port 3000");
+});
+reportRoutes.js
+import express from "express";
+import { getVendorReport, getClientReport } from "../controllers/reportController.js";
+
+const router = express.Router();
+
+router.get("/vendor", getVendorReport);
+router.get("/client", getClientReport);
+
+export default router;
+analyticsRoutes.js (NEW)
+import express from "express";
+import { getRevenueMargin } from "../controllers/analyticsController.js";
+
+const router = express.Router();
+
+router.get("/revenue-margin", getRevenueMargin);
+
+export default router;
+📡 SIPPY SERVICE (CORE INTEGRATION)
+import axios from "axios";
+
+export async function fetchSippyCDR(params) {
+    const response = await axios.post(process.env.SIPPY_API_URL, {
+        username: process.env.SIPPY_USER,
+        password: process.env.SIPPY_PASS,
+        ...params
+    });
+
+    return response.data.cdrs;
+}
+📊 CALCULATION ENGINE (CORE BRAIN)
+
+Handles:
+
+ASR
+ACD
+PDD
+Revenue
+Cost
+Margin
+export function calculateMetrics(cdrs) {
+    return cdrs.map(cdr => ({
+        vendor: cdr.vendor,
+        connection: cdr.connection,
+        calls: cdr.calls,
+        billable: cdr.billable,
+        duration: cdr.duration,
+        acd: cdr.duration / (cdr.answered || 1),
+        asr: (cdr.answered / cdr.calls) * 100,
+        pdd: cdr.pdd,
+        revenue: cdr.revenue,
+        cost: cdr.cost
+    }));
+}
+🌐 FRONTEND ROUTING
+<Routes>
+  <Route path="/" element={<Dashboard />} />
+  <Route path="/vendor" element={<VendorReport />} />
+  <Route path="/client" element={<ClientReport />} />
+  <Route path="/connection" element={<ConnectionReport />} />
+  <Route path="/analytics" element={<RevenueMarginAnalytics />} />
+</Routes>
+🚀 FINAL RESULT (WHAT YOU GET)
+
+You will have:
+
+✔ Real-time Sippy Analytics Dashboard
+✔ Vendor / Client / Connection reports
+✔ ASR / ACD / PDD calculations
+✔ Revenue vs Cost tracking
+✔ Margin analytics dashboard
+✔ Default 1-hour live refresh
+✔ Expandable reporting system

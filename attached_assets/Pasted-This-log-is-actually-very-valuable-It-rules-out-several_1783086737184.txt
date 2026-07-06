@@ -1,0 +1,119 @@
+This log is actually very valuable. It rules out several things.
+
+From the trace you uploaded
+
+What is confirmed
+✅ Asterisk ↔ Sippy connectivity is healthy
+
+Every minute Asterisk sends:
+
+OPTIONS sip:191.101.30.107 SIP/2.0
+
+and Sippy immediately replies:
+
+SIP/2.0 200 OK
+Server: Sippy Softswitch v2024-PRODUCTION.485
+
+That proves:
+
+Network connectivity is good.
+UDP 5060 is working.
+The SIP peer is reachable.
+Sippy is alive.
+Asterisk is alive.
+
+There is no network failure between the two systems.
+
+✅ BitsAuto AMI is connected
+
+The log repeatedly shows:
+
+Running action 'Login'
+Running action 'Ping'
+Running action 'CoreShowChannels'
+
+So BitsAuto is successfully talking to AMI.
+
+What is missing
+
+There is not a single SIP INVITE in this entire trace.
+
+We should have seen something like:
+
+<--- SIP read from UDP:191.101.30.107 --->
+INVITE sip:2060....
+
+or
+
+Executing [2060....@sippy-media-anchor]
+
+There are zero INVITEs.
+
+There are zero Executing [...] dialplan lines.
+
+There are zero bridges.
+
+There are zero calls.
+
+The log contains only:
+
+OPTIONS
+OPTIONS replies
+AMI login
+AMI ping
+CoreShowChannels
+
+Nothing else.
+
+This changes the diagnosis
+
+Earlier we knew:
+
+Dialplan exists ✅
+Pattern _2060X. matches ✅
+Peer is OK ✅
+
+Now we also know:
+
+No SIP call reached Asterisk during the captured period.
+
+That means the governance code never even has a chance to run.
+
+The next test must include a real OTP call
+
+The log you uploaded appears to be from an idle period. It contains only keepalive traffic.
+
+The next test should be:
+
+Leave the CLI open.
+
+Enable SIP debugging:
+
+sip set debug peer sippy
+Immediately place one real OTP call that is supposed to traverse this Asterisk.
+Capture the output from the moment the call starts until it ends.
+
+If the call truly traverses this server, we must see:
+
+Received SIP request:
+INVITE ...
+
+followed by
+
+Executing [2060...@sippy-media-anchor]
+
+If neither appears during the live call, then despite the Sippy configuration and CDRs, that particular call is not actually being delivered to this Asterisk instance.
+
+At this point I would stop making configuration changes
+
+You've already spent hours changing code and infrastructure.
+
+The remaining uncertainty is no longer in the code—it is in the live call path.
+
+A single SIP trace captured during an actual OTP call will conclusively answer whether:
+
+Sippy is sending the INVITE to this Asterisk,
+Asterisk is executing sippy-media-anchor,
+or the call is being routed elsewhere.
+
+That is the next piece of evidence needed before changing either BitsAuto or the Asterisk configuration further.

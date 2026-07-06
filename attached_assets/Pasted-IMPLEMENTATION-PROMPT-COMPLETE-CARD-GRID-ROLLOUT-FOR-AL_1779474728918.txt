@@ -1,0 +1,264 @@
+IMPLEMENTATION PROMPT — COMPLETE CARD GRID ROLLOUT FOR ALL REMAINING WORKSPACE HOMES
+
+Goal:
+Extend the new “Operational Card Grid Launch Surface” architecture to the remaining workspace homes so ALL 8 enterprise domains share the same UX model.
+
+Already completed:
+
+Vendors workspace grid
+Intelligence workspace grid
+
+Now implement:
+
+Live Ops
+Clients
+Security
+Analytics
+Finance
+
+DO NOT modify:
+
+Vendors
+Intelligence
+Dense operational pages
+Sidebar rail
+Cascade menu system
+
+Workspace Home Layout:
+
+Workspace Header
+KPI Strip
+Quick Access Card Grid
+Live Feed / Context Panel
+Supporting Content
+
+Cards are:
+
+operational launch surfaces
+workflow entry points
+NOT decorative dashboard widgets
+
+Card style:
+
+dark operational UI
+subtle hover
+solid left accent border
+no gradients
+no oversized tiles
+enterprise telecom feel
+
+Card structure:
+
+┌────────────────────────────────────┐
+│▌ Fraud Engine WARNING │
+│ Monitor FAS and IRSF activity │
+│ │
+│ 2 active events · updated 1m ago │
+└────────────────────────────────────┘
+
+Card content:
+
+icon
+title
+operational description
+urgency badge
+live footer
+freshness timestamp
+
+PRIMARY CARDS:
+
+2-column width
+stronger visual emphasis
+urgency capable
+operational intelligence tools
+
+SECONDARY CARDS:
+
+compact width
+utility/support workflows
+lighter footer emphasis
+
+IMPORTANT:
+Keep Live Ops operationally dense.
+Do NOT turn NOC into a dashboard.
+
+Use smaller operational cards only.
+
+PRIMARY:
+
+BitsEye 2
+NOC Command
+
+SECONDARY:
+
+Live Calls
+Alerts
+SIP Trace
+Call Replay
+Console
+Diagnostics
+
+Live badges:
+
+active calls
+active alerts
+degraded carriers
+active incidents
+
+Accent color:
+violet
+
+PRIMARY:
+
+Accounts
+Billing
+
+SECONDARY:
+
+DIDs
+Client Portal
+Resellers
+Recordings
+Create Account Wizard
+Permissions
+
+Live badges:
+
+low balance accounts
+pending disputes
+new registrations
+open tickets
+
+Accent color:
+amber
+
+PRIMARY:
+
+Fraud Engine
+Approval Queue
+
+SECONDARY:
+
+Firewall
+IP Whitelist
+Audit Log
+Compliance
+STIR/SHAKEN
+Authentication Rules
+
+Live badges:
+
+active FAS events
+pending approvals
+auth exposure alerts
+compliance warnings
+
+Accent color:
+rose
+
+PRIMARY:
+
+Traffic Analytics
+Revenue Heatmap
+
+SECONDARY:
+
+CDR Viewer
+ASR/ACD
+Forecasting
+Reports
+Cost Analysis
+QoS Analytics
+
+Live badges:
+
+degraded ASR
+reporting anomalies
+active trend alerts
+
+Accent color:
+blue
+
+PRIMARY:
+
+Billing
+Cost Optimisation
+
+SECONDARY:
+
+Rate Cards
+Balance Monitor
+Revenue Analytics
+Margin Analysis
+Payments
+Invoices
+
+Live badges:
+
+low balances
+margin drops
+billing disputes
+unpaid invoices
+
+Accent color:
+emerald
+
+DO:
+
+reuse existing operational APIs
+reuse existing badge queries
+reuse existing card components
+keep live data real only
+preserve dense operational feel
+
+DO NOT:
+
+add fake/demo data
+use decorative gradients
+replace operational feeds
+replace KPI strips
+create oversized marketing-style cards
+
+Desktop:
+
+responsive 2–4 column grid
+primary cards span 2 columns
+secondary cards compact
+
+Mobile:
+
+single-column stack
+maintain urgency badges
+maintain live footer data
+
+Use existing APIs only:
+
+Examples:
+
+active incidents
+degraded carriers
+pending approvals
+low balances
+active FAS events
+recommendation counts
+live alerts
+
+NO new polling systems.
+
+Each workspace home should feel like:
+
+“operational launch surface for a telecom department”
+
+NOT:
+
+admin dashboard
+analytics homepage
+decorative landing page
+
+The user should immediately understand:
+
+what matters
+what needs attention
+where to act next
+
+without opening additional menus.

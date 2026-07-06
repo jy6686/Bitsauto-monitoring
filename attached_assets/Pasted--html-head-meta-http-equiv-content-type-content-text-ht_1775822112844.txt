@@ -1,0 +1,2506 @@
+
+<html>
+<head>
+<meta http-equiv="content-type" content="text/html">
+<meta name="menu-title" content="ICHIBAAN">
+
+
+
+<link rel="stylesheet" type="text/css" href="/js/extjs/resources/css/ext-all.css">
+<link rel="stylesheet" type="text/css" href="/js/extjs/ext-ssp.css">
+<script type="text/javascript" src="/js/extjs/adapter/ext/ext-base.js"></script>
+<script type="text/javascript" src="/js/extjs/ext-all.js"></script>
+<script type="text/javascript" src="/js/extjs/ext-ssp.js"></script>
+
+<script language=javascript type=text/javascript>
+    // reference local blank image
+    Ext.BLANK_IMAGE_URL = '/js/extjs/resources/images/default/s.gif';
+</script>
+
+
+<script type="text/javascript" src="/js/utils.js"></script>
+
+<link href="styles.css" type="text/css" rel="stylesheet"> 
+<title>ICHIBAAN - ASR/ACD Reports</title>
+
+
+
+
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="/static/js/jquery-3.3.1.min.js" type="text/javascript"></script>
+<script src="/static/js/menumaker.min.js" type="text/javascript"></script>
+<script src="/static/js/menumaker.local.js"></script>
+<link rel="stylesheet" href="/static/css/fontawesome-all.min.css">
+<link rel="stylesheet" href="/static/css/font-OpenSans.css">
+<link rel="stylesheet" href="/static/css/menumaker.css">
+
+</head>
+<body>
+
+
+
+    <script>
+
+    function hide_ssl_certificate_warning() {
+        Ext.Ajax.request({
+            url: 'system.php',
+            params: {
+                action: 'hide_ssl_certificate_warning'
+            }
+        });
+        var d = document.getElementById('warning_ssl_certificate');
+        d.style.display = 'none';
+    }
+
+</script>
+
+<div id="warning_ssl_certificate" class="security_vulnerability">
+    <div style="position: relative; top: 0; right: 0; float: right; padding: 0 0 0 20px;">
+        <span onClick="hide_ssl_certificate_warning();"><i class="hide_button fas fa-times"></i></span>
+    </div>
+   Warning: A SSL certificate has not been added. Please <a href="https://support.sippysoft.com/solution/articles/78262-generating-and-installing-ssl-certificate">upload your own</a> SSL certificate
+   or create a SSL certificate <a href="https://support.sippysoft.com/solution/articles/3000070011-ssl-certificates-for-web">using LetsEncrypt</a>.
+</div>
+
+    <div id="warning_setup_firewall" class="security_vulnerability">
+   Warning: For your security please review your <a href="firewall_rules.php">Firewall Rules</a>
+   and create rules to allow or deny access to your SoftSwitch. For some
+   suggestions visit our support documentation <a href="https://support.sippysoft.com/solution/articles/3000058057--security-management">here</a>.
+</div>
+
+            <div id="cssmenu">
+            <ul>
+
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-users"></i> Customers</a>
+                    <ul>
+
+    
+                        <li class="has-sub"><a>My Customers</a>
+                            <ul>
+
+                                        <li><a href="accounts.php">Accounts</a></li>
+        
+                                        <li><a href="subcustomers.php">Customers</a></li>
+        
+        
+                                        <li><a href="account_classes.php">Account Classes</a></li>
+        
+        
+                                        <li><a href="account_lookup.php">Account Lookup</a></li>
+        
+                            </ul>
+                        </li>
+    
+    
+                        <li class="has-sub"><a>
+                                                Tariffs &amp;
+                                                Currencies</a>
+                            <ul>
+                                    <li><a href="tariffs.php">Tariffs</a></li>
+                                    <li><a href="service_plans.php">Service Plans</a></li>
+                                <li><a href="xrates.php">Exchange Rates</a></li>
+                            </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Payments</a>
+                            <ul>
+                                    <li><a href="payment_processors.php">Payment Processors</a></li>
+    
+    
+                                    <li><a href="payments_history_root.php">Payments History</a></li>
+    
+                                    <li><a href="vouchers.php">Top-Up Vouchers</a></li>
+                                </ul>
+                        </li>
+
+                        <li class="has-sub"><a>Invoicing</a>
+                            <ul>
+                                <li><a href="invoices.php">Invoices</a></li>
+                                <li><a href="invoice_templates.php">Invoice Templates</a></li>
+                                <li><a href="images.php">Images</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-exchange-alt"></i> Vendors</a>
+                    <ul>
+                            <li class="has-sub"><a>My Vendors</a>
+                            <ul>
+                                <li><a href="vendors.php">Vendors</a></li>
+                                <li><a href="registrations.php">Registrations</a></li>
+                            </ul>
+                        </li>
+                        <li class="has-sub"><a>Routing</a>
+                            <ul>
+                                <li><a href="destination_sets.php">Destination Sets</a></li>
+                                <li><a href="routing_groups.php">Routing Groups</a></li>
+                                    <li><a href="test_dialplan.php">Test Dialplan</a></li>
+                            </ul>
+                        </li>
+    
+                            <li class="has-sub"><a>DID Numbers</a>
+                            <ul>
+                                <li><a href="dids_charging_groups.php">Charging Groups</a></li>
+                                <li><a href="dids.php">DID Pool</a></li>
+                            </ul>
+                        </li>
+    
+                    </ul>
+                </li>
+
+                <li class="has-sub"><a><i class="fa fa-fw fa-sliders-h"></i> System Management</a>
+                    <ul>
+
+                        <li><a href="web_users.php">Users</a></li>
+
+                        <li><a href="ivr_applications.php">IVR Applications</a></li>
+
+                        <li><a href="destinations.php">Destinations</a></li>
+                        <li><a href="system.php">System Parameters</a></li>
+                        <li><a href="external_services.php">External Services</a></li>
+                        <li><a href="show_graphs.php">Monitoring</a></li>
+
+                        <li><a href="activecalls.php">Active Calls</a></li>
+
+                        <li><a href="system_information.php">System Information</a></li>
+
+                        <li class="has-sub"><a href="tools.php">Tools</a>
+                            <ul>
+                                <li><a href="csrs.php">CSR Generator</a></li>
+                                <li><a href="tcpdump.php">Network Traffic Capture</a></li>
+                                <li><a href="looking_glass.php">Looking Glass</a></li>
+                                <li><a href="rerate_cdrs.php">Rerate CDRs</a></li>
+                                <li><a href="firewall_rules.php">IP Firewall</a></li>
+                                <li><a href="sip_logs.php">SIP Logs Viewer</a></li>
+                                <li><a href="audit_logs.php">Audit Logs Viewer</a></li>
+                            </ul>
+                        </li>
+
+
+                    </ul>
+                </li>
+                <li class="has-sub"><a><i class="fa fa-fw fa-file-excel"></i> Reports</a>
+                    <ul class="wide">
+
+                        <li><a href="cdrs_customer.php">Customers Call Records (CDRs)</a></li>
+                        <li><a href="customer_reports.php">Customer Summary Reports</a></li>
+
+                        <li><a href="profit_loss_report.php">Customer Profit &amp; Loss Reports</a></li>
+                        <li><a href="sales_report.php">Customer Sales Reports</a></li>
+
+                        <li><a href="cdrs_vend.php">Vendors Call Records (CDRs)</a></li>
+                        <li><a href="vendors_reports.php">Vendor Summary Reports</a></li>
+
+                        <li><a href="cdrs_dids.php">DIDs Call Records (CDRs)</a></li>
+
+                        <li><a href="asr_acd.php">ASR/ACD Reports</a></li>
+
+                    </ul>
+                </li>
+
+                <li class="has-sub align-right"><a class="none-text-transform"><i class="fa fa-fw fa-cogs"></i>&nbsp;
+                                                    ssp-root
+                                                </a>
+                    <ul class="wide">
+                        <li><a class="bold">Accounts balance: -2420107.2849657 USD</a></li>
+                        <li><a class="bold">Customers balance: 0.0000000 USD</a></li>
+                        <li><a href="customer_prefs.php">My Preferences</a></li>
+
+
+                        <li><a href="logout.php"><i class="fa fa-fw fa-sign-out-alt"></i> Logout</a></li>
+                    </ul>
+                </li>
+
+<script>
+    function menu_search_reset() {
+        var e = document.getElementById("menu_search");
+
+        var ul = document.getElementById('menu_search_results');
+        if (ul) {
+            e.removeChild(ul);
+        }
+    }
+
+    function menu_search(event) {
+        var len = event.target.value.length;
+
+        var e = document.getElementById("menu_search");
+
+        var ul = document.getElementById('menu_search_results');
+        if (ul) {
+            e.removeChild(ul);
+        }
+
+        if (len == 0) {
+            document.getElementById("menu_search_icon").classList.remove('fa-times-circle');
+            document.getElementById("menu_search_icon").classList.add('fas-search');
+            document.getElementById("menu_search_icon").removeEventListener('click');
+            return;
+        } else if (len < 3) {
+            document.getElementById("menu_search_icon").classList.remove('fas-search');
+            document.getElementById("menu_search_icon").classList.add('fa-times-circle');
+            document.getElementById("menu_search_icon").addEventListener('click', function() {
+                document.getElementById("menu_search_pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu_search_pattern").dispatchEvent(event);
+            });
+            return;
+        } else {
+            document.getElementById("menu_search_icon").classList.remove('fas-search');
+            document.getElementById("menu_search_icon").classList.add('fa-times-circle');
+            document.getElementById("menu_search_icon").addEventListener('click', function() {
+                document.getElementById("menu_search_pattern").value = '';
+                var event = new Event('input');
+                document.getElementById("menu_search_pattern").dispatchEvent(event);
+            });
+
+            ul = document.createElement("ul");
+            ul.setAttribute('id', 'menu_search_results');
+            ul.classList.add("wide");
+
+            var m, i;
+            try {
+                m = document.getElementById("cssmenu").getElementsByTagName('li');
+                for (i = 0; i < m.length; i++) {
+                    if (m[i].classList.contains("has-sub")) {
+                        continue;
+                    };
+
+                    var n, j;
+                    n = m[i].getElementsByTagName('a');
+                    for (j = 0; j < n.length; j++) {
+                        if (!n[j].hasAttribute('href')) {
+                            continue;
+                        }
+                        var re = new RegExp(event.target.value, 'i');
+                        if (n[j].innerText.match(re)) {
+                            ul.appendChild(m[i].cloneNode(true));
+                        }
+                    }
+                }
+            } finally {
+                if (ul.childNodes.length > 0) {
+                    e.appendChild(ul);
+                }
+            }
+        }
+    }
+
+    addLoadEvent(function() {
+        var e = document.getElementById('menu_search_pattern');
+        e.addEventListener('input', menu_search);
+    });
+</script>
+
+
+                <li id="menu_search" class="has-sub align-right">
+                    <a>
+                        <input id="menu_search_pattern" type="text" name="menu_search_pattern">
+                        <i id="menu_search_icon" class="fas fa-search"></i>
+                    </a>
+                </li>
+
+            </ul>
+        </div>
+
+    <div style="width: auto; height: 2px; background: #ff9900;"></div>
+    <div id="main">
+                
+<script language=javascript type=text/javascript>
+
+Ext.onReady(function() {
+
+    var updateReportButton = new Ext.Button({
+	renderTo: 'update_report',
+	minWidth: 110,
+	text: 'Update Report',
+	handler: function() {
+			Ext.get('action').set({value: ''});
+			Ext.getDom('mainform').submit();
+		}
+    });
+
+    var downloadReportButton = new Ext.Button({
+	renderTo: 'download_report',
+	minWidth: 110,
+	text: 'Download',
+	handler: function() {
+			Ext.get('action').set({value: 'csv'});
+			Ext.getDom('mainform').submit();
+		 }
+    });
+
+    var sendReportButton = new Ext.Button({
+	renderTo: 'send_report',
+	minWidth: 110,
+	text: 'Send By E-Mail',
+	handler: function() {show_send_by_email(); }
+    });
+
+    var sendEMailForm = new Ext.form.FormPanel({
+	id: 'sendEMailForm',
+        baseCls: 'x-plain',
+        labelWidth: 92,
+        defaultType: 'textfield',
+	url: 'webjob_wrapper.php',
+	waitMsgTarget: 'sendEMailWindow',
+
+        items: [{
+            fieldLabel: 'Send To',
+            name: 'email_mailto',
+	    allowBlank: false,
+	    regex: /^[a-z0-9][\w.+-]*@(([A-z0-9][\w\-\.]+\.[A-z0-9]{2,6})|(localhost))$/,
+	    value: '',
+            anchor: '100%'
+        },{
+            fieldLabel: 'Subject',
+            name: 'email_subject',
+	    allowBlank: false,
+	    value: 'ASR/ACD Report from ${DATE_FROM} to ${DATE_TO}',
+            anchor: '100%'
+        }, {
+            fieldLabel: 'Zip the Report',
+            xtype: 'checkbox',
+            name: 'email_zip',
+	    checked: true
+        }, {
+            xtype: 'textarea',
+            hideLabel: true,
+            name: 'email_message',
+	    value: 'Please see attached file.',
+            anchor: '100% -90'
+        }]
+    });
+    
+
+    var sendEMailWindow = new Ext.Window({
+	id: 'sendEMailWindow',
+        title: 'Send by E-Mail',
+        width: 500,
+        height:300,
+        minWidth: 300,
+        minHeight: 200,
+        layout: 'fit',
+        plain: true,
+        bodyStyle: 'padding: 5px;',
+        buttonAlign: 'center',
+        items: sendEMailForm,
+	closeAction: 'hide',
+	modal: true,
+
+        buttons: [{
+            text: 'Send',
+	    handler: function() {
+			var params = new Object;
+
+			var mainform = document.getElementById('mainform');
+			for (var i = 0; i < mainform.elements.length; i++) {
+				params[mainform.elements[i].name] = mainform.elements[i].value;
+			}
+
+			var url = document.URL.split('?');
+			url = url[0].split('/');
+			url = url[url.length - 1];
+
+			params['wrapped_file_name'] = url;
+			params['action'] = 'send_by_email';
+
+			var f = sendEMailForm.getForm();
+			f.submit({ success: function(form, action) {
+					sendEMailWindow.hide();
+				 },
+				   failure: function(form, action) {
+					var fn = function() { sendEMailWindow.hide(); };
+					if (typeof action.failureType == 'string') {
+					    if (action.failureType == Ext.form.Action.CLIENT_INVALID) {
+						msg = "Please fill in \'Send To\' and \'Subject\' fields.";
+						fn = Ext.emptyFn;
+					    } else {
+						msg = 'Unable to send the request.';
+						msg += ' Error code: ' + action.failureType;
+					    }
+					} else {
+					    msg = action.result.error_message;
+					}
+					Ext.Msg.show({
+						title: 'Error!!!',
+						closable: false,
+						icon: Ext.MessageBox.ERROR,
+						buttons: Ext.MessageBox.OK,
+						msg: msg,
+						fn: fn
+					});
+				 },
+				   params: params,
+				   waitMsg: 'Please wait...'
+			});
+		     }
+        },{
+            text: 'Cancel',
+	    handler: function() { sendEMailWindow.hide(); }
+        }]
+    });
+
+});
+
+function show_send_by_email() {
+    var w = Ext.getCmp('sendEMailWindow');
+    w.show();
+    w.center();
+}
+
+</script>
+
+
+
+<script type="text/javascript" src="/js/selectbox.js"></script>
+
+<script language="javascript">
+    function gotopage(n) {
+        form = document.getElementById("navform");
+        form.n.value = n;
+        form.action.value = "";
+        form.submit();
+    }
+
+
+    var vendor = 0;
+    var term_disp_list = new Array([0, 'None'],
+                                   [1, 'Vendor'],
+                                   [2, 'Connection']
+                                  );
+
+
+    function init_term_disp(obj) {
+        var form = document.getElementById("mainform");
+        var s = form.term_disp.value;
+
+        if (vendor == 0 && obj.value != 0) {
+            removeAllOptions(form.term_disp);
+            addOption(form.term_disp, term_disp_list[1][1], term_disp_list[1][0], term_disp_list[1][0] == s);
+            addOption(form.term_disp, term_disp_list[2][1], term_disp_list[2][0], term_disp_list[2][0] == s);
+        } else if (vendor != 0 && obj.value == 0) {
+            removeAllOptions(form.term_disp);
+            addOption(form.term_disp, term_disp_list[0][1], term_disp_list[0][0], term_disp_list[0][0] == s);
+            addOption(form.term_disp, term_disp_list[1][1], term_disp_list[1][0], term_disp_list[1][0] == s);
+            addOption(form.term_disp, term_disp_list[2][1], term_disp_list[2][0], term_disp_list[2][0] == s);
+        }
+        vendor = obj.value;
+
+        init_term_hide_zcalls(form.term_disp);
+    }
+
+    var term_hide_zcalls_disabled = 2 == 0;
+    function init_term_hide_zcalls(obj) {
+        var form = document.getElementById("mainform");
+
+        if (obj.value == 0) {
+            form.term_hide_zcalls.disabled = true;
+            term_hide_zcalls_disabled = 1;
+        } else {
+            form.term_hide_zcalls.disabled = false;
+            if (term_hide_zcalls_disabled) {
+                form.term_hide_zcalls.checked = true;
+                term_hide_zcalls_disabled = 0;
+            }
+        }
+    }
+
+
+    var caller_type = 0;
+    var orig_disp_list = new Array([0, 'None'],
+                                   [1, 'Caller'],
+                                   [2, 'IP'],
+                                   [3, 'IP/Caller']
+                                  );
+
+
+    function init_orig_disp(caller) {
+        var form = document.getElementById("mainform");
+        var s = form.orig_disp.value;
+        var new_caller_type = caller.split('_');
+        new_caller_type = new_caller_type[0];
+
+        if (caller_type == 0 && new_caller_type != 0) {
+            removeAllOptions(form.orig_disp);
+            addOption(form.orig_disp, orig_disp_list[1][1], orig_disp_list[1][0], orig_disp_list[1][0] == s);
+            addOption(form.orig_disp, orig_disp_list[2][1], orig_disp_list[2][0], orig_disp_list[2][0] == s);
+            addOption(form.orig_disp, orig_disp_list[3][1], orig_disp_list[3][0], orig_disp_list[3][0] == s);
+        } else if (caller_type != 0 && new_caller_type == 0) {
+            removeAllOptions(form.orig_disp);
+            addOption(form.orig_disp, orig_disp_list[0][1], orig_disp_list[0][0], orig_disp_list[0][0] == s);
+            addOption(form.orig_disp, orig_disp_list[1][1], orig_disp_list[1][0], orig_disp_list[1][0] == s);
+            addOption(form.orig_disp, orig_disp_list[2][1], orig_disp_list[2][0], orig_disp_list[2][0] == s);
+            addOption(form.orig_disp, orig_disp_list[3][1], orig_disp_list[3][0], orig_disp_list[3][0] == s);
+        }
+        caller_type = new_caller_type;
+
+        init_orig_hide_zcalls(form.orig_disp);
+    }
+
+    var orig_hide_zcalls_disabled = (3 == 0 || 3 == 2 || 3 == 3);
+    function init_orig_hide_zcalls(obj) {
+        var form = document.getElementById("mainform");
+
+        if (obj.value == 0 || obj.value == 2 || obj.value == 3) {
+            form.orig_hide_zcalls.disabled = true;
+            orig_hide_zcalls_disabled = 1;
+        } else {
+            form.orig_hide_zcalls.disabled = false;
+            if (orig_hide_zcalls_disabled) {
+                form.orig_hide_zcalls.checked = true;
+                orig_hide_zcalls_disabled = 0;
+            }
+        }
+    }
+
+</script>
+
+<script type="text/javascript">
+
+// create namespace
+Ext.namespace('sspExt');
+
+Ext.onReady(function() {
+    var startDate = new Ext.ssp.form.DateField({
+        applyTo: 'startDate',
+        format: 'd-m-Y H:i:s',
+        value: '90 minute ago'
+    });
+
+    var endDate = new Ext.ssp.form.DateField({
+        applyTo: 'endDate',
+        format: 'd-m-Y H:i:s',
+        value: '0 minutes ago'
+    });
+
+
+                new Ext.ToolTip({
+        target: 'conn_6',
+        html: 'Connection is Blocked.'
+    });
+
+                      new Ext.ToolTip({
+        target: 'conn_14',
+        html: 'Connection is Blocked.'
+    });
+
+                                                                                                                                            
+
+    var ds = new Ext.data.Store({
+        url: 'asr_acd.php',
+        baseParams: {action: 'get_filter_callers_list'},
+        reader: new Ext.data.XmlReader({
+                        totalRecords: "total",
+                        record: "row",
+                        id: "id"},
+                [{name: 'id'}, {name: 'value'}])
+    });
+    var resultTpl = new Ext.XTemplate(
+        '<tpl for="."><div class="callerSearch-item">',
+            '{value}',
+        '</div></tpl>'
+    );
+    ds.add([ new Ext.data.Record({ id: '0_0', value: 'All' }) ]);
+
+    var caller = new Ext.form.ComboBox({
+        applyTo: '_caller',
+        id: 'caller',
+        forceSelection: true,
+        store: ds,
+        displayField: 'value',
+        valueField: 'id',
+        hiddenName: 'caller',
+        width: 175,
+        listWidth: 250,
+        tpl: resultTpl,
+        itemSelector: 'div.callerSearch-item',
+        minChars: 0,
+        pageSize: 20,
+        queryDelay: 1000,
+        typeAhead: true,
+        cls: 'dp3',
+        emptyClass: 'vi2',
+        fieldClass: 'vi2',
+        focusClass: 'vi2',
+        listeners: {
+            change: function(combo, newVal, oldVal) {
+                        init_orig_disp(newVal)
+                    }
+        }
+    });
+
+    ds.add([ new Ext.data.Record({ id: '0_1', value: 'All Accounts' }) ]);
+    caller.setValue('0_1');
+
+    Ext.QuickTips.init();
+});
+
+</script>
+
+
+<form action="asr_acd.php" method="GET" id="mainform">
+<table cellpadding="5" cellspacing="0" width="100%"> 
+<tr>
+        <td class="Headline" width="100%">
+        ASR/ACD Reports        </td>
+</tr> 
+</table>
+
+<div class="formcol">
+
+  <div class="grouptitle">
+        Filter  </div>
+
+</div>
+<div class="formcol">
+
+  <div class="groupdata">
+
+    <div class="dataname" style="padding-top: 1px;">
+      <table cellspacing="0" cellpadding="0" width="175">
+       <tr>
+        <td align="left" valign="top" style="padding-top: 2px;">CLI</td>
+        <td align="right">
+        <select class="sel2" style="width: 80px;" name="cli_clause">
+          <option value="0">is like</option>
+          <option value="1" >is not like</option>
+        </select>
+        </td>
+       </tr>
+      </table>
+    </div>
+    <div class="dataval">
+        <input type="text" name="source" value="" class="sel2">
+    </div>
+
+    <div class="dataname">
+        Start Date/Time    </div>
+    <div class="dataval">
+        <input type="text" id="startDate" name="startDate" class="dp2">
+    </div>
+
+    <div class="dataname">
+        Highlight ASR below, %    </div>
+    <div class="dataval">
+        <input type="text" name="hl_asr_below" value="10" class="sel2">
+    </div>
+
+    <div class="dataname">
+        Origination Group by    </div>
+    <div class="dataval">
+        <select name="orig_disp" class="sel2" onChange="init_orig_hide_zcalls(this);">
+            <option value="0" >None</option>
+            <option value="1" >Caller</option>
+            <option value="2" >IP</option>
+            <option value="3" selected>IP/Caller</option>
+        </select>
+    </div>
+
+    <div class="dataname">
+        Caller    </div>
+    <div class="dataval">
+        <input type="text" class="vi2" id="_caller" >
+    </div>
+
+    <div class="dataname">
+        Sort by    </div>
+    <div class="dataval">
+        <select name="orig_sort_by" class="sel2">
+            <option value="0" >Caller Name</option>
+            <option value="5" >IP</option>
+            <option value="1" selected>Number of Calls</option>
+            <option value="2" >Billable Calls</option>
+            <option value="3" >Billed Duration</option>
+            <option value="4" >ASR</option>
+        </select>
+    </div>
+
+    <div class="dataname">
+        Hide Entries w/o Calls    </div>
+    <div class="dataval">
+        <input type="checkbox" name="orig_hide_zcalls" value="1"  disabled>
+    </div>
+
+  </div>
+
+  <div class="groupdata">
+
+    <div class="dataname" style="padding-top: 1px;">
+      <table cellspacing="0" cellpadding="0" width="175">
+       <tr>
+        <td align="left" valign="top" style="padding-top: 2px;">CLD</td>
+        <td align="right">
+        <select class="sel2" style="width: 80px;" name="cld_clause">
+          <option value="0">is like</option>
+          <option value="1" >is not like</option>
+        </select>
+        </td>
+       </tr>
+      </table>
+    </div>
+    <div class="dataval">
+        <input type="text" name="destination" value="" class="sel2">
+    </div>
+
+    <div class="dataname">
+        End Date/Time    </div>
+    <div class="dataval">
+        <input type="text" id="endDate" name="endDate" class="dp2">
+    </div>
+
+    <div class="dataname">
+        Currency    </div>
+    <div class="dataval">
+        <select name="cdr_currency" class="sel2">
+                            <option value="USD" selected>US Dollar (USD)</option>
+                    </select>           
+    </div>
+
+    <div class="dataname">
+        Termination Group by    </div>
+    <div class="dataval">
+        <select name="term_disp" class="sel2" onChange="init_term_hide_zcalls(this);">
+            <option value="0" >None</option>
+            <option value="1" >Vendor</option>
+            <option value="2" selected>Connection</option>
+        </select>
+    </div>
+
+    <div class="dataname">
+        Vendor    </div>
+    <div class="dataval">
+        <select name="vendor" class="sel2" onChange="init_term_disp(this)">
+            <option value="0" selected>All</option>
+                            <option value="15" >BICS</option>
+                            <option value="37" >BICS-IND-PR</option>
+                            <option value="106" >BICS-JAP-PR-PR</option>
+                            <option value="11" >BICS-PR-PR</option>
+                            <option value="104" >BICS-SINGAPORE-PR-PR</option>
+                            <option value="110" >BICS-ST/PLUS</option>
+                            <option value="56" >BTS</option>
+                            <option value="9" >BTS-BAN-PR-PR</option>
+                            <option value="82" >BTS-LAOS-PR-PR</option>
+                            <option value="30" >BTS-PR-PR-ETHOPIA</option>
+                            <option value="49" >CENTRED-TEL-ST-PLUS(444)</option>
+                            <option value="69" >CENTREDTEL-BD-ST-ST</option>
+                            <option value="109" >CENTREDTEL-ETHOPIA-ST-ST</option>
+                            <option value="44" >CENTREDTEL-INDIA_CLI</option>
+                            <option value="42" >CENTREDTEL-INDIA_PREMIUM(ORTP)</option>
+                            <option value="38" >CENTREDTEL-NEP-ST-ST</option>
+                            <option value="3" >CENTREDTEL-PAK-ST-ST(90Prefix)</option>
+                            <option value="12" >CENTREDTEL-ST-ST</option>
+                            <option value="32" >CITIC</option>
+                            <option value="65" >CITIC-IND-PR-PR</option>
+                            <option value="47" >DID-CONNECTION</option>
+                            <option value="87" >FTDL</option>
+                            <option value="22" >GLOBACOM</option>
+                            <option value="40" >GLOBAL-VOIP</option>
+                            <option value="136" >GNGN</option>
+                            <option value="39" >GTS</option>
+                            <option value="17" >HAYO-PAK-PR-PR</option>
+                            <option value="20" >HAYO-PR-PR-BD</option>
+                            <option value="31" >HGC</option>
+                            <option value="36" >IN2NET-BD-IGW-PR</option>
+                            <option value="10" >IN2NET-TECHNOLOGIES-BAN-PR-PR</option>
+                            <option value="13" >IN2NET-TECHNOLOGIES-IND-ST-ST</option>
+                            <option value="46" >INS-TELECOM-PR-PR(00)</option>
+                            <option value="90" >INS-TELECOM-ST-ST(99)</option>
+                            <option value="85" >INS-TELECOM-ST/PLUS(22)(BTCL)</option>
+                            <option value="45" >INTERNAL-TATA</option>
+                            <option value="112" >JUNCTIONZ-FIX-PAK-PR-PR</option>
+                            <option value="4" >JUNCTIONZ-PAK-PR-PR</option>
+                            <option value="50" >JUNCTIONZ-PAK-PR-PR(ST/PLUS)</option>
+                            <option value="94" >LANCKTEL-PAK-ST-ST</option>
+                            <option value="34" >LANCKTEL-PR-PR</option>
+                            <option value="97" >Lets-Dial</option>
+                            <option value="53" >MAINBERG</option>
+                            <option value="73" >MANOR-IT</option>
+                            <option value="57" >NGT</option>
+                            <option value="41" >OMAN-TEL-IND-PR-PR</option>
+                            <option value="14" >OMAN-TEL-PR-PR</option>
+                            <option value="33" >OMAN-TEL-YEM-PR-PR</option>
+                            <option value="16" >OMANTEL-PAK</option>
+                            <option value="48" >OTEGLOBE-A2Z-PR-PR</option>
+                            <option value="75" >PTCL-CC-Special(1000)</option>
+                            <option value="5" >PTCL-PAK-LL-PR-PR</option>
+                            <option value="19" >PTCL-PAK-MOBILE-PR-PR</option>
+                            <option value="115" >QGC-CC</option>
+                            <option value="51" >QUICKCOM</option>
+                            <option value="67" >QUICKCOM-BAN-ST-ST</option>
+                            <option value="8" >QUICKCOM-BTCL-PR-BRAVO (PREFIX 6)</option>
+                            <option value="71" >QUICKCOM-CC</option>
+                            <option value="96" >QUICKCOM-NEP-ST-ST</option>
+                            <option value="7" >QUICKCOM-PAK-PR-PR</option>
+                            <option value="21" >QUICKCOM-PR-PR</option>
+                            <option value="25" >QUICKCOM-ST-ST</option>
+                            <option value="70" >Quickcom-CC-Special(1000)</option>
+                            <option value="74" >Quickcom-special</option>
+                            <option value="119" >SAIF-GLOBAL-CC</option>
+                            <option value="118" >SAIF-GLOBAL-CLI</option>
+                            <option value="128" >SAIF-GLOBAL-ST-ST</option>
+                            <option value="59" >SB-PTCL-PAK-PR-PR</option>
+                            <option value="121" >SB-QGC</option>
+                            <option value="123" >SB-SAIF-GLOBAL-CLI</option>
+                            <option value="60" >SB-SKY-TELECOM-UK-PAK-PR-PR</option>
+                            <option value="122" >SB-ZONG-PR-PR</option>
+                            <option value="100" >SB1toSS1</option>
+                            <option value="129" >SB7-PTCL-PAK-PR-PR</option>
+                            <option value="130" >SB7-QGC-PR-PR</option>
+                            <option value="134" >SB7-QUICKCOM-PR-PR</option>
+                            <option value="131" >SB7-SAIF-GLOBAL-CLI</option>
+                            <option value="132" >SB7-SKY-TELECOM-UK-PAK-PR-PR</option>
+                            <option value="135" >SB7-TELSTRA-PR-PR</option>
+                            <option value="133" >SB7-ZONG-PR-PR</option>
+                            <option value="108" >SHENGLITEL-CC</option>
+                            <option value="24" >SKY-NET-LAB</option>
+                            <option value="111" >SKY-TELECOM-UK-FIX-PAK-PR-PR</option>
+                            <option value="6" >SKY-TELECOM-UK-PAK-PR-PR</option>
+                            <option value="81" >SPEEDFLOW-PR-PR</option>
+                            <option value="83" >SPEEDFLOW-ST-ST</option>
+                            <option value="88" >SS-BTS-BAN-PR-PR</option>
+                            <option value="62" >SS-JUNCTIONZ-PAK-PR-PR</option>
+                            <option value="64" >SS-JUNCTIONZ-PAK-ST-PLUS/ST</option>
+                            <option value="89" >SS-QUICKCOM-BAN-ST-ST</option>
+                            <option value="61" >SS-TELSTRA-PAK-PR-PR</option>
+                            <option value="63" >SS-TELSTRA-PAK-ST-ST</option>
+                            <option value="92" >SS-TELSTRA-PR-PR</option>
+                            <option value="23" >SUPERSMART</option>
+                            <option value="2" >System Vendor</option>
+                            <option value="86" >TATA</option>
+                            <option value="103" >TATA-IND-PR-PR</option>
+                            <option value="91" >TATA-PAK-PR-PR(7-prefix)</option>
+                            <option value="79" >TELECARD-PR-PR</option>
+                            <option value="43" >TELSTRA-BAN-PR-PR</option>
+                            <option value="99" >TELSTRA-JAPAN-PR-PR</option>
+                            <option value="66" >TELSTRA-KSA-PR-PR</option>
+                            <option value="114" >TELSTRA-PAK-LL-PR-PR</option>
+                            <option value="113" >TELSTRA-PAK-LL-ST-ST</option>
+                            <option value="72" >TELSTRA-PAK-PR-PR</option>
+                            <option value="29" >TELSTRA-PR-PR</option>
+                            <option value="124" >TELSTRA-PR-PR(DID)</option>
+                            <option value="27" >TELSTRA-ST-ST</option>
+                            <option value="95" >TELSTRA-TUNISIA-PR-PR</option>
+                            <option value="77" >TRIO-HUB-BD-BTCL-PR-PR</option>
+                            <option value="58" >US-MATRIX-A2Z-PR-PR</option>
+                            <option value="35" >VERSCOM-PR-PR</option>
+                            <option value="26" >VERSCOM-ST-ST</option>
+                            <option value="54" >VIA-CLOUD-BAN-PR-PR</option>
+                            <option value="102" >VIA-CLOUD-PR-PR</option>
+                            <option value="55" >VOVIDA</option>
+                            <option value="52" >VOXBEAM-USA-PR-PR</option>
+                            <option value="93" >WAVECREST-PR-PR</option>
+                            <option value="28" >ZONG-PR-PR</option>
+                            <option value="105" >callntalk</option>
+                            <option value="137" >callntalk-internal</option>
+                            <option value="18" >hayo-telecom</option>
+                            <option value="126" >in2net-technologies</option>
+                            <option value="84" >ins-telecom</option>
+                            <option value="68" >junctionz-ltd</option>
+                            <option value="117" >next-pagee</option>
+                            <option value="101" >qgc</option>
+                            <option value="116" >qgc-internal</option>
+                            <option value="120" >saif-voice</option>
+                            <option value="76" >sbc-2-sbc(reseller vendor)</option>
+                            <option value="107" >sky-telecom-uk</option>
+                            <option value="127" >super-smart-v</option>
+                            <option value="80" >telecard</option>
+                            <option value="78" >tiro-hub</option>
+                            <option value="125" >zong</option>
+                    </select>
+    </div>
+
+    <div class="dataname">
+        Sort by    </div>
+    <div class="dataval">
+        <select name="term_sort_by" class="sel2">
+            <option value="0" >Vendor / Connection Name</option>
+            <option value="1" selected>Number of Calls</option>
+            <option value="2" >Billable Calls</option>
+            <option value="3" >Billed Duration</option>
+            <option value="4" >ASR</option>
+        </select>
+    </div>
+
+    <div class="dataname">
+        Hide Entries w/o Calls    </div>
+    <div class="dataval">
+        <input type="checkbox" name="term_hide_zcalls" value="1" checked >
+    </div>
+
+
+  </div>
+
+</div>
+<div class="formcol">
+
+  <div class="genrep">
+    <div id="update_report"></div>
+    <div id="download_report"></div>
+    <div id="send_report"></div>
+    <input type="hidden" name="from_form" value="1">
+    <input type="hidden" id="action" name="action" value="">
+  </div>
+
+</div>
+
+</form>
+
+<form id="navform" method="GET" action="asr_acd.php">
+        <input type="hidden" name="action" value="">
+        <input type="hidden" name="n" value="">
+        <input type="hidden" name="startDate" value="90 minute ago">
+        <input type="hidden" name="endDate" value="0 minutes ago">
+        <input type="hidden" name="expStartDate" value="2026-04-10 10:21:09">
+        <input type="hidden" name="expEndDate" value="2026-04-10 11:51:09">
+        <input type="hidden" name="source" value="">
+        <input type="hidden" name="destination" value="">
+        <input type="hidden" name="caller" value="0_1">
+        <input type="hidden" name="vendor" value="0">
+        <input type="hidden" name="cdr_currency" value="USD">
+        <input type="hidden" name="cli_clause" value="0">
+        <input type="hidden" name="cld_clause" value="0">
+        <input type="hidden" name="term_disp" value="2">
+        <input type="hidden" name="orig_disp" value="3">
+        <input type="hidden" name="term_hide_zcalls" value="1">
+        <input type="hidden" name="orig_hide_zcalls" value="0">
+        <input type="hidden" name="orig_sort_by" value="1">
+        <input type="hidden" name="term_sort_by" value="1">
+        <input type="hidden" name="hl_asr_below" value="10">
+</form>
+
+
+<table width="100%" border=0>
+<tr><td>
+<center><strong>ASR/ACD Report</strong><br></center>
+</td></tr>
+
+<tr><td>
+
+<div class="separator"></div>
+
+</td></tr>
+<tr><td><TABLE width="100%" cellpadding=0 cellspacing=0>
+
+              <tr><td align=center colspan="8"><strong>Origination</strong></td></tr>
+
+              <TR bgcolor="#DDDDDD">
+                <TD align=center class=borderall><b>IP/Caller</b></TD>
+                <TD align=center width=120 class=borderallbutleft><b>Number of Calls</b></TD>
+                <TD align=center width=120 class=borderallbutleft><b>Billable Calls</b></TD>
+                <TD align=center width=120 class=borderallbutleft><b>Billed Duration, mm:ss</b></TD>
+                <TD align=center width=120 class=borderallbutleft><b>ACD, mm:ss</b></TD>
+                <TD align=center width=120 class=borderallbutleft><b>ASR, %</b></TD>
+                <TD align=center width=120 class=borderallbutleft><b>Average PDD, sec</b></TD>
+                <TD align=center width=120 class=borderallbutleft><b>Revenue, USD</b></TD>
+              </TR>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">185.32.78.123 / <a href="accounts.php?action=edit&account=29">Acct. Vovida</a></td>
+                                <td nowrap align="right" class="borderbottomright">9272</td>
+                                <td nowrap align="right" class="borderbottomright">105</td>
+                                <td nowrap align="right" class="borderbottomright">193:54</td>
+                                <td nowrap align="right" class="borderbottomright">01:50</td>
+                                <td nowrap align="right" class="borderbottomright">1.1324418</td>
+                                <td nowrap align="right" class="borderbottomright">0.5789461</td>
+                                <td nowrap align="right" class="borderbottomright">1.7451000</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">85.13.242.206 / <a href="accounts.php?action=edit&account=181">Acct. saarctel</a></td>
+                                <td nowrap align="right" class="borderbottomright">6672</td>
+                                <td nowrap align="right" class="borderbottomright">2576</td>
+                                <td nowrap align="right" class="borderbottomright">766:34</td>
+                                <td nowrap align="right" class="borderbottomright">00:17</td>
+                                <td nowrap align="right" class="borderbottomright">38.6091127</td>
+                                <td nowrap align="right" class="borderbottomright">4.5770649</td>
+                                <td nowrap align="right" class="borderbottomright">25.2967000</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">203.90.232.81 / <a href="accounts.php?action=edit&account=26">Acct. Quickcomm-Globe</a></td>
+                                <td nowrap align="right" class="borderbottomright">4634</td>
+                                <td nowrap align="right" class="borderbottomright">1238</td>
+                                <td nowrap align="right" class="borderbottomright">143:33</td>
+                                <td nowrap align="right" class="borderbottomright">00:07</td>
+                                <td nowrap align="right" class="borderbottomright">26.7155805</td>
+                                <td nowrap align="right" class="borderbottomright">3.0830564</td>
+                                <td nowrap align="right" class="borderbottomright">3.8609650</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">31.25.199.2 / <a href="accounts.php?action=edit&account=8">Acct. Manor-It</a></td>
+                                <td nowrap align="right" class="borderbottomright">2103</td>
+                                <td nowrap align="right" class="borderbottomright">44</td>
+                                <td nowrap align="right" class="borderbottomright">140:39</td>
+                                <td nowrap align="right" class="borderbottomright">03:11</td>
+                                <td nowrap align="right" class="borderbottomright">2.0922492</td>
+                                <td nowrap align="right" class="borderbottomright">0.7283909</td>
+                                <td nowrap align="right" class="borderbottomright">1.9012833</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">148.251.245.199 / <a href="accounts.php?action=edit&account=40">Acct. centredtel</a></td>
+                                <td nowrap align="right" class="borderbottomright">1616</td>
+                                <td nowrap align="right" class="borderbottomright">338</td>
+                                <td nowrap align="right" class="borderbottomright">324:55</td>
+                                <td nowrap align="right" class="borderbottomright">00:57</td>
+                                <td nowrap align="right" class="borderbottomright">20.9158416</td>
+                                <td nowrap align="right" class="borderbottomright">3.1268223</td>
+                                <td nowrap align="right" class="borderbottomright">6.7451967</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">31.25.199.3 / <a href="accounts.php?action=edit&account=8">Acct. Manor-It</a></td>
+                                <td nowrap align="right" class="borderbottomright">1337</td>
+                                <td nowrap align="right" class="borderbottomright">27</td>
+                                <td nowrap align="right" class="borderbottomright">92:32</td>
+                                <td nowrap align="right" class="borderbottomright">03:25</td>
+                                <td nowrap align="right" class="borderbottomright">2.0194465</td>
+                                <td nowrap align="right" class="borderbottomright">0.7814597</td>
+                                <td nowrap align="right" class="borderbottomright">0.8320750</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">203.90.232.82 / <a href="accounts.php?action=edit&account=26">Acct. Quickcomm-Globe</a></td>
+                                <td nowrap align="right" class="borderbottomright">1078</td>
+                                <td nowrap align="right" class="borderbottomright">236</td>
+                                <td nowrap align="right" class="borderbottomright">122:03</td>
+                                <td nowrap align="right" class="borderbottomright">00:31</td>
+                                <td nowrap align="right" class="borderbottomright">21.8923933</td>
+                                <td nowrap align="right" class="borderbottomright">2.5858303</td>
+                                <td nowrap align="right" class="borderbottomright">3.2085083</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">87.252.96.200 / <a href="accounts.php?action=edit&account=30">Acct. Via-Cloud</a></td>
+                                <td nowrap align="right" class="borderbottomright">1039</td>
+                                <td nowrap align="right" class="borderbottomright">194</td>
+                                <td nowrap align="right" class="borderbottomright">941:17</td>
+                                <td nowrap align="right" class="borderbottomright">04:44</td>
+                                <td nowrap align="right" class="borderbottomright">18.6717998</td>
+                                <td nowrap align="right" class="borderbottomright">2.8954870</td>
+                                <td nowrap align="right" class="borderbottomright">12.6990750</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">149.20.187.181 / <a href="accounts.php?action=edit&account=123">Acct. astra-global</a></td>
+                                <td nowrap align="right" class="borderbottomright">922</td>
+                                <td nowrap align="right" class="borderbottomright">298</td>
+                                <td nowrap align="right" class="borderbottomright">258:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:51</td>
+                                <td nowrap align="right" class="borderbottomright">32.3210412</td>
+                                <td nowrap align="right" class="borderbottomright">3.6034605</td>
+                                <td nowrap align="right" class="borderbottomright">7.0051417</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">87.252.96.204 / <a href="accounts.php?action=edit&account=30">Acct. Via-Cloud</a></td>
+                                <td nowrap align="right" class="borderbottomright">903</td>
+                                <td nowrap align="right" class="borderbottomright">35</td>
+                                <td nowrap align="right" class="borderbottomright">228:11</td>
+                                <td nowrap align="right" class="borderbottomright">06:31</td>
+                                <td nowrap align="right" class="borderbottomright">3.8759690</td>
+                                <td nowrap align="right" class="borderbottomright">1.3208784</td>
+                                <td nowrap align="right" class="borderbottomright">2.1013167</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">192.99.149.116 / <a href="accounts.php?action=edit&account=184">Acct. next-pagee</a></td>
+                                <td nowrap align="right" class="borderbottomright">741</td>
+                                <td nowrap align="right" class="borderbottomright">291</td>
+                                <td nowrap align="right" class="borderbottomright">121:24</td>
+                                <td nowrap align="right" class="borderbottomright">00:25</td>
+                                <td nowrap align="right" class="borderbottomright">39.2712551</td>
+                                <td nowrap align="right" class="borderbottomright">4.3955429</td>
+                                <td nowrap align="right" class="borderbottomright">3.8848000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">31.25.199.5 / <a href="accounts.php?action=edit&account=8">Acct. Manor-It</a></td>
+                                <td nowrap align="right" class="borderbottomright">701</td>
+                                <td nowrap align="right" class="borderbottomright">31</td>
+                                <td nowrap align="right" class="borderbottomright">162:42</td>
+                                <td nowrap align="right" class="borderbottomright">05:14</td>
+                                <td nowrap align="right" class="borderbottomright">4.4222539</td>
+                                <td nowrap align="right" class="borderbottomright">1.0328621</td>
+                                <td nowrap align="right" class="borderbottomright">1.8180250</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">31.25.199.4 / <a href="accounts.php?action=edit&account=8">Acct. Manor-It</a></td>
+                                <td nowrap align="right" class="borderbottomright">695</td>
+                                <td nowrap align="right" class="borderbottomright">41</td>
+                                <td nowrap align="right" class="borderbottomright">183:22</td>
+                                <td nowrap align="right" class="borderbottomright">04:28</td>
+                                <td nowrap align="right" class="borderbottomright">5.8992806</td>
+                                <td nowrap align="right" class="borderbottomright">0.9258879</td>
+                                <td nowrap align="right" class="borderbottomright">1.6659250</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">199.188.150.55 / <a href="accounts.php?action=edit&account=167">Acct. sip-globe</a></td>
+                                <td nowrap align="right" class="borderbottomright">689</td>
+                                <td nowrap align="right" class="borderbottomright">7</td>
+                                <td nowrap align="right" class="borderbottomright">02:02</td>
+                                <td nowrap align="right" class="borderbottomright">00:17</td>
+                                <td nowrap align="right" class="borderbottomright">1.0159652</td>
+                                <td nowrap align="right" class="borderbottomright">1.6908397</td>
+                                <td nowrap align="right" class="borderbottomright">0.0655333</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">87.252.96.206 / <a href="accounts.php?action=edit&account=30">Acct. Via-Cloud</a></td>
+                                <td nowrap align="right" class="borderbottomright">571</td>
+                                <td nowrap align="right" class="borderbottomright">135</td>
+                                <td nowrap align="right" class="borderbottomright">568:48</td>
+                                <td nowrap align="right" class="borderbottomright">04:08</td>
+                                <td nowrap align="right" class="borderbottomright">23.6427320</td>
+                                <td nowrap align="right" class="borderbottomright">2.0031658</td>
+                                <td nowrap align="right" class="borderbottomright">7.4163983</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">202.125.153.97 / <a href="accounts.php?action=edit&account=33">Acct. PTCL</a></td>
+                                <td nowrap align="right" class="borderbottomright">546</td>
+                                <td nowrap align="right" class="borderbottomright">135</td>
+                                <td nowrap align="right" class="borderbottomright">218:18</td>
+                                <td nowrap align="right" class="borderbottomright">01:37</td>
+                                <td nowrap align="right" class="borderbottomright">24.7252747</td>
+                                <td nowrap align="right" class="borderbottomright">5.4190323</td>
+                                <td nowrap align="right" class="borderbottomright">1.9865300</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">162.245.236.141 / <a href="accounts.php?action=edit&account=157">Acct. echolink.-voice</a></td>
+                                <td nowrap align="right" class="borderbottomright">511</td>
+                                <td nowrap align="right" class="borderbottomright">105</td>
+                                <td nowrap align="right" class="borderbottomright">26:23</td>
+                                <td nowrap align="right" class="borderbottomright">00:14</td>
+                                <td nowrap align="right" class="borderbottomright">20.5479452</td>
+                                <td nowrap align="right" class="borderbottomright">6.4326955</td>
+                                <td nowrap align="right" class="borderbottomright">0.2348117</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">142.4.217.204 / <a href="accounts.php?action=edit&account=181">Acct. saarctel</a></td>
+                                <td nowrap align="right" class="borderbottomright">362</td>
+                                <td nowrap align="right" class="borderbottomright">59</td>
+                                <td nowrap align="right" class="borderbottomright">194:18</td>
+                                <td nowrap align="right" class="borderbottomright">03:17</td>
+                                <td nowrap align="right" class="borderbottomright">16.2983425</td>
+                                <td nowrap align="right" class="borderbottomright">3.3199491</td>
+                                <td nowrap align="right" class="borderbottomright">6.1009750</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">154.12.251.64 / <a href="accounts.php?action=edit&account=120">Acct. voicenn</a></td>
+                                <td nowrap align="right" class="borderbottomright">149</td>
+                                <td nowrap align="right" class="borderbottomright">17</td>
+                                <td nowrap align="right" class="borderbottomright">10:38</td>
+                                <td nowrap align="right" class="borderbottomright">00:37</td>
+                                <td nowrap align="right" class="borderbottomright">11.4093960</td>
+                                <td nowrap align="right" class="borderbottomright">5.4828146</td>
+                                <td nowrap align="right" class="borderbottomright">0.3405333</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">206.251.255.35 / <a href="accounts.php?action=edit&account=193">Acct. JUNCTIONZ-LTD</a></td>
+                                <td nowrap align="right" class="borderbottomright">104</td>
+                                <td nowrap align="right" class="borderbottomright">13</td>
+                                <td nowrap align="right" class="borderbottomright">44:00</td>
+                                <td nowrap align="right" class="borderbottomright">02:42</td>
+                                <td nowrap align="right" class="borderbottomright">12.5000000</td>
+                                <td nowrap align="right" class="borderbottomright">3.1633923</td>
+                                <td nowrap align="right" class="borderbottomright">0.6732000</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">51.38.57.135 / <a href="accounts.php?action=edit&account=184">Acct. next-pagee</a></td>
+                                <td nowrap align="right" class="borderbottomright">88</td>
+                                <td nowrap align="right" class="borderbottomright">49</td>
+                                <td nowrap align="right" class="borderbottomright">26:49</td>
+                                <td nowrap align="right" class="borderbottomright">00:32</td>
+                                <td nowrap align="right" class="borderbottomright">55.6818182</td>
+                                <td nowrap align="right" class="borderbottomright">4.1149259</td>
+                                <td nowrap align="right" class="borderbottomright">0.9701333</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">202.68.207.12 / <a href="accounts.php?action=edit&account=52">Acct. CITIC</a></td>
+                                <td nowrap align="right" class="borderbottomright">87</td>
+                                <td nowrap align="right" class="borderbottomright">9</td>
+                                <td nowrap align="right" class="borderbottomright">11:17</td>
+                                <td nowrap align="right" class="borderbottomright">01:15</td>
+                                <td nowrap align="right" class="borderbottomright">10.3448276</td>
+                                <td nowrap align="right" class="borderbottomright">2.8461584</td>
+                                <td nowrap align="right" class="borderbottomright">0.1105767</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">51.254.198.190 / <a href="accounts.php?action=edit&account=182">Acct. magiktelecom</a></td>
+                                <td nowrap align="right" class="borderbottomright">66</td>
+                                <td nowrap align="right" class="borderbottomright">8</td>
+                                <td nowrap align="right" class="borderbottomright">04:18</td>
+                                <td nowrap align="right" class="borderbottomright">00:32</td>
+                                <td nowrap align="right" class="borderbottomright">12.1212121</td>
+                                <td nowrap align="right" class="borderbottomright">4.7849574</td>
+                                <td nowrap align="right" class="borderbottomright">0.1450000</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">87.252.99.74 / <a href="accounts.php?action=edit&account=30">Acct. Via-Cloud</a></td>
+                                <td nowrap align="right" class="borderbottomright">41</td>
+                                <td nowrap align="right" class="borderbottomright">5</td>
+                                <td nowrap align="right" class="borderbottomright">03:24</td>
+                                <td nowrap align="right" class="borderbottomright">00:40</td>
+                                <td nowrap align="right" class="borderbottomright">12.1951220</td>
+                                <td nowrap align="right" class="borderbottomright">2.2625146</td>
+                                <td nowrap align="right" class="borderbottomright">0.1258000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">135.148.132.125 / <a href="accounts.php?action=edit&account=219">Acct. maxplussoft</a></td>
+                                <td nowrap align="right" class="borderbottomright">22</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">00:14</td>
+                                <td nowrap align="right" class="borderbottomright">00:14</td>
+                                <td nowrap align="right" class="borderbottomright">4.5454545</td>
+                                <td nowrap align="right" class="borderbottomright">2.5591744</td>
+                                <td nowrap align="right" class="borderbottomright">0.0022867</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">103.244.246.115 / <a href="accounts.php?action=edit&account=28">Acct. FTDL</a></td>
+                                <td nowrap align="right" class="borderbottomright">21</td>
+                                <td nowrap align="right" class="borderbottomright">6</td>
+                                <td nowrap align="right" class="borderbottomright">01:54</td>
+                                <td nowrap align="right" class="borderbottomright">00:18</td>
+                                <td nowrap align="right" class="borderbottomright">28.5714286</td>
+                                <td nowrap align="right" class="borderbottomright">4.6452426</td>
+                                <td nowrap align="right" class="borderbottomright">0.0665167</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">134.159.15.4 / <a href="accounts.php?action=edit&account=50">Acct. Telstra-Standard</a></td>
+                                <td nowrap align="right" class="borderbottomright">20</td>
+                                <td nowrap align="right" class="borderbottomright">20</td>
+                                <td nowrap align="right" class="borderbottomright">06:11</td>
+                                <td nowrap align="right" class="borderbottomright">00:18</td>
+                                <td nowrap align="right" class="borderbottomright">100.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">5.6886234</td>
+                                <td nowrap align="right" class="borderbottomright">0.2071417</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">94.130.163.28 / <a href="accounts.php?action=edit&account=189">Acct. avm-networks-limited.</a></td>
+                                <td nowrap align="right" class="borderbottomright">19</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">1.3027293</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">185.231.78.26 / <a href="accounts.php?action=edit&account=3">Acct. QGC</a></td>
+                                <td nowrap align="right" class="borderbottomright">17</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">00:09</td>
+                                <td nowrap align="right" class="borderbottomright">00:08</td>
+                                <td nowrap align="right" class="borderbottomright">5.8823529</td>
+                                <td nowrap align="right" class="borderbottomright">5.4800337</td>
+                                <td nowrap align="right" class="borderbottomright">0.0047250</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">103.205.81.1 / <a href="accounts.php?action=edit&account=48">Acct. NGT-NETWORKS-PTE-LTD</a></td>
+                                <td nowrap align="right" class="borderbottomright">12</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">00:02</td>
+                                <td nowrap align="right" class="borderbottomright">00:02</td>
+                                <td nowrap align="right" class="borderbottomright">8.3333333</td>
+                                <td nowrap align="right" class="borderbottomright">1.3877872</td>
+                                <td nowrap align="right" class="borderbottomright">0.0010500</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">178.22.14.80 / <a href="accounts.php?action=edit&account=45">Acct. Wave-Crest</a></td>
+                                <td nowrap align="right" class="borderbottomright">11</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">00:02</td>
+                                <td nowrap align="right" class="borderbottomright">00:02</td>
+                                <td nowrap align="right" class="borderbottomright">9.0909091</td>
+                                <td nowrap align="right" class="borderbottomright">2.1451009</td>
+                                <td nowrap align="right" class="borderbottomright">0.0012833</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">72.21.26.70 / <a href="accounts.php?action=edit&account=114">Acct. adolce-telecom</a></td>
+                                <td nowrap align="right" class="borderbottomright">10</td>
+                                <td nowrap align="right" class="borderbottomright">4</td>
+                                <td nowrap align="right" class="borderbottomright">00:22</td>
+                                <td nowrap align="right" class="borderbottomright">00:05</td>
+                                <td nowrap align="right" class="borderbottomright">40.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">4.4882846</td>
+                                <td nowrap align="right" class="borderbottomright">0.0139333</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">159.138.254.244 / <a href="accounts.php?action=edit&account=186">Acct. wd-cloud</a></td>
+                                <td nowrap align="right" class="borderbottomright">9</td>
+                                <td nowrap align="right" class="borderbottomright">9</td>
+                                <td nowrap align="right" class="borderbottomright">01:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:06</td>
+                                <td nowrap align="right" class="borderbottomright">100.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">2.3817878</td>
+                                <td nowrap align="right" class="borderbottomright">0.0380000</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">108.59.2.131 / <a href="accounts.php?action=edit&account=43">Acct. Voxbeam</a></td>
+                                <td nowrap align="right" class="borderbottomright">8</td>
+                                <td nowrap align="right" class="borderbottomright">2</td>
+                                <td nowrap align="right" class="borderbottomright">00:56</td>
+                                <td nowrap align="right" class="borderbottomright">00:28</td>
+                                <td nowrap align="right" class="borderbottomright">25.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">1.5427744</td>
+                                <td nowrap align="right" class="borderbottomright">0.0903567</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">94.75.247.5 / <a href="accounts.php?action=edit&account=43">Acct. Voxbeam</a></td>
+                                <td nowrap align="right" class="borderbottomright">4</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">2.0160217</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">104.245.246.113 / <a href="accounts.php?action=edit&account=53">Acct. crystal-link-demo</a></td>
+                                <td nowrap align="right" class="borderbottomright">3</td>
+                                <td nowrap align="right" class="borderbottomright">2</td>
+                                <td nowrap align="right" class="borderbottomright">00:31</td>
+                                <td nowrap align="right" class="borderbottomright">00:15</td>
+                                <td nowrap align="right" class="borderbottomright">66.6666667</td>
+                                <td nowrap align="right" class="borderbottomright">1.2379292</td>
+                                <td nowrap align="right" class="borderbottomright">0.0054767</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">141.11.142.197 / <a href="accounts.php?action=edit&account=191">Acct. mask</a></td>
+                                <td nowrap align="right" class="borderbottomright">3</td>
+                                <td nowrap align="right" class="borderbottomright">3</td>
+                                <td nowrap align="right" class="borderbottomright">00:26</td>
+                                <td nowrap align="right" class="borderbottomright">00:08</td>
+                                <td nowrap align="right" class="borderbottomright">100.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">4.5246229</td>
+                                <td nowrap align="right" class="borderbottomright">0.0167000</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">66.232.105.154 / <a href="accounts.php?action=edit&account=44">Acct. Amantel</a></td>
+                                <td nowrap align="right" class="borderbottomright">3</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">01:26</td>
+                                <td nowrap align="right" class="borderbottomright">01:25</td>
+                                <td nowrap align="right" class="borderbottomright">33.3333333</td>
+                                <td nowrap align="right" class="borderbottomright">3.9631413</td>
+                                <td nowrap align="right" class="borderbottomright">0.0293833</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">193.104.107.5 / <a href="accounts.php?action=edit&account=102">Acct. Speed-Flow</a></td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.9029075</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">74.201.101.60 / <a href="accounts.php?action=edit&account=45">Acct. Wave-Crest</a></td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">2.8863156</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop">62.75.16.32 / <a href="accounts.php?action=edit&account=38">Acct. oteglobe</a></td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">02:53</td>
+                                <td nowrap align="right" class="borderbottomright">02:53</td>
+                                <td nowrap align="right" class="borderbottomright">100.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.6770651</td>
+                                <td nowrap align="right" class="borderbottomright">0.1023583</td>
+                        </tr>
+                
+                <tr><td colspan="8">&nbsp;</td></tr>
+
+              <tr><td align=center colspan="8"><strong>Termination</strong></td></tr>
+
+              <TR bgcolor="#DDDDDD">
+                <TD align=center class=borderall><b>Vendor / Connection</b></TD>
+                <TD align=center width=100 class=borderallbutleft><b>Number of Calls</b></TD>
+                <TD align=center width=100 class=borderallbutleft><b>Billable Calls</b></TD>
+                <TD align=center width=100 class=borderallbutleft><b>Billed Duration, mm:ss</b></TD>
+                <TD align=center width=100 class=borderallbutleft><b>ACD, mm:ss</b></TD>
+                <TD align=center width=100 class=borderallbutleft><b>ASR, %</b></TD>
+                <TD align=center width=100 class=borderallbutleft><b>Average PDD, sec</b></TD>
+                <TD align=center width=100 class=borderallbutleft><b>Cost, USD</b></TD>
+              </TR>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_1">
+                                        <a href="vendors.php?action=edit&i_vendor=6">SKY-TELECOM-UK-PAK-PR-PR</a>/<a href="connections.php?account=25736&action=edit&id_vendor=6" >SKY-TELECOM-UK-PAK-PREFIX-7(ORTP)(MANOR)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">13972</td>
+                                <td nowrap align="right" class="borderbottomright">203</td>
+                                <td nowrap align="right" class="borderbottomright">560:03</td>
+                                <td nowrap align="right" class="borderbottomright">02:45</td>
+                                <td nowrap align="right" class="borderbottomright">1.4529058</td>
+                                <td nowrap align="right" class="borderbottomright">0.4029259</td>
+                                <td nowrap align="right" class="borderbottomright">4.4804000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_2">
+                                        <a href="vendors.php?action=edit&i_vendor=101">qgc</a>/<a href="connections.php?account=25739&action=edit&id_vendor=101" >QGC-PAK-PR-CHARLIE(ORTP)(MANOR)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">13032</td>
+                                <td nowrap align="right" class="borderbottomright">36</td>
+                                <td nowrap align="right" class="borderbottomright">167:23</td>
+                                <td nowrap align="right" class="borderbottomright">04:39</td>
+                                <td nowrap align="right" class="borderbottomright">0.2762431</td>
+                                <td nowrap align="right" class="borderbottomright">0.1587149</td>
+                                <td nowrap align="right" class="borderbottomright">1.2553750</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_3">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=168&action=edit&id_vendor=19" >PTCL-(.113) -CHARLIE-Mobile</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">6106</td>
+                                <td nowrap align="right" class="borderbottomright">314</td>
+                                <td nowrap align="right" class="borderbottomright">109:20</td>
+                                <td nowrap align="right" class="borderbottomright">00:20</td>
+                                <td nowrap align="right" class="borderbottomright">5.1424828</td>
+                                <td nowrap align="right" class="borderbottomright">1.6037060</td>
+                                <td nowrap align="right" class="borderbottomright">2.8016667</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_4">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=169&action=edit&id_vendor=19" >PTCL-(.97) -CHARLIE-Mobile</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">6081</td>
+                                <td nowrap align="right" class="borderbottomright">334</td>
+                                <td nowrap align="right" class="borderbottomright">92:36</td>
+                                <td nowrap align="right" class="borderbottomright">00:16</td>
+                                <td nowrap align="right" class="borderbottomright">5.4925177</td>
+                                <td nowrap align="right" class="borderbottomright">1.5551057</td>
+                                <td nowrap align="right" class="borderbottomright">2.3286667</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_5">
+                                        <a href="vendors.php?action=edit&i_vendor=105">callntalk</a>/<a href="connections.php?account=7867&action=edit&id_vendor=105" >CALLNTALK-PR-CHARLIE(RETAIL)(PAK)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">4952</td>
+                                <td nowrap align="right" class="borderbottomright">1079</td>
+                                <td nowrap align="right" class="borderbottomright">233:38</td>
+                                <td nowrap align="right" class="borderbottomright">00:12</td>
+                                <td nowrap align="right" class="borderbottomright">21.7891761</td>
+                                <td nowrap align="right" class="borderbottomright">3.8244993</td>
+                                <td nowrap align="right" class="borderbottomright">1.8402833</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_6">
+                                        <a href="vendors.php?action=edit&i_vendor=137">callntalk-internal</a>/<a href="connections.php?account=25792&action=edit&id_vendor=137" style="text-decoration: line-through">callntalk-internal</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">4355</td>
+                                <td nowrap align="right" class="borderbottomright">62</td>
+                                <td nowrap align="right" class="borderbottomright">14:32</td>
+                                <td nowrap align="right" class="borderbottomright">00:14</td>
+                                <td nowrap align="right" class="borderbottomright">1.4236510</td>
+                                <td nowrap align="right" class="borderbottomright">0.5933284</td>
+                                <td nowrap align="right" class="borderbottomright">0.1090000</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_7">
+                                        <a href="vendors.php?action=edit&i_vendor=6">SKY-TELECOM-UK-PAK-PR-PR</a>/<a href="connections.php?account=7&action=edit&id_vendor=6" >SKY-TELECOM-UK-PAK-PR-PR(25)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">3588</td>
+                                <td nowrap align="right" class="borderbottomright">409</td>
+                                <td nowrap align="right" class="borderbottomright">1817:15</td>
+                                <td nowrap align="right" class="borderbottomright">04:26</td>
+                                <td nowrap align="right" class="borderbottomright">11.3991081</td>
+                                <td nowrap align="right" class="borderbottomright">1.3567407</td>
+                                <td nowrap align="right" class="borderbottomright">14.6061833</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_8">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=23&action=edit&id_vendor=19" >PTCL-(.113) -CHARLIE-MOBILINK(Quickcom)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">3057</td>
+                                <td nowrap align="right" class="borderbottomright">93</td>
+                                <td nowrap align="right" class="borderbottomright">17:41</td>
+                                <td nowrap align="right" class="borderbottomright">00:11</td>
+                                <td nowrap align="right" class="borderbottomright">3.0421982</td>
+                                <td nowrap align="right" class="borderbottomright">1.4068155</td>
+                                <td nowrap align="right" class="borderbottomright">0.4420833</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_9">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=24&action=edit&id_vendor=19" >PTCL-(97)-CHARLIE-MOBILINK(Quickcom)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">3007</td>
+                                <td nowrap align="right" class="borderbottomright">95</td>
+                                <td nowrap align="right" class="borderbottomright">23:27</td>
+                                <td nowrap align="right" class="borderbottomright">00:15</td>
+                                <td nowrap align="right" class="borderbottomright">3.1592950</td>
+                                <td nowrap align="right" class="borderbottomright">1.3494482</td>
+                                <td nowrap align="right" class="borderbottomright">0.5862500</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_10">
+                                        <a href="vendors.php?action=edit&i_vendor=105">callntalk</a>/<a href="connections.php?account=7866&action=edit&id_vendor=105" >CALLNTALK-PR-CHARLIE(QUICKCOM)(Pak-CC)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1799</td>
+                                <td nowrap align="right" class="borderbottomright">477</td>
+                                <td nowrap align="right" class="borderbottomright">62:10</td>
+                                <td nowrap align="right" class="borderbottomright">00:08</td>
+                                <td nowrap align="right" class="borderbottomright">26.5147304</td>
+                                <td nowrap align="right" class="borderbottomright">3.7176574</td>
+                                <td nowrap align="right" class="borderbottomright">0.4662500</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_11">
+                                        <a href="vendors.php?action=edit&i_vendor=101">qgc</a>/<a href="connections.php?account=25730&action=edit&id_vendor=101" >QGC-PAK-PR-PR(ORTP)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1593</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.1366708</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_12">
+                                        <a href="vendors.php?action=edit&i_vendor=23">SUPERSMART</a>/<a href="connections.php?account=15966&action=edit&id_vendor=23" >SUPERSMART-CHARLIE-(RETAIL)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1592</td>
+                                <td nowrap align="right" class="borderbottomright">1501</td>
+                                <td nowrap align="right" class="borderbottomright">547:42</td>
+                                <td nowrap align="right" class="borderbottomright">00:21</td>
+                                <td nowrap align="right" class="borderbottomright">94.2839196</td>
+                                <td nowrap align="right" class="borderbottomright">0.0186972</td>
+                                <td nowrap align="right" class="borderbottomright">0.5477000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_13">
+                                        <a href="vendors.php?action=edit&i_vendor=118">SAIF-GLOBAL-CLI</a>/<a href="connections.php?account=25788&action=edit&id_vendor=118" >SAIF-GLOBAL-PR-PR-ORTP(QUICKCOM)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1267</td>
+                                <td nowrap align="right" class="borderbottomright">16</td>
+                                <td nowrap align="right" class="borderbottomright">52:44</td>
+                                <td nowrap align="right" class="borderbottomright">03:17</td>
+                                <td nowrap align="right" class="borderbottomright">1.2628256</td>
+                                <td nowrap align="right" class="borderbottomright">1.1351146</td>
+                                <td nowrap align="right" class="borderbottomright">1.4987817</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_14">
+                                        <a href="vendors.php?action=edit&i_vendor=23">SUPERSMART</a>/<a href="connections.php?account=25726&action=edit&id_vendor=23" style="text-decoration: line-through">SUPER-SMART(PAK)(3-6)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">805</td>
+                                <td nowrap align="right" class="borderbottomright">798</td>
+                                <td nowrap align="right" class="borderbottomright">155:15</td>
+                                <td nowrap align="right" class="borderbottomright">00:12</td>
+                                <td nowrap align="right" class="borderbottomright">99.1304348</td>
+                                <td nowrap align="right" class="borderbottomright">0.0071771</td>
+                                <td nowrap align="right" class="borderbottomright">1.1643750</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_15">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=25735&action=edit&id_vendor=19" >PTCL-PR-PR-TELENOR(97)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">787</td>
+                                <td nowrap align="right" class="borderbottomright">32</td>
+                                <td nowrap align="right" class="borderbottomright">129:28</td>
+                                <td nowrap align="right" class="borderbottomright">04:02</td>
+                                <td nowrap align="right" class="borderbottomright">4.0660737</td>
+                                <td nowrap align="right" class="borderbottomright">1.4601776</td>
+                                <td nowrap align="right" class="borderbottomright">3.8840000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_16">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=25734&action=edit&id_vendor=19" >PTCL-PR-PR-TELENOR(113)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">754</td>
+                                <td nowrap align="right" class="borderbottomright">41</td>
+                                <td nowrap align="right" class="borderbottomright">115:33</td>
+                                <td nowrap align="right" class="borderbottomright">02:49</td>
+                                <td nowrap align="right" class="borderbottomright">5.4376658</td>
+                                <td nowrap align="right" class="borderbottomright">1.4815428</td>
+                                <td nowrap align="right" class="borderbottomright">3.4665000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_17">
+                                        <a href="vendors.php?action=edit&i_vendor=4">JUNCTIONZ-PAK-PR-PR</a>/<a href="connections.php?account=25746&action=edit&id_vendor=4" >JUNCTIONZ-PAK-PR-PR(.18)(ORTP)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">523</td>
+                                <td nowrap align="right" class="borderbottomright">7</td>
+                                <td nowrap align="right" class="borderbottomright">07:39</td>
+                                <td nowrap align="right" class="borderbottomright">01:05</td>
+                                <td nowrap align="right" class="borderbottomright">1.3384321</td>
+                                <td nowrap align="right" class="borderbottomright">0.5786160</td>
+                                <td nowrap align="right" class="borderbottomright">0.0943500</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_18">
+                                        <a href="vendors.php?action=edit&i_vendor=4">JUNCTIONZ-PAK-PR-PR</a>/<a href="connections.php?account=25747&action=edit&id_vendor=4" >JUNCTIONZ-PAK-PR-PR(.19)(ORTP)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">515</td>
+                                <td nowrap align="right" class="borderbottomright">2</td>
+                                <td nowrap align="right" class="borderbottomright">00:49</td>
+                                <td nowrap align="right" class="borderbottomright">00:25</td>
+                                <td nowrap align="right" class="borderbottomright">0.3883495</td>
+                                <td nowrap align="right" class="borderbottomright">0.6597030</td>
+                                <td nowrap align="right" class="borderbottomright">0.0073500</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_19">
+                                        <a href="vendors.php?action=edit&i_vendor=38">CENTREDTEL-NEP-ST-ST</a>/<a href="connections.php?account=52&action=edit&id_vendor=38" >CENTREDTEL-NEP-ST-ST(Prefix90)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">501</td>
+                                <td nowrap align="right" class="borderbottomright">41</td>
+                                <td nowrap align="right" class="borderbottomright">92:00</td>
+                                <td nowrap align="right" class="borderbottomright">01:41</td>
+                                <td nowrap align="right" class="borderbottomright">8.1836327</td>
+                                <td nowrap align="right" class="borderbottomright">3.2115474</td>
+                                <td nowrap align="right" class="borderbottomright">6.8540000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_20">
+                                        <a href="vendors.php?action=edit&i_vendor=9">BTS-BAN-PR-PR</a>/<a href="connections.php?account=9506&action=edit&id_vendor=9" >BTS-BAN-PR-PR(RETAIL)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">445</td>
+                                <td nowrap align="right" class="borderbottomright">14</td>
+                                <td nowrap align="right" class="borderbottomright">04:02</td>
+                                <td nowrap align="right" class="borderbottomright">00:17</td>
+                                <td nowrap align="right" class="borderbottomright">3.1460674</td>
+                                <td nowrap align="right" class="borderbottomright">4.1225847</td>
+                                <td nowrap align="right" class="borderbottomright">0.0358967</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_21">
+                                        <a href="vendors.php?action=edit&i_vendor=105">callntalk</a>/<a href="connections.php?account=8696&action=edit&id_vendor=105" >CALLNTALK-PR-PR(BAN)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">440</td>
+                                <td nowrap align="right" class="borderbottomright">91</td>
+                                <td nowrap align="right" class="borderbottomright">22:21</td>
+                                <td nowrap align="right" class="borderbottomright">00:14</td>
+                                <td nowrap align="right" class="borderbottomright">20.6818182</td>
+                                <td nowrap align="right" class="borderbottomright">3.6927114</td>
+                                <td nowrap align="right" class="borderbottomright">0.1788000</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_22">
+                                        <a href="vendors.php?action=edit&i_vendor=67">QUICKCOM-BAN-ST-ST</a>/<a href="connections.php?account=150&action=edit&id_vendor=67" >QUICKCOM-BAN-ST-ST-PR(PTCL)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">394</td>
+                                <td nowrap align="right" class="borderbottomright">76</td>
+                                <td nowrap align="right" class="borderbottomright">130:55</td>
+                                <td nowrap align="right" class="borderbottomright">01:43</td>
+                                <td nowrap align="right" class="borderbottomright">19.2893401</td>
+                                <td nowrap align="right" class="borderbottomright">3.8696369</td>
+                                <td nowrap align="right" class="borderbottomright">1.0997000</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_23">
+                                        <a href="vendors.php?action=edit&i_vendor=115">QGC-CC</a>/<a href="connections.php?account=25791&action=edit&id_vendor=115" >QGC-PAK-CC-PR(TDM)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">369</td>
+                                <td nowrap align="right" class="borderbottomright">39</td>
+                                <td nowrap align="right" class="borderbottomright">123:59</td>
+                                <td nowrap align="right" class="borderbottomright">03:10</td>
+                                <td nowrap align="right" class="borderbottomright">10.5691057</td>
+                                <td nowrap align="right" class="borderbottomright">0.3777169</td>
+                                <td nowrap align="right" class="borderbottomright">3.2970767</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_24">
+                                        <a href="vendors.php?action=edit&i_vendor=57">NGT</a>/<a href="connections.php?account=25748&action=edit&id_vendor=57" >NGT-BAN-PR-PR</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">329</td>
+                                <td nowrap align="right" class="borderbottomright">59</td>
+                                <td nowrap align="right" class="borderbottomright">87:23</td>
+                                <td nowrap align="right" class="borderbottomright">01:28</td>
+                                <td nowrap align="right" class="borderbottomright">17.9331307</td>
+                                <td nowrap align="right" class="borderbottomright">6.1162982</td>
+                                <td nowrap align="right" class="borderbottomright">0.7689733</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_25">
+                                        <a href="vendors.php?action=edit&i_vendor=28">ZONG-PR-PR</a>/<a href="connections.php?account=155&action=edit&id_vendor=28" >ZONG-A2Z-PR-PR(.73)(CHARLIE)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">177</td>
+                                <td nowrap align="right" class="borderbottomright">65</td>
+                                <td nowrap align="right" class="borderbottomright">13:07</td>
+                                <td nowrap align="right" class="borderbottomright">00:12</td>
+                                <td nowrap align="right" class="borderbottomright">36.7231638</td>
+                                <td nowrap align="right" class="borderbottomright">2.4443629</td>
+                                <td nowrap align="right" class="borderbottomright">0.4590833</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_26">
+                                        <a href="vendors.php?action=edit&i_vendor=6">SKY-TELECOM-UK-PAK-PR-PR</a>/<a href="connections.php?account=25323&action=edit&id_vendor=6" >SKY-TELECOM-UK-PAK-PR-PR(ORTP)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">176</td>
+                                <td nowrap align="right" class="borderbottomright">4</td>
+                                <td nowrap align="right" class="borderbottomright">02:14</td>
+                                <td nowrap align="right" class="borderbottomright">00:33</td>
+                                <td nowrap align="right" class="borderbottomright">2.2727273</td>
+                                <td nowrap align="right" class="borderbottomright">0.6767837</td>
+                                <td nowrap align="right" class="borderbottomright">0.0213467</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_27">
+                                        <a href="vendors.php?action=edit&i_vendor=12">CENTREDTEL-ST-ST</a>/<a href="connections.php?account=14&action=edit&id_vendor=12" >CENTREDTEL-IND-ST-ST</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">160</td>
+                                <td nowrap align="right" class="borderbottomright">14</td>
+                                <td nowrap align="right" class="borderbottomright">34:00</td>
+                                <td nowrap align="right" class="borderbottomright">01:52</td>
+                                <td nowrap align="right" class="borderbottomright">8.7500000</td>
+                                <td nowrap align="right" class="borderbottomright">1.5628442</td>
+                                <td nowrap align="right" class="borderbottomright">0.1564000</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_28">
+                                        <a href="vendors.php?action=edit&i_vendor=28">ZONG-PR-PR</a>/<a href="connections.php?account=154&action=edit&id_vendor=28" >ZONG-A2Z-PR-PR(.156)(CHARLIE)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">160</td>
+                                <td nowrap align="right" class="borderbottomright">56</td>
+                                <td nowrap align="right" class="borderbottomright">08:38</td>
+                                <td nowrap align="right" class="borderbottomright">00:09</td>
+                                <td nowrap align="right" class="borderbottomright">35.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">2.3047877</td>
+                                <td nowrap align="right" class="borderbottomright">0.3021667</td>
+                        </tr>
+                                        <tr bgcolor="#FFFFFF" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_29">
+                                        <a href="vendors.php?action=edit&i_vendor=25">QUICKCOM-ST-ST</a>/<a href="connections.php?account=4858&action=edit&id_vendor=25" >QUICKCOM-PAK-ST/PR(UFONE)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">122</td>
+                                <td nowrap align="right" class="borderbottomright">28</td>
+                                <td nowrap align="right" class="borderbottomright">59:14</td>
+                                <td nowrap align="right" class="borderbottomright">02:07</td>
+                                <td nowrap align="right" class="borderbottomright">22.9508197</td>
+                                <td nowrap align="right" class="borderbottomright">1.1523671</td>
+                                <td nowrap align="right" class="borderbottomright">1.6940733</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_30">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=25757&action=edit&id_vendor=19" >PTCL-PR-CHARLIE(ORTP)(TELENOR)(113)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">111</td>
+                                <td nowrap align="right" class="borderbottomright">5</td>
+                                <td nowrap align="right" class="borderbottomright">33:10</td>
+                                <td nowrap align="right" class="borderbottomright">06:38</td>
+                                <td nowrap align="right" class="borderbottomright">4.5045045</td>
+                                <td nowrap align="right" class="borderbottomright">1.5686431</td>
+                                <td nowrap align="right" class="borderbottomright">0.9950000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_31">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=25758&action=edit&id_vendor=19" >PTCL-PR-CHARLIE(ORTP)(TELENOR)(97)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">108</td>
+                                <td nowrap align="right" class="borderbottomright">4</td>
+                                <td nowrap align="right" class="borderbottomright">12:33</td>
+                                <td nowrap align="right" class="borderbottomright">03:08</td>
+                                <td nowrap align="right" class="borderbottomright">3.7037037</td>
+                                <td nowrap align="right" class="borderbottomright">1.5882511</td>
+                                <td nowrap align="right" class="borderbottomright">0.3765000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_32">
+                                        <a href="vendors.php?action=edit&i_vendor=105">callntalk</a>/<a href="connections.php?account=16813&action=edit&id_vendor=105" >CALLNTALK-PR-CHARLIE(PAK)(601)(Quickcom)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">95</td>
+                                <td nowrap align="right" class="borderbottomright">8</td>
+                                <td nowrap align="right" class="borderbottomright">02:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:15</td>
+                                <td nowrap align="right" class="borderbottomright">8.4210526</td>
+                                <td nowrap align="right" class="borderbottomright">4.6727071</td>
+                                <td nowrap align="right" class="borderbottomright">0.0150000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_33">
+                                        <a href="vendors.php?action=edit&i_vendor=128">SAIF-GLOBAL-ST-ST</a>/<a href="connections.php?account=25768&action=edit&id_vendor=128" >SAIF-GLOBAL-ST-ST/PR(Quickcom)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">88</td>
+                                <td nowrap align="right" class="borderbottomright">8</td>
+                                <td nowrap align="right" class="borderbottomright">31:15</td>
+                                <td nowrap align="right" class="borderbottomright">03:54</td>
+                                <td nowrap align="right" class="borderbottomright">9.0909091</td>
+                                <td nowrap align="right" class="borderbottomright">3.1510499</td>
+                                <td nowrap align="right" class="borderbottomright">0.2656250</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_34">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=79&action=edit&id_vendor=19" >PTCL-(113) (ORTP)(PREFIX-6)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">83</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">1.1521672</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_35">
+                                        <a href="vendors.php?action=edit&i_vendor=12">CENTREDTEL-ST-ST</a>/<a href="connections.php?account=25727&action=edit&id_vendor=12" >CENTREDTEL-IND-ST-PR(Quickcom)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">75</td>
+                                <td nowrap align="right" class="borderbottomright">5</td>
+                                <td nowrap align="right" class="borderbottomright">03:55</td>
+                                <td nowrap align="right" class="borderbottomright">00:47</td>
+                                <td nowrap align="right" class="borderbottomright">6.6666667</td>
+                                <td nowrap align="right" class="borderbottomright">1.3407429</td>
+                                <td nowrap align="right" class="borderbottomright">0.0180167</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_36">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=23477&action=edit&id_vendor=19" >PTCL-(.113) -CHARLIE-Mobile(TELKART)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">60</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">00:02</td>
+                                <td nowrap align="right" class="borderbottomright">00:01</td>
+                                <td nowrap align="right" class="borderbottomright">1.6666667</td>
+                                <td nowrap align="right" class="borderbottomright">1.5142294</td>
+                                <td nowrap align="right" class="borderbottomright">0.0010000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_37">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=23476&action=edit&id_vendor=19" >PTCL-(.97) -CHARLIE-Mobile(TELKART)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">56</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">1.3215305</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_38">
+                                        <a href="vendors.php?action=edit&i_vendor=43">TELSTRA-BAN-PR-PR</a>/<a href="connections.php?account=68&action=edit&id_vendor=43" >TELSTRA-BAN-PR-PR(PTCL)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">52</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">2.2730445</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_39">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=19&action=edit&id_vendor=19" >PTCL-PAK-PR-PR (.113) (CRTP)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">46</td>
+                                <td nowrap align="right" class="borderbottomright">2</td>
+                                <td nowrap align="right" class="borderbottomright">00:26</td>
+                                <td nowrap align="right" class="borderbottomright">00:13</td>
+                                <td nowrap align="right" class="borderbottomright">4.3478261</td>
+                                <td nowrap align="right" class="borderbottomright">0.9937892</td>
+                                <td nowrap align="right" class="borderbottomright">0.0110000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_40">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=20&action=edit&id_vendor=19" >PTCL-PAK-PR-PR(.97) (CRTP)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">46</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">00:02</td>
+                                <td nowrap align="right" class="borderbottomright">00:02</td>
+                                <td nowrap align="right" class="borderbottomright">2.1739130</td>
+                                <td nowrap align="right" class="borderbottomright">1.1155825</td>
+                                <td nowrap align="right" class="borderbottomright">0.0010000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_41">
+                                        <a href="vendors.php?action=edit&i_vendor=13">IN2NET-TECHNOLOGIES-IND-ST-ST</a>/<a href="connections.php?account=15&action=edit&id_vendor=13" >IN2NET-TECHNOLOGIES-IND-ST-ST</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">42</td>
+                                <td nowrap align="right" class="borderbottomright">3</td>
+                                <td nowrap align="right" class="borderbottomright">14:00</td>
+                                <td nowrap align="right" class="borderbottomright">03:57</td>
+                                <td nowrap align="right" class="borderbottomright">7.1428571</td>
+                                <td nowrap align="right" class="borderbottomright">2.1237352</td>
+                                <td nowrap align="right" class="borderbottomright">0.0658000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_42">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=80&action=edit&id_vendor=19" >PTCL-(97) (ORTP)(PREFIX-6)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">34</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.7797272</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_43">
+                                        <a href="vendors.php?action=edit&i_vendor=105">callntalk</a>/<a href="connections.php?account=22112&action=edit&id_vendor=105" >CALLNTALK-PR-PREFIX-1-PAK-FIXED</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">26</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">00:29</td>
+                                <td nowrap align="right" class="borderbottomright">00:29</td>
+                                <td nowrap align="right" class="borderbottomright">3.8461538</td>
+                                <td nowrap align="right" class="borderbottomright">4.2197652</td>
+                                <td nowrap align="right" class="borderbottomright">0.0042533</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_44">
+                                        <a href="vendors.php?action=edit&i_vendor=6">SKY-TELECOM-UK-PAK-PR-PR</a>/<a href="connections.php?account=105&action=edit&id_vendor=6" >SKY-TELECOM-UK-PAK-PR-PR(SCO)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">23</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">01:26</td>
+                                <td nowrap align="right" class="borderbottomright">01:25</td>
+                                <td nowrap align="right" class="borderbottomright">4.3478261</td>
+                                <td nowrap align="right" class="borderbottomright">0.5563050</td>
+                                <td nowrap align="right" class="borderbottomright">0.0121833</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_45">
+                                        <a href="vendors.php?action=edit&i_vendor=5">PTCL-PAK-LL-PR-PR</a>/<a href="connections.php?account=6&action=edit&id_vendor=5" >PTCL-PAK-LL-PR-PR(.97)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">22</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">02:53</td>
+                                <td nowrap align="right" class="borderbottomright">02:53</td>
+                                <td nowrap align="right" class="borderbottomright">4.5454545</td>
+                                <td nowrap align="right" class="borderbottomright">0.3291292</td>
+                                <td nowrap align="right" class="borderbottomright">0.0965917</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_46">
+                                        <a href="vendors.php?action=edit&i_vendor=6">SKY-TELECOM-UK-PAK-PR-PR</a>/<a href="connections.php?account=103&action=edit&id_vendor=6" >SKY-TELECOM-UK-PAK-PR-PR(FIX)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">21</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.2917991</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_47">
+                                        <a href="vendors.php?action=edit&i_vendor=5">PTCL-PAK-LL-PR-PR</a>/<a href="connections.php?account=5&action=edit&id_vendor=5" >PTCL-PAK-LL-PR-PR(.113)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">20</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.3401831</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_48">
+                                        <a href="vendors.php?action=edit&i_vendor=23">SUPERSMART</a>/<a href="connections.php?account=141&action=edit&id_vendor=23" >SUPERSMART-AFG-PR-PR(Globacom)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">20</td>
+                                <td nowrap align="right" class="borderbottomright">20</td>
+                                <td nowrap align="right" class="borderbottomright">06:11</td>
+                                <td nowrap align="right" class="borderbottomright">00:18</td>
+                                <td nowrap align="right" class="borderbottomright">100.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.0180697</td>
+                                <td nowrap align="right" class="borderbottomright">0.0556500</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_49">
+                                        <a href="vendors.php?action=edit&i_vendor=105">callntalk</a>/<a href="connections.php?account=25760&action=edit&id_vendor=105" >CALLNTALK--PR-PR(TELSTRA)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">17</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">3.4372545</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_50">
+                                        <a href="vendors.php?action=edit&i_vendor=105">callntalk</a>/<a href="connections.php?account=17085&action=edit&id_vendor=105" >CALLNTALK-PR-PR(PAK)(FTDL)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">14</td>
+                                <td nowrap align="right" class="borderbottomright">4</td>
+                                <td nowrap align="right" class="borderbottomright">01:01</td>
+                                <td nowrap align="right" class="borderbottomright">00:15</td>
+                                <td nowrap align="right" class="borderbottomright">28.5714286</td>
+                                <td nowrap align="right" class="borderbottomright">3.5554416</td>
+                                <td nowrap align="right" class="borderbottomright">0.0158917</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_51">
+                                        <a href="vendors.php?action=edit&i_vendor=12">CENTREDTEL-ST-ST</a>/<a href="connections.php?account=220&action=edit&id_vendor=12" >CENTREDTEL-IND-ST-ST(Modfied-CLI)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">11</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">1.0696878</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_52">
+                                        <a href="vendors.php?action=edit&i_vendor=67">QUICKCOM-BAN-ST-ST</a>/<a href="connections.php?account=179&action=edit&id_vendor=67" >QUICKCOM-BAN-ST-ST-PR(Voxbeam)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">11</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">00:17</td>
+                                <td nowrap align="right" class="borderbottomright">00:17</td>
+                                <td nowrap align="right" class="borderbottomright">9.0909091</td>
+                                <td nowrap align="right" class="borderbottomright">1.7204319</td>
+                                <td nowrap align="right" class="borderbottomright">0.0023800</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_53">
+                                        <a href="vendors.php?action=edit&i_vendor=105">callntalk</a>/<a href="connections.php?account=11580&action=edit&id_vendor=105" >CALLNTALK-CHARLIE-PR(UFONE)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">11</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">00:23</td>
+                                <td nowrap align="right" class="borderbottomright">00:23</td>
+                                <td nowrap align="right" class="borderbottomright">9.0909091</td>
+                                <td nowrap align="right" class="borderbottomright">4.4524501</td>
+                                <td nowrap align="right" class="borderbottomright">0.0033733</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_54">
+                                        <a href="vendors.php?action=edit&i_vendor=28">ZONG-PR-PR</a>/<a href="connections.php?account=34&action=edit&id_vendor=28" >ZONG-A2Z-PR-PR(.156)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">9</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.7332095</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_55">
+                                        <a href="vendors.php?action=edit&i_vendor=28">ZONG-PR-PR</a>/<a href="connections.php?account=35&action=edit&id_vendor=28" >ZONG-A2Z-PR-PR(.73)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">9</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">1.2942571</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_56">
+                                        <a href="vendors.php?action=edit&i_vendor=5">PTCL-PAK-LL-PR-PR</a>/<a href="connections.php?account=21231&action=edit&id_vendor=5" >PTCL-PAKISTAN-PR-PREFIX-7-PAK-FIXED(.97)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">6</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">5.8183310</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_57">
+                                        <a href="vendors.php?action=edit&i_vendor=118">SAIF-GLOBAL-CLI</a>/<a href="connections.php?account=25716&action=edit&id_vendor=118" >SAIF-GLOBAL-INDIA-PR-PR-CRTP(QUICKCOM)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">5</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">5.2569655</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_58">
+                                        <a href="vendors.php?action=edit&i_vendor=109">CENTREDTEL-ETHOPIA-ST-ST</a>/<a href="connections.php?account=13592&action=edit&id_vendor=109" >CENTREDTEL-ETHOPIA-ST-ST</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">3</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.1465785</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_59">
+                                        <a href="vendors.php?action=edit&i_vendor=97">Lets-Dial</a>/<a href="connections.php?account=25696&action=edit&id_vendor=97" >LETS-DIAL-GERMANY-PR-PR</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">3</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">2.2815067</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_60">
+                                        <a href="vendors.php?action=edit&i_vendor=5">PTCL-PAK-LL-PR-PR</a>/<a href="connections.php?account=21230&action=edit&id_vendor=5" >PTCL-PAKISTAN-PR-PREFIX-7-PAK-FIXED(.113)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">3</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">3.3403434</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_61">
+                                        <a href="vendors.php?action=edit&i_vendor=105">callntalk</a>/<a href="connections.php?account=8701&action=edit&id_vendor=105" >CALLNTALK-PR-PR(YEM)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">3</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">2.7282785</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_62">
+                                        <a href="vendors.php?action=edit&i_vendor=56">BTS</a>/<a href="connections.php?account=111&action=edit&id_vendor=56" >BTS-PR-PR</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">00:39</td>
+                                <td nowrap align="right" class="borderbottomright">00:39</td>
+                                <td nowrap align="right" class="borderbottomright">100.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.5209613</td>
+                                <td nowrap align="right" class="borderbottomright">0.0403650</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_63">
+                                        <a href="vendors.php?action=edit&i_vendor=22">GLOBACOM</a>/<a href="connections.php?account=192&action=edit&id_vendor=22" >GLOBACOM-PR-PR(test)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">2.2570770</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_64">
+                                        <a href="vendors.php?action=edit&i_vendor=50">JUNCTIONZ-PAK-PR-PR(ST/PLUS)</a>/<a href="connections.php?account=224&action=edit&id_vendor=50" >JUNCTIONZ-PAK(ST/PLUS)Telenor(18)(6prefix)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.8387046</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_65">
+                                        <a href="vendors.php?action=edit&i_vendor=50">JUNCTIONZ-PAK-PR-PR(ST/PLUS)</a>/<a href="connections.php?account=225&action=edit&id_vendor=50" >JUNCTIONZ-PAK(ST/PLUS)Telenor(19)(6prefix)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">1.1854684</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_66">
+                                        <a href="vendors.php?action=edit&i_vendor=97">Lets-Dial</a>/<a href="connections.php?account=25692&action=edit&id_vendor=97" >LETS-DIAL-AUS-PR-PR</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">3.4213657</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_67">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=128&action=edit&id_vendor=19" >PTCL-(.113) -CHARLIE-TELENOR</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.3601275</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_68">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=116&action=edit&id_vendor=19" >PTCL-(.113) -CHARLIE-WARID(Quickcom)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">1.6558585</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_69">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=129&action=edit&id_vendor=19" >PTCL-(.97) -CHARLIE-TELENOR</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.2891416</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_70">
+                                        <a href="vendors.php?action=edit&i_vendor=19">PTCL-PAK-MOBILE-PR-PR</a>/<a href="connections.php?account=115&action=edit&id_vendor=19" >PTCL-(.97) -CHARLIE-WARID(Quickcom)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">1.4160565</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_71">
+                                        <a href="vendors.php?action=edit&i_vendor=115">QGC-CC</a>/<a href="connections.php?account=25720&action=edit&id_vendor=115" >QGC-JAPAN-CC-PR</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.8596474</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_72">
+                                        <a href="vendors.php?action=edit&i_vendor=118">SAIF-GLOBAL-CLI</a>/<a href="connections.php?account=25722&action=edit&id_vendor=118" >SAIF-GLOBAL-BTCL(PREFIX-6)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">3.7009150</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_73">
+                                        <a href="vendors.php?action=edit&i_vendor=6">SKY-TELECOM-UK-PAK-PR-PR</a>/<a href="connections.php?account=81&action=edit&id_vendor=6" >SKY-TELECOM-UK-PAK-PR-PR(PREFIX-6)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.1162175</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EEEEEE" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_74">
+                                        <a href="vendors.php?action=edit&i_vendor=6">SKY-TELECOM-UK-PAK-PR-PR</a>/<a href="connections.php?account=25552&action=edit&id_vendor=6" >SKY-TELECOM-UK-PAK-PR-ST</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">00:53</td>
+                                <td nowrap align="right" class="borderbottomright">00:53</td>
+                                <td nowrap align="right" class="borderbottomright">100.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.9830804</td>
+                                <td nowrap align="right" class="borderbottomright">0.0075083</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_75">
+                                        <a href="vendors.php?action=edit&i_vendor=86">TATA</a>/<a href="connections.php?account=253&action=edit&id_vendor=86" >TATA-PR-PR(209.58.46.109)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.1810453</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_76">
+                                        <a href="vendors.php?action=edit&i_vendor=86">TATA</a>/<a href="connections.php?account=252&action=edit&id_vendor=86" >TATA-PR-PR(209.58.46.110)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.2957136</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_77">
+                                        <a href="vendors.php?action=edit&i_vendor=86">TATA</a>/<a href="connections.php?account=258&action=edit&id_vendor=86" >TATA-PR-PR(209.58.46.111)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.2653573</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_78">
+                                        <a href="vendors.php?action=edit&i_vendor=86">TATA</a>/<a href="connections.php?account=256&action=edit&id_vendor=86" >TATA-PR-PR(209.58.46.141)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.2931146</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_79">
+                                        <a href="vendors.php?action=edit&i_vendor=86">TATA</a>/<a href="connections.php?account=255&action=edit&id_vendor=86" >TATA-PR-PR(209.58.46.142)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.1275484</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_80">
+                                        <a href="vendors.php?action=edit&i_vendor=86">TATA</a>/<a href="connections.php?account=254&action=edit&id_vendor=86" >TATA-PR-PR(209.58.46.143)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.1386805</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_81">
+                                        <a href="vendors.php?action=edit&i_vendor=86">TATA</a>/<a href="connections.php?account=257&action=edit&id_vendor=86" >TATA-PR-PR(66.198.81.14)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.1909436</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#EECCCC" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_82">
+                                        <a href="vendors.php?action=edit&i_vendor=79">TELECARD-PR-PR</a>/<a href="connections.php?account=235&action=edit&id_vendor=79" >TELECARD-PR(TELENOR)(6-prefix)(open RTP)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">0.2766446</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                                        <tr bgcolor="#FFDDDD" class="list-tr">
+                                     
+                                <td nowrap align="left" class="borderallbuttop" id="conn_83">
+                                        <a href="vendors.php?action=edit&i_vendor=105">callntalk</a>/<a href="connections.php?account=25724&action=edit&id_vendor=105" >CALLNTALK-PR-PR(AUSTRALIA)(QUICKCOM)</a>                                </td>
+                                <td nowrap align="right" class="borderbottomright">1</td>
+                                <td nowrap align="right" class="borderbottomright">0</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">00:00</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                                <td nowrap align="right" class="borderbottomright">5.0404987</td>
+                                <td nowrap align="right" class="borderbottomright">0.0000000</td>
+                        </tr>
+                
+                </table>
+</td></tr>
+
+<tr> <td>
+
+<div class="separator"></div>
+
+</td></tr></table>
+        </div>
+
+
+<script>
+    var e = document.getElementsByClassName("Headline");
+    if (e.length > 0) {
+        // add datetime
+        var tr = e[0].parentElement;
+        var td = document.createElement("td");
+        td.className = "Headline style1";
+        td.style.textAlign = "right";
+        var t = document.createTextNode("10 Apr 2026 11:51:12 (Etc/UTC)");
+        td.appendChild(t);
+        tr.appendChild(td);
+
+        // move navigation bar before main div
+        e = tr;
+        while (e = e.parentElement) {
+            if (e.tagName != "TABLE") {
+                continue;
+            }
+            break;
+        }
+        if (e) {
+            e = e.parentElement.removeChild(e);
+            var main_div = document.getElementById('main');
+            main_div.parentElement.insertBefore(e, main_div);
+            main_div.className = "main_div";
+        }
+    }
+</script>
+
+
+</body>
+</html>

@@ -1,0 +1,31 @@
+ Floating Glass Dock (Apple / Linear feel)
+┌──────────────────────────────────────────────────────────────────────┐
+│                                                                      │
+│  ╔══════╗                                                            │
+│  ║  ⚡  ║  ← Logo mark, no text                                     │
+│  ╚══════╝                                                            │
+│                                                                      │
+│  ┌────┐                                                              │
+│  │ 🟢 │  ← Live Calls  (green ring pulse)    ═══════════════════╗   │
+│  └────┘                                                          ║   │
+│  ┌────┐          Hovering "Live Calls" shows → │  Live Calls  │  ║   │
+│  │ 📊 │                                        │  12 active   │  ║   │
+│  └────┘                                        │  ASR 97.2%   │  ║   │
+│  ┌────┐                                        │  PDD 820ms   │  ║   │
+│  │ 🔴 │  ← AI Ops  (red ring — 2 incidents)   └──────────────┘  ║   │
+│  └────┘                                                          ║   │
+│  ┌────┐                                                          ║   │
+│  │ 🛡 │                                                          ║   │
+│  └────┘                                                          ║   │
+│                              ← flyout submenu appears here      ║   │
+│  ─────                                                           ║   │
+│  ┌────┐                                                          ║   │
+│  │ ⚙️ │                                                          ║   │
+│  └────┘                                                          ╚   │
+│                                                                      │
+│  [glass panel, backdrop-blur, 60px wide, floats above content]       │
+└──────────────────────────────────────────────────────────────────────┘
+
+Pros: Stunning on a widescreen NOC display. Maximum content area.
+Cons for your app: You have 40+ items across 6 groups. Reducing to icon-only with flyouts means every interaction becomes two clicks minimum. Dense operational tools (Routing Manager with 6 subtabs, CDR viewer, etc.) become painful to navigate. Works great for a 10-item app. Painful for yours.
+

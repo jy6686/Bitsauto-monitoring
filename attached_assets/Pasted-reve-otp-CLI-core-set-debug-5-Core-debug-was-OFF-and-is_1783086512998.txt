@@ -1,0 +1,76 @@
+reve-otp*CLI> core set debug 5
+Core debug was OFF and is now 5.
+[2026-07-03 13:47:57] DEBUG[30057]: manager.c:6683 process_message: Running action 'CoreShowChannels'
+[2026-07-03 13:47:57] DEBUG[30057]: manager.c:6683 process_message: Running action 'Ping'
+[2026-07-03 13:47:59] DEBUG[2370]: manager.c:6683 process_message: Running action 'Login'
+[2026-07-03 13:48:01] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 13:48:02] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 2 instead
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9098 __sip_alloc: Allocating new SIP dialog for 26cbe8ab35ae135a6c74b1a95448f202@[::1]:5160 - OPTIONS (No RTP)
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:3573 obproxy_get: OBPROXY: Not applying OBproxy to this call
+[2026-07-03 13:48:08] DEBUG[9119]: acl.c:1047 ast_ouraddrfor: For destination '191.101.30.107', our source address is '159.223.32.59'.
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:3982 ast_sip_ouraddrfor: Setting AST_TRANSPORT_UDP with address 159.223.32.59:5160
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:8887 change_callid_pvt: SIP call-id changed from '26cbe8ab35ae135a6c74b1a95448f202@[::1]:5160' to '58b5862c6aadd42852feeb9c578e6a39@159.223.32.59:5160'
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:3449 initialize_initreq: Initializing initreq for method OPTIONS - callid 58b5862c6aadd42852feeb9c578e6a39@159.223.32.59:5160
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  0 [ 34]: OPTIONS sip:191.101.30.107 SIP/2.0
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  1 [ 64]: Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK0e80705e;rport
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  2 [ 16]: Max-Forwards: 70
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  3 [ 63]: From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as526199f4
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  4 [ 24]: To: <sip:191.101.30.107>
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  5 [ 41]: Contact: <sip:Unknown@159.223.32.59:5160>
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  6 [ 60]: Call-ID: 58b5862c6aadd42852feeb9c578e6a39@159.223.32.59:5160
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  7 [ 17]: CSeq: 102 OPTIONS
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  8 [ 35]: User-Agent: FPBX-16.0.10.40(18.6.0)
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  9 [ 35]: Date: Fri, 03 Jul 2026 13:48:08 GMT
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header 10 [ 90]: Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header 11 [ 26]: Supported: replaces, timer
+Reliably Transmitting (NAT) to 191.101.30.107:5060:
+OPTIONS sip:191.101.30.107 SIP/2.0
+Via: SIP/2.0/UDP 159.223.32.59:5160;branch=z9hG4bK0e80705e;rport
+Max-Forwards: 70
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as526199f4
+To: <sip:191.101.30.107>
+Contact: <sip:Unknown@159.223.32.59:5160>
+Call-ID: 58b5862c6aadd42852feeb9c578e6a39@159.223.32.59:5160
+CSeq: 102 OPTIONS
+User-Agent: FPBX-16.0.10.40(18.6.0)
+Date: Fri, 03 Jul 2026 13:48:08 GMT
+Allow: INVITE, ACK, CANCEL, OPTIONS, BYE, REFER, SUBSCRIBE, NOTIFY, INFO, PUBLISH, MESSAGE
+Supported: replaces, timer
+Content-Length: 0
+
+
+---
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:4338 __sip_reliable_xmit: *** SIP TIMER: Initializing retransmit timer on packet: Id  #7
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:3806 __sip_xmit: Trying to put 'OPTIONS sip' onto UDP socket destined for 191.101.30.107:5060
+
+<--- SIP read from UDP:191.101.30.107:5060 --->
+SIP/2.0 200 OK
+Via: SIP/2.0/UDP 159.223.32.59:5160;received=159.223.32.59;branch=z9hG4bK0e80705e;rport=5160
+To: <sip:191.101.30.107>;tag=0b46.c959fd58c74d2dd59f2f13f8ba643444
+From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as526199f4
+Call-ID: 58b5862c6aadd42852feeb9c578e6a39@159.223.32.59:5160
+CSeq: 102 OPTIONS
+Server: Sippy Softswitch v2024-PRODUCTION.485
+Content-Length: 0
+
+<------------->
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  0 [ 14]: SIP/2.0 200 OK
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  1 [ 92]: Via: SIP/2.0/UDP 159.223.32.59:5160;received=159.223.32.59;branch=z9hG4bK0e80705e;rport=5160
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  2 [ 66]: To: <sip:191.101.30.107>;tag=0b46.c959fd58c74d2dd59f2f13f8ba643444
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  3 [ 63]: From: "Unknown" <sip:Unknown@159.223.32.59:5160>;tag=as526199f4
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  4 [ 60]: Call-ID: 58b5862c6aadd42852feeb9c578e6a39@159.223.32.59:5160
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  5 [ 17]: CSeq: 102 OPTIONS
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  6 [ 45]: Server: Sippy Softswitch v2024-PRODUCTION.485
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9986 parse_request:  Header  7 [ 17]: Content-Length: 0
+--- (8 headers 0 lines) ---
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:9505 __find_call: = Looking for  Call ID: 58b5862c6aadd42852feeb9c578e6a39@159.223.32.59:5160 (Checking To) --From tag as526199f4 --To-tag 0b46.c959fd58c74d2dd59f2f13f8ba643444  
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:4598 __sip_ack: ** SIP TIMER: Cancelling retransmit of packet (reply received) Retransid #7
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:4609 __sip_ack: Stopping retransmission on '58b5862c6aadd42852feeb9c578e6a39@159.223.32.59:5160' of Request 102: Match Found
+[2026-07-03 13:48:08] DEBUG[9119]: chan_sip.c:6678 sip_pvt_dtor: Destroying SIP dialog 58b5862c6aadd42852feeb9c578e6a39@159.223.32.59:5160
+Really destroying SIP dialog '58b5862c6aadd42852feeb9c578e6a39@159.223.32.59:5160' Method: OPTIONS
+[2026-07-03 13:48:16] DEBUG[2398]: manager.c:6683 process_message: Running action 'Login'
+[2026-07-03 13:48:17] DEBUG[9117]: res_timing_timerfd.c:167 timerfd_timer_ack: Expected to acknowledge 1 ticks but got 3 instead
+[2026-07-03 13:48:17] DEBUG[30057]: manager.c:6683 process_message: Running action 'Ping'
+[2026-07-03 13:48:21] DEBUG[9101]: res_pjsip_registrar.c:1278 check_expiration_thread: Woke up at 1783086501  Interval: 30
+[2026-07-03 13:48:21] DEBUG[9101]: res_pjsip_registrar.c:1285 check_expiration_thread: Expiring 0 contacts
+reve-otp*CLI> 

@@ -1,0 +1,190 @@
+You’re basically trying to insert your Call Identification Engine (running on Replit) in front of Sippy Soft as a traffic classifier + routing decision layer. That’s a solid architecture—but the key point is:
+
+👉 You don’t “route calls from Replit to Sippy” directly
+You intercept or enrich signaling before Sippy makes routing decisions.
+
+So the integration is done through SIP signaling + Sippy APIs + trunk separation, not Replit acting as a switch.
+
+🧠 Correct Architecture (Real Telecom Setup)
+SIP Trunk / Carrier
+        │
+        ▼
+   SBC / SIP Proxy (Kamailio / OpenSIPS)
+        │
+        ▼
+ Replit Call Identification Engine (HTTP API)
+        │
+        ▼
+   Sippy Soft (Routing Engine + Billing)
+        │
+        ▼
+  Termination Carrier / IVR / Vendor
+⚙️ 1. How Replit System Works in This Setup
+
+Your Replit app is NOT in media path.
+
+It acts as:
+
+🧠 “Decision Brain”
+
+It receives metadata:
+
+SIP headers
+IP
+CLI
+destination
+trunk info
+
+Then returns:
+
+{
+  "label": "ASCADE_TEST",
+  "route": "TRUNK_TEST_B",
+  "billing": "0",
+  "action": "ALLOW"
+}
+🔌 2. How Sippy Soft Connects to This
+
+Sippy Soft does not natively “call external AI engines”, so you integrate in 3 practical ways:
+
+✅ METHOD 1 (BEST): SIP Proxy Pre-Processing Layer
+You insert Kamailio / OpenSIPS in front of Sippy
+Flow:
+Carrier → Kamailio → Replit API → Sippy Soft
+What happens:
+
+Kamailio:
+
+Receives INVITE
+Sends metadata to Replit:
+POST http://replit-engine/classify-call
+Gets response:
+"ASCADE_TEST"
+Sets SIP header:
+X-Route-Tag: ASCADE_TEST
+Forwards to Sippy
+Then in Sippy:
+
+You create trunks like:
+
+TRUNK_TEST_A (Arptel)
+TRUNK_TEST_B (Ascade)
+TRUNK_TEST_C (iTest)
+TRUNK_PROD (normal)
+
+And route using:
+
+Prefix rules OR
+SIP header-based routing (if supported in your setup)
+✅ METHOD 2: Sippy API Post-Call Classification (Easier)
+
+If you cannot modify SIP layer:
+
+Flow:
+Sippy → Replit API → Tag Call → Update routing/billing
+Steps:
+Sippy sends call details via API:
+XML-RPC / HTTP API (CDR or pre-routing hook)
+Replit engine responds:
+"label": "ARPTEL_TEST"
+Sippy applies:
+billing = 0
+route = test trunk
+mark CDR
+
+👉 This is less real-time, but easier to implement.
+
+⚡ METHOD 3: Trunk-Based Segmentation (Simplest + Most Stable)
+
+You create dedicated trunks per classification.
+
+Example:
+Trunk	Purpose
+TRUNK_1	Arptel
+TRUNK_2	Ascade
+TRUNK_6	Special Bravo
+TRUNK_7	iTest
+TRUNK_0	Production
+
+Then your Replit system just outputs:
+
+{
+  "route_trunk": 6
+}
+
+Sippy simply routes based on trunk ID.
+
+🧩 3. How Replit API Should Look
+
+You expose a simple endpoint:
+
+POST /classify-call
+Input:
+{
+  "src_ip": "1.2.3.4",
+  "cli": "923001234567",
+  "dst": "4420xxxx",
+  "sip_user_agent": "Arptel Dialer 1702",
+  "call_id": "abc123"
+}
+Output:
+{
+  "label": "ARPTEL_TEST",
+  "confidence": 0.94,
+  "route_trunk": "TRUNK_TEST_A",
+  "billing": "0",
+  "action": "ALLOW"
+}
+🔁 4. How Routing Happens in Sippy Soft
+
+Inside Sippy you configure:
+
+A. Trunk Mapping
+ARPTEL_TEST → TRUNK_TEST_A
+ASCADE_TEST → TRUNK_TEST_B
+I_TEST → TRUNK_TEST_C
+B. Routing Rules
+
+Depending on your setup:
+
+Option 1: Prefix-based routing
+Route based on CLI prefix or destination prefix
+Option 2: Header-based routing
+X-Route-Tag
+Option 3: API-driven routing (advanced)
+External routing decision before call execution
+🚨 5. Important Reality (Very Important)
+
+Sippy Soft by itself:
+
+❌ Does NOT support AI classification
+❌ Does NOT understand “Arptel/Ascade/iTest”
+❌ Cannot auto-detect test systems
+
+So YOU must add:
+
+✔ SIP proxy layer OR
+✔ External API decision engine OR
+✔ trunk segmentation strategy
+
+🧠 6. Best Industry Setup (Recommended)
+
+For carrier-grade reliability:
+
+🥇 Best Architecture
+Kamailio/OpenSIPS (SIP control)
+Replit CIE (classification brain)
+Sippy Soft (billing + LCR)
+ClickHouse (analytics)
+📊 7. What You Gain
+
+Once implemented:
+
+You can:
+
+✔ Separate Arptel / Ascade / iTest traffic
+✔ Stop FAS / probe traffic
+✔ Zero-billing test calls
+✔ Real-time routing decisions
+✔ Full visibility of testing systems
+✔ Carrier-grade traffic intelligence

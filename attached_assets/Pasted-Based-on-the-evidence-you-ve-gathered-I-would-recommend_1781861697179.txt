@@ -1,0 +1,185 @@
+Based on the evidence you've gathered, I would recommend one targeted implementation before certification, but not a refactor.
+
+What Is Proven
+
+We now have evidence that:
+
+push-batch
+  → pushRateToSippy()
+      → setSippyRateEntry()
+          → pushRateViaPortalUpload()
+              → action=change
+
+The proven engine is reachable.
+
+Therefore:
+
+✅ Do NOT modify pushRateViaPortalUpload()
+
+✅ Do NOT modify setSippyRateEntry()
+
+✅ Do NOT modify action=change
+
+✅ Do NOT modify portal authentication
+
+✅ Do NOT modify verification logic
+
+What Is NOT Proven
+
+The Send Rate route currently sends:
+
+accountName
+prefix
+ratePerMin
+effective dates
+
+but apparently does not send:
+
+iTariff
+
+That means every Send Rate push depends on:
+
+accountName
+   ↓
+findSippyCustomer()
+   ↓
+resolve iTariff
+
+And you already have real evidence that some accounts fail lookup:
+
+internal-ptcl
+PUSHTOTALK
+
+Those were the exact accounts discussed during Change Client Rates troubleshooting.
+
+My Recommendation
+YES — Implement iTariff passthrough
+NO — Do not touch the push engine
+
+The change should be limited to:
+
+Send Rate UI
+    ↓
+push-batch payload
+    ↓
+pushRateToSippy()
+
+so that if the UI already knows:
+
+tariffId
+iTariff
+tariffName
+
+it passes it through.
+
+Then:
+
+pushRateToSippy()
+
+can use the known tariff immediately instead of relying on account-name lookup.
+
+Scope Boundary
+
+Allowed:
+
+Send Rate UI payload
+push-batch request model
+account → tariff resolution layer
+validation layer
+
+Not Allowed:
+
+pushRateViaPortalUpload()
+setSippyRateEntry()
+action=change
+portal session logic
+Instruction for Claude
+
+I would give Claude something like this:
+
+Objective:
+
+Implement iTariff passthrough for Send Rate only.
+
+Important constraints:
+
+DO NOT modify:
+
+pushRateViaPortalUpload()
+setSippyRateEntry()
+action=change workflow
+portal authentication
+verification read-back logic
+
+These paths are already proven and frozen.
+
+Required change:
+
+Trace the Send Rate UI payload.
+Determine whether tariffId/iTariff is already available in the selected account data.
+Pass iTariff through:
+Send Rate UI
+→ POST /api/rate-manager/push-batch
+→ pushRateToSippy()
+Update pushRateToSippy() to use provided iTariff when present.
+
+Fallback behaviour:
+
+If iTariff is provided:
+
+use it directly
+
+If iTariff is missing:
+
+preserve existing accountName → findSippyCustomer() lookup behaviour
+
+Do not remove existing fallback logic.
+
+Success criteria:
+
+Existing successful rate push behaviour remains unchanged.
+Accounts with known tariff IDs bypass account-name lookup.
+Existing action=change engine remains untouched.
+No changes to portal upload implementation.
+
+After implementation, stop and run certification.
+Do not perform further refactors.
+
+T8 Policy
+
+For telecom billing and rate management, I recommend:
+
+Option A
+Fail Entire Batch
+
+Example:
+
+4 destinations submitted
+1 invalid destination
+
+Result:
+
+0 destinations updated
+Batch failed
+Validation error returned
+
+This is safer than partial success and makes audit/recovery much easier.
+
+Final Decision
+
+Implement only iTariff passthrough (if tariff information already exists in the UI/account object).
+
+Do not change any proven Sippy rate-update code.
+
+Then run:
+
+T4
+T6
+T7
+T8
+T1
+T2
+T3
+T5
+
+and use those results to drive the next sprint.

@@ -1,0 +1,166 @@
+If the P3.1 fix was applied exactly as described, then this is a meaningful milestone.
+
+What just changed
+
+Before:
+
+P&L Revenue  → ignored
+P&L Cost     → stored as cdrCost
+vendorCost   → always NULL
+
+Result:
+
+Margin = impossible
+Loss Detection = dead code
+Vendor Cost Validation = impossible
+
+After P3.1:
+
+Revenue, USD  → cdrCost
+Cost, USD     → cdrVendorCost
+Margin        → Revenue - Cost
+
+Now the platform can finally answer:
+
+Customer paid us?
+Vendor charged us?
+Margin?
+Loss?
+
+using actual Sippy P&L values instead of estimates.
+
+What I would do immediately now
+1. Generate 10–20 fresh test calls
+
+Not historical calls.
+
+New calls only.
+
+Reason:
+
+Historical records
+=
+stale schema mapping
+
+New calls should populate:
+
+cdrCost
+cdrVendorCost
+margin
+
+correctly.
+
+2. Open Reconciliation Lab → Vendor Cost Validation
+
+Check:
+
+Calls with vendor cost
+Calls without vendor cost
+Average margin
+Negative margin count
+
+Expected:
+
+Vendor Cost Coverage
+≈ 100%
+
+for newly processed calls.
+
+3. Validate a Real Call Manually
+
+Take one governed call.
+
+Compare:
+
+P&L Revenue
+=
+BitsAuto cdrCost
+
+P&L Cost
+=
+BitsAuto cdrVendorCost
+
+This is the fastest confidence check.
+
+Next Highest Priority
+
+Now that P3.1 is complete, I would not jump to Trust Center or CCI.
+
+I would focus on:
+
+Recording Integrity
+
+Still unresolved.
+
+You originally reported:
+
+Recording not found
+Recording not playing
+Recording missing
+
+Until Reconciliation Lab shows:
+
+Recording Success %
+≈ 100%
+
+I would keep that as Priority #1 production issue.
+
+Identity Audit Results
+
+This is now the most important architectural question:
+
+Does Call-ID span:
+
+Customer CDR
+Vendor CDR
+P&L?
+
+If yes:
+
+CCI scope shrinks dramatically.
+
+If no:
+
+CCI remains required.
+Commercial Identity Audit
+
+The next tab I would actively use.
+
+You already proved:
+
+1923 = FC
+2923 = BC
+6923 = SB
+7923 = SC
+
+with different rates.
+
+So now validate:
+
+Prefix
+↓
+Product
+↓
+Revenue
+↓
+Rate
+
+against live calls.
+
+This is where invoice trust starts.
+
+Updated Status Board
+Area	Status
+Recording Integrity	❌ Needs validation
+CDR Reconciliation	⚠ Needs match-rate review
+Identity Audit	⚠ Awaiting results
+P&L Revenue Extraction	✅ Working
+P&L Vendor Cost Extraction	✅ Fixed (P3.1)
+Vendor Cost Validation	🟡 Ready to run
+Commercial Identity Audit	🟡 Ready
+Commercial Call Identity	⏸ Deferred
+Rate Integrity Audit	⏸ Deferred
+Invoice Validation	⏸ Deferred
+Trust Center	❄ Frozen
+
+One more thing: some of the customer CDR exports, vendor CDR exports, P&L exports, and screenshots referenced earlier have expired and are no longer accessible. If you want to verify Vendor Cost Validation or Identity Audit against actual production data, please upload the latest exports again so they can be checked against the current live implementation.

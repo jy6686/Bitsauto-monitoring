@@ -1,0 +1,189 @@
+Your prioritisation is actually tighter than the original roadmap — especially the correction that Incident Correlation depends on Event Bus maturity, not the other way around. That’s the key architectural mistake most “feature-first” systems make.
+
+What you’re converging on (implicitly) is something more important than the roadmap itself:
+
+You are not building a dashboard system anymore — you are building a decision orchestration system for telecom operations.
+
+That changes how the next steps should be structured.
+
+1. Agreed corrected build order (refined version)
+
+Your sequence is correct, but I’ll tighten it into engineering execution order (not conceptual order):
+
+🔴 STEP 1 — AUDIT LOG (TRUST FOUNDATION)
+
+This is not just logging — it becomes your system truth layer.
+
+It should capture:
+
+user actions (UI)
+system actions (jobs, alerts)
+Sippy actions (XML-RPC calls)
+fraud actions (block/unblock)
+financial actions (rate, balance changes)
+Critical upgrade (important)
+
+Make it append-only event history, not just logs.
+
+So it becomes:
+
+“What happened in the system, in exact order, forever”
+
+This is what enables everything else later.
+
+🔴 STEP 2 — FRAUD VELOCITY SCORE (VALUE ENGINE)
+
+You are correct here: this is the highest ROI feature in the entire platform right now.
+
+But the key refinement:
+
+Don’t build it as a feature
+
+Build it as a real-time scoring layer attached to every account
+
+Inputs you already have:
+CLI diversity
+CPS / call spikes
+destination risk
+short call ratio
+PDD anomalies
+cost spikes
+Output should NOT be just a score
+
+It should be:
+
+Score (0–100)
+Reason breakdown (top 3 drivers)
+Trend (rising / stable / falling)
+Risk category:
+Normal
+Watch
+Suspicious
+Critical
+
+👉 This is what turns it from “analytics” into “decision system”
+
+🟠 STEP 3 — INCIDENT CORRELATION ENGINE (NOISE KILLER)
+
+You are correct: this only works properly AFTER audit + scoring exist.
+
+But the real value here is:
+
+Convert this:
+MOS drop alert
+traffic spike alert
+fraud alert
+ASR drop alert
+Into this:
+
+“One incident: Middle East Route Degradation (Carrier X likely cause)”
+
+Key design change (important)
+
+Do NOT build this as AI first.
+
+Start with deterministic grouping rules:
+
+same time window (±15 min)
+same carrier / destination
+same account cluster
+same metric correlation direction
+
+Then later layer AI summarisation.
+
+🟢 STEP 4 — CONTROL ACTION LAYER (SAFE MODE)
+
+This is where your platform becomes “self-operating”.
+
+But your correction is important:
+
+Start in ALERT-ONLY mode, not auto-action mode
+
+So phases:
+
+Phase 4A:
+suggest action only
+Phase 4B:
+require manual approval
+Phase 4C:
+partial automation (low-risk actions)
+Phase 4D:
+full automation (only for trusted signals)
+2. The real architecture you are building (clean model)
+
+Your system is evolving into 4 layers:
+
+1. DATA LAYER
+CDRs
+SIP logs
+billing
+registrations
+2. SIGNAL LAYER
+MOS changes
+fraud indicators
+traffic anomalies
+cost deviations
+3. INTELLIGENCE LAYER (missing today)
+
+This is your gap.
+
+Contains:
+
+Fraud Velocity Score
+Carrier health index
+Client risk score
+Route stability index
+4. DECISION LAYER
+
+This is your future system:
+
+incident grouping
+recommendations
+actions
+automation
+3. The most important insight (you already almost have it)
+
+Right now your system answers:
+
+“What is happening?”
+
+What it must evolve into:
+
+“What should we do about it — in order of impact?”
+
+That single shift is what separates:
+
+monitoring tools ❌
+vs telecom control systems ✔
+4. One correction I strongly agree with you on
+
+“AI NOC Assistant is not first — structured intelligence layer comes first”
+
+This is critical.
+
+Because without:
+
+scoring system
+event structure
+incident grouping
+
+AI becomes:
+
+a fancy chat over messy data
+
+With those layers:
+
+AI becomes a control interface for a structured brain
+
+5. Final refined execution order (clean version)
+
+If we compress everything into real build order, it becomes:
+
+Phase 1 — Foundation
+Audit Log (append-only event system)
+Phase 2 — Intelligence Core
+Fraud Velocity Scoring (real-time engine)
+Phase 3 — Signal Unification
+Incident Correlation Engine (rule-based grouping)
+Phase 4 — Controlled Automation
+Action Recommendation Layer (alert-only → approval → automation)
