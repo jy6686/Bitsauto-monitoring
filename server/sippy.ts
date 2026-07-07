@@ -88,6 +88,7 @@ interface SippySession {
 }
 
 let activeSession: SippySession | null = null;
+let _lastKnownActiveCalls: SippyActiveCall[] = [];
 
 /** Returns the current active Sippy session (read-only). */
 export function getActiveSession(): SippySession | null { return activeSession; }
@@ -2764,18 +2765,18 @@ export async function getSippyActiveCalls(
     if (session?.cookies) {
       console.log('[Sippy] listActiveCalls: XML-RPC restricted — scraping /activecalls.php (active session)');
       const calls = await getPortalActiveCallsHtml(session.cookies, base);
-      if (calls.length > 0) return calls;
+      if (calls.length > 0) { _lastKnownActiveCalls = [...calls]; return calls; }
       // If we got zero here AND noNewLogin is set, stop — never attempt a re-login.
       if (noNewLogin) {
-        console.log('[Sippy] listActiveCalls: session returned 0 but noNewLogin set — returning empty');
-        return [];
+        console.log('[Sippy] listActiveCalls: session returned 0 but noNewLogin set — returning last known snapshot');
+        return _lastKnownActiveCalls;
       }
       // Otherwise fall through to re-login (session may have expired).
     }
     // Stop here if caller opted out of fresh logins (avoids 48s timeout in polling route).
     if (noNewLogin) {
-      console.log('[Sippy] listActiveCalls: no active session + noNewLogin set — returning empty');
-      return [];
+      console.log('[Sippy] listActiveCalls: no active session + noNewLogin set — returning last known snapshot');
+      return _lastKnownActiveCalls;
     }
     const pairs: Array<[string, string]> = [];
     if (username && password) pairs.push([username, password]);
@@ -2855,6 +2856,7 @@ export async function getSippyActiveCalls(
         });
       }
       console.log(`[Sippy] ${method} returned ${calls.length} active calls (XML-RPC, user=${username})`);
+      _lastKnownActiveCalls = [...calls];
       return calls;
     } catch {
       // Connection-level error (ECONNRESET, timeout) — stop XML-RPC attempts immediately
