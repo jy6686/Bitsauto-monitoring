@@ -1176,7 +1176,7 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
           .select()
           .from(incidents)
           .where(conditions.length > 0 ? and(...conditions) : undefined)
-          .orderBy(desc(incidents.createdAt))
+          .orderBy(desc(incidents.openedAt))
           .limit(limit);
         res.json({ success: true, incidents: rows });
       } catch (err: any) {
