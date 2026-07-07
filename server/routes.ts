@@ -34752,6 +34752,7 @@ ${footer}
   // GET /api/product-registry/destinations  — flat list
   app.get('/api/product-registry/destinations', async (_req, res) => {
     try {
+      res.setHeader('Cache-Control', 'no-store');
       const rows = await db.execute(sql`
         SELECT
           id,
