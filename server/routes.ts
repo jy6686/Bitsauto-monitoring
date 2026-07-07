@@ -34220,6 +34220,7 @@ ${footer}
   } catch (migErr: any) {
     console.warn('[dest-status-history] Migration failed (non-fatal):', migErr.message);
   }
+  console.log("[startup] CHECKPOINT: registering call-governance routes");
   registerCallGovernanceRoutes(app);
   registerServerHealthRoutes(app);
   (global as any).__bitsautoCdrCache = cdrCache; // expose CDR cache via global for call-governance (survives hot-reload)
@@ -34749,6 +34750,7 @@ ${footer}
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  console.log("[startup] CHECKPOINT: registering product-registry routes");
   // GET /api/product-registry/destinations  — flat list
   app.get('/api/product-registry/destinations', async (_req, res) => {
     try {

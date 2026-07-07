@@ -266,6 +266,7 @@ app.use((req, res, next) => {
 
   try {
     boot("9 registerRoutes() starting");
+    console.log("[BUILD-FINGERPRINT] 2026-07-07-C routes-instrumentation");
     await registerRoutes(httpServer, app);
     boot("10 registerRoutes() done");
   } catch (e: any) {
