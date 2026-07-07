@@ -1,0 +1,217 @@
+The new screenshots actually change the diagnosis quite a bit.
+
+What the evidence now shows
+1. The server is healthy
+
+Your timing panels consistently show:
+
+Waiting (TTFB): ~600 ms
+Content Download: <1 ms
+
+Examples:
+
+609.66 ms
+602.49 ms
+617.76 ms
+
+That is good.
+
+This is not a slow PostgreSQL query.
+This is not a 3-minute serialization problem.
+
+2. The failures are almost entirely 404s
+
+Destination Catalog:
+
+Cannot GET /api/product-registry/destinations
+
+Call Governance:
+
+Cannot GET /api/call-governance/stats
+
+There are multiple red requests:
+
+stats
+calls
+live-monitor
+destinations
+
+All returning the Express HTML:
+
+Cannot GET ...
+
+That means Express handled the request, but no route matched.
+
+3. This is no longer just Destination Catalog
+
+Your screenshots now show missing endpoints in multiple modules.
+
+For example:
+
+Destination Catalog:
+
+/api/product-registry/destinations
+
+Call Governance:
+
+/api/call-governance/stats
+
+and likely
+
+/api/call-governance/calls
+/api/call-governance/live-monitor
+
+Those are unrelated feature areas.
+
+This strongly suggests one of two things
+Possibility A (most likely)
+
+The deployed server is not running the code you think it is.
+
+You already proved:
+
+Local:
+
+401
+
+meaning
+
+route exists
+
+Browser:
+
+404 Cannot GET
+
+meaning
+
+route absent
+
+Those cannot both be true for the same build.
+
+Possibility B
+
+There are two Express applications.
+
+For example:
+
+server/index.ts
+
+registers
+
+registerRoutes(app)
+
+but production is starting
+
+server/app.ts
+
+or
+
+dist/server.js
+
+or another entrypoint.
+
+I've seen this happen many times after large Replit migrations.
+
+I would stop chasing individual endpoints
+
+Notice the pattern:
+
+Destination Catalog
+
+↓
+
+Call Governance
+
+↓
+
+Vendor Rates
+
+↓
+
+possibly others
+
+All failing with
+
+Cannot GET
+
+That is almost certainly one deployment/startup problem, not four unrelated bugs.
+
+The next thing I'd verify
+
+I would not edit routes.ts anymore.
+
+Instead verify exactly what process production is running.
+
+Specifically:
+
+1. What is the Replit Run command?
+
+Check:
+
+.replit
+
+or
+
+replit.nix
+
+or package.json
+
+Look for
+
+run =
+
+or
+
+npm start
+
+or
+
+tsx server/index.ts
+
+or
+
+node dist/index.js
+2. Which startup file actually prints
+10 registerRoutes() done
+
+You showed
+
+server/index.ts
+
+contains
+
+boot("10 registerRoutes() done");
+
+I now want to know whether production logs that exact message.
+
+If production startup never prints it,
+
+then production isn't executing that file.
+
+3. Add a one-line fingerprint
+
+In server/index.ts, immediately after:
+
+boot("10 registerRoutes() done");
+
+temporarily add:
+
+console.log("BUILD FINGERPRINT: 2026-07-07-A");
+
+Deploy once.
+
+If that line never appears in the deployment logs, you've conclusively proven the deployed service is running a different startup path than the source you're editing.
+
+Why I'm leaning toward a deployment/startup mismatch
+
+The evidence is internally inconsistent:
+
+Local process registers /api/product-registry/*.
+server/routes.ts clearly defines those routes.
+registerRoutes() completes locally.
+Production responds with Express-generated 404 HTML, not an application error.
+Multiple unrelated modules all have missing routes.
+
+That combination is much more consistent with "the deployed process is not loading the expected route registrations" than with individual bugs in Destination Catalog or Call Governance.
+
+I would focus the next investigation on the deployment entrypoint and startup logs, because until you're certain the production process is executing the same server/index.ts and server/routes.ts you're editing, fixing individual routes is unlikely to resolve the broader issue.
