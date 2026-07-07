@@ -1163,6 +1163,29 @@ export function registerAiCopilotRoutes(app: Express, requireRole: RequireRoleFn
     `TTL resolved at runtime from DB settings (falls back to DUAL_APPROVAL_TTL_MINUTES env var, default 30m)`,
   );
 
+  // ── GET /api/ai/incidents ──────────────────────────────────────────────────────
+  app.get(
+    "/api/ai/incidents",
+    (req: any, res: any, next: any) => requireRole(["admin", "management", "noc"], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const limit = Math.min(parseInt(String(req.query.limit ?? "50"), 10), 200);
+        const status = req.query.status as string | undefined;
+        const conditions = status ? [eq(incidents.status, status)] : [];
+        const rows = await db
+          .select()
+          .from(incidents)
+          .where(conditions.length > 0 ? and(...conditions) : undefined)
+          .orderBy(desc(incidents.createdAt))
+          .limit(limit);
+        res.json({ success: true, incidents: rows });
+      } catch (err: any) {
+        console.error("[ai/incidents] error:", err.message);
+        res.status(500).json({ success: false, error: err.message });
+      }
+    },
+  );
+
   // ── Proactive 15-min copilot scheduler ───────────────────────────────────────
   // Runs every 15 min, caching the result so the NOC strip always shows fresh recs.
   // First run at T+5min (vendor health engine warms at T+2min, CDR cache at T+3min).
