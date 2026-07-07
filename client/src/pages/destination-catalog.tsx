@@ -310,6 +310,90 @@ function ApprovedList({ nodes, onSelect }: { nodes: Dest[]; onSelect: (n: Dest) 
   );
 }
 
+
+// ── VendorComparisonPanel ─────────────────────────────────────────────────────
+function VendorComparisonPanel({ destId }: { destId: number }) {
+  const [activeOnly, setActiveOnly] = useState(false);
+  const { data, isLoading } = useQuery<{ vendors: any[] }>({
+    queryKey: [`/api/vendor-rates/by-destination/${destId}`],
+    staleTime: 2 * 60_000,
+  });
+  const rows = data?.vendors ?? [];
+  const displayed = activeOnly ? rows.filter((r: any) => r.sheet_status === 'active') : rows;
+  if (isLoading) return <div className="text-xs text-muted-foreground py-2 animate-pulse">Loading vendor rates…</div>;
+  if (!rows.length) return (
+    <div className="text-xs text-muted-foreground bg-muted/20 border border-border/40 rounded px-3 py-2">
+      No vendor rate data matched to this destination yet.
+    </div>
+  );
+  const rates = displayed.map((r: any) => Number(r.rate));
+  const bestRate = Math.min(...rates);
+  const avgRate = rates.reduce((a, b) => a + b, 0) / rates.length;
+  const spread = rates.length > 1 ? Math.max(...rates) - bestRate : 0;
+  return (
+    <div>
+      <div className="grid grid-cols-4 gap-2 mb-3">
+        {[
+          { label: 'Vendors',   value: String(displayed.length) },
+          { label: 'Best Rate', value: bestRate.toFixed(5) },
+          { label: 'Average',   value: avgRate.toFixed(5) },
+          { label: 'Spread',    value: spread.toFixed(5) },
+        ].map(({ label, value }) => (
+          <div key={label} className="bg-muted/20 border border-border/40 rounded px-2 py-1.5 text-center">
+            <div className="text-[10px] text-muted-foreground">{label}</div>
+            <div className="text-xs font-mono font-semibold tabular-nums">{value}</div>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-xs text-muted-foreground">{displayed.length} vendor{displayed.length !== 1 ? 's' : ''}</div>
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+          <input type="checkbox" checked={activeOnly} onChange={e => setActiveOnly(e.target.checked)} className="rounded" />
+          Active only
+        </label>
+      </div>
+      <div className="border border-border rounded-lg overflow-hidden">
+        <table className="w-full text-xs">
+          <thead className="bg-muted/30 border-b border-border">
+            <tr>
+              {['Vendor', 'Rate', 'Sheet', 'Match'].map(h => (
+                <th key={h} className="text-left py-1.5 px-3 font-medium text-muted-foreground">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {displayed.map((r: any) => {
+              const rate = Number(r.rate);
+              const isBest = rate === bestRate;
+              const abovePct = bestRate > 0 ? ((rate - bestRate) / bestRate * 100) : 0;
+              return (
+                <tr key={r.vendor_id} className="border-b border-border/40 last:border-0 hover:bg-muted/20">
+                  <td className="py-1.5 px-3 font-medium">{r.vendor_name}</td>
+                  <td className="py-1.5 px-3 font-mono tabular-nums">
+                    {rate.toFixed(5)}
+                    {isBest && <span className="ml-1.5 text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-full px-1.5 py-0.5">★ Best</span>}
+                    {!isBest && abovePct > 0.001 && <span className="ml-1 text-[10px] text-amber-400">+{abovePct.toFixed(1)}%</span>}
+                  </td>
+                  <td className="py-1.5 px-3">
+                    <span className={cn("text-[10px] rounded-full px-2 py-0.5 border",
+                      r.sheet_status === 'active'
+                        ? "bg-green-500/15 text-green-400 border-green-500/30"
+                        : "bg-muted/50 text-muted-foreground border-border/50"
+                    )}>{r.sheet_status}</span>
+                  </td>
+                  <td className="py-1.5 px-3 text-muted-foreground text-[10px]">
+                    {r.match_confidence != null ? `${r.match_confidence}%` : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ── DestDetail (right panel — node selected) ──────────────────────────────────
 const UNAPPROVE_REASONS = [
   "Commercial decision", "Vendor removed", "Margin issue", "Quality degradation",
@@ -499,6 +583,14 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
 
         {/* Billing Settings */}
         {!editing && <BillingSettingsPanel destId={node.id} />}
+
+        {/* Vendor Rates */}
+        {!editing && (
+          <div>
+            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">Vendor Rates</div>
+            <VendorComparisonPanel destId={node.id} />
+          </div>
+        )}
         {!editing && <VendorRatesPanel destId={node.id} />}
 
         {/* Approval actions */}
