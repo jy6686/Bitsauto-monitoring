@@ -8,6 +8,7 @@ import { startRoutingCacheSync } from "./routing-cache";
 import { setupNocWebSocket } from "./noc-ws";
 import { setupLiveTrafficWebSocket } from "./live-traffic-ws";
 import { createServer } from "http";
+import compression from "compression";
 
 // ── Global crash guards ───────────────────────────────────────────────────────
 // Prevent background timer errors from killing the production process.
@@ -54,6 +55,9 @@ declare module "http" {
 // ── Trust proxy (Replit reverse-proxy) ────────────────────────────────────────
 // Required so express-rate-limit sees the real client IP via X-Forwarded-For
 app.set('trust proxy', 1);
+
+// ── Gzip compression ──────────────────────────────────────────────────────────
+app.use(compression());
 
 // ── Security headers (helmet) ─────────────────────────────────────────────────
 app.use(helmet({
