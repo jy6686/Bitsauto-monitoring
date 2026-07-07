@@ -171,7 +171,19 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        const isLargeArray =
+          Array.isArray(capturedJsonResponse) &&
+          capturedJsonResponse.length > 50;
+        const isLargeObject =
+          !Array.isArray(capturedJsonResponse) &&
+          JSON.stringify(capturedJsonResponse).length > 10_000;
+        if (isLargeArray || isLargeObject) {
+          logLine += Array.isArray(capturedJsonResponse)
+            ? ` :: [array ${capturedJsonResponse.length} rows]`
+            : ` :: [object keys=${Object.keys(capturedJsonResponse).length}]`;
+        } else {
+          logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        }
       }
       log(logLine);
     }
