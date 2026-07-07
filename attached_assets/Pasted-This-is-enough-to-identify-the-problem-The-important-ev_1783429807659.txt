@@ -1,0 +1,138 @@
+This is enough to identify the problem.
+
+The important evidence
+
+The request is:
+
+GET /api/product-registry/destinations
+
+The response is:
+
+404 Not Found
+
+The body is:
+
+Cannot GET /api/product-registry/destinations
+
+That is not your application throwing an exception.
+
+It is Express itself saying:
+
+There is no GET route registered for /api/product-registry/destinations.
+
+This is a completely different problem from the original HTML cache issue.
+
+What this tells us
+
+Originally:
+
+/api/product-registry/destinations
+        ↓
+SPA catch-all
+        ↓
+index.html
+
+Now:
+
+/api/product-registry/destinations
+        ↓
+next()
+        ↓
+Express routing
+        ↓
+404 Cannot GET
+
+That means the catch-all fix is doing exactly what it should.
+
+The request is now reaching Express.
+
+Express simply doesn't have that route.
+
+There are only a few possibilities
+1. The route was never registered
+
+For example:
+
+app.get("/api/product-registry/destination", ...)
+
+instead of
+
+app.get("/api/product-registry/destinations", ...)
+
+or
+
+router.get(...)
+
+without mounting it.
+
+2. registerRoutes() never mounted the Product Registry routes
+
+Example:
+
+app.use(productRegistryRouter);
+
+is missing
+
+or
+
+app.use("/api/product-registry", router);
+
+never executes.
+
+3. The route was renamed
+
+Your frontend still requests
+
+/api/product-registry/destinations
+
+but the backend now exposes
+
+/api/destination-catalog
+
+or
+
+/api/products/destinations
+
+or something similar.
+
+This is actually common after refactoring.
+
+The frontend is correct
+
+From the compiled JS you posted earlier:
+
+queryKey: ["/api/product-registry/destinations"]
+
+So React is intentionally requesting
+
+/api/product-registry/destinations
+The next check is now server-side
+
+On your Replit terminal, run:
+
+grep -R "product-registry/destinations" server
+
+If nothing is found, run:
+
+grep -R "destinations" server/routes*
+
+and
+
+grep -R "product-registry" server
+
+We're looking for one of these:
+
+app.get("/api/product-registry/destinations"
+
+or
+
+router.get("/destinations"
+
+or
+
+app.use("/api/product-registry"
+My current assessment
+
+You've fixed the first bug (the SPA catch-all intercepting API requests). The current failure is no longer a networking or caching issue. The 404 with Cannot GET /api/product-registry/destinations means the frontend is reaching the server, but the server doesn't have a matching GET handler for that path.
+
+At this point, I would focus exclusively on the backend route registration rather than the browser or network layer. The fastest way forward is to locate where the Product Registry routes are defined and verify that the expected GET /api/product-registry/destinations endpoint exists and is actually mounted.
