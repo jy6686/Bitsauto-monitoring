@@ -34181,8 +34181,23 @@ ${footer}
   registerConfigurationValueRoutes(app);
   registerValidationRuleRoutes(app);
   registerGovernanceReviewRoutes(app);
-  await ensureCallGovernanceMigrations(); // blocking: DB index confirmed before AMI listener starts
-  await ensureDestinationsSeed();        // no-op if destinations table already has rows
+  // Non-blocking: 10s timeout so late routes always register
+
+  await Promise.race([
+
+    ensureCallGovernanceMigrations().catch((e: any) => console.error('[startup] callGovernanceMigrations failed:', e.message)),
+
+    new Promise<void>(r => setTimeout(r, 10_000)),
+
+  ]);
+
+  await Promise.race([
+
+    ensureDestinationsSeed().catch((e: any) => console.error('[startup] destinationsSeed failed:', e.message)),
+
+    new Promise<void>(r => setTimeout(r, 10_000)),
+
+  ]);
   // Create destination_status_history table if it doesn't exist yet
   try {
     await db.execute(sql`
