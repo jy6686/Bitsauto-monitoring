@@ -368,13 +368,14 @@ export function registerVendorRatesRoutes(app: Express) {
           matchedCount:    sql`count(*) filter (where ${vendorRateNormalizedPrefixes.matchStatus} = 'matched')`,
           partialCount:    sql`count(*) filter (where ${vendorRateNormalizedPrefixes.matchStatus} = 'partial')`,
           unmatchedCount:  sql`count(*) filter (where ${vendorRateNormalizedPrefixes.matchStatus} = 'unmatched')`,
+        pendingCount:    sql`count(*) filter (where ${vendorRateNormalizedPrefixes.matchStatus} = 'pending' or ${vendorRateNormalizedPrefixes.matchStatus} is null)`,
         })
         .from(vendorRateNormalizedPrefixes)
         .groupBy(vendorRateNormalizedPrefixes.sheetId);
       const metricMap = new Map(metrics.map(m => [m.sheetId, m]));
       const response = rows.map(r => ({
         ...r,
-        ...(metricMap.get(r.id) ?? { normalizedCount: 0, matchedCount: 0, partialCount: 0, unmatchedCount: 0 }),
+        ...(metricMap.get(r.id) ?? { normalizedCount: 0, matchedCount: 0, partialCount: 0, unmatchedCount: 0, pendingCount: 0 }),
       }));
       return res.json(response);
     } catch (e: any) { return res.status(500).json({ error: e.message }); }

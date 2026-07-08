@@ -81,8 +81,9 @@ function SheetDetailView({ sheet, onBack, onActivate, onDelete }: {
   const matched    = Number(sheet.matchedCount)    || 0;
   const partial    = Number(sheet.partialCount)    || 0;
   const unmatched  = Number(sheet.unmatchedCount)  || 0;
+  const pending    = Number(sheet.pendingCount)    || 0;
   const rowCount   = Number(sheet.rowCount)        || 0;
-  const normPct    = rowCount > 0 ? Math.round((normalized / rowCount) * 100) : 0;
+  const normPct    = normalized > 0 ? 100 : 0;
   const matchPct   = normalized > 0 ? Math.round(((matched + partial) / normalized) * 100) : 0;
   const publishReady = matchPct >= 50 && sheet.status !== 'error';
 
@@ -160,10 +161,11 @@ function SheetDetailView({ sheet, onBack, onActivate, onDelete }: {
         <div className="divide-y divide-border/30">
           {([
             ['Total rows',      rowCount.toLocaleString()],
-            ['Normalized',      normalized.toLocaleString()],
+            ['Normalized prefixes', normalized.toLocaleString() + (normalized > rowCount ? ' (expanded)' : '')],
             ['Exact matches',   matched.toLocaleString()],
             ['Partial matches', partial.toLocaleString()],
             ['Unmatched',       unmatched.toLocaleString()],
+            ['Pending (not yet matched)', pending.toLocaleString()],
           ] as [string,string][]).map(([label, val]) => (
             <div key={label} className="flex items-center justify-between px-4 py-2.5 text-xs">
               <span className="text-muted-foreground">{label}</span>
