@@ -399,6 +399,39 @@ export function registerVendorRatesRoutes(app: Express) {
     } catch (e: any) { return res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/vendor-rates/sheets/:id/normalized — normalized prefixes with match status + filter
+  app.get('/api/vendor-rates/sheets/:id/normalized', async (req, res) => {
+    try {
+      const sheetId = parseInt(req.params.id);
+      const filter  = req.query.filter as string | undefined;
+      const search  = (req.query.search as string | undefined)?.toLowerCase();
+      const limit   = Math.min(parseInt(String(req.query.limit ?? '200')), 1000);
+      const offset  = parseInt(String(req.query.offset ?? '0'));
+      const conditions: any[] = [eq(vendorRateNormalizedPrefixes.sheetId, sheetId)];
+      if (filter && filter !== 'all') {
+        conditions.push(eq(vendorRateNormalizedPrefixes.matchStatus, filter));
+      }
+      const rows = await db.select({
+        prefix:          vendorRateNormalizedPrefixes.normalizedPrefix,
+        destination:     vendorRateNormalizedPrefixes.destination,
+        rate:            vendorRateNormalizedPrefixes.rate,
+        currency:        vendorRateNormalizedPrefixes.currency,
+        effectiveDate:   vendorRateNormalizedPrefixes.effectiveDate,
+        matchStatus:     vendorRateNormalizedPrefixes.matchStatus,
+        matchConfidence: vendorRateNormalizedPrefixes.matchConfidence,
+      }).from(vendorRateNormalizedPrefixes)
+        .where(and(...conditions))
+        .orderBy(vendorRateNormalizedPrefixes.normalizedPrefix)
+        .limit(limit).offset(offset);
+      const filtered = search
+        ? rows.filter(r =>
+            r.prefix?.toLowerCase().includes(search) ||
+            r.destination?.toLowerCase().includes(search))
+        : rows;
+      return res.json({ rows: filtered, total: filtered.length, limit, offset });
+    } catch (e: any) { return res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/vendor-rates/column-maps/:vendorId
   app.get('/api/vendor-rates/column-maps/:vendorId', async (req, res) => {
     try {

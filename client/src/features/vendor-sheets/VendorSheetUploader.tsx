@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, Loader2, FileSpreadsheet, Check } from "lucide-react";
+import { Upload, Loader2, FileSpreadsheet, Check, ArrowLeft } from "lucide-react";
 
 const VR_CANON = [
   { v: "",              l: "— skip —" },
@@ -54,6 +54,198 @@ function SheetBadge({ status }: { status: string }) {
   );
 }
 
+
+function ProgressBar({ pct, color }: { pct: number; color: string }) {
+  return (
+    <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+      <div style={{ width: `${Math.min(pct, 100)}%`, height: '100%', borderRadius: 3, background: color, transition: 'width 0.4s ease' }} />
+    </div>
+  );
+}
+
+function SheetDetailView({ sheet, onBack, onActivate, onDelete }: {
+  sheet: any; onBack: () => void;
+  onActivate: (id: number) => void; onDelete: (id: number) => void;
+}) {
+  const [rowFilter, setRowFilter] = useState<string>('all');
+  const [search, setSearch]       = useState('');
+  const { data: normData, isLoading: normLoading } = useQuery<{ rows: any[] }>({
+    queryKey: [`/api/vendor-rates/sheets/${sheet.id}/normalized`, rowFilter, search],
+    queryFn: () => fetch(
+      `/api/vendor-rates/sheets/${sheet.id}/normalized?filter=${rowFilter}&search=${encodeURIComponent(search)}&limit=200`
+    ).then(r => r.json()),
+    staleTime: 30_000,
+  });
+
+  const normalized = Number(sheet.normalizedCount) || 0;
+  const matched    = Number(sheet.matchedCount)    || 0;
+  const partial    = Number(sheet.partialCount)    || 0;
+  const unmatched  = Number(sheet.unmatchedCount)  || 0;
+  const rowCount   = Number(sheet.rowCount)        || 0;
+  const normPct    = rowCount > 0 ? Math.round((normalized / rowCount) * 100) : 0;
+  const matchPct   = normalized > 0 ? Math.round(((matched + partial) / normalized) * 100) : 0;
+  const publishReady = matchPct >= 50 && sheet.status !== 'error';
+
+  const rows = normData?.rows ?? [];
+
+  const matchColor = matchPct >= 80 ? '#10b981' : matchPct >= 50 ? '#f59e0b' : '#ef4444';
+
+  return (
+    <div className="p-4 space-y-4 max-w-5xl mx-auto">
+      <div className="flex items-center justify-between">
+        <button onClick={onBack} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="w-3.5 h-3.5" />
+          Back to Vendor Sheets
+        </button>
+        <SheetBadge status={sheet.status} />
+      </div>
+
+      <div>
+        <h2 className="text-sm font-semibold">{sheet.fileName}</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">{sheet.vendorName}</p>
+      </div>
+
+      <div className="border border-border rounded-lg overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-border bg-muted/10">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Summary</span>
+        </div>
+        <div className="divide-y divide-border/30">
+          {([
+            ['Vendor',    sheet.vendorName],
+            ['Currency',  sheet.currency ?? 'USD'],
+            ['Uploaded',  new Date(sheet.uploadedAt).toLocaleDateString()],
+            ['Effective', sheet.effectiveDate ?? 'Immediate'],
+            ['Rows',      rowCount.toLocaleString()],
+          ] as [string,string][]).map(([label, val]) => (
+            <div key={label} className="flex items-center justify-between px-4 py-2.5 text-xs">
+              <span className="text-muted-foreground">{label}</span>
+              <span className="font-medium">{val}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="border border-border rounded-lg overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-border bg-muted/10">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Processing</span>
+        </div>
+        <div className="px-4 py-3 space-y-3">
+          <div>
+            <div className="flex justify-between mb-1.5 text-xs">
+              <span className="text-muted-foreground">Normalization</span>
+              <span className="font-mono">{normPct}%</span>
+            </div>
+            <ProgressBar pct={normPct} color="#3b82f6" />
+          </div>
+          <div>
+            <div className="flex justify-between mb-1.5 text-xs">
+              <span className="text-muted-foreground">Matching</span>
+              <span className="font-mono">{matchPct}%</span>
+            </div>
+            <ProgressBar pct={matchPct} color={matchColor} />
+          </div>
+          <div className="flex items-center justify-between pt-1 text-xs">
+            <span className="text-muted-foreground">Publish ready</span>
+            <span className={publishReady ? 'text-emerald-400 font-medium' : 'text-red-400 font-medium'}>
+              {publishReady ? '✓ YES' : '✗ NO — coverage below 50%'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="border border-border rounded-lg overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-border bg-muted/10">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Statistics</span>
+        </div>
+        <div className="divide-y divide-border/30">
+          {([
+            ['Total rows',      rowCount.toLocaleString()],
+            ['Normalized',      normalized.toLocaleString()],
+            ['Exact matches',   matched.toLocaleString()],
+            ['Partial matches', partial.toLocaleString()],
+            ['Unmatched',       unmatched.toLocaleString()],
+          ] as [string,string][]).map(([label, val]) => (
+            <div key={label} className="flex items-center justify-between px-4 py-2.5 text-xs">
+              <span className="text-muted-foreground">{label}</span>
+              <span className="font-mono font-medium">{val}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="border border-border rounded-lg overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-border bg-muted/10 flex items-center justify-between">
+          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Row preview</span>
+          <input type="text" placeholder="Search prefix or destination…" value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="text-xs bg-muted/30 border border-border rounded px-2 py-1 w-48" />
+        </div>
+        <div className="flex items-center gap-1 px-4 py-2 border-b border-border/50 bg-muted/5">
+          {(['all','matched','partial','unmatched'] as const).map(f => (
+            <button key={f} onClick={() => setRowFilter(f)}
+              className={`text-[10px] px-2.5 py-1 rounded-full capitalize ${rowFilter === f
+                ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                : 'text-muted-foreground hover:text-foreground'}`}>
+              {f}
+            </button>
+          ))}
+        </div>
+        {normLoading
+          ? <div className="py-8 text-center text-xs text-muted-foreground animate-pulse">Loading rows…</div>
+          : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead className="border-b border-border bg-muted/10">
+                <tr>{['Prefix','Destination','Rate','Status'].map(h => (
+                  <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground text-[11px]">{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {rows.length === 0
+                  ? <tr><td colSpan={4} className="py-8 text-center text-xs text-muted-foreground">No rows</td></tr>
+                  : rows.slice(0, 100).map((r: any, i: number) => (
+                  <tr key={i} className="border-b border-border/20 hover:bg-muted/10">
+                    <td className="py-2 px-3 font-mono">{r.prefix}</td>
+                    <td className="py-2 px-3 text-muted-foreground max-w-[200px] truncate" title={r.destination ?? undefined}>{r.destination ?? '—'}</td>
+                    <td className="py-2 px-3 font-mono tabular-nums">{r.rate}</td>
+                    <td className="py-2 px-3">
+                      <span className={`text-[10px] rounded-full px-2 py-0.5 ${
+                        r.matchStatus === 'matched'   ? 'bg-emerald-500/15 text-emerald-400' :
+                        r.matchStatus === 'partial'   ? 'bg-amber-500/15 text-amber-400' :
+                        r.matchStatus === 'unmatched' ? 'bg-red-500/15 text-red-400' :
+                        'bg-muted/30 text-muted-foreground'
+                      }`}>{r.matchStatus ?? 'pending'}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap pb-2">
+        {sheet.status !== 'active' && (
+          <button onClick={() => onActivate(sheet.id)}
+            className="text-xs px-3 py-1.5 rounded bg-green-600 hover:bg-green-700 text-white font-medium">
+            Activate Sheet
+          </button>
+        )}
+        <button className="text-xs px-3 py-1.5 rounded border border-border hover:bg-muted/30 text-muted-foreground">
+          Download CSV
+        </button>
+        <button className="text-xs px-3 py-1.5 rounded border border-border hover:bg-muted/30 text-muted-foreground">
+          Export Unmatched
+        </button>
+        <button onClick={() => onDelete(sheet.id)}
+          className="text-xs px-3 py-1.5 rounded border border-red-500/30 text-red-400 hover:bg-red-500/10 ml-auto">
+          Delete Sheet
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function VendorSheetUploader() {
   const { toast } = useToast();
   const [wStep,     setWStep]     = useState<1|2|3>(1);
@@ -72,6 +264,7 @@ export function VendorSheetUploader() {
   const [wEffDate,  setWEffDate]  = useState("");
   const [wNotes,    setWNotes]    = useState("");
   const [busy,      setBusy]      = useState(false);
+  const [selectedSheet, setSelectedSheet] = useState<any>(null);
 
   const { data: vendors   = [] } = useQuery<any[]>({ queryKey: ["/api/vendor-rates/vendors"], staleTime: 5*60_000 });
     const { data: sheets    = [], refetch: refetchSheets } = useQuery<any[]>({ queryKey: ["/api/vendor-rates/sheets"], staleTime: 0, refetchInterval: (query: any) => { const rows: any[] = Array.isArray(query.state.data) ? query.state.data : []; const terminal = ["ready","active","failed","error"]; return rows.some((s:any) => !terminal.includes(s.status)) ? 3000 : false; } });
@@ -163,6 +356,17 @@ export function VendorSheetUploader() {
     await fetch(`/api/vendor-rates/sheets/${id}`, { method: "DELETE" });
     refetchSheets(); toast({ title: "Sheet deleted" });
   };
+
+  if (selectedSheet) {
+    return (
+      <SheetDetailView
+        sheet={selectedSheet}
+        onBack={() => setSelectedSheet(null)}
+        onActivate={async (id) => { await doActivate(id); setSelectedSheet(null); }}
+        onDelete={async (id) => { await doDelete(id); setSelectedSheet(null); }}
+      />
+    );
+  }
 
   return (
     <div className="p-4 space-y-4 max-w-5xl mx-auto">
@@ -368,6 +572,8 @@ export function VendorSheetUploader() {
                   <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{new Date(s.uploadedAt).toLocaleDateString()}</td>
                   <td className="py-2 px-3">
                     <div className="flex items-center gap-2">
+                      <button onClick={() => setSelectedSheet(s)} className="text-[10px] text-blue-400 hover:text-blue-300">View</button>
+                      <span className="text-border">|</span>
                       {s.status !== "active"
                         ? <button onClick={() => doActivate(s.id)} className="text-[10px] text-green-400 hover:text-green-300">Activate</button>
                         : <span className="text-[10px] text-green-400 flex items-center gap-0.5"><Check className="w-3 h-3"/>Active</span>
