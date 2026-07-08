@@ -337,7 +337,7 @@ export function VendorSheetUploader() {
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">
               <thead className="sticky top-0 bg-background border-b border-border">
-                <tr>{["Vendor","File","Rows","Status","Effective","Uploaded","Actions"].map(h => (
+                <tr>{["Vendor","File","Rows","Coverage","Status","Effective","Uploaded","Actions"].map(h => (
                   <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground text-[11px]">{h}</th>
                 ))}</tr>
               </thead>
@@ -346,6 +346,23 @@ export function VendorSheetUploader() {
                   <td className="py-2 px-3 font-medium">{s.vendorName}</td>
                   <td className="py-2 px-3 text-muted-foreground max-w-[180px] truncate" title={s.fileName}>{s.fileName}</td>
                   <td className="py-2 px-3 tabular-nums">{s.rowCount?.toLocaleString()}</td>
+                  <td className="py-2 px-3">
+                    {Number(s.normalizedCount) > 0 ? (() => {
+                      const matched = Number(s.matchedCount) + Number(s.partialCount);
+                      const total   = Number(s.normalizedCount);
+                      const pct     = Math.round((matched / total) * 100);
+                      return (
+                        <div className="flex items-center gap-1.5 min-w-[72px]">
+                          <div className="w-12 h-1.5 rounded-full bg-muted/30 overflow-hidden">
+                            <div className="h-full rounded-full bg-emerald-500/70" style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className={`text-[10px] tabular-nums ${pct >= 80 ? 'text-emerald-400' : pct >= 50 ? 'text-amber-400' : 'text-red-400'}`}>
+                            {pct}%
+                          </span>
+                        </div>
+                      );
+                    })() : <span className="text-[10px] text-muted-foreground/40">—</span>}
+                  </td>
                   <td className="py-2 px-3"><SheetBadge status={s.status} /></td>
                   <td className="py-2 px-3 text-muted-foreground">{s.effectiveDate ?? "—"}</td>
                   <td className="py-2 px-3 text-muted-foreground whitespace-nowrap">{new Date(s.uploadedAt).toLocaleDateString()}</td>

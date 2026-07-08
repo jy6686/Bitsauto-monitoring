@@ -382,7 +382,7 @@ function VendorComparisonPanel({ destId }: { destId: number }) {
                     )}>{r.sheet_status}</span>
                   </td>
                   <td className="py-1.5 px-3 text-muted-foreground text-[10px]">
-                    {r.match_confidence != null ? `${r.match_confidence}%` : '—'}
+                    {r.match_confidence != null ? String(r.match_confidence) : '—'}
                   </td>
                 </tr>
               );
@@ -591,7 +591,6 @@ function DestDetail({ node, flatNodes, onClose, canApprove }: {
             <VendorComparisonPanel destId={node.id} />
           </div>
         )}
-        {!editing && <VendorRatesPanel destId={node.id} />}
 
         {/* Approval actions */}
         {!editing && canApprove && (
