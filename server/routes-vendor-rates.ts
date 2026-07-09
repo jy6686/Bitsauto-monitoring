@@ -7,6 +7,7 @@ import { eq, desc, and, sql, ilike } from 'drizzle-orm';
 import {
   canonicalVendors, approvalRequests, marginAnalyticsDaily, approvalAuditLog, vendorRateSheets, vendorRateSheetRows, vendorColumnMaps, vendorRateNormalizedPrefixes,
 } from '../shared/schema';
+import { productMappingResolver } from "./services/commercial/product-mapping-resolver";
 
 function getSheetList(fileData: string): { index: number; name: string; rowCount: number }[] {
   const buf = Buffer.from(fileData, 'base64');
@@ -453,7 +454,7 @@ export function registerVendorRatesRoutes(app: Express) {
   // POST /api/vendor-rates/compare
   app.post('/api/vendor-rates/compare', async (req, res) => {
     try {
-      const { baseSheetId, newSheetId } = req.body as { baseSheetId: number; newSheetId: number };
+      const { baseSheetId, newSheetId, productId } = req.body as { baseSheetId: number; newSheetId: number; productId?: number };
       if (!baseSheetId || !newSheetId)
         return res.status(400).json({ error: 'baseSheetId and newSheetId required' });
       const [baseRows, newRows] = await Promise.all([
@@ -472,18 +473,28 @@ export function registerVendorRatesRoutes(app: Express) {
       for (const prefix of allPrefixes) {
         const base = baseMap.get(prefix);
         const cur  = newMap.get(prefix);
+        const mapping = productId != null
+          ? productMappingResolver.resolve({ productId, dialPrefix: prefix })
+          : null;
+        const mf = {
+          mappingMatchedPrefix: mapping?.matchedPrefix ?? null,
+          mappingStrategy: mapping?.strategy ?? null,
+          mappingVersionId: mapping?.versionId ?? null,
+          mappingVersionLabel: mapping?.versionLabel ?? null,
+          destinationIdFromMapping: mapping?.destinationId ?? null,
+        };
         if (!base && cur) {
-          diffRows.push({ prefix, destination: cur.destination, oldRate: null, newRate: cur.rate, delta: null, deltaPercent: null, change: 'new' });
+          diffRows.push({ prefix, destination: cur.destination, oldRate: null, newRate: cur.rate, delta: null, deltaPercent: null, change: 'new', ...mf });
           summary.newPrefixes++;
         } else if (base && !cur) {
-          diffRows.push({ prefix, destination: base.destination, oldRate: base.rate, newRate: null, delta: null, deltaPercent: null, change: 'removed' });
+          diffRows.push({ prefix, destination: base.destination, oldRate: base.rate, newRate: null, delta: null, deltaPercent: null, change: 'removed', ...mf });
           summary.removedPrefixes++;
         } else if (base && cur) {
           const delta = cur.rate - base.rate;
           const deltaPercent = base.rate > 0 ? (delta / base.rate) * 100 : null;
           const change = Math.abs(delta) < 0.000001 ? 'unchanged' : delta > 0 ? 'increased' : 'decreased';
           (summary as any)[change]++;
-          diffRows.push({ prefix, destination: cur.destination, oldRate: base.rate, newRate: cur.rate, delta, deltaPercent, change });
+          diffRows.push({ prefix, destination: cur.destination, oldRate: base.rate, newRate: cur.rate, delta, deltaPercent, change, ...mf });
         }
       }
       const ord: Record<string,number> = { new:0, removed:1, increased:2, decreased:3, unchanged:4 };
