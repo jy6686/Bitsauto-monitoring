@@ -8,6 +8,7 @@ import { startRoutingCacheSync } from "./routing-cache";
 import { setupNocWebSocket } from "./noc-ws";
 import { setupLiveTrafficWebSocket } from "./live-traffic-ws";
 import { createServer } from "http";
+import { productMappingResolver } from "./services/commercial/product-mapping-resolver";
 
 // ── Global crash guards ───────────────────────────────────────────────────────
 // Prevent background timer errors from killing the production process.
