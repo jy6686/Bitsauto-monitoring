@@ -19,10 +19,12 @@ import {
   Edit2, Trash2, CheckCircle2, XCircle, Clock, Layers, MapPin, FileText,
   Flag, Building2, BookOpen, Filter, Download, Link2, FileSpreadsheet,
   Clipboard, Eye, Loader2, WifiOff, SkipForward, History, MinusCircle,
+  Package,
 } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
+import { ProductMappingTab } from "@/features/product-mapping/ProductMappingTab";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Dest {
@@ -38,7 +40,7 @@ interface DestRateBilling {
   approval_status: string; updated_at: string | null;
 }
 interface TreeNode extends Dest { children: TreeNode[]; }
-type TabId = "catalog" | "vendor" | "approvals" | "intel" | "import" | "gds";
+type TabId = "catalog" | "vendor" | "approvals" | "intel" | "import" | "gds" | "product-mapping";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TABS: { id: TabId; label: string; icon: any }[] = [
@@ -47,7 +49,8 @@ const TABS: { id: TabId; label: string; icon: any }[] = [
   { id: "approvals", label: "Approvals",            icon: Shield     },
   { id: "gds",       label: "GDS Rates",            icon: BarChart2  },
   { id: "intel",     label: "Market Intel",         icon: TrendingUp },
-  { id: "import",    label: "Bulk Import",          icon: Upload     },
+  { id: "import",         label: "Bulk Import",     icon: Upload     },
+  { id: "product-mapping", label: "Product Mapping", icon: Package    },
 ];
 
 const STATUS_COLORS: Record<string, string> = {
@@ -2264,7 +2267,7 @@ export default function DestinationCatalogPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const t = params.get("tab") as TabId | null;
-    if (t && ["catalog","vendor","approvals","intel","import","gds"].includes(t)) setActiveTab(t);
+    if (t && ["catalog","vendor","approvals","intel","import","gds","product-mapping"].includes(t)) setActiveTab(t);
   }, []);
   // Keep URL in sync when tab changes
   useEffect(() => {
@@ -2340,7 +2343,8 @@ export default function DestinationCatalogPage() {
             {activeTab === "approvals" && <div className="h-full overflow-y-auto"><ApprovalsTab flatNodes={flatNodes} /></div>}
             {activeTab === "gds"       && <div className="h-full overflow-y-auto"><GdsRatesTab /></div>}
             {activeTab === "intel"     && <MarketIntelTab flatNodes={flatNodes} />}
-            {activeTab === "import"    && <div className="h-full overflow-y-auto"><ImportTab /></div>}
+            {activeTab === "import"          && <div className="h-full overflow-y-auto"><ImportTab /></div>}
+            {activeTab === "product-mapping" && <div className="h-full overflow-y-auto"><ProductMappingTab /></div>}
           </>
         )}
       </div>
