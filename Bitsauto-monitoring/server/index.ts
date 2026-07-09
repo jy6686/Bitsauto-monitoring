@@ -163,6 +163,13 @@ app.use((req, res, next) => {
   // Verify all expected columns are present — logs warnings for anything missing
   await runSchemaCheck();
 
+  try {
+    await productMappingResolver.init();
+    console.log("[product-mapping] Resolver initialized");
+  } catch (err) {
+    console.error("[product-mapping] Resolver initialization failed:", err);
+  }
+
   await registerRoutes(httpServer, app);
 
   // Pre-generate the PPTX at startup and write to the static downloads folder.
