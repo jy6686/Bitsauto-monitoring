@@ -531,7 +531,8 @@ export function registerVendorRatesRoutes(app: Express) {
   // POST /api/vendor-rates/margin-analysis — join vendor cost rows vs sell rates
   app.post('/api/vendor-rates/margin-analysis', async (req, res) => {
     try {
-      const { sheetId, productPrefix } = req.body as { sheetId: number; productPrefix: string };
+      // Day 6 — B: accept optional productId for mapping provenance
+      const { sheetId, productPrefix, productId } = req.body as { sheetId: number; productPrefix: string; productId?: number };
       if (!sheetId || !productPrefix) return res.status(400).json({ error: 'sheetId and productPrefix required' });
       const result = await db.execute(sql`
         SELECT
@@ -560,14 +561,27 @@ export function registerVendorRatesRoutes(app: Express) {
         LIMIT 5000
       `);
       const data = result.rows as any[];
-      const withSell  = data.filter(r => r.sell_rate != null);
-      const negative  = withSell.filter(r => Number(r.margin) < 0).length;
-      const low       = withSell.filter(r => Number(r.margin) >= 0 && Number(r.margin_pct) < 10).length;
-      const healthy   = withSell.filter(r => Number(r.margin_pct) >= 10).length;
-      const unmatched = data.length - withSell.length;
+      // Day 6 — C: attach mapping provenance per row (in-memory; no SQL change)
+      const dataWithMapping = data.map((r: any) => {
+        const mapping = productId != null
+          ? productMappingResolver.resolve({ productId, dialPrefix: r.prefix })
+          : null;
+        return { ...r,
+          mappingMatchedPrefix:     mapping?.matchedPrefix   ?? null,
+          mappingStrategy:          mapping?.strategy        ?? null,
+          mappingVersionId:         mapping?.versionId       ?? null,
+          mappingVersionLabel:      mapping?.versionLabel    ?? null,
+          destinationIdFromMapping: mapping?.destinationId   ?? null,
+        };
+      });
+      const withSell  = dataWithMapping.filter((r: any) => r.sell_rate != null);
+      const negative  = withSell.filter((r: any) => Number(r.margin) < 0).length;
+      const low       = withSell.filter((r: any) => Number(r.margin) >= 0 && Number(r.margin_pct) < 10).length;
+      const healthy   = withSell.filter((r: any) => Number(r.margin_pct) >= 10).length;
+      const unmatched = dataWithMapping.length - withSell.length;
       return res.json({
-        summary: { total: data.length, matched: withSell.length, negative, low, healthy, unmatched },
-        rows: data,
+        summary: { total: dataWithMapping.length, matched: withSell.length, negative, low, healthy, unmatched },
+        rows: dataWithMapping,
       });
     } catch (err: any) { return res.status(500).json({ error: err.message }); }
   });
@@ -575,7 +589,8 @@ export function registerVendorRatesRoutes(app: Express) {
   // POST /api/vendor-rates/impact-analysis
   app.post('/api/vendor-rates/impact-analysis', async (req, res) => {
     try {
-      const { newSheetId, baseSheetId: providedBase } = req.body as { newSheetId: number; baseSheetId?: number };
+      // Day 6 — B: accept optional productId for mapping provenance
+      const { newSheetId, baseSheetId: providedBase, productId } = req.body as { newSheetId: number; baseSheetId?: number; productId?: number };
       if (!newSheetId) return res.status(400).json({ error: 'newSheetId required' });
 
       // Auto-detect base sheet (current active for same vendor) if not provided
@@ -637,12 +652,23 @@ export function registerVendorRatesRoutes(app: Express) {
       const rows = impactQ.rows as any[];
       const byPfx = new Map<string,any>();
       for (const r of rows) {
-        if (!byPfx.has(r.prefix)) byPfx.set(r.prefix, {
-          prefix: r.prefix, destination: r.destination,
-          newRate: Number(r.new_rate), oldRate: Number(r.old_rate),
-          delta: Number(r.delta), deltaPct: r.delta_pct!=null?Number(r.delta_pct):null,
-          products: new Map(),
-        });
+        if (!byPfx.has(r.prefix)) {
+          // Day 6 — C: one resolver lookup per unique prefix (in-memory; prefix-level only)
+          const _im = productId != null
+            ? productMappingResolver.resolve({ productId, dialPrefix: r.prefix })
+            : null;
+          byPfx.set(r.prefix, {
+            prefix: r.prefix, destination: r.destination,
+            newRate: Number(r.new_rate), oldRate: Number(r.old_rate),
+            delta: Number(r.delta), deltaPct: r.delta_pct!=null?Number(r.delta_pct):null,
+            products: new Map(),
+            mappingMatchedPrefix:     _im?.matchedPrefix   ?? null,
+            mappingStrategy:          _im?.strategy        ?? null,
+            mappingVersionId:         _im?.versionId       ?? null,
+            mappingVersionLabel:      _im?.versionLabel    ?? null,
+            destinationIdFromMapping: _im?.destinationId   ?? null,
+          });
+        }
         const pfx = byPfx.get(r.prefix)!;
         if (r.product_code) {
           if (!pfx.products.has(r.product_code)) pfx.products.set(r.product_code, {
