@@ -281,6 +281,21 @@ app.use((req, res, next) => {
   }
 
 
+  // ── ProductMappingResolver warm-up ────────────────────────────────────────
+  // resolve()/getMetadata() throw until init() runs (refresh() alone never
+  // flips the initialized flag), so without this call the Product Mapping
+  // health endpoint and any Compare/Margin/Impact request with a productId
+  // 500s from startup with "ProductMappingResolver not initialized".
+  (async () => {
+    try {
+      const { productMappingResolver } = await import('./services/commercial/product-mapping-resolver');
+      await productMappingResolver.init();
+      console.log('[startup] ProductMappingResolver initialized');
+    } catch (e: any) {
+      console.error('[startup] ProductMappingResolver init (non-fatal):', e?.message);
+    }
+  })();
+
   // ── Vendor import orphan recovery ─────────────────────────────────────────
   // Sheets stuck in transient statuses from the previous process are orphaned.
   // Reset them to 'ready' so they can be retried from the UI.
