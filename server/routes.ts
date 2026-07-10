@@ -21973,6 +21973,7 @@ let _snapBusy = false;
       type VStats = { vendor: string; totalCalls: number; answeredCalls: number; billedSec: number; totalCost: number; pddSum: number; pddN: number; };
       type VM = VStats & { asr: number; acdSec: number; avgPddSec: number; billedMin: number; costPerMin: number; };
       let vendors: VM[] = [];
+      let cdrs: any[] = [];
       let offPeakCalls = 0; let offPeakCost = 0;
 
       // ── Primary: Sippy portal (authoritative — full volume for cost analysis) ──
@@ -22020,7 +22021,7 @@ let _snapBusy = false;
 
       // ── Fallback: CDR cache ─────────────────────────────────────────────────
       if (!_costPortalLoaded) {
-        const cdrs = [...cdrCache.values()].filter(c => {
+        cdrs = [...cdrCache.values()].filter(c => {
           const ts = c.startTime ? new Date(c.startTime).getTime()
             : c.connectTime ? new Date(c.connectTime).getTime() : 0;
           return ts >= cutoff;
