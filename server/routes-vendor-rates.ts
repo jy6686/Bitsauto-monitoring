@@ -5,7 +5,7 @@ import { db } from './db';
 import * as XLSX from 'xlsx';
 import { eq, desc, and, sql, ilike } from 'drizzle-orm';
 import {
-  canonicalVendors, approvalRequests, marginAnalyticsDaily, approvalAuditLog, vendorRateSheets, vendorRateSheetRows, vendorColumnMaps, vendorRateNormalizedPrefixes,
+  canonicalVendors, approvalRequests, marginAnalyticsDaily, approvalAuditLog, vendorRateSheets, vendorRateSheetRows, vendorColumnMaps, vendorRateNormalizedPrefixes, destinationProductRates,
 } from '../shared/schema';
 import { productMappingResolver } from "./services/commercial/product-mapping-resolver";
 
@@ -17,46 +17,6 @@ function getSheetList(fileData: string): { index: number; name: string; rowCount
     const all: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
     return { index, name, rowCount: all.filter((r:any[]) => r.some((c:any) => c != null)).length };
   });
-  // GET /api/vendor-rates/by-destination/:destId
-  // Returns one row per vendor (lowest rate from active/ready sheet) matched to this destination.
-  app.get('/api/vendor-rates/by-destination/:destId', async (req, res) => {
-    try {
-      const destId = parseInt(req.params.destId);
-      if (isNaN(destId)) return res.status(400).json({ error: 'invalid destId' });
-      const result = await db.execute(sql`
-        SELECT
-          cv.name       AS vendor_name,
-          cv.id         AS vendor_id,
-          vrs.id        AS sheet_id,
-          vrs.status    AS sheet_status,
-          vrs.currency,
-          vrnp.normalized_prefix              AS prefix,
-          CAST(vrnp.rate AS double precision) AS rate,
-          vrnp.effective_date,
-          vrnp.expiry_date,
-          vrnp.match_confidence,
-          vrnp.match_status
-        FROM vendor_rate_normalized_prefixes vrnp
-        JOIN vendor_rate_sheets vrs ON vrnp.sheet_id  = vrs.id
-        JOIN canonical_vendors  cv  ON vrs.vendor_id  = cv.id
-        WHERE vrnp.destination_id = ${destId}
-          AND vrs.status      IN ('active', 'ready')
-          AND vrnp.match_status IN ('matched', 'partial')
-        ORDER BY CAST(vrnp.rate AS double precision) ASC
-      `);
-      // One row per vendor — lowest-rate prefix wins
-      const seen = new Map<number, any>();
-      for (const r of result.rows as any[]) {
-        const vid = Number(r.vendor_id);
-        if (!seen.has(vid) || Number(r.rate) < Number(seen.get(vid).rate)) seen.set(vid, r);
-      }
-      return res.json({ vendors: Array.from(seen.values()) });
-    } catch (e: any) {
-      return res.status(500).json({ error: e.message });
-    }
-  });
-
-
 }
 function parseFile(fileData: string, sheetIndex?: number): { headers: string[]; dataRows: any[][] } {
   const buf = Buffer.from(fileData, 'base64');
@@ -138,6 +98,45 @@ export function registerVendorRatesRoutes(app: Express) {
         .orderBy(canonicalVendors.name);
       return res.json(rows);
     } catch (e: any) { return res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/vendor-rates/by-destination/:destId
+  // Returns one row per vendor (lowest rate from active/ready sheet) matched to this destination.
+  app.get('/api/vendor-rates/by-destination/:destId', async (req, res) => {
+    try {
+      const destId = parseInt(req.params.destId);
+      if (isNaN(destId)) return res.status(400).json({ error: 'invalid destId' });
+      const result = await db.execute(sql`
+        SELECT
+          cv.name       AS vendor_name,
+          cv.id         AS vendor_id,
+          vrs.id        AS sheet_id,
+          vrs.status    AS sheet_status,
+          vrs.currency,
+          vrnp.normalized_prefix              AS prefix,
+          CAST(vrnp.rate AS double precision) AS rate,
+          vrnp.effective_date,
+          vrnp.expiry_date,
+          vrnp.match_confidence,
+          vrnp.match_status
+        FROM vendor_rate_normalized_prefixes vrnp
+        JOIN vendor_rate_sheets vrs ON vrnp.sheet_id  = vrs.id
+        JOIN canonical_vendors  cv  ON vrs.vendor_id  = cv.id
+        WHERE vrnp.destination_id = ${destId}
+          AND vrs.status      IN ('active', 'ready')
+          AND vrnp.match_status IN ('matched', 'partial')
+        ORDER BY CAST(vrnp.rate AS double precision) ASC
+      `);
+      // One row per vendor — lowest-rate prefix wins
+      const seen = new Map<number, any>();
+      for (const r of result.rows as any[]) {
+        const vid = Number(r.vendor_id);
+        if (!seen.has(vid) || Number(r.rate) < Number(seen.get(vid).rate)) seen.set(vid, r);
+      }
+      return res.json({ vendors: Array.from(seen.values()) });
+    } catch (e: any) {
+      return res.status(500).json({ error: e.message });
+    }
   });
 
   // POST /api/vendor-rates/preview — parse file, return headers + sample (no DB write)
