@@ -521,10 +521,13 @@ export function registerVendorRatesRoutes(app: Express) {
   // GET /api/vendor-rates/products-with-rates — distinct productPrefixes that have rate data
   app.get('/api/vendor-rates/products-with-rates', async (_req, res) => {
     try {
-      const rows = await db.selectDistinct({ pp: destinationProductRates.productPrefix })
-        .from(destinationProductRates)
-        .orderBy(destinationProductRates.productPrefix);
-      return res.json(rows.map(r => r.pp).filter(Boolean));
+      const result = await db.execute(sql`
+        SELECT DISTINCT product_prefix
+        FROM destination_product_rates
+        WHERE product_prefix IS NOT NULL
+        ORDER BY product_prefix
+      `);
+      return res.json((result.rows as any[]).map((r: any) => r.product_prefix).filter(Boolean));
     } catch (err: any) { return res.status(500).json({ error: err.message }); }
   });
 
