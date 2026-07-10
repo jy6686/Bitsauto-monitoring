@@ -84,7 +84,7 @@ function UploadDialog({
       fd.append("file", file);
       fd.append("productId", String(productId));
       fd.append("label", label.trim() || `v${new Date().toISOString().slice(0, 10)}`);
-      const res = await fetch("/api/product-mapping/upload", {
+      const res = await fetch("/api/gcs/product-mappings/upload", {
         method: "POST",
         body: fd,
         credentials: "include",
@@ -96,8 +96,8 @@ function UploadDialog({
       return res.json();
     },
     onSuccess: (data: any) => {
-      qc.invalidateQueries({ queryKey: ["/api/product-mapping/products"] });
-      qc.invalidateQueries({ queryKey: ["/api/product-mapping/health"] });
+      qc.invalidateQueries({ queryKey: ["/api/gcs/product-mappings/products"] });
+      qc.invalidateQueries({ queryKey: ["/api/gcs/product-mappings/health"] });
       toast({
         title: `Uploaded — ${data.prefixCount ?? 0} prefixes`,
         description: `Version: ${data.label}`,
@@ -295,9 +295,9 @@ function ProductCard({ product }: { product: MappingProduct }) {
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const { data: versions = [], isFetching: vFetching } = useQuery<MappingVersion[]>({
-    queryKey: ["/api/product-mapping/versions", product.productId],
+    queryKey: ["/api/gcs/product-mappings/versions", product.productId],
     queryFn: () =>
-      apiRequest("GET", `/api/product-mapping/versions?productId=${product.productId}`)
+      apiRequest("GET", `/api/gcs/product-mappings/versions?productId=${product.productId}`)
         .then(r => r.json()),
     enabled: historyOpen,
     staleTime: 30_000,
@@ -305,11 +305,11 @@ function ProductCard({ product }: { product: MappingProduct }) {
 
   const activateMut = useMutation({
     mutationFn: (id: number) =>
-      apiRequest("POST", `/api/product-mapping/versions/${id}/activate`).then(r => r.json()),
+      apiRequest("POST", `/api/gcs/product-mappings/versions/${id}/activate`).then(r => r.json()),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/product-mapping/products"] });
-      qc.invalidateQueries({ queryKey: ["/api/product-mapping/versions", product.productId] });
-      qc.invalidateQueries({ queryKey: ["/api/product-mapping/health"] });
+      qc.invalidateQueries({ queryKey: ["/api/gcs/product-mappings/products"] });
+      qc.invalidateQueries({ queryKey: ["/api/gcs/product-mappings/versions", product.productId] });
+      qc.invalidateQueries({ queryKey: ["/api/gcs/product-mappings/health"] });
       toast({ title: "Version activated — resolver cache refreshed" });
     },
     onError: (e: any) =>
@@ -318,9 +318,9 @@ function ProductCard({ product }: { product: MappingProduct }) {
 
   const archiveMut = useMutation({
     mutationFn: (id: number) =>
-      apiRequest("POST", `/api/product-mapping/versions/${id}/archive`).then(r => r.json()),
+      apiRequest("POST", `/api/gcs/product-mappings/versions/${id}/archive`).then(r => r.json()),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/product-mapping/versions", product.productId] });
+      qc.invalidateQueries({ queryKey: ["/api/gcs/product-mappings/versions", product.productId] });
       toast({ title: "Version archived" });
     },
     onError: (e: any) =>
@@ -461,25 +461,25 @@ export function ProductMappingTab() {
   const { toast } = useToast();
 
   const { data: productsData, isLoading } = useQuery<{ products: MappingProduct[] }>({
-    queryKey: ["/api/product-mapping/products"],
+    queryKey: ["/api/gcs/product-mappings/products"],
     queryFn: () =>
-      apiRequest("GET", "/api/product-mapping/products").then(r => r.json()),
+      apiRequest("GET", "/api/gcs/product-mappings/products").then(r => r.json()),
     staleTime: 30_000,
   });
 
   const { data: healthData } = useQuery<{ resolver: HealthStats }>({
-    queryKey: ["/api/product-mapping/health"],
+    queryKey: ["/api/gcs/product-mappings/health"],
     queryFn: () =>
-      apiRequest("GET", "/api/product-mapping/health").then(r => r.json()),
+      apiRequest("GET", "/api/gcs/product-mappings/health").then(r => r.json()),
     staleTime: 60_000,
   });
 
   const refreshMut = useMutation({
     mutationFn: () =>
-      apiRequest("POST", "/api/product-mapping/refresh").then(r => r.json()),
+      apiRequest("POST", "/api/gcs/product-mappings/refresh").then(r => r.json()),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/product-mapping/products"] });
-      qc.invalidateQueries({ queryKey: ["/api/product-mapping/health"] });
+      qc.invalidateQueries({ queryKey: ["/api/gcs/product-mappings/products"] });
+      qc.invalidateQueries({ queryKey: ["/api/gcs/product-mappings/health"] });
       toast({ title: "Resolver cache refreshed" });
     },
     onError: (e: any) =>
