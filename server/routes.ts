@@ -20953,7 +20953,7 @@ let _snapBusy = false;
         if (cdrs.length > 0) {
           // Aggregate CDRs by clientName → revenue
           const clientMap = new Map<string, { calls: number; secs: number; revenue: number }>();
-          for (const c of cdrEntries) {
+          for (const c of cdrs) {
             const name = (c.clientName || 'Unknown').trim();
             const ex   = clientMap.get(name) ?? { calls: 0, secs: 0, revenue: 0 };
             clientMap.set(name, {
