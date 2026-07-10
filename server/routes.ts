@@ -20954,7 +20954,7 @@ let _snapBusy = false;
         if (cdrs.length > 0) {
           // Aggregate CDRs by clientName → revenue
           const clientMap = new Map<string, { calls: number; secs: number; revenue: number }>();
-          for (const c of cdrEntries) {
+          for (const c of cdrs) {
             const name = (c.clientName || 'Unknown').trim();
             const ex   = clientMap.get(name) ?? { calls: 0, secs: 0, revenue: 0 };
             clientMap.set(name, {
@@ -21974,6 +21974,7 @@ let _snapBusy = false;
       type VStats = { vendor: string; totalCalls: number; answeredCalls: number; billedSec: number; totalCost: number; pddSum: number; pddN: number; };
       type VM = VStats & { asr: number; acdSec: number; avgPddSec: number; billedMin: number; costPerMin: number; };
       let vendors: VM[] = [];
+      let cdrs: any[] = [];
       let offPeakCalls = 0; let offPeakCost = 0;
 
       // ── Primary: Sippy portal (authoritative — full volume for cost analysis) ──
@@ -22021,7 +22022,7 @@ let _snapBusy = false;
 
       // ── Fallback: CDR cache ─────────────────────────────────────────────────
       if (!_costPortalLoaded) {
-        const cdrs = [...cdrCache.values()].filter(c => {
+        cdrs = [...cdrCache.values()].filter(c => {
           const ts = c.startTime ? new Date(c.startTime).getTime()
             : c.connectTime ? new Date(c.connectTime).getTime() : 0;
           return ts >= cutoff;

@@ -852,7 +852,7 @@ async function portalLogin(
 // Throws "PROVISIONING_NOT_CONFIGURED" if credentials are absent — callers must
 // catch this and surface the manual-fallback UI card.  The returned session is
 // function-scoped and must NEVER be cached globally or reused across calls.
-async function provisioningLogin(base: string): Promise<CookieJar> {
+async function provisioningLogin(base: string, timeoutMs = 20000): Promise<CookieJar> {
   const provUser = process.env.SIPPY_PROV_USERNAME?.trim() ?? '';
   const provPass = process.env.SIPPY_PROV_PASSWORD?.trim() ?? '';
 

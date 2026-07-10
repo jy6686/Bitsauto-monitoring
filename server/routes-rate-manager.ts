@@ -273,6 +273,7 @@ export function registerRateManagerRoutes(app: Express) {
 
         // Auto-discover account names from product customer assignments
         let { accountNames, format } = req.body ?? {};
+        const accountIAccountMap: Record<string, string> = {};
         if (!Array.isArray(accountNames) || accountNames.length === 0) {
           const assignments = await db.select().from(customerProductAssignments)
             .where(and(
@@ -288,7 +289,6 @@ export function registerRateManagerRoutes(app: Express) {
             .map(ia => allCompanies.find(c => c.sippyIAccount === ia)?.name)
             .filter((n): n is string => Boolean(n));
           // Also build iAccount→sippyIAccount map for direct tariff lookup
-          const accountIAccountMap: Record<string, string> = {};
           for (const ia of iAccounts) {
             const c = allCompanies.find(co => co.sippyIAccount === ia);
             if (c?.name) accountIAccountMap[c.name] = String(ia);
@@ -647,18 +647,12 @@ export function registerRateManagerRoutes(app: Express) {
       // Query built below with parameterised WHERE clause
 
       // Build parameterised query
-      let whereClause = "WHERE 1=1";
-      const qParams: any[] = [];
-      if (productId) {
-        qParams.push(productId);
-        whereClause += ` AND pr.id = $${qParams.length}`;
-      }
-      if (country) {
-        qParams.push(`${country}%`);
-        whereClause += ` AND dpr.product_prefix LIKE $${qParams.length}`;
-      }
-      const rows = await db.execute(sql.raw(
-        `SELECT
+      const conditions = [sql`1=1`];
+      if (productId) conditions.push(sql`pr.id = ${productId}`);
+      if (country) conditions.push(sql`dpr.product_prefix LIKE ${`${country}%`}`);
+      const whereClause = sql.join(conditions, sql` AND `);
+      const rows = await db.execute(sql`
+        SELECT
           COALESCE(gd.name, dpr.destination_name) AS destination,
           dpr.product_prefix                       AS prefix,
           gd.country_code,
@@ -676,10 +670,8 @@ export function registerRateManagerRoutes(app: Express) {
         FROM destination_product_rates dpr
         LEFT JOIN global_destinations gd ON gd.id = dpr.destination_id
         LEFT JOIN product_registry pr ON pr.code = dpr.product_code
-        ${whereClause}
-        ORDER BY destination, product`,
-        qParams
-      ));
+        WHERE ${whereClause}
+        ORDER BY destination, product`);
 
       const data = (rows as any).rows ?? [];
       const sheetData = [
@@ -703,7 +695,7 @@ export function registerRateManagerRoutes(app: Express) {
       // Build descriptive filename
       let prodName = 'AllProducts';
       if (productId) {
-        const pRow = await db.execute(sql.raw(`SELECT name FROM product_registry WHERE id = $1`, [productId]));
+        const pRow = await db.execute(sql`SELECT name FROM product_registry WHERE id = ${productId}`);
         prodName = ((pRow as any).rows[0]?.name ?? `Product${productId}`).replace(/\s+/g, '_');
       }
       const dateLabel = new Date().toISOString().slice(0, 10);
