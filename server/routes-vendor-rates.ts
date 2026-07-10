@@ -473,14 +473,14 @@ export function registerVendorRatesRoutes(app: Express) {
         const base = baseMap.get(prefix);
         const cur  = newMap.get(prefix);
         const mapping = productId != null
-          ? productMappingResolver.resolve({ productId, dialPrefix: prefix })
+          ? productMappingResolver.resolve(productId, prefix)
           : null;
         const mf = {
           mappingMatchedPrefix: mapping?.matchedPrefix ?? null,
           mappingStrategy: mapping?.strategy ?? null,
-          mappingVersionId: mapping?.versionId ?? null,
-          mappingVersionLabel: mapping?.versionLabel ?? null,
-          destinationIdFromMapping: mapping?.destinationId ?? null,
+          mappingVersionId: mapping?.sourceVersionId ?? null,
+          mappingVersionLabel: null, // not implemented — MappingMatch has no label field
+          destinationIdFromMapping: mapping?.mapping.destinationId ?? null,
         };
         if (!base && cur) {
           diffRows.push({ prefix, destination: cur.destination, oldRate: null, newRate: cur.rate, delta: null, deltaPercent: null, change: 'new', ...mf });
@@ -563,14 +563,14 @@ export function registerVendorRatesRoutes(app: Express) {
       // Day 6 — C: attach mapping provenance per row (in-memory; no SQL change)
       const dataWithMapping = data.map((r: any) => {
         const mapping = productId != null
-          ? productMappingResolver.resolve({ productId, dialPrefix: r.prefix })
+          ? productMappingResolver.resolve(productId, r.prefix)
           : null;
         return { ...r,
           mappingMatchedPrefix:     mapping?.matchedPrefix   ?? null,
           mappingStrategy:          mapping?.strategy        ?? null,
-          mappingVersionId:         mapping?.versionId       ?? null,
-          mappingVersionLabel:      mapping?.versionLabel    ?? null,
-          destinationIdFromMapping: mapping?.destinationId   ?? null,
+          mappingVersionId:         mapping?.sourceVersionId ?? null,
+          mappingVersionLabel:      null, // not implemented — MappingMatch has no label field
+          destinationIdFromMapping: mapping?.mapping.destinationId ?? null,
         };
       });
       const withSell  = dataWithMapping.filter((r: any) => r.sell_rate != null);
@@ -654,7 +654,7 @@ export function registerVendorRatesRoutes(app: Express) {
         if (!byPfx.has(r.prefix)) {
           // Day 6 — C: one resolver lookup per unique prefix (in-memory; prefix-level only)
           const _im = productId != null
-            ? productMappingResolver.resolve({ productId, dialPrefix: r.prefix })
+            ? productMappingResolver.resolve(productId, r.prefix)
             : null;
           byPfx.set(r.prefix, {
             prefix: r.prefix, destination: r.destination,
@@ -663,9 +663,9 @@ export function registerVendorRatesRoutes(app: Express) {
             products: new Map(),
             mappingMatchedPrefix:     _im?.matchedPrefix   ?? null,
             mappingStrategy:          _im?.strategy        ?? null,
-            mappingVersionId:         _im?.versionId       ?? null,
-            mappingVersionLabel:      _im?.versionLabel    ?? null,
-            destinationIdFromMapping: _im?.destinationId   ?? null,
+            mappingVersionId:         _im?.sourceVersionId ?? null,
+            mappingVersionLabel:      null, // not implemented — MappingMatch has no label field
+            destinationIdFromMapping: _im?.mapping.destinationId ?? null,
           });
         }
         const pfx = byPfx.get(r.prefix)!;
