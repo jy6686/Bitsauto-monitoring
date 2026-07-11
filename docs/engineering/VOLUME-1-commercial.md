@@ -20,6 +20,28 @@
 
 ---
 
+## Handbook structure (Parts A–E)
+
+This volume is an **operations handbook**, not a code manual. Target structure and
+current fill state:
+
+| Part | Contents | State |
+|------|----------|-------|
+| **A — Business Architecture** | *Why* each area exists: Commercial org, Vendor & Customer management, Product/Routing/Margin strategy, Approval governance. Mostly `[institutional]`. | ⛔ To author with owner (business rationale not derivable from code) |
+| **B — Functional Modules** | One chapter per module to the per-module template (Vol 0 §6.3): objective, workflow, UI, APIs, services, tables, approval flow, exceptions, audit, dependencies, tests, open questions. | 🟡 §8a Destination Catalog is the deep reference; §§2–7 are verified summaries to deepen; §9 pending |
+| **C — Integration** | How Commercial connects to Sippy (XML-RPC + portal scraping), Product Registry, Routing, Finance, Analytics, Approval Engine. | 🟡 Partial (see §7 Send Rate, §1 map) |
+| **D — Technical Reference** | UI → API → Service → Storage → DB → External data-flow per module. | 🟡 Summaries in §§2–9; companion: **[Platform Dependency Matrix](dependency-matrix.md)** |
+| **E — Governance** | Change classification, evidence levels, freeze rules, rollback/risk, production checklist. | ✅ Lives in **[Volume 0](VOLUME-0-governance.md)** (referenced, not duplicated) |
+
+> **Companion artifact:** the **[Platform Dependency Matrix](dependency-matrix.md)**
+> (Reads / Writes / Depends On / Consumed By per module) is the change-impact tool —
+> consult it before any production change to see the downstream blast radius.
+
+The sections below (§§1–9) are the current Part B/D content, to be reorganised
+under these parts as they are deepened.
+
+---
+
 ## 1. Subsystem map
 
 ```
