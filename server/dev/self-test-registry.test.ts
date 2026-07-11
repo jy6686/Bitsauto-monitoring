@@ -45,6 +45,31 @@ describe('self-test registry framework', () => {
     expect(r.results).toHaveLength(1);
     expect(r.results[0].name).toBe('u');
   });
+
+  it('dependsOn: a failed dependency SKIPS the dependent (no misleading PASS)', async () => {
+    registerSelfTest({ module: 'M', id: 'a', name: 'a', type: 'unit', run: () => ({ status: 'FAIL', detail: 'boom' }) });
+    registerSelfTest({ module: 'M', id: 'b', name: 'b', type: 'unit', dependsOn: ['a'], run: () => ({ status: 'PASS', detail: 'would pass' }) });
+    const r = await runSelfTests();
+    expect(r.results.find(x => x.id === 'b')?.status).toBe('SKIPPED');
+    expect(r.overall).toBe('FAIL');   // a failed; b skipped (doesn't mask)
+  });
+
+  it('tag filter + tags surfaced on results', async () => {
+    registerSelfTest({ module: 'M', name: 'crit', type: 'unit', tags: ['critical'], run: () => ({ status: 'PASS', detail: '' }) });
+    registerSelfTest({ module: 'M', name: 'other', type: 'unit', tags: ['minor'], run: () => ({ status: 'PASS', detail: '' }) });
+    const r = await runSelfTests({ tag: 'critical' });
+    expect(r.results).toHaveLength(1);
+    expect(r.results[0].tags).toContain('critical');
+  });
+
+  it('deterministicOnly excludes environment tests; exit_code reflects overall', async () => {
+    registerSelfTest({ module: 'M', name: 'unit', type: 'unit', run: () => ({ status: 'PASS', detail: '' }) });
+    registerSelfTest({ module: 'M', name: 'db', type: 'integration' });
+    const r = await runSelfTests({ deterministicOnly: true });
+    expect(r.results).toHaveLength(1);
+    expect(r.results[0].type).toBe('unit');
+    expect(r.exit_code).toBe(0);
+  });
 });
 
 describe('Vendor Rates registered self-tests', () => {

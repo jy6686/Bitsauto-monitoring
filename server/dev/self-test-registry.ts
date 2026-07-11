@@ -11,8 +11,17 @@
  *   + duration_ms, commit, environment, timestamp
  */
 
-export type SelfTestStatus = 'PASS' | 'WARNING' | 'FAIL' | 'NOT_RUN' | 'MANUAL';
+export type SelfTestStatus = 'PASS' | 'WARNING' | 'FAIL' | 'NOT_RUN' | 'MANUAL' | 'SKIPPED';
 export type SelfTestType = 'unit' | 'integration' | 'external' | 'manual';
+
+/**
+ * `deterministic` = always identical, CI-safe (parser/mapping/calculations).
+ * `environment`   = needs DB / Sippy / portal; Dev/Staging only.
+ * Derived from type: unit → deterministic; integration/external/manual → environment.
+ */
+export function testClass(type: SelfTestType): 'deterministic' | 'environment' {
+  return type === 'unit' ? 'deterministic' : 'environment';
+}
 
 /** What a test's run() returns. `manual` tests declare MANUAL and are not executed. */
 export interface SelfTestOutcome { status: SelfTestStatus; detail: string }
@@ -21,18 +30,33 @@ export interface SelfTestDef {
   module: string;
   name: string;
   type: SelfTestType;
+  /** Stable id (default `module::name`) — used for dependsOn references. */
+  id?: string;
+  /** Ids of tests that must PASS first; otherwise this test is SKIPPED. */
+  dependsOn?: string[];
+  /** Free-form tags for filtering, e.g. vendor, critical, parser, regression. */
+  tags?: string[];
   /** Omitted for `manual` tests. Throwing → FAIL. */
   run?: () => SelfTestOutcome | Promise<SelfTestOutcome>;
 }
 
+const idOf = (d: SelfTestDef): string => d.id ?? `${d.module}::${d.name}`;
+
 export interface SelfTestResult extends SelfTestOutcome {
+  id: string;
   module: string;
   name: string;
   type: SelfTestType;
+  tags: string[];
   duration_ms: number;
   commit: string;
   environment: string;
   timestamp: string;
+}
+
+/** CI exit code: 0 = PASS (or nothing failed), 1 = WARNING, 2 = FAIL. */
+export function exitCode(overall: SelfTestStatus): 0 | 1 | 2 {
+  return overall === 'FAIL' ? 2 : overall === 'WARNING' ? 1 : 0;
 }
 
 const registry: SelfTestDef[] = [];
@@ -56,9 +80,22 @@ function commitHash(): string {
   ).slice(0, 12);
 }
 
-/** Run registered tests, optionally filtered by module and/or type. */
-export async function runSelfTests(filter?: { module?: string; type?: SelfTestType }): Promise<{
+export interface RunFilter {
+  module?: string;
+  type?: SelfTestType;
+  tag?: string;
+  /** Only deterministic (unit) tests — for CI. */
+  deterministicOnly?: boolean;
+}
+
+/**
+ * Run registered tests. Honours filters and `dependsOn`: a test whose dependency
+ * did not PASS (failed, skipped, not-run, or filtered out) is SKIPPED — so a
+ * broken upstream never yields a misleading downstream PASS.
+ */
+export async function runSelfTests(filter?: RunFilter): Promise<{
   overall: SelfTestStatus;
+  exit_code: 0 | 1 | 2;
   ran: number;
   results: SelfTestResult[];
 }> {
@@ -66,38 +103,52 @@ export async function runSelfTests(filter?: { module?: string; type?: SelfTestTy
   const environment = process.env.NODE_ENV ?? 'unknown';
   const selected = registry.filter(d =>
     (!filter?.module || d.module === filter.module) &&
-    (!filter?.type || d.type === filter.type));
+    (!filter?.type || d.type === filter.type) &&
+    (!filter?.tag || (d.tags ?? []).includes(filter.tag)) &&
+    (!filter?.deterministicOnly || testClass(d.type) === 'deterministic'));
 
+  // pass/fail state by id, so dependents can be skipped
+  const statusById = new Map<string, SelfTestStatus>();
   const results: SelfTestResult[] = [];
+
   for (const def of selected) {
+    const id = idOf(def);
     const timestamp = new Date().toISOString();
-    // Tests with no run(): manual → MANUAL (human), others → NOT_RUN (not yet
-    // implemented / needs DB or external system).
-    if (!def.run) {
-      results.push({ module: def.module, name: def.name, type: def.type,
-        status: def.type === 'manual' ? 'MANUAL' : 'NOT_RUN',
-        detail: def.type === 'manual' ? 'Requires human verification' : 'Not auto-runnable here (needs DB/external)',
-        duration_ms: 0, commit, environment, timestamp });
-      continue;
+    const base = { id, module: def.module, name: def.name, type: def.type,
+      tags: def.tags ?? [], commit, environment, timestamp };
+
+    // dependency gate: any dep not PASS → SKIPPED
+    const unmet = (def.dependsOn ?? []).filter(dep => statusById.get(dep) !== 'PASS');
+    if (unmet.length) {
+      const r: SelfTestResult = { ...base, status: 'SKIPPED',
+        detail: `skipped: dependency not passed [${unmet.join(', ')}]`, duration_ms: 0 };
+      results.push(r); statusById.set(id, 'SKIPPED'); continue;
     }
+
+    if (!def.run) {
+      const status: SelfTestStatus = def.type === 'manual' ? 'MANUAL' : 'NOT_RUN';
+      results.push({ ...base, status,
+        detail: def.type === 'manual' ? 'Requires human verification' : 'Not auto-runnable here (needs DB/external)',
+        duration_ms: 0 });
+      statusById.set(id, status); continue;
+    }
+
     const t0 = Date.now();
     try {
       const out = await def.run();
-      results.push({ module: def.module, name: def.name, type: def.type,
-        status: out.status, detail: out.detail, duration_ms: Date.now() - t0,
-        commit, environment, timestamp });
+      results.push({ ...base, status: out.status, detail: out.detail, duration_ms: Date.now() - t0 });
+      statusById.set(id, out.status);
     } catch (e: any) {
-      results.push({ module: def.module, name: def.name, type: def.type,
-        status: 'FAIL', detail: `threw: ${e?.message ?? e}`, duration_ms: Date.now() - t0,
-        commit, environment, timestamp });
+      results.push({ ...base, status: 'FAIL', detail: `threw: ${e?.message ?? e}`, duration_ms: Date.now() - t0 });
+      statusById.set(id, 'FAIL');
     }
   }
 
-  // overall = worst executed status (MANUAL/NOT_RUN don't fail the suite)
+  // overall = worst executed status (MANUAL/NOT_RUN/SKIPPED don't fail the suite)
   const order: SelfTestStatus[] = ['FAIL', 'WARNING', 'PASS'];
-  const executed = results.filter(r => r.status === 'FAIL' || r.status === 'WARNING' || r.status === 'PASS');
+  const executed = results.filter(r => (['FAIL', 'WARNING', 'PASS'] as SelfTestStatus[]).includes(r.status));
   const overall = order.find(s => executed.some(r => r.status === s)) ?? 'NOT_RUN';
-  return { overall, ran: executed.length, results };
+  return { overall, exit_code: exitCode(overall), ran: executed.length, results };
 }
 
 /** Test-only: clear the registry (avoids cross-test leakage). */
