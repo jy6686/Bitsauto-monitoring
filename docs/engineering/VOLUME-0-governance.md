@@ -192,12 +192,18 @@ Institutional Knowledge Required.**
 
 ### 6.3 Per-module template (Volume 1+)
 
-Each subsystem module is documented against a fixed template so coverage is
-uniform and gaps are obvious:
+Each subsystem module is documented against this fixed 16-field template so
+coverage is uniform and gaps are obvious. A module is not "100% complete" until
+every field is present (or explicitly marked N/A):
 
-Business purpose · UI pages · React components · API endpoints · Services ·
-Database tables · Workflow · Approval flow · Sequence diagram · Dependencies ·
-Rollback impact · Test checklist · Open Questions.
+1. Business purpose · 2. UI pages · 3. Components · 4. API endpoints ·
+5. Services · 6. Database tables · 7. Workflow · 8. Sequence diagram ·
+9. Dependencies · 10. Approval flow · 11. Rollback impact · 12. Test checklist ·
+13. Known issues · 14. Production notes · 15. Future roadmap · 16. Open questions.
+
+Institutional fields (Business purpose, Production notes, Known issues, Future
+roadmap) may be sourced from the repo's **`.agents/memory/`** notes (40 authored
+institutional records) — cite the note and tag `[institutional]`.
 
 ---
 

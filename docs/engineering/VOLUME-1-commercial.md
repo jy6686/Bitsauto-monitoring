@@ -408,57 +408,152 @@ supplied in the body. Supporting: `POST /api/sippy/pre-push-check`,
 `GET /api/sippy/rate-history`, `POST /api/sippy/rate-analysis-batch`,
 `POST /api/rate-manager/jobs/:id/retry`, `GET /api/rate-manager/export`.
 
-**Workflow internals** `[verified-in-code]`: resolves the rate + product
-(`trunkPrefix`), builds `fullPrefix = trunkPrefix + prefix` and the Sippy dial
-prefix, resolves account names (explicit body list *or* auto-discovered from active
-assignments → company names), then loops accounts calling
-`sippy.pushRateToSippy(...)`; each attempt is recorded in `rate_push_jobs`; results
-returned per account.
+**Workflow internals** `[verified-in-code @ routes-rate-manager.ts:264-318]`:
+resolves the rate + product (`trunkPrefix`); computes both
+`fullPrefix = trunkPrefix + prefix` (commented "audit only, never sent to Sippy")
+**and** `dialPrefix = sippy.resolveSippyPrefix(prefix, trunkPrefix)`; resolves
+account names (explicit body list *or* auto-discovered from active assignments →
+company names); loops accounts calling `sippy.pushRateToSippy(...)`; each attempt
+logged to `rate_push_jobs`; per-account results returned.
 
 **Services / external:** `server/sippy.ts` (`pushRateToSippy`, `resolveSippyPrefix`)
-→ Sippy softswitch (XML-RPC / portal). **frozen dependency.**
+→ Sippy softswitch (portal CSV upload). **frozen dependency.**
 
 **Database tables:** reads `product_rates`, `customer_product_assignments`,
 `companies`, `product_registry`, `global_destinations`; writes `rate_push_jobs`
 (and `product_rates` status).
 
-**Dependencies:** Approval (rate should be approved first), Product Registry
-(`trunk_prefix`), Destination Catalog. **Consumed by:** Sippy tariffs (external
-execution plane).
+**Approval flow:** rate should be approved (§6) before push; `POST /pre-push-check`
+is the pre-flight.
 
-**Rollback impact:** ⚠️ **this writes to the external Sippy switch** — the only
-Commercial module with production side-effects outside BitsAuto's own DB.
-**Class D/E.** No automatic rollback of a pushed Sippy rate; reversal is a
-compensating push. `[institutional: on some Sippy versions rates must be added via
-the Sippy web UI — no XML-RPC rate API — per replit.md gotchas.]`
+**Sequence:**
+```
+UI → POST /api/product-rates/:id/push-to-sippy
+  → load rate + product(trunkPrefix)
+  → resolve accountNames (body | active customer_product_assignments)
+  → for each account: sippy.pushRateToSippy({prefix, ratePerMin, ...})
+       → server/sippy.ts → portal /admin/tariffs.php CSV upload (Action=AS)
+  → log rate_push_jobs per attempt → return results[]
+```
+
+**Dependencies:** Approval, Product Registry (`trunk_prefix`), Destination Catalog,
+`server/sippy.ts` (frozen). **Consumed by:** Sippy tariffs (external execution
+plane).
+
+**Rollback impact:** ⚠️ **writes to the external production Sippy switch** — the only
+Commercial module with side-effects outside BitsAuto's DB. **Class D/E.** No
+automatic rollback; reversal is a compensating push.
+
+**Known issues:**
+- 🔴 **Prefix-rule conflict (unverified, needs decision).** Code at
+  `routes-rate-manager.ts:313` passes **`prefix: fullPrefix`** to `pushRateToSippy`
+  (comment: "Sippy tariffs store full prefixes, e.g. 29233 for Business Class"),
+  and the computed `dialPrefix` (line 272) is **unused**. This **contradicts** the
+  LOCKED `.agents/memory/prefix-architecture-rule.md` `[institutional]`, which
+  states *only* `dialPrefix` may reach Sippy and sending `fullPrefix` causes
+  `Cannot find iRate for prefix 19233`. Either the code is a regression or the rule
+  is superseded by a full-prefix tariff design. **Do not "fix" either way without
+  Level-2/3 evidence** (does a real push succeed or throw "Cannot find iRate"?).
+- The `accountIAccountMap` scope bug (fixed this session, commit `81adcfa1`) lived
+  here — regression-test the explicit-accountNames path.
+
+**Production notes** `[institutional — .agents/memory/sippy-rate-push-*]`:
+- **Sippy has zero XML-RPC rate-write methods** — the only mechanism is portal CSV
+  upload (`Action=AS` multipart POST). (`sippy-rate-push-api.md`)
+- `ssp-root` is a **reseller**, portal-blocked from `/c1/rates.php`; the working
+  path is `/admin/tariffs.php?action=edit_rates&i_tariff=N`. A separate rate-admin
+  credential (`settings.sippy_rate_admin_user/pass`, e.g. RTST1) is required.
+  (`sippy-rate-push-permissions.md`)
+- Accounts resolve tariffs via **Service Plans (iBillingPlan)**, not direct
+  iTariff. (`sippy-account-tariff-chain.md`)
+
+**Future roadmap** `[institutional]`: verify prefix rule on Company-Rate-Push
+(provision) and Multi-switch push paths (marked ⚠ pending in
+`prefix-architecture-rule.md`).
 
 **Test scenarios:**
-- [ ] Push with explicit account list vs. auto-discovered → both resolve accounts (regression: the accountIAccountMap scope bug)
+- [ ] Push with explicit account list vs. auto-discovered → both resolve accounts
 - [ ] pre-push-check surfaces conflicts before the push
 - [ ] each account attempt logged to `rate_push_jobs`; retry works
 - [ ] role guard rejects non-admin/management
+- [ ] **prefix sent to Sippy is the bare telecom prefix, not the trunk-prefixed one** (settles the conflict)
 
 ## Open Questions
 - [x] Account resolution + per-attempt logging? — **Verified**: explicit-or-auto, rate_push_jobs
-- [ ] Is there a supported rollback/compensating-push procedure? — **Institutional Knowledge Required**
-- [ ] Which Sippy version(s) accept XML-RPC rate push vs. require web UI? — **Institutional Knowledge Required**
+- [ ] Does the push send `fullPrefix` or `dialPrefix`, and does prod accept it? — **Needs Production Evidence** (Level 2/3; resolves the 🔴 conflict)
+- [ ] Supported rollback / compensating-push procedure? — **Institutional Knowledge Required**
 
 ---
 
-## 8. Product Registry & Destination Catalog
+## 8. Module — Product Registry (deep, per-template) `[verified-in-code @ 482babb7]`
 
-**Product Registry** — canonical product definitions (First Class, Business Class,
-Special Bravo, Special Charlie) with a `trunk_prefix` routing code (1/2/6/7) and a
-unique `code` (FC/BC/SB/SC).
-- **Seeded from code:** `server/workspace-seed.ts` → `CANONICAL_PRODUCTS` +
-  `seedProductsIfEmpty()` (idempotent upsert), invoked at startup from
-  `routes.ts:820`. **This is the single source of truth — do not seed via SQL.**
-- **APIs:** `GET/POST/DELETE /api/product-registry/products`, `.../assignments`,
-  `.../customer-assignments`, `.../destinations*`, `.../history`.
-- **UI:** `pages/product-registry.tsx`, `pages/deals.tsx`, `pages/rate-manager.tsx`.
-- **Tables:** `product_registry`, `product_prefixes`,
-  `customer_product_assignments`, `product_destination_assignments`,
-  `product_history`, `deals`, `deal_destinations`, `deal_approvals`.
+**Business purpose** `[institutional — .agents/memory/product-policy.md]`: products
+are **commercial classes** (pricing/routing strategy), **not destinations**. The
+internal `trunk_prefix` (1/2/6/7) is **routing-only and never exposed to
+customers/partners**. Customers buy *destinations*; operations manage *products*.
+The registry is the canonical product definition consumed across Rate Manager,
+Destination Catalog, Billing, and notifications.
+
+**Product model** `[institutional]`:
+- Current seed `[verified-in-code]`: `CANONICAL_PRODUCTS` = FC/BC/SB/SC
+  (`server/workspace-seed.ts`), trunk prefixes 1/2/6/7, `status:'commercial'`.
+- Target `[institutional — product-variant-architecture.md, LOCKED]`: **9 fixed
+  variants** (FC-W, BC-W, SB-W, SB-R, SC-W, SC-R, PM-R, BS-R, NP) adding
+  `productClass`/`commercialType`/`productFamily`, replacing `segment`
+  (Sprint C, pending — PM-R/BS-R trunk prefixes TBD from legacy sheets).
+
+**Lifecycle** `[institutional — product-registry-hierarchy.md]`:
+`draft → testing → commercial → deprecated → retired`. **Only `commercial` products
+appear** in deal/auth/rate-generation flows — any customer-facing filter must check
+`status='commercial'`. Codes (FC/BC/SB/SC) are immutable; names may change.
+
+**Master-data hierarchy** `[institutional]`:
+`Customer → Product → Destination → Routing Template → Pricing Template → Rate → Deal`.
+
+**UI pages:** `pages/product-registry.tsx` (catalog + lifecycle stepper +
+Assignments tab with DnD/Matrix toggle), `pages/deals.tsx`, `pages/rate-manager.tsx`.
+
+**API endpoints:** `GET/POST/DELETE /api/product-registry/products`,
+`.../assignments`, `.../customer-assignments`, `.../destinations*`, `.../history`;
+routing/pricing templates + provisioning in `routes-product-templates.ts`.
+
+**Services:** seed (`workspace-seed.ts`); Sippy accounts fetched live from
+`/api/sippy/accounts` for the Customer Assignments tab.
+
+**Database tables:** `product_registry`, `product_prefixes`,
+`customer_product_assignments` (links Sippy `i_account`→`product_id`; soft-deleted
+`status='inactive'`, reactivated on re-assign), `product_destination_assignments`,
+`product_history`, `deals`, `deal_destinations`, `deal_approvals`.
+
+**Workflow:** seed at startup (idempotent upsert) → products managed via catalog →
+assigned to customers (`customer_product_assignments`) and destinations
+(`product_destination_assignments`) → consumed by rate/deal flows when
+`status='commercial'`.
+
+**Dependencies:** `workspace-seed.ts` (canonical seed). **Consumed by:** Margin,
+Impact, Send Rate, Destination Catalog, Product Mapping, rate-notifications,
+call-governance (see [Dependency Matrix](dependency-matrix.md) — `product_registry`
+is a **High-fan-out** table).
+
+**Rollback impact:** **Class C/D.** Codes are immutable and High-fan-out — mutating
+`code`/`id` ripples across most of Commercial. Seed is idempotent (conflict on
+`code`); prefer the code seed over manual SQL (single source of truth).
+
+**Known issues:** empty `product_registry` in prod (this session) — the code seed
+runs at startup but its error is swallowed; root cause pending `[workspace-seed]`
+runtime evidence (seed failing vs wrong DB). See §Volume-level Open Questions.
+
+**Production notes** `[institutional]`: original seed used `status='active'`,
+migrated to `'commercial'` via direct SQL; a new status value would require updating
+`LIFECYCLE_STATES` in `product-registry.tsx`.
+
+**Future roadmap** `[institutional]`: Sprint C — 9-variant migration
+(add productClass/commercialType/productFamily, remove `segment`, seed 9 variants).
+
+## Open Questions
+- [x] Lifecycle states & seed source? — **Verified/[institutional]**: draft→…→retired; code seed is SoT
+- [ ] When does the 9-variant (Sprint C) migration land, and PM-R/BS-R trunk prefixes? — **Institutional Knowledge Required**
+- [ ] Why is `product_registry` empty in prod? — **Needs Runtime Evidence** (`[workspace-seed]` log)
 
 ---
 
