@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "headers": ["Prefix", "Rate", "Rate_2", "Dest"],
+  "rowCount": 2,
+  "rows": ["9233|0.01", "9234|0.03"]
+}

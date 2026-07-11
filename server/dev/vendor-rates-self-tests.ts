@@ -8,6 +8,7 @@
 import * as XLSX from 'xlsx';
 import { registerSelfTest, type SelfTestOutcome } from './self-test-registry';
 import { parseFile, getSheetList, applyMap } from '../routes-vendor-rates';
+import { loadFixtureBase64, loadBaseline, normalizeRateSheet, diffBaseline } from './fixtures';
 
 const M = 'Vendor Rates';
 const T = ['vendor', 'commercial', 'parser'];
@@ -57,6 +58,20 @@ registerSelfTest({ module: M, id: 'vr.validation', name: 'Validation rejects sho
   const seen = new Set<string>();
   const valid = rows.filter(r => (r.prefix.length >= 2 && r.prefix.length <= 16 && !seen.has(r.prefix) && seen.add(r.prefix)));
   return valid.length === 1 && valid[0].prefix === '9233' ? ok('1 valid of 4') : bad(`valid=${valid.length}`);
+}});
+
+// Fixture-backed tests — load a workbook from the shared fixture library and
+// compare the parsed, normalized model against a versioned baseline.
+registerSelfTest({ module: M, id: 'vr.fixture-baseline', name: 'Fixture baseline (duplicate-rate)', type: 'unit', tags: [...T, 'regression'], run: () => {
+  const { headers, dataRows } = parseFile(loadFixtureBase64('synthetic', 'vendor-duplicate-rate.xlsx'));
+  const model = normalizeRateSheet(headers, dataRows, 'Prefix', 'Rate');
+  const diffs = diffBaseline(model, loadBaseline('vendor-duplicate-rate.json'));
+  return diffs.length === 0 ? ok('matches baseline v1') : bad(diffs.join('; '));
+}});
+
+registerSelfTest({ module: M, id: 'vr.regression-bug-001', name: 'Regression BUG-001 (duplicate headers)', type: 'unit', tags: [...T, 'regression', 'critical'], run: () => {
+  const h = parseFile(loadFixtureBase64('regression', 'bug-001-duplicate-headers.xlsx')).headers;
+  return JSON.stringify(h) === JSON.stringify(['Prefix', 'Rate', 'Rate_2']) ? ok('BUG-001 stays fixed') : bad(`headers=${JSON.stringify(h)}`);
 }});
 
 // Environment / manual stages — declared, not auto-run here. dependsOn the parser

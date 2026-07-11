@@ -11,6 +11,11 @@
  *   + duration_ms, commit, environment, timestamp
  */
 
+/** Test Lab Framework version — FROZEN v1.0 (2026-07-11). Bump only on a genuine
+ *  architectural change; additions should be consumers, not framework edits. */
+export const FRAMEWORK_VERSION = '1.0';
+export const RUNNER_VERSION = '1.0';
+
 export type SelfTestStatus = 'PASS' | 'WARNING' | 'FAIL' | 'NOT_RUN' | 'MANUAL' | 'SKIPPED';
 export type SelfTestType = 'unit' | 'integration' | 'external' | 'manual';
 
@@ -94,6 +99,8 @@ export interface RunFilter {
  * broken upstream never yields a misleading downstream PASS.
  */
 export async function runSelfTests(filter?: RunFilter): Promise<{
+  framework_version: string;
+  runner_version: string;
   overall: SelfTestStatus;
   exit_code: 0 | 1 | 2;
   ran: number;
@@ -148,7 +155,11 @@ export async function runSelfTests(filter?: RunFilter): Promise<{
   const order: SelfTestStatus[] = ['FAIL', 'WARNING', 'PASS'];
   const executed = results.filter(r => (['FAIL', 'WARNING', 'PASS'] as SelfTestStatus[]).includes(r.status));
   const overall = order.find(s => executed.some(r => r.status === s)) ?? 'NOT_RUN';
-  return { overall, exit_code: exitCode(overall), ran: executed.length, results };
+  return {
+    framework_version: FRAMEWORK_VERSION,
+    runner_version: RUNNER_VERSION,
+    overall, exit_code: exitCode(overall), ran: executed.length, results,
+  };
 }
 
 /** Test-only: clear the registry (avoids cross-test leakage). */
