@@ -24,6 +24,7 @@ Authority when sources conflict (Volume 0 §4.1): **code > institutional notes**
 | VR-001 | Send Rate | Prefix to Sippy | `fullPrefix` | `dialPrefix` only | Unknown | High | **PENDING** |
 | VR-002 | Product Mapping | Catalog tables | Not in schema/`runSafeMigrations` | Migration 028 (empty in main) | Unknown | High | **PENDING** |
 | VR-003 | Vendor Import | Sheet detection | Keyword, else first sheet | Should find Pricing sheet | Reproduced | Medium | **OPEN — product decision** |
+| VR-004 | Destination Catalog | Approval = business rule | `commercial_status='approved'` filtered + guarded | Master-data governance | Verified in code | Medium | **CLOSED — no conflict** |
 
 > Modules reference an entry as **"See Verification Register → VR-NNN"** rather than
 > repeating the investigation, keeping the handbook clean.
@@ -81,7 +82,15 @@ status in `INDEX.md`.
 
 ## Closed entries
 
-*(none yet)*
+### VR-004 — Destination approval status is a business rule (not a display flag)
+| Attribute | Value |
+|-----------|-------|
+| Subsystem | Commercial → Destination Catalog (§8a) |
+| Question | Is `global_destinations.commercial_status='approved'` load-bearing? |
+| Evidence | `[V]` `GET /api/product-registry/destinations/approved` filters it (`routes.ts:34946`); hard guard at `routes.ts:35803` rejects non-`approved`; read by 4 UI pages. |
+| Result | **Confirmed — it is a governed business rule.** No code/institutional conflict. |
+| Consequence | Blanket status mutation has wide blast radius → do not mass-unapprove (Volume 1 §8a Rollback impact). |
+| Status | **CLOSED** (verified in code, 2026-07-11) |
 
 ---
 

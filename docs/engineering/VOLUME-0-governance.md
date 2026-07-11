@@ -11,6 +11,14 @@
 
 > **Status:** Living document. **Audience:** every contributor (human or agent).
 > **Read this before proposing any change to BitsAuto.**
+>
+> 🔒 **GOVERNANCE FROZEN — v1.0 (2026-07-11).** The governance layer (this volume,
+> the evidence hierarchy, source-authority, Verification Status field, Verification
+> Register, Dependency Matrix, Engineering Index, 17-field template) is now a
+> **platform standard**. Changes to it are **exceptional**, not routine — they
+> require deliberate versioning (v1.1, …), not casual edits. From here,
+> documentation is a **by-product of engineering** (Engineering → Verification →
+> Implementation → Testing → Production → Doc update), not the primary work.
 
 BitsAuto is not a CRUD app. It is a large operational platform (~203 DB tables,
 ~156 client pages, ~158 server modules, ~280K LOC) running read-only 24/7 against
