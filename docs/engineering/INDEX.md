@@ -48,8 +48,10 @@
    Per Volume 0 §4.1 these are *institutional intent*, not implementation truth.
 3. **Code + git** — `shared/schema.ts` (203 tables), `server/routes*.ts`,
    `server/services/**`, git log. The ground truth for `[V]` claims.
-4. **[Verification Register](verification-register.md)** — `VR-NNN` log of
-   code-vs-source discrepancies awaiting evidence (open: **VR-001** Send Rate prefix).
+4. **[Verification Register](verification-register.md)** — `VR-NNN`, **platform /
+   architectural** discrepancies awaiting evidence (open: VR-001, VR-002, VR-003).
+5. **[Bug Register](bug-register.md)** — `BUG-NNN`, **implementation / UI** bugs
+   through fix → validation → merge (BUG-001 fix-ready; BUG-002/003/004 open).
 
 ---
 

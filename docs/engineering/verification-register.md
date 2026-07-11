@@ -25,9 +25,12 @@ Authority when sources conflict (Volume 0 §4.1): **code > institutional notes**
 | VR-002 | Product Mapping | Catalog tables | Not in schema/`runSafeMigrations` | Migration 028 (empty in main) | Unknown | High | **PENDING** |
 | VR-003 | Vendor Import | Sheet detection | Keyword, else first sheet | Should find Pricing sheet | Reproduced | Medium | **OPEN — product decision** |
 | VR-004 | Destination Catalog | Approval = business rule | `commercial_status='approved'` filtered + guarded | Master-data governance | Verified in code | Medium | **CLOSED — no conflict** |
-| VR-005 | Vendor Import | Duplicate column mapping | Header-keyed state + empty-only dedup | Each column independent | Unit-tested ✓ | High | **FIX READY — real-file test pending** |
-| VR-006 | Vendor Import | Header-row detection | Most-filled row = header | Header row is the header | Reproduced | Low | **OPEN — observation** |
 
+> **Scope:** the Verification Register is for **platform-level / architectural /
+> production** questions only. Implementation & UI bugs go in the separate
+> **[Bug Register](bug-register.md)** (`BUG-NNN`) — keep the two distinct so this
+> register does not become a list of every UI bug.
+>
 > Modules reference an entry as **"See Verification Register → VR-NNN"** rather than
 > repeating the investigation, keeping the handbook clean.
 
@@ -80,23 +83,8 @@ status in `INDEX.md`.
 | Status | **OPEN — product decision** (keep keyword+`sheetIndex` override, or add content-based detection?) |
 | Resolution | *(to fill on decision)* |
 
-### VR-005 — Vendor Import: duplicate column headers collide in the mapper
-| Attribute | Value |
-|-----------|-------|
-| Subsystem | Commercial → Vendor Import (§2) |
-| Root cause | Mapping state keyed by header text (`wMap[h]`, `key={h}`); `parseFile` uniquified only *empty* headers. Two columns sharing a name (e.g. two "Rate") shared one key → selecting one changed the others; server `applyMap` `colIdx[h]` became last-wins. |
-| Evidence | `[V]` `VendorSheetUploader.tsx:469`, `routes-vendor-rates.ts parseFile`; unit test `routes-vendor-rates-parse.test.ts` (4/4 pass). |
-| Fix | `parseFile` now uniquifies **all** headers (first keeps name; dupes→`_2`/`_3`; empties→`col_<i>`). Branch `fix/vendor-import-column-mapping` (`079ee08d`, `2ef1ba90`). |
-| Test | ✓ unit (dup/blank/merged/triple/multi-sheet). ☐ **real vendor files** (Telstra/QuickComm/Tata/BICS/HGC/OTEGlobe) in deployed app. |
-| Status | **FIX READY — do not merge until real-file test passes** |
-
-### VR-006 — Vendor Import: header-row detection is "most-filled row"
-| Attribute | Value |
-|-----------|-------|
-| Subsystem | Commercial → Vendor Import (§2) |
-| Finding | `[V]` `parseFile` picks the row with the most non-empty cells as the header. A heavily **merged/blank header row** can be mis-detected if a data row has more populated cells (surfaced by the VR-005 test). |
-| Impact | Low-frequency; affects sheets with sparse/merged headers. Distinct from VR-003 (which sheet) — this is which *row within* a sheet. |
-| Status | **OPEN — observation** (no fix yet; content/position-aware header detection is a candidate improvement) |
+*(VR-005/VR-006 were reclassified as implementation bugs → moved to the
+[Bug Register](bug-register.md) as BUG-001/BUG-002.)*
 
 ---
 
