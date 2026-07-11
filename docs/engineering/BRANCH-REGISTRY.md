@@ -64,6 +64,42 @@
 - Behind 13 / ahead 1 (`b86fac28` — an old 11-line `routes-vendor-rates.ts` edit,
   superseded by the resolver work already in main). **Recommendation:** Archive.
 
+## Capability lifecycle view
+
+Branches tied to the capability they advance — which belong together, in what order.
+
+```
+CAP-001 Vendor Rate Management
+  Current production ── main (8f1972d1)
+  Candidate branches (promotion order):
+    ├── fix/vendor-import-column-mapping         [Runtime validation pending]  → #2
+    ├── feature/vendor-test-lab                  [Depends on BUG-001]          → #3
+    └── fix/product-mapping-urls-and-resolver…   [Pending engineering review]  → #4
+
+Engineering system (not a capability)
+  └── docs/engineering-handbook                  [Ready — final review]        → #1
+
+Archive candidates (superseded — do NOT delete yet)
+  ├── fix/revenue-rate-manager-smoke
+  └── feature/commercial-engine-integration
+```
+
+## Merge-readiness checklist (Hold → Ready)
+
+A branch moves from **Hold** to **Ready to Merge** only when **every** item is ✓.
+`—` = not applicable. State as of 2026-07-11.
+
+| Check | docs-handbook | vendor-import (BUG-001) | vendor-test-lab | product-mapping |
+|-------|:---:|:---:|:---:|:---:|
+| Architecture review | ☐ owner | ✓ | ✓ | ☐ separate |
+| Runtime validation complete | — | ☐ 6-vendor matrix | ☐ run endpoint | ☐ VR-002 |
+| Test Lab status | ✓ 16/16 | ✓ 16/16 | ✓ 16/16 | — no tests |
+| Documentation updated | ✓ | ✓ BUG-001 | ✓ STORY-007 | ✓ |
+| Capability dossier updated | ✓ | ✓ CAP-001 | ✓ CAP-001 | ✓ CAP-001 |
+| Rollback documented | — revert | ✓ per-sheet | ✓ revert (diag) | ✓ revert |
+| Production impact assessed | ✓ none | ✓ low | ✓ diagnostic-only | ☐ changes prod code |
+| **Verdict** | **Hold** (owner review) | **Hold** (runtime) | **Hold** (runtime + #2) | **Hold** (review + VR-002) |
+
 ## Merge sequence (only after review — not executed)
 1. `docs/engineering-handbook` (docs)
 2. `fix/vendor-import-column-mapping` (BUG-001) — after runtime validation
