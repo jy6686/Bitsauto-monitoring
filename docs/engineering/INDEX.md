@@ -26,8 +26,11 @@
    every claim tagged `[verified-in-code]` / `[institutional]`.
 2. **Agent Memory** — `.agents/memory/` (40 prior institutional notes + `MEMORY.md`
    index). Authored across past sessions; **verification status tracked below.**
+   Per Volume 0 §4.1 these are *institutional intent*, not implementation truth.
 3. **Code + git** — `shared/schema.ts` (203 tables), `server/routes*.ts`,
    `server/services/**`, git log. The ground truth for `[V]` claims.
+4. **[Verification Register](verification-register.md)** — `VR-NNN` log of
+   code-vs-source discrepancies awaiting evidence (open: **VR-001** Send Rate prefix).
 
 ---
 

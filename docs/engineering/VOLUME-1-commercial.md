@@ -478,9 +478,17 @@ automatic rollback; reversal is a compensating push.
 - [ ] role guard rejects non-admin/management
 - [ ] **prefix sent to Sippy is the bare telecom prefix, not the trunk-prefixed one** (settles the conflict)
 
+**Verification status:**
+| Verified in code | Verified in runtime | Verified in production | Institutional | Last verified |
+|:---:|:---:|:---:|:---:|:---:|
+| ✓ | ✗ | ✗ | ✓ | 2026-07-11 |
+
+*Open discrepancy:* **[VR-001](verification-register.md)** (prefix `fullPrefix` vs
+`dialPrefix`) — PENDING production evidence.
+
 ## Open Questions
 - [x] Account resolution + per-attempt logging? — **Verified**: explicit-or-auto, rate_push_jobs
-- [ ] Does the push send `fullPrefix` or `dialPrefix`, and does prod accept it? — **Needs Production Evidence** (Level 2/3; resolves the 🔴 conflict)
+- [ ] Does the push send `fullPrefix` or `dialPrefix`, and does prod accept it? — **Needs Production Evidence** (Level 2/3; = VR-001)
 - [ ] Supported rollback / compensating-push procedure? — **Institutional Knowledge Required**
 
 ---
@@ -549,6 +557,11 @@ migrated to `'commercial'` via direct SQL; a new status value would require upda
 
 **Future roadmap** `[institutional]`: Sprint C — 9-variant migration
 (add productClass/commercialType/productFamily, remove `segment`, seed 9 variants).
+
+**Verification status:**
+| Verified in code | Verified in runtime | Verified in production | Institutional | Last verified |
+|:---:|:---:|:---:|:---:|:---:|
+| ✓ | ✗ | ✗ (table empty in prod — unresolved) | ✓ | 2026-07-11 |
 
 ## Open Questions
 - [x] Lifecycle states & seed source? — **Verified/[institutional]**: draft→…→retired; code seed is SoT

@@ -95,6 +95,24 @@ one category as a substitute for another.
 A schema or production change requires **C (database evidence)** explicitly — the
 repository alone cannot prove what exists in the live database.
 
+### 4.1 Source-authority hierarchy
+
+When two sources disagree, authority is fixed — **institutional notes never
+override current code or production.** They record *intent*, and intent can go
+stale as the code evolves.
+
+| Source | Authority for |
+|--------|---------------|
+| **Current source code** | Primary **implementation** truth |
+| **Production/runtime verification** | Primary **behaviour** truth |
+| **Database verification** | Primary **data** truth |
+| `.agents/memory/` notes | **Institutional intent** (not implementation truth) |
+| Handbook (`docs/engineering/`) | **Derived** documentation |
+
+A `.agents/memory` note that contradicts current code is a **discrepancy to
+register** (see §10 Verification Register), not a fact to document. Resolve it only
+with production/runtime evidence — never by assuming either side is "wrong."
+
 ---
 
 ## 5. Change workflow
@@ -199,11 +217,24 @@ every field is present (or explicitly marked N/A):
 1. Business purpose · 2. UI pages · 3. Components · 4. API endpoints ·
 5. Services · 6. Database tables · 7. Workflow · 8. Sequence diagram ·
 9. Dependencies · 10. Approval flow · 11. Rollback impact · 12. Test checklist ·
-13. Known issues · 14. Production notes · 15. Future roadmap · 16. Open questions.
+13. Known issues · 14. Production notes · 15. Future roadmap · 16. Open questions ·
+17. **Verification status**.
 
 Institutional fields (Business purpose, Production notes, Known issues, Future
 roadmap) may be sourced from the repo's **`.agents/memory/`** notes (40 authored
-institutional records) — cite the note and tag `[institutional]`.
+institutional records) — cite the note and tag `[institutional]`. Per §4.1 they are
+*intent*, not implementation truth.
+
+**Field 17 — Verification status** (a small table at the end of each module):
+
+```
+| Verified in code | Verified in runtime | Verified in production | Institutional | Last verified |
+|:---:|:---:|:---:|:---:|:---:|
+| ✓ | ✗ | ✗ | ✓ | 2026-07-11 |
+```
+
+It tells a future engineer how much confidence to place in the module's docs at a
+glance.
 
 ---
 
@@ -256,7 +287,18 @@ Write conclusions as **"Confidence: Level N"**, not "root cause." A Class-D
 
 ---
 
-## 10. Volume index (planned)
+## 10. Verification Register
+
+Discrepancies between sources (code vs institutional note vs runtime) are **not
+silently fixed** — they are logged in the
+**[Verification Register](verification-register.md)** as `VR-NNN` entries and closed
+only when production/runtime/DB evidence resolves them. Per §4.1, never assume which
+side is "wrong." Worked example: **VR-001** — Send Rate sends `fullPrefix` (code)
+vs. `dialPrefix`-only (LOCKED institutional note); status PENDING, needs L2/L3.
+
+---
+
+## 11. Volume index (planned)
 
 - **Volume 0 — Platform Governance** (this document)
 - Volume 1 — Commercial & Rate Management *(active subsystem; authored once
