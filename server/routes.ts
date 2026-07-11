@@ -13,6 +13,7 @@ import { ensureDestinationsSeed } from './seeds/ensureDestinationsSeed';
 import { registerServerHealthRoutes } from './routes-server-health';
 import { registerRateManagerRoutes } from './routes-rate-manager';
 import { registerVendorRatesRoutes } from './routes-vendor-rates';
+import { registerDevRoutes } from './routes-dev';
 import { registerRateNotificationRoutes, createInitialRateJob } from './routes-rate-notifications';
 import { registerProductTemplatesRoutes } from './routes-product-templates';
 import { registerMetaFlowsRoutes } from './routes-meta-flows';
@@ -34246,6 +34247,7 @@ ${footer}
   // ── Rate Manager extended routes (product rates, notifications, per-row recon)
   registerRateManagerRoutes(app);
   registerVendorRatesRoutes(app);
+  registerDevRoutes(app);
   registerRateNotificationRoutes(app);
   registerProductTemplatesRoutes(app);
 

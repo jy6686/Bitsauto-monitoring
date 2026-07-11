@@ -53,7 +53,7 @@ export function parseFile(fileData: string, sheetIndex?: number): { headers: str
   return { headers, dataRows: all.slice(hIdx + 1) };
 }
 
-function applyMap(
+export function applyMap(
   headers: string[], rows: any[][],
   mappings: Record<string, string>, skipRows: number,
 ) {
