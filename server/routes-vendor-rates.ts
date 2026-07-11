@@ -37,10 +37,18 @@ function parseFile(fileData: string, sheetIndex?: number): { headers: string[]; 
     if (filled > maxFilled) { maxFilled = filled; hIdx = i; }
   });
   if (hIdx === -1) return { headers: [], dataRows: [] };
-  // Make empty column names unique so mapping state doesn't collide
+  // Make ALL column names unique so mapping state (keyed by header) doesn't
+  // collide. Empty names → col_<i>; duplicate names → "<name>_2", "<name>_3", …
+  // (first occurrence keeps its original name for template back-compat).
+  // Without this, two columns sharing a header make both mapping dropdowns
+  // read/write the same key, and applyMap()'s colIdx[h] becomes last-wins.
+  const seen = new Map<string, number>();
   const headers = all[hIdx].map((h: any, i: number) => {
-    const v = h != null ? String(h).trim() : '';
-    return v !== '' ? v : ('col_' + i);
+    const raw = h != null ? String(h).trim() : '';
+    const base = raw !== '' ? raw : ('col_' + i);
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return n === 0 ? base : `${base}_${n + 1}`;
   });
   return { headers, dataRows: all.slice(hIdx + 1) };
 }
