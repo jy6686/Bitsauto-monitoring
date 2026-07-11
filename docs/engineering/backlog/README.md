@@ -9,6 +9,19 @@ Related VR**.
 - `STORY-NNN` are the sprint epics.
 - Platform/architectural questions live in the [Verification Register](../verification-register.md).
 
+## Item lifecycle
+
+Every backlog item moves through:
+
+```
+Draft → In Progress → Ready for Review → Ready for Validation → Validated → Merged → Released
+```
+
+- **Ready for Validation** = code done + unit-tested on a branch, awaiting runtime/
+  real-world evidence (e.g. BUG-001 awaiting the 6-vendor matrix).
+- **Validated** = runtime/real-world evidence passed.
+- Never skip **Validated** → **Merged** (production-first).
+
 ## Vendor Rates (active subsystem)
 
 **Sprint 1 — Import Engine (FROZEN until BUG-001..004 closed; no enhancements yet).**
