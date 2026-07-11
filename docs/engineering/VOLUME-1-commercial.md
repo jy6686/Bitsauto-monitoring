@@ -203,83 +203,245 @@ Registry changes.
 
 ---
 
-## 3. Compare Rates
+## 3. Module — Compare Rates (deep, per-template) `[verified-in-code @ 482babb7]`
 
-**Purpose:** diff two vendor sheets (or a sheet vs. its active baseline) prefix by
-prefix — new / removed / increased / decreased / unchanged.
+**Business objective** `[institutional]`: show what changed between two vendor rate
+sheets before deciding to activate one. `[When/why a compare is run is owner
+workflow.]`
 
-**API:** `POST /api/vendor-rates/compare` (`{ baseSheetId, newSheetId }`) →
-`{ summary, rows }`. **UI:** `pages/rate-manager.tsx`.
-**Tables:** `vendor_rate_normalized_prefixes`.
-
----
-
-## 4. Margin Analysis
-
-**Purpose:** join a vendor sheet's cost rows against sell rates
-(`destination_product_rates`) to surface margin per prefix, classified
-negative / low / healthy.
-
-**API:** `POST /api/vendor-rates/margin-analysis`
-(`{ sheetId, productPrefix }`) → `{ summary, rows }`. **UI:** `pages/rate-manager.tsx`.
-**Tables:** `vendor_rate_sheet_rows`, `destination_product_rates`.
-**Dependency:** `product-mapping-resolver` for per-row mapping provenance
-(see §9 status).
-
----
-
-## 5. Impact Analysis
-
-**Purpose:** for a new sheet vs. the active baseline, aggregate the rate increases,
-join to products/clients, and estimate client-level exposure.
-
-**API:** `POST /api/vendor-rates/impact-analysis` (`{ newSheetId, baseSheetId? }`;
-auto-detects the active baseline sheet if omitted) → `{ hasBase, summary,
-increased, clientImpact }`. **UI:** `pages/rate-manager.tsx`.
-**Tables:** `vendor_rate_sheet_rows`, `destination_product_rates`,
-`product_registry`, `customer_product_assignments`, `canonical_vendors`,
-`margin_analytics_daily`. **Dependency:** `product-mapping-resolver` (see §9).
-
----
-
-## 6. Approval Workflow
-
-**Purpose:** activating a vendor rate sheet is governed — it goes through a
-request/decide cycle with an audit trail. `[institutional: the "why" — commercial
-control over which rates go live — is owner policy, not derivable from code.]`
-
-**APIs** (`server/routes-vendor-rates.ts`):
-`POST /api/vendor-rates/sheets/:id/request-activation` →
-`GET /api/vendor-rates/approvals/pending` →
-`POST /api/vendor-rates/approvals/:id/decide` (`approved|rejected`).
-Direct activation also exists: `POST /api/vendor-rates/sheets/:id/activate`.
-
-**Tables:** `approval_requests`, `approval_audit_log`, `vendor_rate_sheets`.
-On approval: archives the current active sheet for that vendor and marks the new
-one `active`.
-
-**Related:** rate-notification jobs have their own approval cycle
-(`routes-rate-notifications.ts`: submit-approval / approve / reject).
-
----
-
-## 7. Send Rate (Push to Sippy)
-
-**Purpose:** push an approved product rate to Sippy tariffs for the relevant
-account(s).
-
-**API:** `POST /api/product-rates/:id/push-to-sippy` (`server/routes-rate-manager.ts`)
-— role-guarded (`admin`, `management`). Auto-discovers account names from active
-`customer_product_assignments` when not supplied. Also: `GET /api/rate-manager/export`,
-`POST /api/sippy/pre-push-check`, `GET /api/sippy/rate-history`,
-`POST /api/sippy/rate-analysis-batch`, push-job retry.
+**User workflow:** in Rate Manager, pick a base sheet + a new sheet → run Compare →
+review the categorised diff.
 
 **UI:** `pages/rate-manager.tsx`.
-**Tables:** `product_rates`, `rate_push_jobs`, `customer_product_assignments`,
-`companies`, `product_registry`.
-**Dependency:** `server/sippy.ts` (**frozen** — Send Rate calls into it but must
-not modify it). `[institutional: on some Sippy versions rates must be added via
+**API:** `POST /api/vendor-rates/compare` `{ baseSheetId, newSheetId }` →
+`{ summary, rows }`.
+
+**Workflow internals** `[verified-in-code]`: loads both sheets'
+`vendor_rate_normalized_prefixes`, builds a prefix→{destination,rate} map for each,
+then for every prefix in the union classifies:
+`new` (only in new) · `removed` (only in base) · `increased` · `decreased` ·
+`unchanged` (|Δ| < 1e-6). Rows sorted new→removed→increased→decreased→unchanged.
+Summary counts each category. **Read-only** — no writes.
+
+**Services / dependencies:** none beyond the DB; upstream = Vendor Rate Import
+(needs two imported sheets). **Consumed by:** Rate Manager UI (feeds the
+activation decision).
+
+**Rollback impact:** none — pure read.
+
+**Test scenarios:**
+- [ ] Same sheet vs itself → all `unchanged`
+- [ ] Prefix only in new → `new`; only in base → `removed`
+- [ ] Rate up/down → `increased`/`decreased` with correct Δ / Δ%
+- [ ] Sort order and per-category summary counts correct
+
+## Open Questions
+- [x] Diff categories & tie-breaking? — **Verified**: 5 categories, 1e-6 epsilon, fixed sort
+- [ ] Should Compare also diff intervals/effective dates, not just rate? — **Pending** (product decision)
+
+---
+
+## 4. Module — Margin Analysis (deep, per-template) `[verified-in-code @ 482babb7]`
+
+**Business objective** `[institutional]`: for a chosen product, show margin per
+prefix = sell rate − vendor cost, so weak/negative-margin destinations surface.
+`[Margin thresholds/policy are owner-defined.]`
+
+**User workflow:** pick a sheet + a `productPrefix` → run Margin → review rows
+classified healthy / low / negative, with summary counts.
+
+**UI:** `pages/rate-manager.tsx`.
+**API:** `POST /api/vendor-rates/margin-analysis` `{ sheetId, productPrefix }` →
+`{ summary, rows }`.
+
+**Workflow internals** `[verified-in-code]`: SQL joins `vendor_rate_sheet_rows`
+(cost) `LEFT JOIN destination_product_rates` (sell) on
+`vr.prefix = LTRIM(dpr.dial_prefix,'+')` for the given `product_prefix`. Computes
+`margin = sell − cost` and `margin_pct`; orders negative-margin first, then low
+(<10%), then healthy, unmatched (no sell) last. Summary =
+`{ total, matched, negative, low, healthy, unmatched }`. **Read-only.**
+
+**Classification** `[verified-in-code]`: negative = margin < 0; low = margin ≥ 0 and
+margin_pct < 10; healthy = margin_pct ≥ 10; unmatched = no sell rate.
+
+**Dependencies:** Vendor Rate Import (cost rows), Destination Catalog
+(`destination_product_rates` sell rates), **Product Mapping resolver** for per-row
+mapping provenance fields (`mappingMatchedPrefix`, `mappingStrategy`,
+`mappingVersionId`, `destinationIdFromMapping`) — see §9; those fields are `null`
+until Product Mapping is verified/active. **Consumed by:** Rate Manager UI.
+
+**Rollback impact:** none — pure read.
+
+**Test scenarios:**
+- [ ] Row with sell>cost → healthy/low by pct; sell<cost → negative
+- [ ] Row with no matching sell rate → unmatched, excluded from margin stats
+- [ ] With a product selected, mapping-provenance fields populate (post-§9) without a `.trim()` crash
+- [ ] Summary counts reconcile with row classifications
+
+## Open Questions
+- [x] Margin formula & thresholds in code? — **Verified**: sell−cost; low<10%, healthy≥10%
+- [ ] Are the 10% / negative thresholds business-correct/configurable? — **Institutional Knowledge Required**
+
+---
+
+## 5. Module — Impact Analysis (deep, per-template) `[verified-in-code @ 482babb7]`
+
+**Business objective** `[institutional]`: before activating a new sheet, estimate
+the commercial exposure of its rate *increases* — which products and clients are
+affected and by how much. `[The risk appetite / who reviews is owner policy.]`
+
+**User workflow:** pick a new sheet (baseline auto-detected) → run Impact → review
+per-prefix increases, affected products/clients, and per-client rollup.
+
+**UI:** `pages/rate-manager.tsx`.
+**API:** `POST /api/vendor-rates/impact-analysis` `{ newSheetId, baseSheetId? }` →
+`{ hasBase, summary, increased, clientImpact }`. If `baseSheetId` omitted, the
+current `active` sheet for the same vendor is auto-detected.
+
+**Workflow internals** `[verified-in-code]`:
+1. **Summary CTE** — FULL OUTER JOIN base vs new `vendor_rate_sheet_rows` →
+   counts increased / decreased / new / removed prefixes.
+2. **Impact CTE** — increased prefixes joined to `destination_product_rates` →
+   `product_registry` (`pr.code`) → `customer_product_assignments` (active) →
+   surfaces product code/name, sell rate, margin, margin_pct, and affected
+   `customer_name` per prefix.
+3. Aggregates into per-prefix → per-product → client sets; builds `clientImpact`
+   (per-client affected prefixes, negative/low counts, worst margin).
+4. Optional **vendor traffic context** (last 30 days from `margin_analytics_daily`,
+   matched by vendor name) — non-fatal if unavailable. **Read-only.**
+
+**Dependencies:** Vendor Rate Import, Destination Catalog, Product Registry,
+`customer_product_assignments`, `margin_analytics_daily`, **Product Mapping
+resolver** (provenance; §9). **Consumed by:** Rate Manager UI (the activation /
+approval decision).
+
+**Rollback impact:** none — pure read.
+
+**Test scenarios:**
+- [ ] No baseline (new vendor) → `hasBase:false`, still returns without error
+- [ ] Increased prefix mapped to a product+client → appears in `increased` + `clientImpact`
+- [ ] Vendor with no `margin_analytics_daily` rows → traffic context null, no crash
+- [ ] With product selected → resolver provenance populated (post-§9), no `.trim()` crash
+
+## Open Questions
+- [x] Baseline auto-detection & join chain? — **Verified**: active sheet per vendor; dpr→registry→assignments
+- [ ] Is 30-day traffic window the intended horizon? — **Institutional Knowledge Required**
+
+---
+
+## 6. Module — Approval Workflow (deep, per-template) `[verified-in-code @ 482babb7]`
+
+**Business objective** `[institutional]`: activating a vendor rate sheet is a
+governed action — a reviewer must approve before rates go live. `[Why some changes
+require approval and the reviewer roles are owner policy.]`
+
+**User workflow:**
+```
+imported sheet (ready) → request-activation → pending queue → reviewer decides
+   approved → archive current active sheet (same vendor) → mark this sheet active
+   rejected → sheet stays inactive, reason recorded
+```
+Direct activation (`POST /sheets/:id/activate`) bypasses the queue — an admin path.
+
+**UI:** `pages/rate-manager.tsx` (request + approvals queue).
+
+**API endpoints** (`server/routes-vendor-rates.ts`):
+`POST /sheets/:id/request-activation` → `GET /approvals/pending` →
+`POST /approvals/:id/decide` `{ decision: approved|rejected, reviewedBy, ... }`.
+Also `POST /sheets/:id/activate` (direct).
+
+**Workflow internals** `[verified-in-code]`:
+- request-activation guards against a **duplicate pending request** for the same
+  sheet (`operationType='vendor_rate_sheet.activate'`, `entityId=sheetId`,
+  `status='pending'`) → `409` if one exists; else inserts an `approval_requests`
+  row + an `approval_audit_log` `submitted` row.
+- decide loads the pending request, sets its status, writes an `approval_audit_log`
+  `approved`/`rejected` row; **on approve**: archives the vendor's current `active`
+  sheet then marks the target sheet `active` (mirrors the direct-activate path).
+
+**Database tables:** `approval_requests` (operationType, entityId, status
+pending/approved/rejected, reviewedBy), `approval_audit_log` (submitted/approved/
+rejected actions — **this module DOES keep a DB audit trail**, unlike Vendor
+Import §2), `vendor_rate_sheets` (status).
+
+**Dependencies:** Vendor Rate Import (produces the sheet). **Consumed by:** sheet
+activation → all downstream rate consumers (Send Rate, by-destination, analytics).
+
+**Related:** rate-notification jobs have a parallel approval cycle
+(`routes-rate-notifications.ts`: submit-approval / approve / reject).
+
+**Rollback impact:** approving flips which sheet is `active` for a vendor —
+**Class C**. Reversible by re-activating the previously-archived sheet; the audit
+log preserves history.
+
+**Test scenarios:**
+- [ ] request-activation twice on same sheet → second returns `409`
+- [ ] approve → old active archived, new active; audit rows written
+- [ ] reject → sheet not activated, reason in audit log
+- [ ] direct activate produces same end state as approve
+
+## Open Questions
+- [x] Duplicate-request guard & audit writes? — **Verified**: 409 guard + approval_audit_log rows
+- [ ] Which roles may decide, and is dual-control required? — **Institutional Knowledge Required**
+
+---
+
+## 7. Module — Send Rate / Push to Sippy (deep, per-template) `[verified-in-code @ 482babb7]`
+
+> **Architectural boundary** `[institutional]`: **BitsAuto is the control/orchestration
+> plane; Sippy is the execution plane.** Send Rate is where Commercial crosses that
+> boundary — BitsAuto decides *what* rate to push; Sippy *applies* it. This module
+> calls into `server/sippy.ts`, which is **frozen** (do not modify).
+
+**Business objective** `[institutional]`: push an approved product rate into Sippy
+tariffs for the relevant account(s).
+
+**User workflow:** from Rate Manager, select a product rate → (pre-push check) →
+push → per-account results shown; each attempt logged.
+
+**UI:** `pages/rate-manager.tsx`.
+
+**API endpoints** (`server/routes-rate-manager.ts`):
+`POST /api/product-rates/:id/push-to-sippy` (role-guarded `admin`/`management`) —
+auto-discovers account names from active `customer_product_assignments` when not
+supplied in the body. Supporting: `POST /api/sippy/pre-push-check`,
+`GET /api/sippy/rate-history`, `POST /api/sippy/rate-analysis-batch`,
+`POST /api/rate-manager/jobs/:id/retry`, `GET /api/rate-manager/export`.
+
+**Workflow internals** `[verified-in-code]`: resolves the rate + product
+(`trunkPrefix`), builds `fullPrefix = trunkPrefix + prefix` and the Sippy dial
+prefix, resolves account names (explicit body list *or* auto-discovered from active
+assignments → company names), then loops accounts calling
+`sippy.pushRateToSippy(...)`; each attempt is recorded in `rate_push_jobs`; results
+returned per account.
+
+**Services / external:** `server/sippy.ts` (`pushRateToSippy`, `resolveSippyPrefix`)
+→ Sippy softswitch (XML-RPC / portal). **frozen dependency.**
+
+**Database tables:** reads `product_rates`, `customer_product_assignments`,
+`companies`, `product_registry`, `global_destinations`; writes `rate_push_jobs`
+(and `product_rates` status).
+
+**Dependencies:** Approval (rate should be approved first), Product Registry
+(`trunk_prefix`), Destination Catalog. **Consumed by:** Sippy tariffs (external
+execution plane).
+
+**Rollback impact:** ⚠️ **this writes to the external Sippy switch** — the only
+Commercial module with production side-effects outside BitsAuto's own DB.
+**Class D/E.** No automatic rollback of a pushed Sippy rate; reversal is a
+compensating push. `[institutional: on some Sippy versions rates must be added via
 the Sippy web UI — no XML-RPC rate API — per replit.md gotchas.]`
+
+**Test scenarios:**
+- [ ] Push with explicit account list vs. auto-discovered → both resolve accounts (regression: the accountIAccountMap scope bug)
+- [ ] pre-push-check surfaces conflicts before the push
+- [ ] each account attempt logged to `rate_push_jobs`; retry works
+- [ ] role guard rejects non-admin/management
+
+## Open Questions
+- [x] Account resolution + per-attempt logging? — **Verified**: explicit-or-auto, rate_push_jobs
+- [ ] Is there a supported rollback/compensating-push procedure? — **Institutional Knowledge Required**
+- [ ] Which Sippy version(s) accept XML-RPC rate push vs. require web UI? — **Institutional Knowledge Required**
 
 ---
 
