@@ -1,5 +1,11 @@
 # Four Inventories (audit model)
 
+> **Business Inventory FROZEN v1.0 (2026-07-11).** Canonical source (Top Menu
+> `DOMAINS`) and hierarchy are fixed. Future work = **regenerate · compare · review**,
+> not redesign. Stable IDs (DOM/CAP/FEAT), maturity, and ownership are curated in
+> [../capabilities/](../capabilities/) as each capability dossier is built.
+
+
 The audit is built from **four complementary inventories** — not one giant document.
 The **Business Inventory is primary**; the other three validate it.
 
