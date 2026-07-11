@@ -65,6 +65,16 @@ Inventory → purpose verification → overlap analysis → joint review → **o
 approval** → merge/retirement plan → regression testing → production validation →
 deactivate/archive (only after approval).
 
+### 6.1 Duplicate-stays-Active rule (PERMANENT)
+
+> **A feature identified as a duplicate remains Active until an owner-approved
+> consolidation plan has been documented, implemented, validated, and released.**
+
+"Duplicate" is a *classification for review*, never an instruction to remove. No
+feature is hidden, deactivated, renamed, or removed — and no menu entry changes —
+until all four gates pass in order: **documented → implemented → validated →
+released.** Until then every candidate feature stays fully available.
+
 ## 7. Artifacts (this project = a first-class subsystem)
 FEATURE-INVENTORY · DUPLICATE-ANALYSIS · DEPENDENCY-MATRIX ·
 [CANONICAL-CAPABILITY-MATRIX](CANONICAL-CAPABILITY-MATRIX.md) · REVIEW-DUP-NNN ·

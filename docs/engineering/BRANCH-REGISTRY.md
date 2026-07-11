@@ -11,6 +11,28 @@
 > PR status: none have open PRs (the read-only GitHub integration can't create them;
 > owner opens PRs via the compare links).
 
+## Release-readiness dashboard
+
+Single glance: who owns it · where it is · next action · what's blocking.
+
+| Branch | Capability | Owner | Current Phase | Next Action | Blocking Item |
+|--------|-----------|-------|---------------|-------------|---------------|
+| `docs/engineering-handbook` | Engineering | Engineering | Engineering Review | Architecture review | Owner review |
+| `fix/vendor-import-column-mapping` | CAP-001 | Commercial | Runtime Validation | Runtime test | BUG-001 (6-vendor matrix) |
+| `feature/vendor-test-lab` | Test Lab | Engineering | Runtime Validation | Runtime test | Depends on BUG-001 |
+| `fix/product-mapping-urls-and-resolver-calls` | CAP-001 | Engineering | Engineering Review | Product Mapping review | VR-002 |
+| `fix/revenue-rate-manager-smoke` | — | — | Merged | Archive (later) | — |
+| `feature/commercial-engine-integration` | — | — | Superseded | Archive (later) | — |
+
+## Promotion lifecycle (standard — nothing skips a stage)
+
+```
+Draft → Development → Engineering Review → Runtime Validation
+      → Ready for Merge → Merged → Released → Archived
+```
+A branch advances one stage at a time; the [merge-readiness checklist](#merge-readiness-checklist-hold--ready) gates
+**Runtime Validation → Ready for Merge**. Same lifecycle for every capability.
+
 ## Registry (summary)
 
 | Branch | Type | Capability / Subsystem | Status | Depends On | Runtime validation | Merge order | Recommendation |
