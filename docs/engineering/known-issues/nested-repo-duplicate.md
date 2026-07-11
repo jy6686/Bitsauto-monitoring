@@ -106,3 +106,8 @@ comm -23 /tmp/n /tmp/m | wc -l                        # 0
 wc -c migrations/028_product_mapping_catalog.sql                      # 0
 wc -c Bitsauto-monitoring/migrations/028_product_mapping_catalog.sql  # 16644
 ```
+
+## Open Questions
+- [x] Does the nested copy contain unique files? — **Verified**: no (0 unique by path; main is a superset)
+- [x] Is any content only in nested? — **Verified**: only the populated `028` migration (reference-only)
+- [ ] Any runtime references to the `Bitsauto-monitoring/` path before deletion? — **Pending** (grep before the cleanup PR)

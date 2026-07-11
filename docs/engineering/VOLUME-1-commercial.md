@@ -186,17 +186,98 @@ unique `code` (FC/BC/SB/SC).
   `customer_product_assignments`, `product_destination_assignments`,
   `product_history`, `deals`, `deal_destinations`, `deal_approvals`.
 
-**Destination Catalog** — the global destination reference and per-destination
-product rates, with an approval/unapprove governance layer.
-- **APIs** (`routes.ts` monolith): `/api/destination-catalog/*`
-  (product-rates, approve/reject, approve-all-pending, aliases, gds-commit,
-  gds-reconcile, `:id/unapprove`, history, overview) and
-  `/api/product-registry/destinations/*` (approve/block/set-status/unapprove/
-  bulk-reset/bulk-smart/sync-legacy).
-- **UI:** `pages/destination-catalog.tsx`.
-- **Tables:** `global_destinations`, `destination_product_rates`,
-  plus `destination_status_history` (raw SQL) for the audit trail.
-- **Dependencies:** `services/destination/{destination-matcher,destination-resolver,destination-alias}.service.ts`.
+---
+
+## 8a. Module — Destination Catalog (deep, per-template) `[verified-in-code @ 482babb7]`
+
+> This module is documented against the full per-module template (Volume 0 §6.3)
+> as the reference example for the rest of Volume 1.
+
+**Business purpose** `[institutional]`: the Destination Catalog is master reference
+data — the authoritative list of dial destinations and their per-product rates.
+Approval state is a **governed business rule**, not a cosmetic flag: once a
+destination is `approved`, other commercial flows depend on that state. `[The "why
+it is master data" and the operational policy around re-review are owner
+knowledge.]`
+
+**UI pages:** `client/src/pages/destination-catalog.tsx` (tabs: Destination
+Catalog, Vendor Sheets, Approvals, GDS Rates, Market Intel, Bulk Import, Product
+Mapping). Approval state is also read by `pages/product-registry.tsx`,
+`pages/deals.tsx`, `pages/rate-manager.tsx`.
+
+**API endpoints** (`server/routes.ts` monolith):
+- Destinations: `GET/POST /api/product-registry/destinations`,
+  `PUT/DELETE /.../destinations/:id`, `GET /.../destinations/approved`,
+  `POST /.../destinations/:id/{approve,block,set-status,unapprove}`,
+  `POST /.../destinations/{bulk-reset,bulk-smart,sync-legacy}`.
+- Catalog / rates: `GET /api/destination-catalog/product-rates`,
+  `.../product-rates/:id/{approve,reject}`, `.../product-rates/approve-all-pending`,
+  `PATCH/DELETE .../product-rates/:id`, `.../aliases`, `.../gds-commit`,
+  `.../gds-reconcile`, `.../:id/unapprove`, `.../:id/history`, `.../overview/:destId`.
+
+**Services:**
+`services/destination/destination-matcher.service.ts` (matches vendor-sheet
+prefixes → destinations), `destination-resolver.service.ts`,
+`destination-alias.service.ts`.
+
+**Database tables:**
+- `global_destinations` — master rows. Approval column: **`commercial_status`**
+  `varchar(32) NOT NULL DEFAULT 'pending'`. Documented values (schema comment):
+  `approved | blocked | testing | deprecated | pending`; code also sets
+  `unapproved`. `blocked_reason varchar(256)`.
+- `destination_product_rates` — per-destination × product sell/buy rates.
+- `destination_status_history` — audit trail (raw SQL table; written on
+  approve/unapprove with old→new status, reason, notes, changed_by).
+
+**Workflow:** import/sync (bulk) → `pending` → review → `approve` (sets
+`commercial_status='approved'`, clears `blocked_reason`) → optionally `unapprove`
+(guarded: only an `approved` row may be unapproved) or `block`. Each transition is
+written atomically with an audit row.
+
+**Approval flow:** `unapprove` requires `current.commercial_status === 'approved'`
+([routes.ts:34891](../../server/routes.ts), [:35327](../../server/routes.ts)); the
+status change + `destination_status_history` insert run in one transaction.
+
+**Sequence (unapprove):**
+```
+UI (destination-catalog.tsx) → POST /api/destination-catalog/:id/unapprove {reason,notes}
+  → guard: current.commercial_status == 'approved' ? else 400
+  → tx { UPDATE global_destinations SET commercial_status='unapproved'
+         ; INSERT destination_status_history(old,new,reason,notes,changed_by) }
+  → invalidate history + overview queries
+```
+
+**Dependencies (who reads `commercial_status='approved'` — the blast radius of a
+mass change) `[verified-in-code]`:**
+- `GET /api/product-registry/destinations/approved` filters
+  `commercial_status = 'approved'` ([routes.ts:34946](../../server/routes.ts)).
+- A hard guard at [routes.ts:35803](../../server/routes.ts) rejects a flow when
+  `dest.commercial_status !== 'approved'`.
+- Read in UI by product-registry, deals, rate-manager, destination-catalog pages.
+
+**Rollback impact:** ⚠️ **A blanket `UPDATE global_destinations SET
+commercial_status=...` is a Class-D change with wide blast radius.** It would empty
+`/destinations/approved` and trip the `:35803` guard, potentially affecting Rate
+Manager / Send Rate / Product Mapping consumers. **Do not mass-mutate approval
+state.** Safer patterns (per owner guidance): scoped bulk change (by
+country/product/vendor) with a confirmation dialog + audit logging; or an approval
+**re-review cycle / versioning** (`Review Required` state, keep history) rather
+than blanket unapproval. Any such change requires Level 3 (DB) evidence, a backup,
+recorded pre-counts, and a rollback script.
+
+**Test checklist:**
+- [ ] Approve a `pending` destination → `commercial_status='approved'`, audit row written
+- [ ] Unapprove an `approved` destination → `unapproved`, audit row; unapprove a non-approved → 400
+- [ ] `/destinations/approved` count changes as expected
+- [ ] Dependent flows (Rate Manager / Send Rate) still behave after a *scoped* change
+- [ ] `destination_status_history` reflects every transition
+
+## Open Questions
+- [x] Which table/column stores approval? — **Verified**: `global_destinations.commercial_status`
+- [x] What values exist? — **Verified**: pending/approved/unapproved/blocked (testing/deprecated documented)
+- [x] Which modules read `approved`? — **Verified**: `/destinations/approved`, guard @routes.ts:35803, 4 UI pages
+- [ ] Is a full catalog re-review desired, and by what policy (versioning vs. re-review cycle)? — **Institutional Knowledge Required**
+- [ ] Is this being considered in production or a dev/test env? — **Institutional Knowledge Required**
 
 ---
 
@@ -226,12 +307,16 @@ mapping provenance and resolve destinations per product.
   `runSafeMigrations()` in `server/db.ts` (its curated ~39-table DDL list does not
   include them); and the `migrations/*.sql` files are never executed.
 
-**Leading hypothesis — Confidence: Level 1 (code) only, unconfirmed:** because the
-tables are created by none of the three automated mechanisms, they were likely
-never created in production (their only possible origin is a one-off manual SQL
-run). If so, the resolver's `init()` throws `relation ... does not exist`, leaving
-it uninitialized → `GET /api/gcs/product-mappings/health` 500 and
-Compare/Margin/Impact-with-product failures.
+**Leading hypothesis — Confidence: Level 1 (code) only, unconfirmed:**
+- **Verified (Level 1):** the tables are not created by any *currently tracked*
+  repository mechanism (schema.ts / `runSafeMigrations()` / `migrations/*.sql`).
+- **Pending (Level 3):** whether the tables exist in production at all, and if so
+  *how* they were created (manual SQL, a historical bootstrap script no longer in
+  the tree, a past deploy tool, or a snapshot restore) — not knowable from code.
+
+If the tables are in fact absent, the resolver's `init()` throws `relation ... does
+not exist`, leaving it uninitialized → `GET /api/gcs/product-mappings/health` 500
+and Compare/Margin/Impact-with-product failures.
 
 **Evidence still required — Level 3 (database):**
 ```sql
@@ -250,3 +335,24 @@ are missing — that is the pending item.
 
 **Proposed fix (Class D — needs Level 3 evidence + rollback first):** port the 5
 tables into `shared/schema.ts` and `db:push`. Not to be actioned until confirmed.
+
+### §9 Open Questions
+- [ ] Do the catalog tables exist in production? — **Needs Production Evidence** (`SELECT to_regclass(...)`)
+- [ ] If they exist, how were they created? — **Needs Production Evidence** (Level 3)
+- [ ] Is `product_id` in uploads the registry PK, and how is it validated? — **Pending** (verify in `routes-product-mapping.ts`)
+
+---
+
+## Volume-level Open Questions
+- [x] Which route modules serve Commercial? — **Verified** (§1)
+- [x] Vendor rate import pipeline & worksheet detection? — **Verified** (§2)
+- [ ] Product Mapping production state — **Blocked** on Level 3 DB evidence (§9)
+- [ ] `product_registry` empty in prod: seed failing vs. wrong DB? — **Needs Runtime Evidence** (`[workspace-seed]` log; see §8)
+- [ ] Deep per-module writeups for §§2-7 (only §8a Destination Catalog is deep so far) — **Pending**
+- [ ] Business rationale for approval governance & re-review policy — **Institutional Knowledge Required**
+
+---
+
+*Documentation status: §8a (Destination Catalog) is written to the full per-module
+template as the reference example. §§2-7 are verified-in-code summaries to be
+deepened to the same template. §9 (Product Mapping) is held Pending Verification.*

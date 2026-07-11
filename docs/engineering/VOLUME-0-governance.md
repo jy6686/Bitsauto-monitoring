@@ -128,10 +128,16 @@ There are exactly **three** table-creation mechanisms:
    `migrate`).
 
 Therefore a table that is **absent from both `shared/schema.ts` and
-`runSafeMigrations()`** is **never created** by the project's automated tooling —
-regardless of what a `migrations/*.sql` file contains. Its only possible origin is
-a one-off manual SQL run against the DB (which can only be confirmed with Level 3
-database evidence).
+`runSafeMigrations()`** is **never created** by the project's *currently tracked*
+automated tooling — regardless of what a `migrations/*.sql` file contains.
+
+- **Verified (Level 1):** such a table is not created by any tracked repository
+  mechanism.
+- **Pending (Level 3):** *how* production obtained the table, if it exists at all,
+  is not knowable from the repo. Possibilities include a one-off manual SQL run, a
+  historical bootstrap script no longer in the tree, a past deployment tool, or a
+  database restored from an earlier snapshot. Distinguishing these requires
+  database/production evidence — do not assert a single origin from code alone.
 
 ---
 
@@ -166,6 +172,32 @@ trustworthy it is and when it was last checked:
 | Repository commit | <hash the facts were verified against> |
 | Institutional sections | Yes / No |
 ```
+
+### 6.2 "Open Questions" footer (required)
+
+Every handbook page **ends** with an Open Questions section so unverified
+assumptions can never silently become documentation. Each item is tagged with its
+state:
+
+```
+## Open Questions
+- [ ] <question> — **Needs Production Evidence** (Level 3)
+- [ ] <question> — **Institutional Knowledge Required**
+- [ ] <question> — **Blocked** (depends on <X>)
+- [x] <resolved question> — **Verified** (<how>)
+```
+
+States: **Verified · Pending · Blocked · Needs Production Evidence ·
+Institutional Knowledge Required.**
+
+### 6.3 Per-module template (Volume 1+)
+
+Each subsystem module is documented against a fixed template so coverage is
+uniform and gaps are obvious:
+
+Business purpose · UI pages · React components · API endpoints · Services ·
+Database tables · Workflow · Approval flow · Sequence diagram · Dependencies ·
+Rollback impact · Test checklist · Open Questions.
 
 ---
 
@@ -231,3 +263,10 @@ Write conclusions as **"Confidence: Level N"**, not "root cause." A Class-D
 - Volume 7 — AI Services
 - Volume 8 — Deployment & Infrastructure
 - Volume 9 — Operational Playbooks (incidents, recovery, rollback, postmortems)
+
+---
+
+## Open Questions
+- [x] Are the schema-creation mechanisms fully enumerated? — **Verified** (three: schema.ts / `runSafeMigrations` / unused `migrations/`)
+- [ ] Should the frozen/active list (§2) be ratified and dated by the owner each sprint? — **Institutional Knowledge Required**
+- [ ] Adopt this gate in CI (block merges missing the eight answers)? — **Pending** (process decision)
