@@ -31,4 +31,5 @@
 
 ## Open Questions
 - [ ] Confirm each canonical owner via business-purpose review — **Institutional Knowledge Required**
-- [ ] Reconcile the feature-registry source: `SIDEBAR_GROUPS` (layout-shell.tsx, used by this audit) vs `DOMAINS` (app-nav-shell.tsx, top-nav rule) — are they one registry or two? — **Pending [V]**
+- [x] Registry source reconciled — **RESOLVED [V]**: **Top Menu `DOMAINS` (app-nav-shell.tsx) is canonical**; `SIDEBAR_GROUPS` (layout-shell.tsx, `[MAINTENANCE-ONLY]`) is the Feature Visibility Registry (completeness check only). See [NAVIGATION-REGISTRIES.md](NAVIGATION-REGISTRIES.md).
+- [ ] Re-point the extractor/inventory from `SIDEBAR_GROUPS` → `DOMAINS` (action in NAVIGATION-REGISTRIES.md) — **Pending**

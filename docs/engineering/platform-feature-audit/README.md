@@ -13,9 +13,13 @@
 | [REVIEW-DUP-001.md](./REVIEW-DUP-001.md) | Structured review: AI Ops Center ↔ Decision Overlay (same page; `?tab=` deep link confirmed dead). Recommendation drafted, decision Pending. |
 | [REVIEW-DUP-002.md](./REVIEW-DUP-002.md) | Structured review: NOC Command ↔ Ops Console (strict API subset + identical write workflow). Recommendation drafted, decision Pending. |
 
-## Source of truth
+## Source of truth `[V — corrected 2026-07-11]`
 
-The feature registry is `SIDEBAR_GROUPS` in `client/src/components/layout-shell.tsx` (marked MAINTENANCE-ONLY / frozen). Routes come from `client/src/App.tsx`; API usage is extracted per page file.
+**Canonical architecture = the Top Menu `DOMAINS` in `client/src/components/app-nav-shell.tsx`** (11 business domains). `SIDEBAR_GROUPS` in `layout-shell.tsx` is the **Feature Visibility Registry** (`[MAINTENANCE-ONLY]`) — a completeness cross-check only, **not** the architecture. See [NAVIGATION-REGISTRIES.md](NAVIGATION-REGISTRIES.md).
+
+> ⚠ The current generated inventory/tools still read `SIDEBAR_GROUPS`; re-pointing to
+> `DOMAINS` is the next action (NAVIGATION-REGISTRIES.md). Routes come from `App.tsx`;
+> API usage is extracted per page file.
 
 ## Regenerating
 
