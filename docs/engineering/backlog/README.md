@@ -38,3 +38,4 @@ Draft → In Progress → Ready for Review → Ready for Validation → Validate
 | [STORY-004](vendor-rates/STORY-004-impact.md) | Impact Analysis | Partial (Sprint 3) |
 | [STORY-005](vendor-rates/STORY-005-approval.md) | Approval Engine | Partial (Sprint 4) |
 | [STORY-006](vendor-rates/STORY-006-push.md) | Push Engine | Partial (Sprint 5) |
+| [STORY-007](vendor-rates/STORY-007-test-lab.md) | Vendor Test Lab (Developer Mode) | Slice 1 ready for validation |
