@@ -19,7 +19,7 @@
   - **Slice 4 — Push Test / Repository Test** harnesses (dry-run, prefix
     resolution, clone/activate/archive) — after their STORYs.
 - **Dependencies:** Slice 1 none; Slice 3 needs DB test-fixture strategy.
-- **Status:** **Slice 1 Ready for Validation** (run the endpoint in Replit);
+- **Status:** Framework **FROZEN v1.0** (Registry/Runner/Fixtures/Baselines done, spec at ../../test-lab/001-framework.md). Next = ADD tests; UI later.
   Slices 2-4 not started.
 - **Owner:** Commercial / Platform.
 - **Verification:** Slice 1 vitest PASS + build clean; runtime = hit the endpoint.
