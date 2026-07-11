@@ -42,6 +42,33 @@ under these parts as they are deepened.
 
 ---
 
+## Part A — Business Architecture (placeholder)
+
+| Field | Value |
+|-------|-------|
+| Status | **PENDING — Institutional Knowledge Required** |
+| Author | Junaid Qadeer (owner) |
+| Technical references | Parts B–E (below) |
+
+> This part captures the **business intent** behind the Commercial subsystem — *why*
+> it works the way it does. It is **not derivable from code**; writing it by reading
+> the implementation would produce interpretation, not architecture. It will be
+> transcribed from an owner dictation session and tagged `[institutional]`. Until
+> then it is intentionally unfilled — the handbook's structure stays complete while
+> this section is honestly marked pending.
+
+**Topics to capture (Open Questions):**
+- [ ] Commercial organization — **Institutional Knowledge Required**
+- [ ] Product strategy (why First Class / Business Class / Special Bravo / Special Charlie) — **Institutional Knowledge Required**
+- [ ] Margin philosophy (why margins are computed/tiered as they are) — **Institutional Knowledge Required**
+- [ ] Approval philosophy (why approvals exist; why some changes need them and others don't) — **Institutional Knowledge Required**
+- [ ] Customer lifecycle — **Institutional Knowledge Required**
+- [ ] Vendor lifecycle — **Institutional Knowledge Required**
+- [ ] Carrier / routing strategy — **Institutional Knowledge Required**
+- [ ] Control-plane vs. execution-plane boundary (BitsAuto orchestrates; Sippy executes) — **Institutional Knowledge Required**
+
+---
+
 ## 1. Subsystem map
 
 ```
@@ -71,45 +98,108 @@ product-registry endpoints live in the `routes.ts` monolith itself.
 
 ---
 
-## 2. Vendor Rate Management
+## 2. Module — Vendor Rate Import (deep, per-template) `[verified-in-code @ 482babb7]`
 
-**Purpose:** ingest a vendor's rate sheet (xlsx), normalise its prefixes, and
-match them to the destination catalog so rates become queryable per destination.
+**Business objective** `[institutional]`: turn a vendor's rate sheet into
+queryable, destination-matched rate data that feeds Compare / Margin / Impact and
+ultimately Send Rate. `[The commercial "why" — vendor onboarding cadence, which
+vendors, how often — is owner knowledge.]`
 
-**UI** `[verified-in-code]`: `features/vendor-sheets/VendorSheetUploader.tsx`
-(also referenced from `pages/rate-manager.tsx` and `pages/destination-catalog.tsx`).
+**User workflow:** upload xlsx → **Preview** (pick worksheet, confirm header,
+map columns) → **Import** → poll status until `ready` → rows are matched to the
+Destination Catalog and become available to downstream analysis.
 
-**Pipeline & APIs** (`server/routes-vendor-rates.ts`):
+**UI pages / components:** `client/src/features/vendor-sheets/VendorSheetUploader.tsx`
+(the wizard), surfaced from `pages/rate-manager.tsx` and `pages/destination-catalog.tsx`
+(Vendor Sheets tab). *(Note: a committed `VendorSheetUploader.tsx.backup` exists —
+minor repo debt.)*
+
+**API endpoints** (`server/routes-vendor-rates.ts`):
 
 | Step | Endpoint | Notes |
 |------|----------|-------|
-| Preview file | `POST /api/vendor-rates/preview` | Lists worksheets + detects header row + sample rows; no DB write |
-| Import | `POST /api/vendor-rates/import` | Parses, validates, inserts sheet + rows; then a background worker normalises + matches |
-| Poll status | `GET /api/vendor-rates/sheets/:id/status` | `processing → parsing → normalizing → matching → ready` (or `error`) |
-| Re-match | `POST /api/vendor-rates/sheets/:id/match`, `POST /api/vendor-rates/match-sheet` | Re-run destination matching |
-| List / rows / normalized | `GET /api/vendor-rates/sheets`, `.../:id/rows`, `.../:id/normalized` | Sheet list carries pipeline metrics (matched/partial/unmatched/pending) |
-| Column templates | `GET /api/vendor-rates/column-maps/:vendorId` | Saved column-mapping templates per vendor |
-| Vendors | `GET /api/vendor-rates/vendors` | Active canonical vendors |
+| Preview | `POST /api/vendor-rates/preview` | Lists worksheets + detects header row + 12 sample rows; **no DB write** |
+| Import | `POST /api/vendor-rates/import` | Validates, inserts sheet, returns `{sheetId, status:'processing'}` immediately; background worker finishes |
+| Poll status | `GET /api/vendor-rates/sheets/:id/status` | drives the wizard progress bar |
+| Re-match | `POST /api/vendor-rates/sheets/:id/match`, `POST /api/vendor-rates/match-sheet` | re-run matching without re-upload |
+| List / rows / normalized | `GET /api/vendor-rates/sheets`, `.../:id/rows`, `.../:id/normalized` | list carries matched/partial/unmatched/pending metrics |
+| Column templates | `GET /api/vendor-rates/column-maps/:vendorId` | saved per-vendor mappings |
+| Vendors | `GET /api/vendor-rates/vendors` | active canonical vendors |
 | Delete | `DELETE /api/vendor-rates/sheets/:id` | |
 
-**Worksheet selection** `[verified-in-code]`: `parseFile()` picks the sheet whose
-name matches keywords `pricing|rates|rate|tariff|price`, else the first sheet; the
-header row is the row with the most non-empty cells. (Relevant to the reported
-"Terms & Conditions detected instead of Pricing" symptom — behaviour is
-keyword-driven, not always first-sheet.)
+**Services:** `services/vendor-prefix-parser` (`parsePrefixExpression`),
+`services/destination/destination-matcher.service.ts` (`matchSheetDestinations`),
+`xlsx` (⚠️ untrusted-upload parser — known high-sev advisories, see Volume 0 risk /
+dependency audit).
 
-**Import phases** `[verified-in-code]`: parse → `applyMap` (column mapping) →
-validate (prefix length 2-16, effective ≤ expiry, dedupe) → insert sheet →
-**background worker**: insert rows (batched 500) → normalise prefixes
-(`parsePrefixExpression`) → `matchSheetDestinations()` → status `ready`.
+**Database tables:**
+- Writes: `vendor_rate_sheets` (one per upload; carries `status`),
+  `vendor_rate_sheet_rows` (raw rows), `vendor_rate_normalized_prefixes`
+  (expanded/normalised prefixes with match status), `vendor_column_maps` (saved
+  templates, when `saveTemplate`).
+- Reads: `canonical_vendors`; `global_destinations` (via matcher).
 
-**Tables:** `vendor_rate_sheets`, `vendor_rate_sheet_rows`,
-`vendor_rate_normalized_prefixes`, `vendor_column_maps`, `vendor_parser_profiles`,
-`canonical_vendors`, `vendor_product_prefixes`.
+**Workflow internals — sheet & header detection** `[verified-in-code]`:
+`parseFile()` selects the worksheet whose name contains any of
+`pricing|rates|rate|tariff|price`; **if none match, it falls back to the first
+sheet.** Header row = the row with the most non-empty cells. → **This is the exact
+mechanism behind the "Terms & Conditions sheet detected instead of Pricing"
+symptom:** a sheet with none of those keywords, or where T&C is first and Pricing
+isn't keyword-named, mis-selects. Preview lets the user override via `sheetIndex`.
 
-**Dependencies:** `services/vendor-prefix-parser`,
-`services/destination/destination-matcher.service.ts`, `xlsx` (untrusted-upload
-parser — see Volume 0 risk notes / dependency audit).
+**Import pipeline & status transitions** `[verified-in-code]`:
+```
+parse → applyMap (column mapping) → validate → INSERT vendor_rate_sheets
+  → return {status:'processing'}          (responds immediately)
+  → setImmediate background worker:
+       'parsing'     → INSERT rows (batched 500)
+       'normalizing' → parsePrefixExpression → INSERT normalized (batched 500, deduped)
+       'matching'    → matchSheetDestinations()
+       'ready'       (or 'error' on throw)
+```
+
+**Validation rules** `[verified-in-code]`: reject row if prefix length < 2 or > 16;
+reject if `effectiveDate > expiryDate`; **de-duplicate by prefix** (dupes counted
+and returned as `duplicatesSkipped`, not imported). Empty result after mapping or
+after validation → `400 {error}`.
+
+**Exception handling** `[verified-in-code]`: synchronous phase errors → `400`/`500`
+JSON to the caller; background-worker errors are caught and set
+`vendor_rate_sheets.status='error'` (the wizard surfaces this via status poll).
+The `xlsx` parse runs on user-supplied base64 — treat as untrusted.
+
+**Audit logging** `[verified-in-code]`: ⚠️ **no dedicated audit *table*** is written
+for imports — the audit trail is **console telemetry only** (`[vr] parse/applyMap/
+validate/...` timing + counts). If a durable import audit trail is a requirement,
+that is a **gap** (Open Question below). (Contrast: Approval and Destination
+Catalog do write DB audit rows.)
+
+**Dependencies:** Destination Catalog (matcher target — a sheet cannot fully match
+until destinations exist/approved), Product Registry (downstream), `xlsx`.
+
+**Consumed by:** Compare, Margin, Impact, Send Rate, `by-destination` lookup
+(see [Dependency Matrix](dependency-matrix.md)).
+
+**Rollback impact:** per-sheet and self-contained — deleting a sheet
+(`DELETE /sheets/:id`) removes its rows; no shared master data is mutated by import
+itself. **Low blast radius** (Class B/C), unlike Destination Catalog/Product
+Registry changes.
+
+**Test scenarios:**
+- [ ] Upload with a keyword-named Pricing sheet → correct sheet auto-selected
+- [ ] Upload where only "Terms & Conditions" is first, no keyword sheet → verify override via `sheetIndex`
+- [ ] Rows with prefix len <2/>16 → excluded; `effective>expiry` → excluded
+- [ ] Duplicate prefixes → `duplicatesSkipped` count correct, not imported
+- [ ] Status progresses processing→parsing→normalizing→matching→ready
+- [ ] Induced worker error → status `error`, surfaced in UI
+- [ ] Save-template path writes `vendor_column_maps`; reload applies it
+
+## Open Questions
+- [x] Sheet/header detection mechanism? — **Verified**: keyword match else first sheet; most-filled row = header
+- [x] Status lifecycle & error handling? — **Verified**: processing→…→ready|error, worker try/catch
+- [ ] Is a durable DB import audit trail required (currently logs only)? — **Institutional Knowledge Required**
+- [ ] Should worksheet auto-detection be smarter (content-based, not name-based)? — **Pending** (product decision; ties to active upload bug)
+- [ ] `xlsx` untrusted-parse hardening (size/MIME/sandbox) — **Pending** (security task)
 
 ---
 
