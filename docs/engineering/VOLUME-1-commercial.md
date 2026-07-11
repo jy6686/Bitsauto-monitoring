@@ -194,6 +194,22 @@ Registry changes.
 - [ ] Induced worker error → status `error`, surfaced in UI
 - [ ] Save-template path writes `vendor_column_maps`; reload applies it
 
+**Known issues:** `[C]` worksheet auto-detection mis-selects when no sheet is
+keyword-named — **see [Verification Register → VR-003](verification-register.md)**;
+no DB audit trail (logs only); `xlsx` untrusted-parse advisories.
+
+**Production notes** `[institutional]`: `xlsx` parses user-supplied base64 — treat
+as untrusted (size/MIME/sandbox hardening pending). A sheet cannot fully match until
+its destinations exist/approved in the Destination Catalog.
+
+**Future roadmap:** content-based (not name-based) worksheet detection (VR-003
+decision); durable import audit trail (if required).
+
+**Verification status:**
+| Verified in code | Verified in runtime | Verified in production | Institutional | Last verified |
+|:---:|:---:|:---:|:---:|:---:|
+| ✓ | ✓ (sheet-detection reproduced) | ✗ | ✓ | 2026-07-11 |
+
 ## Open Questions
 - [x] Sheet/header detection mechanism? — **Verified**: keyword match else first sheet; most-filled row = header
 - [x] Status lifecycle & error handling? — **Verified**: processing→…→ready|error, worker try/catch
@@ -234,6 +250,15 @@ activation decision).
 - [ ] Prefix only in new → `new`; only in base → `removed`
 - [ ] Rate up/down → `increased`/`decreased` with correct Δ / Δ%
 - [ ] Sort order and per-category summary counts correct
+
+**Known issues:** none currently tracked (pure read).
+**Production notes:** read-only; no external side-effects.
+**Future roadmap:** optionally diff intervals/effective dates, not just rate.
+
+**Verification status:**
+| Verified in code | Verified in runtime | Verified in production | Institutional | Last verified |
+|:---:|:---:|:---:|:---:|:---:|
+| ✓ | ✗ | ✗ | N/A | 2026-07-11 |
 
 ## Open Questions
 - [x] Diff categories & tie-breaking? — **Verified**: 5 categories, 1e-6 epsilon, fixed sort
@@ -277,6 +302,17 @@ until Product Mapping is verified/active. **Consumed by:** Rate Manager UI.
 - [ ] Row with no matching sell rate → unmatched, excluded from margin stats
 - [ ] With a product selected, mapping-provenance fields populate (post-§9) without a `.trim()` crash
 - [ ] Summary counts reconcile with row classifications
+
+**Known issues:** mapping-provenance fields stay `null` until Product Mapping is
+resolved — depends on **[VR-002](verification-register.md)**.
+**Production notes:** read-only; margin thresholds (low<10%, healthy≥10%) are
+hard-coded (see Open Questions).
+**Future roadmap:** configurable margin thresholds `[institutional pending]`.
+
+**Verification status:**
+| Verified in code | Verified in runtime | Verified in production | Institutional | Last verified |
+|:---:|:---:|:---:|:---:|:---:|
+| ✓ | ✗ | ✗ | ✓ | 2026-07-11 |
 
 ## Open Questions
 - [x] Margin formula & thresholds in code? — **Verified**: sell−cost; low<10%, healthy≥10%
@@ -322,6 +358,17 @@ approval decision).
 - [ ] Increased prefix mapped to a product+client → appears in `increased` + `clientImpact`
 - [ ] Vendor with no `margin_analytics_daily` rows → traffic context null, no crash
 - [ ] With product selected → resolver provenance populated (post-§9), no `.trim()` crash
+
+**Known issues:** resolver provenance depends on Product Mapping —
+**[VR-002](verification-register.md)**.
+**Production notes:** read-only; vendor traffic context uses a 30-day window from
+`margin_analytics_daily` (non-fatal if absent).
+**Future roadmap:** confirm/parametrise the 30-day traffic horizon `[institutional pending]`.
+
+**Verification status:**
+| Verified in code | Verified in runtime | Verified in production | Institutional | Last verified |
+|:---:|:---:|:---:|:---:|:---:|
+| ✓ | ✗ | ✗ | ✓ | 2026-07-11 |
 
 ## Open Questions
 - [x] Baseline auto-detection & join chain? — **Verified**: active sheet per vendor; dpr→registry→assignments
@@ -379,6 +426,16 @@ log preserves history.
 - [ ] approve → old active archived, new active; audit rows written
 - [ ] reject → sheet not activated, reason in audit log
 - [ ] direct activate produces same end state as approve
+
+**Known issues:** none currently tracked.
+**Production notes:** unlike Vendor Import, this **does** write a DB audit trail
+(`approval_audit_log`). A parallel approval cycle exists for rate-notification jobs.
+**Future roadmap:** define reviewer roles / dual-control policy `[institutional pending]`.
+
+**Verification status:**
+| Verified in code | Verified in runtime | Verified in production | Institutional | Last verified |
+|:---:|:---:|:---:|:---:|:---:|
+| ✓ | ✗ | ✗ | ✓ | 2026-07-11 |
 
 ## Open Questions
 - [x] Duplicate-request guard & audit writes? — **Verified**: 409 guard + approval_audit_log rows
@@ -647,6 +704,18 @@ recorded pre-counts, and a rollback script.
 - [ ] `/destinations/approved` count changes as expected
 - [ ] Dependent flows (Rate Manager / Send Rate) still behave after a *scoped* change
 - [ ] `destination_status_history` reflects every transition
+
+**Known issues:** blanket `commercial_status` mutation has wide blast radius (see
+Rollback impact); no VR open.
+**Production notes** `[institutional — destination-catalogue-commercial.md]`: billing
+increment is a **destination-level** attribute (not product); Sprint B1 adds
+`billing_increment_*` fields; Sippy increment push deferred to Sprint B2 audit.
+**Future roadmap:** Sprint B1 enrichment fields; B2 Sippy increment push.
+
+**Verification status:**
+| Verified in code | Verified in runtime | Verified in production | Institutional | Last verified |
+|:---:|:---:|:---:|:---:|:---:|
+| ✓ | ✗ | ✗ | ✓ | 2026-07-11 |
 
 ## Open Questions
 - [x] Which table/column stores approval? — **Verified**: `global_destinations.commercial_status`
