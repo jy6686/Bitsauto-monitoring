@@ -17,6 +17,17 @@
 Authority when sources conflict (Volume 0 §4.1): **code > institutional notes**;
 **production > everything** for behaviour. Never assume which side is "wrong."
 
+## Register (summary)
+
+| ID | Module | Topic | Code | Institutional | Runtime | Priority | Status |
+|----|--------|-------|------|---------------|---------|----------|--------|
+| VR-001 | Send Rate | Prefix to Sippy | `fullPrefix` | `dialPrefix` only | Unknown | High | **PENDING** |
+| VR-002 | Product Mapping | Catalog tables | Not in schema/`runSafeMigrations` | Migration 028 (empty in main) | Unknown | High | **PENDING** |
+| VR-003 | Vendor Import | Sheet detection | Keyword, else first sheet | Should find Pricing sheet | Reproduced | Medium | **OPEN — product decision** |
+
+> Modules reference an entry as **"See Verification Register → VR-NNN"** rather than
+> repeating the investigation, keeping the handbook clean.
+
 ---
 
 ## Open entries
@@ -39,6 +50,32 @@ trunk prefix and observe the Sippy result — success (full-prefix design is rea
 `Cannot find iRate` (institutional rule holds, code is a regression). Record the
 outcome above, then update Volume 1 §7 and mark `prefix-architecture-rule.md`
 status in `INDEX.md`.
+
+### VR-002 — Product Mapping catalog tables: existence in production
+| Attribute | Value |
+|-----------|-------|
+| Subsystem | Commercial → Product Mapping (§9) |
+| Code | `product_destination_mappings` / `product_mapping_active_config` / `product_mapping_versions` are **not** in `shared/schema.ts` nor `runSafeMigrations()`; the resolver queries them. |
+| Institutional | `migrations/028_product_mapping_catalog.sql` would create them — but that file is **empty** in main (populated only in the stale nested duplicate). |
+| Runtime evidence | **Unknown** — `health` 500 is consistent with the tables missing, but not proof |
+| Evidence level required | **L3** — `SELECT to_regclass('product_destination_mappings');` |
+| Priority | **High** (blocks §9 Product Mapping + Compare/Margin/Impact-with-product) |
+| Owner | Commercial |
+| Status | **PENDING** |
+| Resolution | *(to fill)* "Verified: tables absent → port to schema.ts + `db:push`" **or** "Verified: tables exist (created by <mechanism>) → resolver fix suffices." |
+
+### VR-003 — Vendor Import worksheet detection
+| Attribute | Value |
+|-----------|-------|
+| Subsystem | Commercial → Vendor Import (§2) |
+| Code | `parseFile()` selects the sheet whose name matches `pricing/rate/tariff/price`, else the **first** sheet (`routes-vendor-rates.ts`). |
+| Institutional / business | Expectation is that the Pricing sheet is always chosen (symptom: "Terms & Conditions detected instead of Pricing"). |
+| Runtime evidence | **Reproduced** — mechanism confirmed to mis-select when no sheet is keyword-named. |
+| Evidence level required | resolved at L1/L2; remaining item is a **product decision** |
+| Priority | Medium |
+| Owner | Commercial |
+| Status | **OPEN — product decision** (keep keyword+`sheetIndex` override, or add content-based detection?) |
+| Resolution | *(to fill on decision)* |
 
 ---
 

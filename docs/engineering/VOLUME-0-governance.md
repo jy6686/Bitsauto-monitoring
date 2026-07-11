@@ -161,14 +161,19 @@ automated tooling — regardless of what a `migrations/*.sql` file contains.
 
 ## 6. Documentation standard
 
-Every statement in every volume must be tagged as one of:
+Every statement in every volume carries a confidence tag so a reader knows exactly
+how much to trust it:
 
-- **`[verified-in-code]`** — reproducible from the repository right now. Include
-  the file/line or the command that proves it.
-- **`[institutional]`** — knowledge that cannot be inferred from code (why a
-  module is frozen, business rules, production incidents, roadmap, ownership).
-  Supplied by the owner; must be labelled so no one mistakes a recollection for a
-  verified fact.
+| Tag | Meaning |
+|-----|---------|
+| **`[V]`** verified-in-code | Reproducible from the repo now (cite file/line or command) |
+| **`[P]`** production-verified | Confirmed against the live system (runtime/DB evidence, Evidence Level ≥ 2) |
+| **`[I]`** institutional | Cannot be inferred from code (business rules, why-frozen, roadmap); owner/`.agents/memory` sourced |
+| **`[H]`** historical | Was true once; **may not match current code** — re-verify before relying on it |
+| **`[C]`** conflict | Sources disagree — logged in the [Verification Register](verification-register.md); do not resolve on assumption |
+
+`[V]` proves *what the code says*; `[P]` proves *what the system does* — the two are
+different (Volume 0 §4.1) and a claim can be `[V]` but not yet `[P]`.
 
 A document that mixes the two without labels is untrustworthy. (Example of why
 this matters: `architecture_flow.md` states `routes.ts` is ~11,800 lines and lists

@@ -1,21 +1,40 @@
-# BitsAuto Platform Knowledge Index
+# BitsAuto — Engineering Home Page
 
-| Field | Value |
-|-------|-------|
-| Purpose | Single entry point for all engineering knowledge — start here, don't rediscover |
-| Status | ACTIVE (living) |
-| Last verified | 2026-07-11 |
-| Repository commit | `8f1c91fa` |
+> **Start here.** Single entry point for all engineering knowledge — humans and AI.
+> Reference a knowledge-area ID or a `VR-NNN` instead of rediscovering the platform.
 
-> **How to use:** every investigation references a knowledge-area ID below instead
-> of re-deriving the platform. Three source types, each tagged for trust:
-> **`[V]` Verified-in-code** (reproducible now) · **`[I]` Institutional** (owner/
-> prior-session knowledge; cannot be inferred from code) · **`[H]` Historical**
-> (may no longer match current code — verify before relying on it).
->
-> ⚠️ `.agents/memory/` notes are a *source*, not gospel. This session found one that
-> **conflicts** with current code (`prefix-architecture-rule.md` vs Send Rate) — so
-> each is marked with whether it's been re-verified against the current tree.
+| | |
+|--|--|
+| **Platform** | BitsAuto Monitoring (VoIP ops, Sippy control plane) |
+| **Repository** | github.com/jy6686/Bitsauto-monitoring |
+| **Doc branch** | `docs/engineering-handbook` |
+| **Handbook version** | Vol 0 (Governance) ✅ · Vol 1 (Commercial) 🟡 in progress · Vol 2+ not started |
+| **Last verified** | 2026-07-11 @ commit `a0e91646` |
+
+## Confidence tags (Volume 0 §6)
+
+**`[V]`** verified-in-code · **`[P]`** production-verified · **`[I]`** institutional ·
+**`[H]`** historical (may be stale) · **`[C]`** conflict (see Verification Register).
+`[V]` = what the code says; `[P]` = what the system does — not the same thing.
+
+## Verification Dashboard
+
+| State | Count | Where |
+|-------|------:|-------|
+| Conflicts open `[C]` | 1 | VR-001 (Send Rate prefix) |
+| Pending verification | 3 | VR-001, VR-002 (mapping tables), VR-003 (sheet detection) |
+| Commercial modules deep | 7 / 8 | §§2-8a done; §9 Product Mapping pending |
+| `.agents/memory` notes re-verified | ~10 / 40 | Commercial + Sippy areas |
+| Production-verified `[P]` | 0 | (no live-evidence items closed yet) |
+
+**Open Verification Register:** [VR-001, VR-002, VR-003](verification-register.md) — all PENDING.
+
+## Two speeds of knowledge (keep distinct)
+
+- **Knowledge (stable):** Handbook (`docs/engineering/`), Dependency Matrix,
+  Architecture, `.agents/memory` — evolves slowly, per verification.
+- **Engineering (active):** Verification Register (open discrepancies), open bugs,
+  pending verification, sprint work, production incidents — evolves fast.
 
 ---
 

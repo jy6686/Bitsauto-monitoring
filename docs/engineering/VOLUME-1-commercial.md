@@ -445,15 +445,9 @@ Commercial module with side-effects outside BitsAuto's DB. **Class D/E.** No
 automatic rollback; reversal is a compensating push.
 
 **Known issues:**
-- 🔴 **Prefix-rule conflict (unverified, needs decision).** Code at
-  `routes-rate-manager.ts:313` passes **`prefix: fullPrefix`** to `pushRateToSippy`
-  (comment: "Sippy tariffs store full prefixes, e.g. 29233 for Business Class"),
-  and the computed `dialPrefix` (line 272) is **unused**. This **contradicts** the
-  LOCKED `.agents/memory/prefix-architecture-rule.md` `[institutional]`, which
-  states *only* `dialPrefix` may reach Sippy and sending `fullPrefix` causes
-  `Cannot find iRate for prefix 19233`. Either the code is a regression or the rule
-  is superseded by a full-prefix tariff design. **Do not "fix" either way without
-  Level-2/3 evidence** (does a real push succeed or throw "Cannot find iRate"?).
+- 🔴 **`[C]` Prefix-rule conflict — see [Verification Register → VR-001](verification-register.md).**
+  Code sends `fullPrefix`; LOCKED note says `dialPrefix`-only. Unresolved, needs
+  L2/L3. (Investigation lives in the Register, not here.)
 - The `accountIAccountMap` scope bug (fixed this session, commit `81adcfa1`) lived
   here — regression-test the explicit-accountNames path.
 
