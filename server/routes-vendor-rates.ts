@@ -9,7 +9,7 @@ import {
 } from '../shared/schema';
 import { productMappingResolver } from "./services/commercial/product-mapping-resolver";
 
-function getSheetList(fileData: string): { index: number; name: string; rowCount: number }[] {
+export function getSheetList(fileData: string): { index: number; name: string; rowCount: number }[] {
   const buf = Buffer.from(fileData, 'base64');
   const wb = XLSX.read(buf, { type: 'buffer', raw: false });
   return wb.SheetNames.map((name: string, index: number) => {
@@ -18,7 +18,7 @@ function getSheetList(fileData: string): { index: number; name: string; rowCount
     return { index, name, rowCount: all.filter((r:any[]) => r.some((c:any) => c != null)).length };
   });
 }
-function parseFile(fileData: string, sheetIndex?: number): { headers: string[]; dataRows: any[][] } {
+export function parseFile(fileData: string, sheetIndex?: number): { headers: string[]; dataRows: any[][] } {
   const buf = Buffer.from(fileData, 'base64');
   const wb = XLSX.read(buf, { type: 'buffer', raw: false, cellDates: true });
   let sheetName: string;
