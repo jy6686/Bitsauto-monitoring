@@ -5,8 +5,7 @@ import { usePortal } from "@/context/portal-context";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { useQuery } from "@tanstack/react-query";
-import type { WorkspaceWithTabs } from "@shared/schema";
-import { usePortalConfig, toWorkspaceView } from "@/portals/services/portal-config-service";
+import { usePortalConfig, type PortalViewSection } from "@/portals/services/portal-config-service";
 import {
   LayoutDashboard, Users, HeartPulse, Zap, Activity, BarChart3, FileText, Wallet,
   SendHorizonal, GitBranch, Megaphone, MessageSquare, BarChart2, ClipboardList, ReceiptText,
@@ -119,23 +118,21 @@ export function PortalSidebar({ collapsed }: { collapsed?: boolean }) {
   const { theme, toggleTheme } = useTheme();
   const [expandedWs, setExpandedWs] = useState<Set<string>>(new Set());
 
-  // Sidebar reads ONLY the Portal Configuration Service (Model A). The adapter
-  // produces the WorkspaceWithTabs shape, so Model B (workspaces) is no longer queried.
+  // Sidebar consumes the Portal View Model (Model A) DIRECTLY — no workspace adapter,
+  // no runtime dependency on the Model B tables.
   const vm = usePortalConfig(activePortal);
-  const workspaces: WorkspaceWithTabs[] = toWorkspaceView(vm);
   const isLoading = vm.isLoading;
 
-  // Auto-expand workspace containing the current route
+  // Auto-expand the section containing the current route
   useEffect(() => {
-    if (!workspaces.length) return;
-    for (const ws of workspaces) {
-      const allRoutes = ws.tabs.flatMap(t => t.items.map(i => i.route));
-      if (allRoutes.some(r => location === r || location.startsWith(r + '/') || location.startsWith(r + '?'))) {
-        setExpandedWs(prev => new Set([...prev, ws.slug]));
+    for (const section of vm.sections) {
+      if (section.modules.some(m =>
+        location === m.href || location.startsWith(m.href + '/') || location.startsWith(m.href + '?'))) {
+        setExpandedWs(prev => new Set([...prev, section.key]));
         return;
       }
     }
-  }, [location, workspaces]);
+  }, [location, vm.sections]);
 
   if (!portalConfig || !activePortal) return null;
 
@@ -148,8 +145,8 @@ export function PortalSidebar({ collapsed }: { collapsed?: boolean }) {
     return location === base || location.startsWith(base + "?") || location.startsWith(base + "/");
   }
 
-  function isWsActive(ws: WorkspaceWithTabs): boolean {
-    return ws.tabs.flatMap(t => t.items).some(i => isRouteActive(i.route));
+  function isSectionActive(section: PortalViewSection): boolean {
+    return section.modules.some(m => isRouteActive(m.href));
   }
 
   const userInitial = (user as any)?.firstName?.[0] || (user as any)?.email?.[0]?.toUpperCase() || "U";
@@ -187,81 +184,78 @@ export function PortalSidebar({ collapsed }: { collapsed?: boolean }) {
             <p className="text-xs text-muted-foreground/40">Loading...</p>
           </div>
         )}
-        {!isLoading && workspaces.length === 0 && !collapsed && (
+        {!isLoading && vm.sections.length === 0 && !collapsed && (
           <div className="px-4 py-8 text-center">
-            <p className="text-xs text-muted-foreground/40">No workspaces configured</p>
+            <p className="text-xs text-muted-foreground/40">No modules configured</p>
           </div>
         )}
 
-        {workspaces.map(ws => {
-          const WsIcon   = resolveIcon(ws.icon);
-          const wsActive = isWsActive(ws);
-          const expanded = expandedWs.has(ws.slug) || wsActive;
+        {vm.sections.map(section => {
+          const SecIcon   = resolveIcon(section.icon);
+          const secActive = isSectionActive(section);
+          const expanded  = expandedWs.has(section.key) || secActive;
 
           if (collapsed) {
             return (
-              <div key={ws.slug} className="flex justify-center mb-0.5 px-1">
+              <div key={section.key} className="flex justify-center mb-0.5 px-1">
                 <div
-                  title={ws.label}
+                  title={section.title}
                   className={cn(
                     "p-2 rounded-lg transition-colors w-full flex justify-center",
-                    wsActive
+                    secActive
                       ? cn("bg-white/[0.07]", accent)
                       : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-white/[0.04]"
                   )}
                 >
-                  <WsIcon className="h-4 w-4" />
+                  <SecIcon className="h-4 w-4" />
                 </div>
               </div>
             );
           }
 
           return (
-            <div key={ws.slug} className="mb-0.5">
-              {/* Workspace section header — clickable to expand/collapse */}
+            <div key={section.key} className="mb-0.5">
+              {/* Section header — clickable to expand/collapse */}
               <button
                 onClick={() => setExpandedWs(prev => {
                   const next = new Set(prev);
-                  if (next.has(ws.slug)) next.delete(ws.slug);
-                  else next.add(ws.slug);
+                  if (next.has(section.key)) next.delete(section.key);
+                  else next.add(section.key);
                   return next;
                 })}
                 className={cn(
                   "w-full flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest transition-colors",
-                  wsActive
+                  secActive
                     ? accent
                     : "text-muted-foreground/45 hover:text-muted-foreground/70"
                 )}
               >
-                <WsIcon className="h-3.5 w-3.5 flex-shrink-0" />
-                <span className="truncate flex-1 text-left">{ws.label}</span>
+                <SecIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="truncate flex-1 text-left">{section.title}</span>
                 <ChevronDown className={cn(
                   "h-3 w-3 flex-shrink-0 transition-transform duration-150",
                   expanded && "rotate-180"
                 )} />
               </button>
 
-              {/* Workspace tabs rendered as sidebar nav items */}
+              {/* Modules (Portal View Model) rendered as sidebar nav items */}
               {expanded && (
                 <div className="pb-1">
-                  {ws.tabs.map(tab => {
-                    const firstRoute = tab.items.find(i => !i.isContextual)?.route
-                      ?? tab.items[0]?.route;
-                    if (!firstRoute) return null;
-                    const TabIcon   = resolveIcon(tab.icon);
-                    const tabActive = tab.items.some(i => isRouteActive(i.route));
+                  {section.modules.map(m => {
+                    const ModIcon   = resolveIcon(m.icon);
+                    const modActive = isRouteActive(m.href);
                     return (
-                      <Link key={tab.slug} href={firstRoute} data-testid={`nav-portal-tab-${tab.slug}`}>
+                      <Link key={m.moduleKey} href={m.href} data-testid={`nav-portal-module-${m.moduleKey}`}>
                         <div
                           className={cn(
                             "flex items-center gap-2.5 mx-2 py-[5px] px-2 rounded-lg text-[12px] cursor-pointer transition-all",
-                            tabActive
+                            modActive
                               ? cn("font-semibold", activeC)
                               : "text-muted-foreground/60 hover:text-foreground hover:bg-white/[0.04]",
                           )}
                         >
-                          <TabIcon className={cn("h-3.5 w-3.5 flex-shrink-0", tabActive ? "" : "opacity-60")} />
-                          <span className="truncate">{tab.label}</span>
+                          <ModIcon className={cn("h-3.5 w-3.5 flex-shrink-0", modActive ? "" : "opacity-60")} />
+                          <span className="truncate">{m.label}</span>
                         </div>
                       </Link>
                     );

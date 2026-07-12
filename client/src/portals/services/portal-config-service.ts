@@ -6,14 +6,14 @@
  * Portal View Model. Sidebar, TopNav, Dashboard, and Quick Actions read THIS —
  * never database tables directly. See docs ADR-006 + PORTAL-ASSIGNMENT-MANAGER-SPEC.
  *
- * Model B (workspaces/tabs/items) is a temporary compatibility layer: `toWorkspaceView`
- * adapts this view model into the WorkspaceWithTabs shape the existing sidebar renders,
- * so the UI keeps working while the source of truth is Model A.
+ * Sidebar, TopNav, and Dashboard consume the Portal View Model DIRECTLY — there is no
+ * runtime dependency on Model B (workspaces/tabs/items). Those tables remain only as a
+ * migration artifact to be removed once all portals are on this framework (roadmap Phase 5).
  */
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type {
-  PortalDefinition, PortalModuleWithMeta, PortalSection, WorkspaceWithTabs,
+  PortalDefinition, PortalModuleWithMeta, PortalSection,
 } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -139,46 +139,3 @@ export function usePortalConfig(portalSlug: string | null): PortalViewModel {
   }, [portalSlug, definitions, modules, sections, modulesLoading, sectionsLoading]);
 }
 
-// ── Model B compatibility adapter ──────────────────────────────────────────────
-/**
- * Adapt the Model-A view model into the WorkspaceWithTabs shape the existing
- * PortalSidebar renders — one workspace per portal, tabs = sections, items = modules
- * (with portal-relative routes). Lets the current sidebar render from Model A
- * unchanged during the transition. Model B tables are no longer read.
- */
-export function toWorkspaceView(vm: PortalViewModel): WorkspaceWithTabs[] {
-  if (!vm.portal || vm.sections.length === 0) return [];
-  return [{
-    id:          1,
-    slug:        vm.portal,
-    label:       vm.name,
-    description: null,
-    portalSlug:  vm.portal,
-    domainId:    null,
-    icon:        null,
-    sortOrder:   0,
-    isActive:    true,
-    createdAt:   new Date() as any,
-    tabs: vm.sections.map((s, ti) => ({
-      id:              ti + 1,
-      workspaceId:     1,
-      slug:            s.key,
-      label:           s.title,
-      icon:            s.icon,
-      sortOrder:       s.order,
-      isVisible:       true,
-      visibilityRoles: null,
-      items: s.modules.map((m, ii) => ({
-        id:              ii + 1,
-        tabId:           ti + 1,
-        route:           m.href,
-        label:           m.label,
-        icon:            m.icon,
-        sortOrder:       m.order,
-        isContextual:    false,
-        isHidden:        false,
-        visibilityRoles: null,
-      })),
-    })),
-  }];
-}
