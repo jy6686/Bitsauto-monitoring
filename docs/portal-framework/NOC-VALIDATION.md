@@ -49,13 +49,45 @@ Deploy `feature/portal-framework` to staging, apply `022`. No new work items —
 | **Seed** (migration) | Fix migration → retest | Tag stays |
 | **Data** (configuration) | Fix config → retest | Tag stays |
 
-## Promotion
-- [ ] All Phase-A gates ✅ → promote `portal-framework-v1.0` status to **Framework v1.0 Certified** (date / who).
+## Status definitions
+- **Build Verified** — framework compiles, static validation passes, architecture frozen. *(Current.)*
+- **Certified** — the **deployed runtime** passes the complete Phase-A checklist above.
 
-## Rollout phases
-- **A** Deploy validation (this doc) → certify.
-- **B** Push branch + tag · open PR · review · merge. **No feature additions, no refactoring, no "while we're here."**
-- **C** Commercial = 2nd tenant. *Acceptance test:* needs config only = framework succeeded; needs routing/nav code = framework defect (fix the framework, not Commercial).
-- **D** Finance — configuration only.
-- **E** Admin — configuration only.
-- **F** Cleanup release (only after all four live): remove `noc.config.ts`, legacy portal-home/DashboardTemplate components, the `workspaces` navigation model + tables, and compatibility APIs.
+## Promotion rule (only two paths exist)
+```
+Framework Baseline v1.0 (Build Verified)
+              │
+              ▼
+      Deploy Validation (Phase A)
+        │                 │
+    all gates green?      no
+        │                 │
+        ▼                 ▼
+ Framework v1.0      Fix ONLY the validated
+ Certified          defect → retest
+```
+- [ ] All Phase-A gates ✅ → promote `portal-framework-v1.0` to **Framework v1.0 Certified** (date / who).
+
+## Hard gates
+- **No merge to `main` until NOC Certification is complete** — protects the framework from promotion before runtime validation.
+- Phase B is **push → PR → review → merge** only. No feature additions, no refactoring, no architectural changes.
+- Phase A **requires staging/runtime validation by the owner** — it cannot be completed from the engineering environment (no deploy / no live runtime here).
+
+## Phases
+| Phase | Status | Outcome |
+|-------|--------|---------|
+| Engineering Foundation | ✅ Complete | Frozen |
+| Portal Framework v1.0 | ✅ Complete (Build Verified) | Frozen |
+| A — NOC Certification | 🔄 Pending deployment validation | Requires staging/runtime validation |
+| B — Merge | ⏳ Ready after successful Phase A | Push → PR → Review → Merge |
+| C — Commercial | ⏳ Configuration only | First production tenant after NOC |
+| D — Finance | ⏳ Configuration only | Second tenant |
+| E — Admin | ⏳ Configuration only | Third tenant |
+| F — Legacy Cleanup | ⏳ After all portals live | Remove `noc.config.ts`, legacy portal-home/DashboardTemplate, workspaces model + tables + compat APIs |
+
+## Commercial acceptance test — defines "framework success"
+**Commercial Portal must be implemented without modifying the Router, Portal Configuration Service,
+Module Registry, or Dashboard Template.** If Commercial needs only: portal assignments · menu config ·
+dashboard config · permissions · hierarchy → **Framework v1.0 achieved its objective.** If Commercial
+requires framework code changes → treat it as a **framework defect discovered during rollout** (fix the
+framework), **not** as Commercial feature work.
