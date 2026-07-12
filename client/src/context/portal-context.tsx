@@ -1,15 +1,19 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
+import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { PortalDefinition, PortalModuleWithMeta, PortalSection } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
 
-const STORAGE_KEY         = "bitsauto_active_portal";
-const STORAGE_SECTION_KEY = "bitsauto_active_section";
+// Portal context is now URL-DRIVEN (ADR-006). The active portal is a function of the
+// URL prefix (/noc/*, /commercial/*, …) — never localStorage. A browser refresh or a
+// deep link always restores the exact portal + module. No hidden state.
+export type PortalSlug = "kam" | "noc" | "finance" | "partner" | "admin" | "commercial";
 
-export type PortalSlug = "kam" | "noc" | "finance" | "partner" | "admin";
+const KNOWN_PORTALS: PortalSlug[] = ["noc", "commercial", "finance", "admin", "kam", "partner"];
 
 interface PortalCtx {
   activePortal:    PortalSlug | null;
+  activeModule:    string | null;
   setPortal:       (slug: PortalSlug | null) => void;
   definitions:     PortalDefinition[];
   modules:         PortalModuleWithMeta[];
@@ -25,6 +29,7 @@ interface PortalCtx {
 
 const PortalContext = createContext<PortalCtx>({
   activePortal:    null,
+  activeModule:    null,
   setPortal:       () => {},
   definitions:     [],
   modules:         [],
@@ -40,14 +45,19 @@ const PortalContext = createContext<PortalCtx>({
 
 export function PortalProvider({ children }: { children: ReactNode }) {
   const { user, role } = useAuth();
+  const [location, navigate] = useLocation();
 
-  const [activePortal, setActivePortalState] = useState<PortalSlug | null>(() => {
-    try { return (localStorage.getItem(STORAGE_KEY) as PortalSlug) ?? null; } catch { return null; }
-  });
+  // ── Derive active portal + module from the URL (single source of truth) ────────
+  const [maybePortal, maybeModule] = useMemo(() => {
+    const segs = location.split("?")[0].split("/").filter(Boolean);
+    return [segs[0], segs[1]] as [string | undefined, string | undefined];
+  }, [location]);
 
-  const [activeSection, setActiveSectionState] = useState<string | null>(() => {
-    try { return localStorage.getItem(STORAGE_SECTION_KEY) ?? null; } catch { return null; }
-  });
+  const activePortal: PortalSlug | null =
+    maybePortal && (KNOWN_PORTALS as string[]).includes(maybePortal)
+      ? (maybePortal as PortalSlug)
+      : null;
+  const activeModule = activePortal ? (maybeModule ?? null) : null;
 
   const { data: definitions = [] } = useQuery<PortalDefinition[]>({
     queryKey: ["/api/portal/definitions"],
@@ -56,10 +66,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   });
 
   const allowedPortals = definitions.filter(p =>
-    role && (
-      ["admin", "super_admin"].includes(role) ||
-      p.allowedRoles.includes(role)
-    )
+    role && (["admin", "super_admin"].includes(role) || p.allowedRoles.includes(role))
   );
 
   const { data: modules = [] } = useQuery<PortalModuleWithMeta[]>({
@@ -74,56 +81,41 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     staleTime: 5 * 60_000,
   });
 
-  // When sections load, ensure activeSection is valid; default to first section
-  useEffect(() => {
-    if (sections.length > 0) {
-      const valid = sections.find(s => s.sectionKey === activeSection);
-      if (!valid) {
-        const first = sections[0].sectionKey;
-        setActiveSectionState(first);
-        try { localStorage.setItem(STORAGE_SECTION_KEY, first); } catch {}
-      }
+  // Active section is derived from the active module's section, else the first section.
+  const activeSection = useMemo(() => {
+    if (activeModule) {
+      const m = modules.find(mm => mm.moduleKey === activeModule);
+      if (m) return m.section;
     }
-  }, [sections.length, activePortal]);
+    return sections[0]?.sectionKey ?? null;
+  }, [activeModule, modules, sections]);
 
-  // Reset section when portal changes
-  useEffect(() => {
-    setActiveSectionState(null);
-    try { localStorage.removeItem(STORAGE_SECTION_KEY); } catch {}
-  }, [activePortal]);
-
-  const setPortal = (slug: PortalSlug | null) => {
-    setActivePortalState(slug);
-    try {
-      if (slug) localStorage.setItem(STORAGE_KEY, slug);
-      else      localStorage.removeItem(STORAGE_KEY);
-    } catch {}
-  };
-
+  // Entering/leaving a portal is a navigation — the URL owns the state.
+  const setPortal = (slug: PortalSlug | null) => navigate(slug ? `/${slug}` : "/");
+  const exitPortalMode = () => navigate("/");
   const setSection = (key: string) => {
-    setActiveSectionState(key);
-    try { localStorage.setItem(STORAGE_SECTION_KEY, key); } catch {}
+    if (!activePortal) return;
+    const first = modules.filter(m => m.section === key).sort((a, b) => a.displayOrder - b.displayOrder)[0];
+    if (first) navigate(`/${activePortal}/${first.moduleKey}`);
   };
 
-  // Validate stored portal against user's allowed portals once loaded
+  // If the URL names a portal the user may not access, bounce to the main platform.
   useEffect(() => {
-    if (definitions.length > 0 && activePortal) {
-      const valid = allowedPortals.find(p => p.slug === activePortal);
-      if (!valid) setPortal(null);
+    if (activePortal && definitions.length > 0) {
+      const ok = allowedPortals.find(p => p.slug === activePortal);
+      if (!ok) navigate("/");
     }
-  }, [definitions.length, role]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePortal, definitions.length, role]);
 
   const portalConfig   = definitions.find(p => p.slug === activePortal) ?? null;
   const isPortalMode   = !!activePortal;
-
-  // Modules filtered to the active section (for contextual sidebar)
-  const sectionModules = activeSection
-    ? modules.filter(m => m.section === activeSection)
-    : modules;
+  const sectionModules = activeSection ? modules.filter(m => m.section === activeSection) : modules;
 
   return (
     <PortalContext.Provider value={{
       activePortal,
+      activeModule,
       setPortal,
       definitions,
       modules,
@@ -133,7 +125,7 @@ export function PortalProvider({ children }: { children: ReactNode }) {
       sectionModules,
       portalConfig,
       isPortalMode,
-      exitPortalMode: () => setPortal(null),
+      exitPortalMode,
       allowedPortals,
     }}>
       {children}

@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { useQuery } from "@tanstack/react-query";
 import type { WorkspaceWithTabs } from "@shared/schema";
+import { usePortalConfig, toWorkspaceView } from "@/portals/services/portal-config-service";
 import {
   LayoutDashboard, Users, HeartPulse, Zap, Activity, BarChart3, FileText, Wallet,
   SendHorizonal, GitBranch, Megaphone, MessageSquare, BarChart2, ClipboardList, ReceiptText,
@@ -118,17 +119,11 @@ export function PortalSidebar({ collapsed }: { collapsed?: boolean }) {
   const { theme, toggleTheme } = useTheme();
   const [expandedWs, setExpandedWs] = useState<Set<string>>(new Set());
 
-  const { data: workspaces = [], isLoading } = useQuery<WorkspaceWithTabs[]>({
-    queryKey: ['/api/workspaces/by-portal', activePortal],
-    queryFn: async () => {
-      if (!activePortal) return [];
-      const res = await fetch(`/api/workspaces/by-portal/${activePortal}`, { credentials: 'include' });
-      if (!res.ok) return [];
-      return res.json();
-    },
-    enabled: !!activePortal,
-    staleTime: 5 * 60_000,
-  });
+  // Sidebar reads ONLY the Portal Configuration Service (Model A). The adapter
+  // produces the WorkspaceWithTabs shape, so Model B (workspaces) is no longer queried.
+  const vm = usePortalConfig(activePortal);
+  const workspaces: WorkspaceWithTabs[] = toWorkspaceView(vm);
+  const isLoading = vm.isLoading;
 
   // Auto-expand workspace containing the current route
   useEffect(() => {
@@ -389,7 +384,7 @@ export function WorkspaceSwitcherPill() {
 
 // ── PortalTopNav — kept for backward compatibility (sections nav) ───────────────
 export function PortalTopNav() {
-  const { sections, activeSection, setSection, portalConfig, modules } = usePortal();
+  const { sections, activeSection, setSection, portalConfig, modules, activePortal } = usePortal();
   const [, navigate] = useLocation();
 
   if (!portalConfig || sections.length === 0) return null;
@@ -411,8 +406,9 @@ export function PortalTopNav() {
               setSection(section.sectionKey);
               const homeModule = modules.find((m: any) => m.section === section.sectionKey && m.isHome);
               const firstModule = modules.find((m: any) => m.section === section.sectionKey);
-              const target = homeModule?.route ?? firstModule?.route;
-              if (target) navigate(target);
+              const target = homeModule ?? firstModule;
+              // Portal-relative navigation keeps the user inside the portal namespace.
+              if (target && activePortal) navigate(`/${activePortal}/${target.moduleKey}`);
             }}
             data-testid={`nav-section-${section.sectionKey}`}
             className={cn(

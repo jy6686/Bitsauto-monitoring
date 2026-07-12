@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LayoutShell } from "@/components/layout-shell";
 import { useAuth } from "@/hooks/use-auth";
-import { useEffect, Component, useState } from "react";
+import { useEffect, Component, useState, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { Loader2, ShieldOff } from "lucide-react";
@@ -90,6 +90,9 @@ import DestinationCatalogPage from "@/pages/destination-catalog";
 import ClientRateReportPage from "@/pages/client-rate-report";
 import TariffProfilesPage from "@/pages/tariff-profiles";
 import NotFound from "@/pages/not-found";
+import { resolveModuleComponent } from "@/portals/registry/module-registry";
+import PortalHome from "@/portals/PortalHome";
+import { usePortal } from "@/context/portal-context";
 import QosHeatmapPage from "@/pages/qos-heatmap";
 import SlaBreachesPage from "@/pages/sla-breaches";
 import BillingDisputesPage from "@/pages/billing-disputes";
@@ -166,7 +169,6 @@ import RtpAnalyticsPage from "@/pages/rtp-analytics";
 import ReplayEnginePage from "@/pages/replay";
 import NetworkTopologyPage from "@/pages/network-topology";
 import NocCommandPage from "@/pages/noc-command";
-import NocPortalHomePage from "@/pages/noc-portal-home";
 import NocDashboardPage from "@/pages/noc-dashboard";
 import ServerHealthPage from "@/pages/server-health";
 import NocIncidentsPage from "@/pages/noc-incidents";
@@ -367,6 +369,28 @@ function ProtectedRoute({
       <Component />
     </LayoutShell>
   );
+}
+
+// ── Generic portal routing (ADR-006): /:portal and /:portal/:module ─────────────
+// ONE resolver for every portal. The registry maps the stable module key to its
+// component; ProtectedRoute wraps it in LayoutShell, which renders the portal chrome
+// because the URL puts PortalProvider into portal mode. No portal-specific routes.
+function PortalModuleRoute({ moduleKey }: { moduleKey: string }) {
+  const { activePortal } = usePortal();
+  const Comp = resolveModuleComponent(moduleKey);
+  if (!activePortal || !Comp) return <NotFound />;
+  const Page = () => (
+    <Suspense fallback={<div className="p-8 text-sm text-muted-foreground">Loading…</div>}>
+      <Comp />
+    </Suspense>
+  );
+  return <ProtectedRoute component={Page} />;
+}
+
+function PortalHomeRoute() {
+  const { activePortal } = usePortal();
+  if (!activePortal) return <NotFound />;
+  return <ProtectedRoute component={PortalHome} />;
 }
 
 function Router() {
@@ -745,7 +769,7 @@ function Router() {
         {() => <ProtectedRoute component={NetworkTopologyPage} requiredRoles={['admin','management']} mgmtFeature="network_topology" />}
       </Route>
       <Route path="/noc">
-        {() => <ProtectedRoute component={NocPortalHomePage} requiredRoles={['admin','super_admin','noc_operator','team_lead','management']} />}
+        {() => <PortalHomeRoute />}
       </Route>
       <Route path="/noc-dashboard">
         {() => <ProtectedRoute component={NocDashboardPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
@@ -850,6 +874,14 @@ function Router() {
 
       <Route path="/security-ops">
         {() => <ProtectedRoute component={SecurityOpsPage} requiredRoles={['admin','super_admin']} />}
+      </Route>
+
+      {/* Generic portal routing — declared last so all specific routes match first */}
+      <Route path="/:portal/:module">
+        {(params) => <PortalModuleRoute moduleKey={params.module} />}
+      </Route>
+      <Route path="/:portal">
+        {() => <PortalHomeRoute />}
       </Route>
 
       <Route component={NotFound} />
