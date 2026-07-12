@@ -2,7 +2,7 @@
 
 **Status:** **Framework Baseline v1.0 (Build Verified)** — tag `portal-framework-v1.0`.
 Promote to **Framework v1.0 Certified** only after every Phase-A gate below is ✅ at runtime.
-**Branch:** `feature/portal-framework`. **Prereq:** apply `migrations/022_seed_portal_assignments.sql`.
+**Branch:** `feature/portal-framework`. **Prereq:** apply `migrations/029_seed_portal_assignments.sql`.
 
 ## Build-verified (static, done — this is what "Baseline v1.0" attests)
 | Check | Result |
@@ -15,10 +15,10 @@ Promote to **Framework v1.0 Certified** only after every Phase-A gate below is �
 | Nav links portal-relative `/:portal/:moduleKey` | ✅ (TopNav, Sidebar, PortalHome) |
 
 ## Phase A — Deploy validation (the certification; exactly these gates)
-Deploy `feature/portal-framework` to staging, apply `022`. No new work items — these gates are the certification.
+Deploy `feature/portal-framework` to staging, apply `029`. No new work items — these gates are the certification.
 
 ### Environment
-- ☐ Migration `022` applied
+- ☐ Migration `029` applied
 - ☐ Portal configuration seeded
 - ☐ Application starts successfully
 
