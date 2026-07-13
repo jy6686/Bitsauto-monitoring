@@ -95,6 +95,7 @@ Framework Baseline v1.0 (Build Verified)
 - [ ] All Phase-A gates ✅ → promote `portal-framework-v1.0` to **Framework v1.0 Certified** (date / who).
 
 ## Hard gates
+- **`feature/portal-framework` is a release branch (RC).** No new capability work enters it — Dashboard Engine (v1.1), CAP-002 IAM, and Commercial/Finance/Security portals are developed in **separate capability branches** and merged only after v1.0 is complete. Only a defect fix found during the release gate may land here.
 - **No merge to `main` until NOC Certification is complete** — protects the framework from promotion before runtime validation.
 - Phase B is **push → PR → review → merge** only. No feature additions, no refactoring, no architectural changes.
 - Phase A **requires staging/runtime validation by the owner** — it cannot be completed from the engineering environment (no deploy / no live runtime here).
