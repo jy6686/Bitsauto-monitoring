@@ -13,6 +13,19 @@
 
 BEGIN;
 
+-- ── 0. Ensure the unique constraints this seed's upserts depend on ──────────────
+-- Migrations 020/021 declare these, but a `drizzle-kit push`-created schema does NOT
+-- (shared/schema.ts omits them). Without them the ON CONFLICT clauses below fail and
+-- roll back the whole seed → 0 rows. Add idempotently so 029 works on ANY database.
+DO $$ BEGIN
+  ALTER TABLE portal_module_assignments
+    ADD CONSTRAINT portal_module_assignments_portal_id_module_id_key UNIQUE (portal_id, module_id);
+EXCEPTION WHEN duplicate_table OR duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE portal_sections
+    ADD CONSTRAINT portal_sections_portal_id_section_key_key UNIQUE (portal_id, section_key);
+EXCEPTION WHEN duplicate_table OR duplicate_object THEN NULL; END $$;
+
 -- ── 1. Standardize legacy underscore module keys → kebab (idempotent) ───────────
 UPDATE navigation_modules SET module_key = 'live-calls'
   WHERE module_key = 'live_calls'
