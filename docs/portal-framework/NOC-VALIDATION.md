@@ -51,12 +51,13 @@ Deploy `feature/portal-framework` to staging, apply `029`. No new work items —
 
 ## Status definitions
 - **Build Verified** — framework compiles, static validation passes, architecture frozen. *(Current — tag `portal-framework-v1.0` @ 98758d4f.)*
-- **Runtime Validated** — every item in the Release Gate below is green on the deployed runtime. Only then does the tag advance to `8286d2ec`.
+- **Runtime Validated** — every item in the Release Gate below is green on the deployed runtime. Only then does the tag advance.
 - **Certified / merged** — Runtime Validated + owner sign-off → merge to `main`.
 
 ## Runtime Validation Checklist (Release Gate)
-The tag does **not** advance automatically. It moves `98758d4f → 8286d2ec` only when the owner
-confirms **all** of these are green on the deployed runtime:
+The tag does **not** advance automatically, and its target is **not** predetermined: it moves from
+`98758d4f` to **the exact commit that was validated in production** (the branch tip that passed this
+gate) — only when the owner confirms **all** of these are green on the deployed runtime:
 
 **Backend**
 - ☐ `/api/portal/definitions` returns the expected portal set
