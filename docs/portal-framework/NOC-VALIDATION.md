@@ -68,7 +68,11 @@ gate) — only when the owner confirms **all** of these are green on the deploye
 - ☐ `/noc` shows the portal top nav (Live Operations / Command Center), **not** platform DOMAINS
 - ☐ Sidebar contains the six Phase-1 modules
 - ☐ `/noc/live-calls` renders inside the NOC portal shell
-- ☐ Refresh · deep link · browser back/forward stay within `/noc/...`
+
+**Routing continuity (exercises the router, not just pages)**
+- ☐ Browser **Back/Forward** across `/noc/*` stays in the portal
+- ☐ **Refresh** on `/noc/live-calls` still renders the portal shell (no drop to platform)
+- ☐ **Deep link** — pasting `/noc/live-traffic` directly opens it in-portal
 
 **Regression**
 - ☐ Existing non-portal routes still work
