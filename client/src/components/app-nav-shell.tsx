@@ -640,6 +640,10 @@ export function AppNavShell() {
   const meta          = inferMeta(location);
   const activeDomain  = DOMAINS.find(d => d.id === meta.domain);
   const isDashboard   = location === '/';
+  // In portal mode the persistent "Dashboard" button points at the portal home
+  // (/noc), so it keeps the user inside the portal instead of exiting to the platform.
+  const portalHome    = isPortalMode && activePortalSlug ? `/${activePortalSlug}` : '/';
+  const dashActive    = location === portalHome;
   const isChat        = location.startsWith('/chat');
 
   const scheduleClose = useCallback(() => {
@@ -719,18 +723,18 @@ export function AppNavShell() {
           {/* Divider */}
           <div className="w-px h-5 bg-white/[0.08] mr-1 flex-shrink-0" />
 
-          {/* Dashboard */}
+          {/* Dashboard — portal-aware: goes to the portal home when in a portal */}
           <Link
-            href="/"
+            href={portalHome}
             data-testid="nav-dashboard"
             className={cn(
               "flex items-center gap-1.5 h-[30px] px-2.5 rounded-md text-[11px] font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0",
-              isDashboard
+              dashActive
                 ? "text-foreground bg-white/[0.08]"
                 : "text-muted-foreground/65 hover:text-foreground hover:bg-white/[0.05]"
             )}
           >
-            <LayoutDashboard className={cn("w-3.5 h-3.5", isDashboard ? "text-indigo-400" : "")} />
+            <LayoutDashboard className={cn("w-3.5 h-3.5", dashActive ? "text-indigo-400" : "")} />
             <span className="hidden md:inline">Dashboard</span>
           </Link>
 
