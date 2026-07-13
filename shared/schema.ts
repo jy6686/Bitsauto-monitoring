@@ -2897,7 +2897,11 @@ export const portalModuleAssignments = pgTable("portal_module_assignments", {
   realtimeEnabled:  boolean("realtime_enabled").notNull().default(false),
   densityMode:      text("density_mode").notNull().default("standard"),
   defaultTimeRange: text("default_time_range").notNull().default("24h"),
-});
+}, (t) => [
+  // Portal Assignment Manager upserts rely on this (ON CONFLICT). Must match
+  // migration 020 + the 029 seed guard so every environment enforces it.
+  uniqueIndex("uq_portal_module").on(t.portalId, t.moduleId),
+]);
 export type PortalModuleAssignment       = typeof portalModuleAssignments.$inferSelect;
 export type InsertPortalModuleAssignment = typeof portalModuleAssignments.$inferInsert;
 
@@ -2921,7 +2925,10 @@ export const portalSections = pgTable("portal_sections", {
   icon:       text("icon").notNull().default("circle"),
   sortOrder:  integer("sort_order").notNull().default(0),
   isActive:   boolean("is_active").notNull().default(true),
-});
+}, (t) => [
+  // Matches migration 021 + the 029 seed guard; required for section upserts.
+  uniqueIndex("uq_portal_section").on(t.portalId, t.sectionKey),
+]);
 
 export type PortalSection       = typeof portalSections.$inferSelect;
 

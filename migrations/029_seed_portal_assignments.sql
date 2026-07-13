@@ -13,18 +13,15 @@
 
 BEGIN;
 
--- ── 0. Ensure the unique constraints this seed's upserts depend on ──────────────
--- Migrations 020/021 declare these, but a `drizzle-kit push`-created schema does NOT
--- (shared/schema.ts omits them). Without them the ON CONFLICT clauses below fail and
--- roll back the whole seed → 0 rows. Add idempotently so 029 works on ANY database.
-DO $$ BEGIN
-  ALTER TABLE portal_module_assignments
-    ADD CONSTRAINT portal_module_assignments_portal_id_module_id_key UNIQUE (portal_id, module_id);
-EXCEPTION WHEN duplicate_table OR duplicate_object THEN NULL; END $$;
-DO $$ BEGIN
-  ALTER TABLE portal_sections
-    ADD CONSTRAINT portal_sections_portal_id_section_key_key UNIQUE (portal_id, section_key);
-EXCEPTION WHEN duplicate_table OR duplicate_object THEN NULL; END $$;
+-- ── 0. Ensure the unique index this seed's upserts depend on (idempotent) ───────
+-- shared/schema.ts now declares uq_portal_module / uq_portal_section, but a database
+-- created by `drizzle-kit push` BEFORE that fix (e.g. the current deployment) has
+-- neither — so 029's ON CONFLICT clauses would fail and roll the whole seed back → 0
+-- rows. Same index names as the schema, so a schema-fixed DB is a no-op; a bare DB
+-- gets it created. (ON CONFLICT tolerates multiple arbiter indexes, so a DB that also
+-- has the migration-020/021 constraint is unaffected.)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_portal_module  ON portal_module_assignments (portal_id, module_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_portal_section ON portal_sections           (portal_id, section_key);
 
 -- ── 1. Standardize legacy underscore module keys → kebab (idempotent) ───────────
 UPDATE navigation_modules SET module_key = 'live-calls'
