@@ -956,8 +956,11 @@ export function AppNavShell() {
                         <button
                           key={p.slug}
                           onClick={() => {
+                            // setPortal is URL-driven → navigates to the portal home (/:slug).
+                            // Do NOT also navigate to defaultRoute: for NOC that is the legacy
+                            // main-platform route (/calls), which drops the user out of the portal.
                             if (activePortalSlug === p.slug) exitPortalMode();
-                            else { setPortal(p.slug as any); navigate((p as any).defaultRoute ?? '/'); }
+                            else setPortal(p.slug as any);
                             setShowPortalDrop(false);
                           }}
                           data-testid={`nav-portal-${p.slug}`}

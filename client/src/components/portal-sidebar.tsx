@@ -338,10 +338,10 @@ export function WorkspaceSwitcherPill() {
                 <button
                   key={p.slug}
                   onClick={() => {
+                    // setPortal is URL-driven → navigates to the portal home (/:slug).
+                    // Do not navigate to defaultRoute (legacy main-platform route → exits portal).
                     setPortal(p.slug as any);
                     setOpen(false);
-                    const target = (p as any).defaultRoute ?? '/';
-                    navigate(target);
                   }}
                   data-testid={`button-switch-${p.slug}`}
                   className={cn(
