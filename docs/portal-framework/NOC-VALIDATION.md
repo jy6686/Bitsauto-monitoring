@@ -50,8 +50,29 @@ Deploy `feature/portal-framework` to staging, apply `029`. No new work items —
 | **Data** (configuration) | Fix config → retest | Tag stays |
 
 ## Status definitions
-- **Build Verified** — framework compiles, static validation passes, architecture frozen. *(Current.)*
-- **Certified** — the **deployed runtime** passes the complete Phase-A checklist above.
+- **Build Verified** — framework compiles, static validation passes, architecture frozen. *(Current — tag `portal-framework-v1.0` @ 98758d4f.)*
+- **Runtime Validated** — every item in the Release Gate below is green on the deployed runtime. Only then does the tag advance to `8286d2ec`.
+- **Certified / merged** — Runtime Validated + owner sign-off → merge to `main`.
+
+## Runtime Validation Checklist (Release Gate)
+The tag does **not** advance automatically. It moves `98758d4f → 8286d2ec` only when the owner
+confirms **all** of these are green on the deployed runtime:
+
+**Backend**
+- ☐ `/api/portal/definitions` returns the expected portal set
+- ☐ `/api/portal/modules/noc` returns 6 modules
+- ☐ `/api/portal/sections/noc` returns the expected sections
+
+**UI**
+- ☐ `/noc` shows the portal top nav (Live Operations / Command Center), **not** platform DOMAINS
+- ☐ Sidebar contains the six Phase-1 modules
+- ☐ `/noc/live-calls` renders inside the NOC portal shell
+- ☐ Refresh · deep link · browser back/forward stay within `/noc/...`
+
+**Regression**
+- ☐ Existing non-portal routes still work
+- ☐ Existing authentication/authorization still works
+- ☐ Build succeeds with no new TypeScript errors
 
 ## Promotion rule (only two paths exist)
 ```
