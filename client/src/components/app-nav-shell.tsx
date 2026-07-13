@@ -773,7 +773,9 @@ export function AppNavShell() {
         {/* ── Divider ── */}
         <div className="w-px h-5 bg-white/[0.08] mx-1 flex-shrink-0" />
 
-        {/* ── Domain mega-menu tabs — always visible ─────────────────────────── */}
+        {/* ── Centre nav: portal sections (Model A View Model) in portal mode,
+             else the main-platform domain tabs ── */}
+        {isPortalMode ? <PortalTopNav /> : (
         <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" role="menubar">
             {visibleDomains.map(domain => {
               const isActive = meta.domain === domain.id;
@@ -837,6 +839,7 @@ export function AppNavShell() {
               );
             })}
           </nav>
+        )}
 
         {/* ── Favorites strip — sits between centre nav and right zone ── */}
         <div className="hidden xl:flex items-center mx-2 flex-shrink-0 overflow-hidden">
@@ -1048,8 +1051,9 @@ export function AppNavShell() {
         </div>
       </div>
 
-      {/* ── ROW 2: Workspace navigation — visible when portal is active ──── */}
-      {isPortalMode && portalWorkspaces.length > 0 && (
+      {/* ── ROW 2 (retired): the portal top-nav is now the Model-A PortalTopNav in row 1.
+           Legacy Model-B workspace row disabled to keep a single nav source. ── */}
+      {false && isPortalMode && portalWorkspaces.length > 0 && (
         <div
           className="flex items-center h-[36px] px-6 gap-0.5 border-b"
           style={{
