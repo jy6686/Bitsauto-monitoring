@@ -4,8 +4,12 @@
  * Commercial, Finance, and Admin — only the data differs. Every link stays inside the
  * portal namespace (/:portal/:moduleKey), so navigation never falls back to the main
  * platform.
+ *
+ * If the portal defines an isHome module, we redirect straight to it rather than
+ * showing the module directory. This ensures /noc → /noc/noc-dashboard.
  */
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
+import { useEffect } from "react";
 import { usePortal } from "@/context/portal-context";
 import { usePortalConfig } from "@/portals/services/portal-config-service";
 import {
@@ -22,8 +26,18 @@ const icon = (k?: string) => ICONS[k ?? ""] ?? Circle;
 export default function PortalHome() {
   const { activePortal } = usePortal();
   const vm = usePortalConfig(activePortal);
+  const [location, navigate] = useLocation();
 
-  if (vm.isLoading) {
+  // If this portal has a designated home module (isHome=true), redirect straight to it.
+  // Ensures /noc → /noc/noc-dashboard instead of the module directory.
+  useEffect(() => {
+    if (!vm.isLoading && vm.home && location !== vm.home.href) {
+      navigate(vm.home.href);
+    }
+  }, [vm.isLoading, vm.home?.href, location, navigate]);
+
+  // Show spinner while loading or while redirect is about to fire.
+  if (vm.isLoading || vm.home) {
     return <div className="p-8 text-sm text-muted-foreground">Loading portal…</div>;
   }
 

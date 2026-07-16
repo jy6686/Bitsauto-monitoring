@@ -65,8 +65,12 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     enabled: !!user,
   });
 
-  const allowedPortals = definitions.filter(p =>
-    role && (["admin", "super_admin"].includes(role) || p.allowedRoles.includes(role))
+  // Memoized so the context value reference is stable between renders.
+  const allowedPortals = useMemo(
+    () => definitions.filter(p =>
+      role && (["admin", "super_admin"].includes(role) || p.allowedRoles.includes(role))
+    ),
+    [definitions, role],
   );
 
   const { data: modules = [] } = useQuery<PortalModuleWithMeta[]>({
@@ -100,8 +104,11 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   };
 
   // If the URL names a portal the user may not access, bounce to the main platform.
+  // Guard: only redirect once BOTH definitions AND role are loaded.
+  // Without !!role, definitions arriving before auth resolves produces
+  // allowedPortals=[] and incorrectly redirects every cold portal deep-link.
   useEffect(() => {
-    if (activePortal && definitions.length > 0) {
+    if (activePortal && definitions.length > 0 && !!role) {
       const ok = allowedPortals.find(p => p.slug === activePortal);
       if (!ok) navigate("/");
     }
