@@ -55,10 +55,14 @@ INSERT INTO portal_definitions (slug, name, icon, theme, default_route, allowed_
 ON CONFLICT (slug) DO NOTHING;
 
 -- ── 4. NOC sections (Level-2 tabs) ──────────────────────────────────────────────
+-- Dashboard is its own top section (operators land on the real NOC dashboard, which
+-- is the is_home module below). DO UPDATE so re-running re-asserts titles/ordering.
 INSERT INTO portal_sections (portal_id, section_key, title, icon, sort_order) VALUES
-  ('noc', 'live-operations', 'Live Operations', 'activity', 0),
-  ('noc', 'command-center',  'Command Center',  'monitor',  1)
-ON CONFLICT (portal_id, section_key) DO NOTHING;
+  ('noc', 'dashboard',       'Dashboard',       'layout-dashboard', 0),
+  ('noc', 'live-operations', 'Live Operations', 'activity',         1),
+  ('noc', 'command-center',  'Command Center',  'monitor',          2)
+ON CONFLICT (portal_id, section_key) DO UPDATE
+  SET title = EXCLUDED.title, icon = EXCLUDED.icon, sort_order = EXCLUDED.sort_order;
 
 -- ── 4b. Remove non-Phase-1 NOC assignments from the 020 seed ────────────────────
 -- Phase 1 exposes only the 6 registered modules. Others (alerts, qos_heatmap, …) are
@@ -78,9 +82,9 @@ VALUES
   ('noc', (SELECT id FROM navigation_modules WHERE module_key='live-calls'),    'live-operations', 1, 'full', false, true),
   ('noc', (SELECT id FROM navigation_modules WHERE module_key='live-traffic'),  'live-operations', 2, 'full', false, true),
   ('noc', (SELECT id FROM navigation_modules WHERE module_key='traffic-map'),   'live-operations', 3, 'full', false, false),
-  ('noc', (SELECT id FROM navigation_modules WHERE module_key='noc-dashboard'), 'command-center',  1, 'full', true,  true),
-  ('noc', (SELECT id FROM navigation_modules WHERE module_key='noc-command'),   'command-center',  2, 'full', false, false),
-  ('noc', (SELECT id FROM navigation_modules WHERE module_key='ops-console'),   'command-center',  3, 'full', false, false)
+  ('noc', (SELECT id FROM navigation_modules WHERE module_key='noc-dashboard'), 'dashboard',       1, 'full', true,  true),
+  ('noc', (SELECT id FROM navigation_modules WHERE module_key='noc-command'),   'command-center',  1, 'full', false, false),
+  ('noc', (SELECT id FROM navigation_modules WHERE module_key='ops-console'),   'command-center',  2, 'full', false, false)
 ON CONFLICT (portal_id, module_id) DO UPDATE
   SET section = EXCLUDED.section, display_order = EXCLUDED.display_order,
       visibility = EXCLUDED.visibility, is_home = EXCLUDED.is_home, is_pinned = EXCLUDED.is_pinned;
