@@ -1,4 +1,4 @@
--- 022_seed_portal_assignments.sql
+-- 029_seed_portal_assignments.sql
 -- Portal framework seed (ADR-006). Model A (navigation_modules + portal_sections +
 -- portal_module_assignments) is the single source of truth consumed by the Portal
 -- Configuration Service. Idempotent.
@@ -55,14 +55,18 @@ INSERT INTO portal_definitions (slug, name, icon, theme, default_route, allowed_
 ON CONFLICT (slug) DO NOTHING;
 
 -- ── 4. NOC sections (Level-2 tabs) ──────────────────────────────────────────────
--- Dashboard is its own top section (operators land on the real NOC dashboard, which
--- is the is_home module below). DO UPDATE so re-running re-asserts titles/ordering.
+-- dashboard (sort 0) — houses noc-dashboard as the portal home tab
+-- live-operations (sort 1) — live-calls, live-traffic, traffic-map
+-- command-center (sort 2) — noc-command, ops-console
+-- DO UPDATE ensures sort_order is corrected on re-runs against existing databases.
 INSERT INTO portal_sections (portal_id, section_key, title, icon, sort_order) VALUES
   ('noc', 'dashboard',       'Dashboard',       'layout-dashboard', 0),
   ('noc', 'live-operations', 'Live Operations', 'activity',         1),
   ('noc', 'command-center',  'Command Center',  'monitor',          2)
 ON CONFLICT (portal_id, section_key) DO UPDATE
-  SET title = EXCLUDED.title, icon = EXCLUDED.icon, sort_order = EXCLUDED.sort_order;
+  SET title      = EXCLUDED.title,
+      icon       = EXCLUDED.icon,
+      sort_order = EXCLUDED.sort_order;
 
 -- ── 4b. Remove non-Phase-1 NOC assignments from the 020 seed ────────────────────
 -- Phase 1 exposes only the 6 registered modules. Others (alerts, qos_heatmap, …) are
@@ -76,17 +80,21 @@ DELETE FROM portal_module_assignments
    );
 
 -- ── 5. NOC module assignments (Model A: portal × module → section/order/flags) ──
+-- noc-dashboard lives in the 'dashboard' section (is_home=true → /noc redirects here)
 INSERT INTO portal_module_assignments
   (portal_id, module_id, section, display_order, visibility, is_home, is_pinned)
 VALUES
+  ('noc', (SELECT id FROM navigation_modules WHERE module_key='noc-dashboard'), 'dashboard',       0, 'full', true,  true),
   ('noc', (SELECT id FROM navigation_modules WHERE module_key='live-calls'),    'live-operations', 1, 'full', false, true),
   ('noc', (SELECT id FROM navigation_modules WHERE module_key='live-traffic'),  'live-operations', 2, 'full', false, true),
   ('noc', (SELECT id FROM navigation_modules WHERE module_key='traffic-map'),   'live-operations', 3, 'full', false, false),
-  ('noc', (SELECT id FROM navigation_modules WHERE module_key='noc-dashboard'), 'dashboard',       1, 'full', true,  true),
   ('noc', (SELECT id FROM navigation_modules WHERE module_key='noc-command'),   'command-center',  1, 'full', false, false),
   ('noc', (SELECT id FROM navigation_modules WHERE module_key='ops-console'),   'command-center',  2, 'full', false, false)
 ON CONFLICT (portal_id, module_id) DO UPDATE
-  SET section = EXCLUDED.section, display_order = EXCLUDED.display_order,
-      visibility = EXCLUDED.visibility, is_home = EXCLUDED.is_home, is_pinned = EXCLUDED.is_pinned;
+  SET section       = EXCLUDED.section,
+      display_order = EXCLUDED.display_order,
+      visibility    = EXCLUDED.visibility,
+      is_home       = EXCLUDED.is_home,
+      is_pinned     = EXCLUDED.is_pinned;
 
 COMMIT;
