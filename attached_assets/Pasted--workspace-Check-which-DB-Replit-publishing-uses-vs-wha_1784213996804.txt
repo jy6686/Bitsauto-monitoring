@@ -1,0 +1,31 @@
+~/workspace$ # Check which DB Replit publishing uses vs what you migrated
+echo $DATABASE_URL | sed 's|://.*:.*@|://***:***@|'
+
+# Check for Drizzle snapshots
+ls migrations/
+ls -la drizzle/ 2>/dev/null || echo "No drizzle/ folder"
+postgresql://***:***@helium/heliumdb?sslmode=disable
+004_tariff_versioning.sql              014_dispute_cases.sql               024_user_favorites.sql
+005_rating_verification.sql            015_invoice_templates_branding.sql  025_rbac_matrix.sql
+006_rating_snapshots.sql               016_credit_notes.sql                026_reconciliation_schedules.sql
+007_layer5.sql                         017_credit_control.sql              027_prefix_registry.sql
+008_comm_policies.sql                  018_ai_assurance.sql                028
+009_dmr.sql                            019_partner_portal.sql              028_product_mapping_catalog.sql
+010_client_revenue_reconciliation.sql  020_portal_governance.sql           029_seed_portal_assignments.sql
+011_margin_intelligence.sql            021_portal_sections.sql             030_auth_foundation.sql
+012_acknowledgement_tracking.sql       022_adapter_metadata.sql
+013_invoice_jobs.sql                   023_portal_themes.sql
+total 44
+drwxr-xr-x 1 runner runner  576 Jun 30 11:02 .
+drwxr-xr-x 1 runner runner 2578 Jul 16 11:29 ..
+-rw-r--r-- 1 runner runner 1105 Jun  4 18:56 024_vendor_route_health.sql
+-rw-r--r-- 1 runner runner  407 Jun  4 19:36 025_settings_meta_flows.sql
+-rw-r--r-- 1 runner runner  422 Jun  4 19:36 026_route_test_cli.sql
+-rw-r--r-- 1 runner runner  201 Jun  4 19:36 027_companies_wizard_draft.sql
+-rw-r--r-- 1 runner runner  478 Jun  4 19:36 028_sms_otp_retry.sql
+-rw-r--r-- 1 runner runner 1982 Jun  4 19:36 029_client_identity_workspace.sql
+-rw-r--r-- 1 runner runner  889 Jun  4 19:36 030_settings_invoice_smtp_sip_threshold.sql
+-rw-r--r-- 1 runner runner 3412 Jun  4 19:36 031_missing_tables.sql
+-rw-r--r-- 1 runner runner 3853 Jun 30 10:13 032_dedup_destination_map.sql
+-rw-r--r-- 1 runner runner 5384 Jun 30 11:02 033_finalize_destination_dedup.sql
+~/workspace$ 

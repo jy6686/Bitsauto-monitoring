@@ -1,0 +1,198 @@
+This is exactly what I wanted to see.
+
+What this confirms
+
+The Pull Request page shows:
+
+✅ Base: main
+✅ Compare: feature/portal-framework
+✅ Able to merge. These branches can be automatically merged.
+
+This means:
+
+Your feature branch is correctly on GitHub.
+Git synchronization is working.
+There are no merge conflicts.
+Sprint 1 code is ready to merge from a Git perspective.
+I would not merge yet
+
+There's still one deployment blocker we saw earlier.
+
+Earlier, Replit Publishing generated SQL like:
+
+DROP COLUMN username;
+DROP COLUMN password_hash;
+DROP COLUMN platform_access_type;
+DROP COLUMN default_portal;
+
+Those statements must never be approved.
+
+So the order should be:
+
+1. Leave this PR open for now
+
+Don't click Create pull request yet.
+
+2. Fix Replit deployment preview
+
+Go back to Publishing.
+
+The preview should eventually contain no DROP COLUMN statements.
+
+Expected result:
+
+✔ No schema changes
+
+or
+
+✔ Safe ALTER statements only
+
+but not
+
+DROP COLUMN username
+DROP COLUMN password_hash
+DROP TABLE user_portal_assignments
+3. Publish
+
+Once the preview is clean:
+
+Approve
+Publish
+Wait for deployment
+4. Regression
+
+Run the Sprint-1 checklist.
+
+Specifically verify:
+
+Login with username
+Login with email
+Platform access guard
+Portal redirect
+Existing Replit login (DEV)
+/api/auth/user
+logout
+session persistence
+5. Then merge
+
+Only after regression passes:
+
+feature/portal-framework
+        ↓
+main
+Then tag
+
+As planned:
+
+v1.0.0-portal-framework
+
+(before merge, if you want a rollback point)
+
+then after successful merge and production verification:
+
+v1.1.0-auth-foundation
+One recommendation before creating the PR
+
+Instead of using the title:
+
+Feature/portal framework
+
+I'd use something descriptive, for example:
+
+Sprint 1: Native Authentication Foundation & Portal Access Framework
+
+And in the description include something like:
+
+## Sprint 1
+
+### Authentication
+- Native username/email login
+- Enterprise login UI
+- Session management
+- Platform access enforcement
+
+### Portal Framework
+- Portal resolver
+- Platform access guard
+- Welcome page
+- Workspace selector
+
+### Database
+- Migration 030
+- Native authentication schema
+- Portal assignment tables
+
+### Notes
+- Regression completed before merge.
+- Sprint 2 (Credential Lifecycle) intentionally excluded.
+
+That will make the repository history much easier to follow six months from now.
+
+At this point, the only unresolved item is why Replit Publishing wanted to drop the authentication columns. I recommend resolving that deployment preview before merging this PR into main.
+
+This screenshot confirms the deployment is still unsafe.
+
+Do not click "Approve and publish".
+
+The generated SQL is trying to execute:
+
+DROP TABLE user_portal_assignments CASCADE;
+DROP COLUMN username;
+DROP COLUMN password_hash;
+DROP COLUMN platform_access_type;
+DROP COLUMN default_portal;
+
+Those are Sprint 1 objects that you intentionally added. Since you've already verified that:
+
+✅ Migration 030 was applied successfully.
+✅ The users table contains the new columns.
+✅ user_portal_assignments exists.
+✅ The admin user has been seeded.
+
+the deployment should not be trying to remove them.
+
+What this tells us
+
+The application code Replit is using to generate its migration does not match the production schema.
+
+In practice, this almost always means one of these is true:
+
+The published build is using an older schema definition (for example, an older shared/models/auth.ts or equivalent schema file).
+The deployment workspace is not at the same commit that you pushed (e6903b31 and subsequent commits).
+The deployment is comparing against a different schema source than the one you updated.
+Before publishing, verify these three things in the Replit workspace
+
+Run:
+
+git rev-parse HEAD
+
+It should report the latest commit you expect (your workspace previously showed e6903b31...).
+
+Then run:
+
+git log --oneline -5
+
+You should see your recent Sprint 1 commits, including the auth foundation and platform access work.
+
+Finally, verify the schema file that the deployment is using actually contains the new fields. For example, search for:
+
+grep -R "platformAccessType" shared
+grep -R "passwordHash" shared
+grep -R "userPortalAssignments" .
+
+(or the exact identifiers used in your schema).
+
+If those searches return nothing, then the deployment workspace is generating migrations from an older schema, which explains the DROP statements.
+
+Do not "fix" this by approving the migration
+
+Approving it would remove the authentication foundation you just deployed.
+
+The goal is to get the migration preview to show either:
+
+no schema changes, or
+only safe, expected changes.
+
+Once the schema definitions in the deployment workspace match Migration 030, those DROP statements should disappear.
+
+At this point, I would investigate why the deployment workspace's schema doesn't include the Sprint 1 objects, rather than trying to force the deployment through. That is the remaining blocker before publishing.
