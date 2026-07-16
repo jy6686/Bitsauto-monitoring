@@ -160,6 +160,14 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
     return res.status(401).json({ message: "Unauthorized" });
   }
 
+  // Native sessions: slide the 7-day window on every authenticated request.
+  // No OIDC refresh token is available — just extend the expiry and continue.
+  if (user.auth_method === 'native') {
+    user.expires_at = Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60;
+    req.session.save(() => {});
+    return next();
+  }
+
   const now = Math.floor(Date.now() / 1000);
   if (now <= user.expires_at) {
     return next();

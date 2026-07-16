@@ -203,6 +203,9 @@ import BillingPage from "@/pages/billing";
 import WorkspaceHomePage from "@/pages/workspace-home";
 import ReconciliationLabPage from "@/pages/recon-lab";
 import { WorkspaceShell } from "@/components/workspace-shell";
+import { PlatformAccessGuard } from "@/components/platform-access-guard";
+import WelcomePage from "@/pages/welcome";
+import WorkspaceSelectorPage from "@/pages/workspace-selector";
 
 // ── Workspace composition helper ─────────────────────────────────────────────
 // Creates a stable module-level component that wraps an existing page in a
@@ -395,8 +398,12 @@ function PortalHomeRoute() {
 
 function Router() {
   return (
-    <Switch>
+    <>
+      <PlatformAccessGuard />
+      <Switch>
       <Route path="/login" component={LoginPage} />
+      <Route path="/welcome" component={WelcomePage} />
+      <Route path="/workspace-selector" component={WorkspaceSelectorPage} />
 
       <Route path="/">
         {() => <ProtectedRoute component={DashboardPage} requiredRoles={['admin','management','viewer']} />}
@@ -885,7 +892,8 @@ function Router() {
       </Route>
 
       <Route component={NotFound} />
-    </Switch>
+      </Switch>
+    </>
   );
 }
 
