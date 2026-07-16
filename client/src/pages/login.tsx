@@ -25,7 +25,7 @@ export default function LoginPage() {
       if (!res.ok) {
         setError(data.message ?? "Login failed. Please try again.");
       } else {
-        setLocation("/welcome");
+        window.location.href = "/welcome";
       }
     } catch {
       setError("Network error. Please check your connection and try again.");
