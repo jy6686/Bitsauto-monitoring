@@ -12,6 +12,16 @@ export function registerAuthRoutes(app: Express): void {
   // Native username/password login (POST /api/auth/login)
   registerNativeAuthRoutes(app);
 
+  // Native logout — destroys session and clears cookie
+  app.post("/api/auth/logout", (req: any, res) => {
+    req.logout(() => {
+      req.session.destroy(() => {
+        res.clearCookie("connect.sid");
+        res.json({ success: true });
+      });
+    });
+  });
+
   // Get current authenticated user — includes auto role-assignment on first login
   // and portal assignments for the welcome gateway / workspace selector.
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
