@@ -27,7 +27,10 @@ export const moduleRegistry: Record<string, ModuleComponent> = {
   // resolver that points at the current page today; ONE line changes once the
   // duplicate review resolves — the module key `traffic-map` never changes.
   "traffic-map":   lazy(() => import("./TrafficMapResolver")),
-  "noc-dashboard": lazy(() => import("@/pages/noc-dashboard")),
+  // Portal-aware wrapper: intercepts hardcoded main-platform links in NocDashboardPage
+  // and rewrites portal-equivalent paths to /noc/... before wouter handles them.
+  // NocDashboardPage itself is NOT modified. See portals/noc/PortalAwareNocDashboard.tsx.
+  "noc-dashboard": lazy(() => import("@/portals/noc/PortalAwareNocDashboard")),
   "noc-command":   lazy(() => import("@/pages/noc-command")),
   "ops-console":   lazy(() => import("@/pages/ops-console")),
 };
