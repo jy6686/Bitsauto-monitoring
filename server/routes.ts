@@ -38,7 +38,7 @@ import {
   type CdrEntry, type KpiSnapshot,
 } from "./analytics-engine";
 import { z } from "zod";
-import { setupAuth, registerAuthRoutes } from "./replit_integrations/auth";
+import { setupAuth, registerAuthRoutes, isAuthenticated, requirePlatformAccess } from "./replit_integrations/auth";
 import * as sippy from "./sippy";
 import * as sippySnmp from "./snmp";
 import * as emailSvc from "./email";
@@ -839,6 +839,21 @@ export async function registerRoutes(
     if(!uid)return res.status(401).json({error:'Auth required'});
     next();
   });
+
+  // ── Platform Access Guard ──────────────────────────────────────────────────
+  // Blocks portal_only users from main-platform API routes.
+  // portal-scoped paths (/api/auth/*, /api/portal/*) are excluded.
+  // Apply isAuthenticated first so req.user is populated for requirePlatformAccess.
+  const PLATFORM_ROUTE_GROUPS = [
+    '/api/calls', '/api/analytics', '/api/vendors', '/api/rates',
+    '/api/rate-cards', '/api/rate-manager', '/api/clients', '/api/alerts',
+    '/api/reports', '/api/settings', '/api/team', '/api/approvals',
+    '/api/billing', '/api/invoices', '/api/fraud', '/api/cdrs',
+    '/api/tools', '/api/balance', '/api/dids', '/api/graphs',
+  ];
+  for (const prefix of PLATFORM_ROUTE_GROUPS) {
+    app.use(prefix, isAuthenticated, requirePlatformAccess);
+  }
 
   // ── Smart Sippy Connect ────────────────────────────────────────────────────
   // Tries both credential pairs and always prefers XML-RPC mode over portal.
