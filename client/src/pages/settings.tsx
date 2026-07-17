@@ -335,12 +335,13 @@ const LANGUAGES = ['English', 'French', 'German', 'Spanish', 'Arabic', 'Russian'
 
 // ── Alert Event Subscription Chips ────────────────────────────────────────────
 const ALERT_EVENT_CHIPS = [
-  { id: 'traffic_drop', label: 'Traffic Drop',   color: 'bg-rose-500/15 text-rose-400' },
-  { id: 'fas_detection', label: 'FAS Detection', color: 'bg-amber-500/15 text-amber-400' },
-  { id: 'irsf_event',   label: 'IRSF Event',     color: 'bg-orange-500/15 text-orange-400' },
-  { id: 'low_balance',  label: 'Low Balance',     color: 'bg-red-500/15 text-red-400' },
-  { id: 'new_client',   label: 'New Client',      color: 'bg-emerald-500/15 text-emerald-400' },
-  { id: 'asr_drop',     label: 'ASR Drop',        color: 'bg-violet-500/15 text-violet-400' },
+  { id: 'traffic_drop',   label: 'Traffic Drop',   color: 'bg-rose-500/15 text-rose-400' },
+  { id: 'fas_detection',  label: 'FAS Detection',  color: 'bg-amber-500/15 text-amber-400' },
+  { id: 'irsf_event',    label: 'IRSF Event',      color: 'bg-orange-500/15 text-orange-400' },
+  { id: 'low_balance',   label: 'Low Balance',      color: 'bg-red-500/15 text-red-400' },
+  { id: 'new_client',    label: 'New Client',       color: 'bg-emerald-500/15 text-emerald-400' },
+  { id: 'asr_drop',      label: 'ASR Drop',         color: 'bg-violet-500/15 text-violet-400' },
+  { id: 'tariff_change', label: 'Tariff Change',    color: 'bg-blue-500/15 text-blue-400' },
 ] as const;
 
 const ALERT_SUB_KEY = 'noc_alert_subscriptions';

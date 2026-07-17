@@ -19,9 +19,10 @@
 
 import { SippyConfig, SippyTariffRate } from './types';
 import { normalizeSippyError } from './errors';
-import { getTariffRatesList, detectTariffChanges } from './sippy-tariff.service';
+import { getTariffRatesList, detectTariffChanges, pushRate } from './sippy-tariff.service';
 import { auditLog } from './sippy-audit.service';
 import { storage } from '../../storage';
+import * as sippy from '../../sippy';
 import type {
   TariffVersion, InsertTariffVersion,
   TariffChangeEvent, InsertTariffChangeEvent,
@@ -408,4 +409,107 @@ function buildChangeEvent(
     oldSurcharge:   before?.postCallSurcharge ?? null,
     newSurcharge:   after?.postCallSurcharge  ?? null,
   };
+}
+
+// ── Auto-Rollback (CGE-011) ───────────────────────────────────────────────────
+
+/**
+ * Revert every unauthorized change recorded in changeEvents back to the
+ * pre-change state stored in old* columns.
+ *
+ * Rollback semantics:
+ *   added   → delete the prefix from Sippy (unauthorized addition removed)
+ *   removed → re-push the prefix at its old price/interval (restore deleted rate)
+ *   changed → re-push the prefix at its old price/interval (restore prior value)
+ *
+ * Non-fatal per-prefix: one failure never blocks the others.
+ * Caller should take a fresh snapshot after this returns so the next poll
+ * sees clean state and does not re-alert.
+ */
+export async function rollbackTariffChanges(
+  config:       SippyConfig,
+  changeEvents: TariffChangeEvent[],
+): Promise<{ deleted: number; restored: number; failed: number; errors: string[] }> {
+  let deleted  = 0;
+  let restored = 0;
+  let failed   = 0;
+  const errors: string[] = [];
+
+  for (const ev of changeEvents) {
+    const prefix = ev.prefix ?? '';
+    if (!prefix) continue;
+
+    try {
+      if (ev.changeType === 'added') {
+        // Unauthorized new prefix — delete it
+        const res = await sippy.deleteSippyRateEntry(
+          config.username,
+          config.password,
+          String(ev.iTariff),
+          prefix,
+          config.portalUrl,
+        );
+        if (res.success) {
+          deleted++;
+          console.log(`[tariff-rollback] ✅ Deleted unauthorized prefix ${prefix} from tariff ${ev.iTariff}`);
+        } else {
+          failed++;
+          errors.push(`delete ${prefix}: ${res.message}`);
+          console.warn(`[tariff-rollback] ⚠️ Delete failed for prefix ${prefix}: ${res.message}`);
+        }
+
+      } else {
+        // removed or changed — restore to old values
+        const price1     = ev.oldPrice1    ?? ev.newPrice1    ?? undefined;
+        const priceN     = ev.oldPriceN    ?? ev.newPriceN    ?? undefined;
+        const interval1  = ev.oldInterval1 ?? ev.newInterval1 ?? undefined;
+        const intervalN  = ev.oldIntervalN ?? ev.newIntervalN ?? undefined;
+        const gracePeriod = ev.oldGracePeriod ?? undefined;
+        const connectFee  = ev.oldConnectFee  ?? undefined;
+        const postCallSurcharge = ev.oldSurcharge ?? undefined;
+
+        if (price1 == null && interval1 == null) {
+          // Not enough information to restore — skip
+          failed++;
+          errors.push(`restore ${prefix}: no old values recorded`);
+          continue;
+        }
+
+        const res = await pushRate(config, {
+          iTariff:            ev.iTariff,
+          prefix,
+          price1,
+          priceN,
+          interval1,
+          intervalN,
+          gracePeriod,
+          connectFee,
+          postCallSurcharge,
+        });
+        if (res.ok) {
+          restored++;
+          console.log(`[tariff-rollback] ✅ Restored prefix ${prefix} on tariff ${ev.iTariff} → price1=${price1}`);
+        } else {
+          failed++;
+          errors.push(`restore ${prefix}: ${res.statusMessage}`);
+          console.warn(`[tariff-rollback] ⚠️ Restore failed for prefix ${prefix}: ${res.statusMessage}`);
+        }
+      }
+
+      await auditLog({
+        operationType: 'tariff_rollback',
+        portalUrl:     config.portalUrl,
+        params:        { iTariff: ev.iTariff, prefix, changeType: ev.changeType },
+        result:        failed > 0 ? 'failure' : 'success',
+      });
+
+    } catch (err: any) {
+      failed++;
+      const msg = err?.message ?? String(err);
+      errors.push(`${prefix}: ${msg}`);
+      console.warn(`[tariff-rollback] ⚠️ Exception for prefix ${prefix}:`, msg);
+    }
+  }
+
+  return { deleted, restored, failed, errors };
 }

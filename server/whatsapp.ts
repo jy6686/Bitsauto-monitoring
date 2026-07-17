@@ -4,7 +4,7 @@ export function formatRateDropAlert(opts) { return ["Rate Drop Alert", "Destinat
 import { storage } from './storage';
 import { sendMetaDirectText, sendMetaOtpTemplate } from './services/meta-cloud-api/index';
 
-export type WaAlertType = 'fas' | 'balance' | 'traffic' | 'auth' | 'outage' | 'quality' | 'sip_error' | 'test';
+export type WaAlertType = 'fas' | 'balance' | 'traffic' | 'auth' | 'tariff_change' | 'outage' | 'quality' | 'sip_error' | 'test';
 
 // ── Provider senders ───────────────────────────────────────────────────────
 
@@ -109,6 +109,32 @@ export function formatAuthAlert(opts: {
     '━━━━━━━━━━━━━━━━━━',
     '_Investigate if unexpected._',
   ].filter(Boolean).join('\n');
+}
+
+export function formatTariffChangeAlert(opts: {
+  tariffName: string;
+  tariffId:   string | number;
+  added:      number;
+  removed:    number;
+  changed:    number;
+}): string {
+  const total = opts.added + opts.removed + opts.changed;
+  const lines = [
+    `📊 *Tariff Change Detected* 📊`,
+    '━━━━━━━━━━━━━━━━━━',
+    `📡 *Platform:* Bitsauto Monitoring`,
+    `📋 *Tariff:* ${opts.tariffName} (ID: ${opts.tariffId})`,
+  ];
+  if (opts.added   > 0) lines.push(`➕ *Added:*   ${opts.added} rate(s)`);
+  if (opts.removed > 0) lines.push(`➖ *Removed:* ${opts.removed} rate(s)`);
+  if (opts.changed > 0) lines.push(`✏️  *Changed:* ${opts.changed} rate(s)`);
+  lines.push(
+    `📝 *Total Delta:* ${total} rate(s)`,
+    `🕒 ${new Date().toUTCString()}`,
+    '━━━━━━━━━━━━━━━━━━',
+    '_Only BitsAuto should modify tariffs. Review if unexpected._',
+  );
+  return lines.join('\n');
 }
 
 export function formatOutageAlert(opts: { event: 'down' | 'recovered'; host: string }): string {
