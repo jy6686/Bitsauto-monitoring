@@ -319,41 +319,83 @@ export async function autoReconcileFromInvoices(billingPeriod: string): Promise<
   let skipped = 0;
   const errors: string[] = [];
 
-  for (const inv of allInvs) {
-    try {
-      const clientName      = inv.customerName ?? `Invoice#${inv.id}`;
-      const clientAccountId = inv.iTariff       ?? null;
+  // ── Group invoices by client so multiple invoices for the same client in the
+  //    same period are aggregated into ONE reconciliation row, not N rows where
+  //    only the first is kept and the rest are silently skipped.
+  type ClientGroup = {
+    clientName:      string;
+    clientAccountId: string | null;
+    invoiceIds:      number[];
+    invoiceNumbers:  (string | null)[];
+    totalAmt:        number;
+    totalCalls:      number;
+  };
 
-      // Skip if any reconciliation record already exists for this client+period
+  const clientMap = new Map<string, ClientGroup>();
+  for (const inv of allInvs) {
+    const clientName      = inv.customerName ?? `Invoice#${inv.id}`;
+    const clientAccountId = inv.iTariff       ?? null;
+    // Stable key: prefer iTariff (account ID) so name variants don't split
+    const key = (clientAccountId ?? clientName).toLowerCase().trim();
+
+    const grp = clientMap.get(key);
+    if (grp) {
+      grp.invoiceIds.push(inv.id);
+      grp.invoiceNumbers.push(inv.invoiceNumber ?? null);
+      grp.totalAmt   += inv.totalReproduced ?? 0;
+      grp.totalCalls += inv.lineCount       ?? 0;
+    } else {
+      clientMap.set(key, {
+        clientName,
+        clientAccountId,
+        invoiceIds:     [inv.id],
+        invoiceNumbers: [inv.invoiceNumber ?? null],
+        totalAmt:       inv.totalReproduced ?? 0,
+        totalCalls:     inv.lineCount       ?? 0,
+      });
+    }
+  }
+
+  for (const [, group] of clientMap) {
+    try {
+      // Skip if a reconciliation record already exists for this client+period
       const existing = await storage.listClientReconciliations({
         billingPeriod,
-        clientAccountId: clientAccountId ?? clientName,
+        clientAccountId: group.clientAccountId ?? group.clientName,
       });
       if (existing.length > 0) { skipped++; continue; }
 
-      // Aggregate invoice line items for total duration
-      const lineItems = await storage.listInvoiceLineItems(inv.id);
-      const baDurSec  = lineItems.reduce((s, li) => s + (li.durationSecs ?? 0), 0);
-      const baAmt     = inv.totalReproduced ?? null;
-      const baCalls   = inv.lineCount       ?? null;
+      // Aggregate line items across ALL invoices for this client
+      let baDurSec = 0;
+      for (const invId of group.invoiceIds) {
+        const lineItems = await storage.listInvoiceLineItems(invId);
+        baDurSec += lineItems.reduce((s, li) => s + (li.durationSecs ?? 0), 0);
+      }
+      const baAmt   = group.totalAmt   > 0 ? group.totalAmt   : null;
+      const baCalls = group.totalCalls > 0 ? group.totalCalls : null;
 
       // DMR Sippy-verified figures for this client
-      const dmrKey  = clientName.toLowerCase().trim();
-      const dmrData = dmrByAccount.get(dmrKey);
+      const dmrKey    = group.clientName.toLowerCase().trim();
+      const dmrData   = dmrByAccount.get(dmrKey);
       const dmrDurSec = dmrData?.durationSec ?? null;
       const dmrAmt    = dmrData?.amount      ?? null;
+
+      const invNotes = group.invoiceNumbers.filter(Boolean).join(', ');
+      const notesStr = group.invoiceIds.length > 1
+        ? `Auto-generated from ${group.invoiceIds.length} invoices (${invNotes}) for period ${billingPeriod}`
+        : `Auto-generated from Invoice #${invNotes} for period ${billingPeriod}`;
 
       const row: InsertClientRevenueReconciliation = {
         billingPeriod,
         version:  1,
         parentId: null,
-        clientAccountId,
-        clientName,
+        clientAccountId: group.clientAccountId,
+        clientName:      group.clientName,
         // No client submission yet
         clientDurationSec: null,
         clientAmountUsd:   null,
         clientCalls:       null,
-        // BitsAuto invoice figures
+        // BitsAuto invoice figures (aggregated across all invoices for the period)
         bitsautoDurationSec: baDurSec > 0 ? baDurSec : null,
         bitsautoAmountUsd:   baAmt,
         bitsautoCalls:       baCalls,
@@ -367,17 +409,17 @@ export async function autoReconcileFromInvoices(billingPeriod: string): Promise<
         discrepancyType:  'no_client_data',
         severity:         'low',
         status:           'pending',
-        invoiceId:        inv.id,
+        invoiceId:        group.invoiceIds[0],  // primary invoice reference
         source:           'auto',
         rawImport:        null,
-        notes:            `Auto-generated from Invoice #${inv.invoiceNumber} (period ${inv.periodStart ?? billingPeriod} – ${inv.periodEnd ?? billingPeriod})`,
+        notes:            notesStr,
         reviewedBy:       'system',
       };
 
       await storage.createClientReconciliation(row);
       created++;
     } catch (err: any) {
-      errors.push(`Invoice #${inv.id} (${inv.customerName ?? '?'}): ${err.message}`);
+      errors.push(`Client ${group.clientName}: ${err.message}`);
     }
   }
 
