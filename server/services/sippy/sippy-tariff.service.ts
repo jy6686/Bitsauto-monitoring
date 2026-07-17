@@ -81,6 +81,7 @@ export async function getTariffRatesList(
   try {
     const rows = await sippy.getTariffRatesListFull(
       config.username, config.password, Number(iTariff),
+      undefined, undefined, undefined, config.portalUrl,
     );
     return (rows ?? []) as unknown as SippyTariffRate[];
   } catch (err) {

@@ -6079,9 +6079,11 @@ export async function getTariffRatesListFull(
   offset?: number,
   limit?: number,
   iCustomer?: number,
+  portalUrl?: string,
 ): Promise<SippyTariffRate[]> {
-  if (!activeSession) throw new Error('No active Sippy session');
-  const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
+  const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
+  if (!base) throw new Error('No active Sippy session');
+  const apiUrl = `${base}/xmlapi/xmlapi`;
 
   const p: Record<string, string | number | boolean | null> = { i_tariff: iTariff };
   if (offset    !== undefined) p.offset     = offset;
