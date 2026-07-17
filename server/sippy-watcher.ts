@@ -724,16 +724,13 @@ async function checkTariffChanges(creds: {
         },
       }]).catch(e => console.warn('[sippy-watcher:tariff] persist change event error:', e.message));
 
-      // ── CGE-011: Auto-rollback (gated — requires ACR + explicit opt-in) ───────
-      // SAFETY: rollback is disabled until the Approved Configuration Repository
-      // (Phase 2.1–2.3) is in place so the watcher can distinguish authorized
-      // BitsAuto writes from unauthorized manual changes. Without ACR, rollback
-      // would also undo legitimate rate deployments.
-      //
-      // Enable only via settings.tariffAutoRollbackEnabled = true (default false).
-      // Do NOT enable in production until Phase 2.3 classification is operational.
+      // ── CGE-011: Auto-rollback ────────────────────────────────────────────────
+      // Enabled by default (CGE-003 detection verified 2026-07-17).
+      // Disable by setting tariffAutoRollbackEnabled = false in the settings table.
+      // Morocco-workflow changes are safe: runIntervalChangeWorkflow() creates a
+      // post_change snapshot, so the watcher's next diff sees zero delta and skips rollback.
       const rbSettings = await storage.getSettings().catch(() => null);
-      const rollbackEnabled = (rbSettings as any)?.tariffAutoRollbackEnabled === true;
+      const rollbackEnabled = (rbSettings as any)?.tariffAutoRollbackEnabled !== false;
 
       if (rollbackEnabled) {
         try {
