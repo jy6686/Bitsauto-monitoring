@@ -24663,6 +24663,23 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     let attachType: string;
 
     if (schedule.reportType === 'client') {
+      // Auto-populate reconciliation rows from invoices + DMR before building the report.
+      // This ensures the PDF always contains data even when no client has submitted
+      // billing figures via the manual importAndReconcile() path.
+      try {
+        const { autoReconcileFromInvoices } = await import('./services/sippy/sippy-client-recon.service');
+        const autoResult = await autoReconcileFromInvoices(periodSlug);
+        if (autoResult.created > 0) {
+          console.log(`[recon-schedule] Auto-populated ${autoResult.created} reconciliation row(s) for ${periodSlug}`);
+        }
+        if (autoResult.errors.length > 0) {
+          console.warn(`[recon-schedule] Auto-reconcile warnings for ${periodSlug}:`, autoResult.errors);
+        }
+      } catch (autoErr: any) {
+        // Non-fatal — proceed with whatever data exists in the table
+        console.warn(`[recon-schedule] Auto-reconcile failed (non-fatal):`, autoErr.message);
+      }
+
       const opts = { period: periodSlug };
       if (schedule.format === 'csv') {
         const { csv } = await buildClientReconCSV(opts);
@@ -31906,6 +31923,20 @@ ${footer}
     }
   });
 
+  // POST /api/client-reconciliation/auto-reconcile — manually trigger auto-population
+  // Admin/management can run this on demand for any YYYY-MM period.
+  app.post('/api/client-reconciliation/auto-reconcile', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const period = String(req.body?.period ?? new Date().toISOString().slice(0, 7));
+      if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'period must be YYYY-MM' });
+      const { autoReconcileFromInvoices } = await import('./services/sippy/sippy-client-recon.service');
+      const result = await autoReconcileFromInvoices(period);
+      res.json({ ok: true, period, ...result });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Reconciliation Report Schedules ─────────────────────────────────────────
   // GET    /api/reconciliation-report-schedules        — list all
   // POST   /api/reconciliation-report-schedules        — create
@@ -32052,6 +32083,9 @@ ${footer}
   // ── Daily Minutes Report (DMR) Engine ─────────────────────────────────────────
   // GET  /api/dmr              — list DMR rows (filter: date, status, latestOnly)
   // GET  /api/dmr/trend        — daily trend summary for sparkline (?from=&to=)
+  // GET  /api/dmr/archive      — list of dates with DMR data + per-date stats
+  // GET  /api/dmr/export/csv   — server-side CSV export (?date= or ?from=&to=)
+  // GET  /api/dmr/export/pdf   — server-side PDF export (?date= or ?from=&to=)
   // POST /api/dmr/generate     — generate DMR for a date
   // POST /api/dmr/:id/recalculate — recalculate (creates new version)
   // POST /api/dmr/date/:date/lock   — lock all verified rows for a date (governance gate pre-invoice)
@@ -32079,6 +32113,226 @@ ${footer}
       const { getDMRTrend } = await import('./services/sippy/index');
       const trend = await getDMRTrend(from, to);
       res.json(trend);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/dmr/archive — list of the last 60 dates that have DMR rows, with per-date stats
+  // Used by the Download History panel on the DMR page.
+  app.get('/api/dmr/archive', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const to   = new Date().toISOString().slice(0, 10);
+      const from = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+      const rows = await storage.listDMRReports({ fromDate: from, toDate: to, latestVersionOnly: true });
+
+      // Group by date and compute per-date summary
+      const byDate = new Map<string, typeof rows>();
+      for (const r of rows) {
+        const d = r.reportDate;
+        if (!byDate.has(d)) byDate.set(d, []);
+        byDate.get(d)!.push(r);
+      }
+
+      const archive = Array.from(byDate.entries())
+        .sort(([a], [b]) => b.localeCompare(a)) // newest first
+        .map(([date, dateRows]) => {
+          const nonAgg    = dateRows.filter(r => r.accountName !== '__AGGREGATE__');
+          const agg       = dateRows.find(r => r.accountName === '__AGGREGATE__');
+          const matched   = nonAgg.filter(r => r.verificationStatus === 'verified').length;
+          const drifted   = nonAgg.filter(r => r.verificationStatus === 'drifted').length;
+          const critical  = nonAgg.filter(r => r.verificationStatus === 'critical').length;
+          const pending   = nonAgg.filter(r => r.verificationStatus === 'pending').length;
+          return {
+            date,
+            rowCount:     nonAgg.length,
+            matched,
+            drifted,
+            critical,
+            pending,
+            totalAmount:  agg?.sippyAmount ?? nonAgg.reduce((s, r) => s + (r.sippyAmount ?? 0), 0),
+            maxVersion:   Math.max(...dateRows.map(r => r.dmrVersion ?? 1)),
+            generatedAt:  dateRows[0]?.generatedAt ?? null,
+          };
+        });
+
+      res.json(archive);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/dmr/export/csv — server-side CSV export of DMR rows
+  // Query: ?date=YYYY-MM-DD  OR  ?from=YYYY-MM-DD&to=YYYY-MM-DD
+  app.get('/api/dmr/export/csv', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const opts: any = { latestVersionOnly: true };
+      if (req.query.date) {
+        opts.reportDate = String(req.query.date);
+      } else {
+        opts.fromDate = String(req.query.from ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
+        opts.toDate   = String(req.query.to   ?? new Date().toISOString().slice(0, 10));
+      }
+      const rows = await storage.listDMRReports(opts);
+      const nonAgg = rows.filter(r => r.accountName !== '__AGGREGATE__');
+
+      const headers = [
+        'date', 'account', 'vendor', 'sippy_duration_min', 'platform_duration_min',
+        'drift_duration_min', 'sippy_amount', 'platform_amount', 'sell', 'buy',
+        'margin', 'margin_pct', 'total_calls', 'asr_pct', 'acd_min',
+        'discrepancy', 'status', 'source', 'notes',
+      ];
+
+      const esc = (v: any) => {
+        const s = String(v ?? '');
+        return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+
+      const lines = [headers.join(',')];
+      for (const r of nonAgg) {
+        lines.push([
+          r.reportDate,
+          esc(r.accountName ?? r.accountId ?? ''),
+          esc(r.vendorName  ?? r.vendorId  ?? ''),
+          r.sippyDuration    != null ? (r.sippyDuration    / 60).toFixed(2) : '',
+          r.platformDuration != null ? (r.platformDuration / 60).toFixed(2) : '',
+          r.driftDuration    != null ? (r.driftDuration    / 60).toFixed(2) : '',
+          r.sippyAmount    != null ? r.sippyAmount.toFixed(4)    : '',
+          r.platformAmount != null ? r.platformAmount.toFixed(4) : '',
+          r.sellAmount     != null ? r.sellAmount.toFixed(4)     : '',
+          r.buyAmount      != null ? r.buyAmount.toFixed(4)      : '',
+          r.marginAmount   != null ? r.marginAmount.toFixed(4)   : '',
+          r.marginPct      != null ? r.marginPct.toFixed(2)      : '',
+          r.totalCalls ?? '',
+          r.asr != null ? r.asr.toFixed(2) : '',
+          r.acd != null ? (r.acd / 60).toFixed(2) : '',
+          esc(r.discrepancyType ?? ''),
+          esc(r.verificationStatus ?? ''),
+          esc(r.source ?? ''),
+          esc(r.notes ?? ''),
+        ].join(','));
+      }
+
+      const csv      = lines.join('\n');
+      const dateSlug = opts.reportDate ?? `${opts.fromDate}_${opts.toDate}`;
+      const filename = `DMR-${dateSlug}.csv`;
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/dmr/export/pdf — server-side PDF export of DMR rows
+  app.get('/api/dmr/export/pdf', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const opts: any = { latestVersionOnly: true };
+      if (req.query.date) {
+        opts.reportDate = String(req.query.date);
+      } else {
+        opts.fromDate = String(req.query.from ?? new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10));
+        opts.toDate   = String(req.query.to   ?? new Date().toISOString().slice(0, 10));
+      }
+      const rows    = await storage.listDMRReports(opts);
+      const nonAgg  = rows.filter(r => r.accountName !== '__AGGREGATE__');
+      const agg     = rows.find(r => r.accountName === '__AGGREGATE__');
+      const dateSlug = opts.reportDate ?? `${opts.fromDate}_to_${opts.toDate}`;
+
+      const PDFDocument = (await import('pdfkit')).default;
+      const chunks: Buffer[] = [];
+
+      await new Promise<void>((resolve, reject) => {
+        const doc = new PDFDocument({ margin: 40, size: 'A4', layout: 'landscape' });
+        doc.on('data', (c: Buffer) => chunks.push(c));
+        doc.on('end', resolve);
+        doc.on('error', reject);
+
+        const W     = doc.page.width - 80;
+        const DARK  = '#1a1a2e';
+        const GRAY  = '#666666';
+
+        // Header
+        doc.fontSize(16).fillColor(DARK).font('Helvetica-Bold')
+          .text(`Daily Minutes Report — ${dateSlug}`, 40, 40);
+        doc.fontSize(8.5).fillColor(GRAY).font('Helvetica')
+          .text(`Generated: ${new Date().toUTCString()} · ${nonAgg.length} account rows`, 40, doc.y + 4);
+
+        // Summary strip
+        const sY = doc.y + 12;
+        const items: [string,string][] = [
+          ['Total Amount', agg ? `$${(agg.sippyAmount ?? 0).toFixed(2)}` : `$${nonAgg.reduce((s,r)=>s+(r.sippyAmount??0),0).toFixed(2)}`],
+          ['Revenue',      `$${nonAgg.reduce((s,r)=>s+(r.sellAmount??0),0).toFixed(2)}`],
+          ['Cost',         `$${nonAgg.reduce((s,r)=>s+(r.buyAmount??0),0).toFixed(2)}`],
+          ['Margin',       `$${nonAgg.reduce((s,r)=>s+(r.marginAmount??0),0).toFixed(2)}`],
+          ['Matched',      String(nonAgg.filter(r=>r.verificationStatus==='verified').length)],
+          ['Drifted',      String(nonAgg.filter(r=>r.verificationStatus==='drifted').length)],
+          ['Critical',     String(nonAgg.filter(r=>r.verificationStatus==='critical').length)],
+        ];
+        const cw = W / items.length;
+        items.forEach(([lbl, val], i) => {
+          const x = 40 + i * cw;
+          doc.fontSize(7.5).fillColor(GRAY).font('Helvetica').text(lbl, x, sY, { width: cw - 4 });
+          doc.fontSize(10).fillColor(DARK).font('Helvetica-Bold').text(val, x, doc.y + 1, { width: cw - 4 });
+        });
+
+        const ruleY = doc.y + 10;
+        doc.moveTo(40, ruleY).lineTo(40 + W, ruleY).strokeColor('#cccccc').lineWidth(0.5).stroke();
+
+        // Table
+        const colW   = [55, 80, 80, 70, 70, 70, 60, 55, 50, 50, 50, 70, 60];
+        const colX: number[] = [];
+        colW.reduce((acc, w, i) => { colX[i] = acc; return acc + w; }, 40);
+        const hdrs   = ['Date', 'Account', 'Vendor', 'Sippy Dur(m)', 'Plat Dur(m)', 'Sippy Amt', 'Plat Amt', 'Sell', 'Buy', 'Margin', 'Margin%', 'Discrepancy', 'Status'];
+
+        let y = ruleY + 12;
+        const ROW_H = 15;
+
+        // header row
+        doc.rect(40, y, W, 18).fill('#e8ecf5');
+        doc.fillColor(DARK).font('Helvetica-Bold').fontSize(7);
+        hdrs.forEach((h, i) => doc.text(h, colX[i] + 2, y + 5, { width: colW[i] - 4, lineBreak: false }));
+        y += 18;
+
+        const STATUS_CLR: Record<string,string> = { verified:'#0d7a3e', drifted:'#b06a00', critical:'#c00020', pending:'#555' };
+        doc.font('Helvetica').fontSize(6.5);
+
+        for (let ri = 0; ri < Math.min(nonAgg.length, 3000); ri++) {
+          if (ri % 2 === 0) doc.rect(40, y, W, ROW_H).fill('#f8f9fb');
+          const r   = nonAgg[ri];
+          const cols = [
+            r.reportDate,
+            r.accountName ?? r.accountId ?? '—',
+            r.vendorName  ?? r.vendorId  ?? '—',
+            r.sippyDuration    != null ? (r.sippyDuration    / 60).toFixed(1) : '—',
+            r.platformDuration != null ? (r.platformDuration / 60).toFixed(1) : '—',
+            r.sippyAmount    != null ? `$${r.sippyAmount.toFixed(2)}`    : '—',
+            r.platformAmount != null ? `$${r.platformAmount.toFixed(2)}` : '—',
+            r.sellAmount     != null ? `$${r.sellAmount.toFixed(2)}`     : '—',
+            r.buyAmount      != null ? `$${r.buyAmount.toFixed(2)}`      : '—',
+            r.marginAmount   != null ? `$${r.marginAmount.toFixed(2)}`   : '—',
+            r.marginPct      != null ? `${r.marginPct.toFixed(1)}%`      : '—',
+            r.discrepancyType ?? '—',
+            r.verificationStatus ?? '—',
+          ];
+          cols.forEach((c, ci) => {
+            const clr = ci === 12 ? (STATUS_CLR[c] ?? DARK) : DARK;
+            doc.fillColor(clr).text(c, colX[ci] + 2, y + 4, { width: colW[ci] - 4, lineBreak: false });
+          });
+          y += ROW_H;
+          if (y > doc.page.height - 50) { doc.addPage(); y = 40; }
+        }
+
+        doc.fontSize(7).fillColor('#aaa').font('Helvetica')
+          .text(`Bitsauto Platform · DMR Report · ${dateSlug}`, 40, doc.page.height - 28, { width: W });
+        doc.end();
+      });
+
+      const filename = `DMR-${dateSlug}.pdf`;
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(Buffer.concat(chunks));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
