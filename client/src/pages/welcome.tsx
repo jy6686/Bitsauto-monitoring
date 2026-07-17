@@ -14,7 +14,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { Loader2 } from "lucide-react";
+import { Loader2, ShieldCheck } from "lucide-react";
 import {
   resolvePortalDestination,
   type PortalResolution,
@@ -22,11 +22,14 @@ import {
 
 // Human-readable loading messages keyed by reason code
 const LOADING_MESSAGES: Record<string, string> = {
-  platform:           "Loading platform…",
-  single_portal:      "Loading portal…",
-  workspace_selector: "Choose your workspace.",
-  no_portals:         "", // no loading — show the admin message instead
+  platform:           "Loading Platform…",
+  single_portal:      "Loading Portal…",
+  workspace_selector: "Preparing your workspaces…",
+  no_portals:         "",
 };
+
+// Delay (ms) before redirecting — lets the user see the branded loading screen
+const REDIRECT_DELAY_MS = 1000;
 
 export default function WelcomePage() {
   const { user, isLoading } = useAuth();
@@ -52,12 +55,15 @@ export default function WelcomePage() {
 
     // /welcome is the sentinel for "no portals assigned" — don't redirect, show message
     if (result.destination !== "/welcome") {
-      setLocation(result.destination);
+      const timer = setTimeout(() => {
+        window.location.replace(result.destination);
+      }, REDIRECT_DELAY_MS);
+      return () => clearTimeout(timer);
     }
   }, [user, isLoading, setLocation]);
 
   const u = user as any;
-  const firstName: string = u?.firstName ?? "";
+  const firstName: string = u?.firstName ?? u?.username ?? "";
 
   const loadingMessage = resolution
     ? LOADING_MESSAGES[resolution.reason] ?? "Loading…"
@@ -67,24 +73,37 @@ export default function WelcomePage() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-6 p-4">
-      {/* Normal loading state */}
+      {/* Branded loading state */}
       {!isNoPortals && (
-        <>
-          <div className="text-center space-y-2">
-            {firstName && (
-              <h1 className="text-2xl font-semibold">
-                Welcome, {firstName}!
-              </h1>
-            )}
+        <div className="text-center space-y-6">
+          {/* Auth success badge */}
+          <div className="flex flex-col items-center gap-3">
+            <div className="p-4 bg-primary/10 rounded-2xl ring-1 ring-primary/20 shadow-lg shadow-primary/10">
+              <ShieldCheck className="w-10 h-10 text-primary" />
+            </div>
+            <span className="text-xs font-medium text-primary/80 tracking-wider uppercase">
+              Authentication Successful
+            </span>
+          </div>
+
+          {/* Welcome message */}
+          <div className="space-y-1">
+            <h1 className="text-2xl font-semibold">
+              Welcome back{firstName ? `, ${firstName}` : ""}!
+            </h1>
             <p className="text-muted-foreground text-sm">{loadingMessage}</p>
           </div>
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        </>
+
+          <Loader2 className="w-6 h-6 animate-spin text-primary mx-auto" />
+        </div>
       )}
 
       {/* No portals assigned — portal_only user, admin must act */}
       {isNoPortals && (
         <div className="text-center max-w-sm space-y-4">
+          <div className="p-4 bg-primary/10 rounded-2xl ring-1 ring-primary/20 mx-auto w-fit">
+            <ShieldCheck className="w-10 h-10 text-primary" />
+          </div>
           <h1 className="text-2xl font-semibold">
             Welcome{firstName ? `, ${firstName}` : ""}!
           </h1>
