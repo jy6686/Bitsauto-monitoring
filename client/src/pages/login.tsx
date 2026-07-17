@@ -130,18 +130,17 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* DEV-only Replit fallback */}
-          <div className="mt-6 pt-6 border-t border-border">
-            <button
-              onClick={() => {
-                window.location.href = "/api/login";
-              }}
-              className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
-            >
-              Sign in with Replit{" "}
-              <span className="text-muted-foreground/50">(DEV only)</span>
-            </button>
-          </div>
+          {/* DEV-only Replit fallback — never visible in production */}
+          {import.meta.env.DEV && (
+            <div className="mt-6 pt-6 border-t border-border">
+              <button
+                onClick={() => { window.location.href = "/api/login"; }}
+                className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors py-1"
+              >
+                Developer Login (Replit)
+              </button>
+            </div>
+          )}
 
           <p className="mt-4 text-xs text-muted-foreground">
             By signing in, you agree to our Terms of Service and Privacy Policy.
