@@ -16,12 +16,13 @@ import type { Settings } from "@shared/schema";
 import type { WhatsappAlertLog } from "@shared/schema";
 
 const ALERT_TYPES = [
-  { id: 'fas',     label: 'FAS / Fraud',      icon: '🚨', desc: 'False Answer Supervision detected'    },
-  { id: 'balance', label: 'Low Balance',       icon: '⚠️', desc: 'Account balance below threshold'      },
-  { id: 'traffic', label: 'Traffic Alerts',    icon: '📉', desc: 'Traffic gone or dropped for a client' },
-  { id: 'auth',    label: 'Auth IP Changes',   icon: '🔐', desc: 'IP rules added, removed, or changed'  },
-  { id: 'outage',  label: 'Outage / Recovery', icon: '🔴', desc: 'Sippy switch down or recovered'       },
-  { id: 'quality', label: 'Call Quality',      icon: '📊', desc: 'MOS / jitter / packet-loss threshold' },
+  { id: 'fas',            label: 'FAS / Fraud',      icon: '🚨', desc: 'False Answer Supervision detected'           },
+  { id: 'balance',        label: 'Low Balance',       icon: '⚠️', desc: 'Account balance below threshold'             },
+  { id: 'traffic',        label: 'Traffic Alerts',    icon: '📉', desc: 'Traffic gone or dropped for a client'        },
+  { id: 'auth',           label: 'Auth IP Changes',   icon: '🔐', desc: 'IP rules added, removed, or changed'         },
+  { id: 'outage',         label: 'Outage / Recovery', icon: '🔴', desc: 'Sippy switch down or recovered'              },
+  { id: 'quality',        label: 'Call Quality',      icon: '📊', desc: 'MOS / jitter / packet-loss threshold'        },
+  { id: 'tariff_change',  label: 'Tariff Change',     icon: '📋', desc: 'Rate added, removed, or changed on a tariff' },
 ] as const;
 
 function alertTypeLabel(type: string) {

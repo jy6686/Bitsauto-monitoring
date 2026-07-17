@@ -18,9 +18,21 @@ import {
 import {
   TrendingDown, TrendingUp, RefreshCw, Play, CheckCircle2,
   AlertTriangle, XCircle, Activity, DollarSign, Clock, BarChart3,
-  Info, Search, FileSpreadsheet,
+  Info, Search, FileSpreadsheet, Download, History,
 } from "lucide-react";
 import { exportToExcel } from "@/lib/export-excel";
+
+interface DMRArchiveEntry {
+  date:        string;
+  rowCount:    number;
+  matched:     number;
+  drifted:     number;
+  critical:    number;
+  pending:     number;
+  totalAmount: number;
+  maxVersion:  number;
+  generatedAt: string | null;
+}
 
 interface DMRRow {
   id:                 number;
@@ -133,6 +145,12 @@ export default function DMRPage() {
       const from = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
       return apiRequest("GET", `/api/dmr/trend?from=${from}&to=${to}`).then(r => r.json());
     },
+  });
+
+  const { data: archive = [] } = useQuery<DMRArchiveEntry[]>({
+    queryKey: ["/api/dmr/archive"],
+    queryFn: () => apiRequest("GET", "/api/dmr/archive").then(r => r.json()),
+    staleTime: 5 * 60 * 1000,
   });
 
   const generateMutation = useMutation({
@@ -459,6 +477,81 @@ export default function DMRPage() {
           </Tabs>
         </CardContent>
       </Card>
+
+      {/* ── Download History ─────────────────────────────────────────────────── */}
+      {archive.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <History className="h-4 w-4 text-primary" />
+              Download History
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Last 60 days of DMR reports — download as PDF or CSV
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="text-xs">
+                    <TableHead>Date</TableHead>
+                    <TableHead className="text-right">Accounts</TableHead>
+                    <TableHead className="text-right">Matched</TableHead>
+                    <TableHead className="text-right">Drifted</TableHead>
+                    <TableHead className="text-right">Critical</TableHead>
+                    <TableHead className="text-right">Total Amount</TableHead>
+                    <TableHead className="text-right">Ver.</TableHead>
+                    <TableHead className="text-center">Downloads</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {archive.map((entry) => (
+                    <TableRow key={entry.date} className="text-xs">
+                      <TableCell className="font-mono font-medium">{entry.date}</TableCell>
+                      <TableCell className="text-right">{entry.rowCount}</TableCell>
+                      <TableCell className="text-right text-emerald-400">{entry.matched}</TableCell>
+                      <TableCell className="text-right text-amber-400">{entry.drifted > 0 ? entry.drifted : <span className="text-muted-foreground">—</span>}</TableCell>
+                      <TableCell className="text-right text-red-400">{entry.critical > 0 ? entry.critical : <span className="text-muted-foreground">—</span>}</TableCell>
+                      <TableCell className="text-right">${entry.totalAmount.toFixed(2)}</TableCell>
+                      <TableCell className="text-right text-muted-foreground">v{entry.maxVersion}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-center gap-1.5">
+                          <a
+                            href={`/api/dmr/export/pdf?date=${entry.date}`}
+                            download={`DMR-${entry.date}.pdf`}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-muted hover:bg-muted/80 text-foreground transition-colors"
+                          >
+                            <Download className="h-3 w-3" />
+                            PDF
+                          </a>
+                          <a
+                            href={`/api/dmr/export/csv?date=${entry.date}`}
+                            download={`DMR-${entry.date}.csv`}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-muted hover:bg-muted/80 text-foreground transition-colors"
+                          >
+                            <FileSpreadsheet className="h-3 w-3" />
+                            CSV
+                          </a>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            title="View this date in DMR"
+                            onClick={() => setSelectedDate(entry.date)}
+                          >
+                            <Search className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

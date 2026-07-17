@@ -6,16 +6,25 @@
  * - New / removed / changed auth rule IPs per account
  * - New / removed vendor connections
  * - New client starting traffic (first concurrent calls seen)
+ * - Tariff / rate changes (CGE-003 — Phase 1 Detection)
  *
- * Sends email alerts via server/email.ts for each detected change.
+ * Sends email + WhatsApp alerts for each detected change.
  * Persists state in the `sippy_snapshots` DB table so restarts don't
  * re-fire alerts for pre-existing state.
+ * Tariff change events are persisted in `tariff_change_events` (via
+ * detectAndRecordChanges) and cross-linked in `sippy_change_events`
+ * for unified watcher visibility.
  */
 
 import * as sippy from './sippy';
 import { storage } from './storage';
 import { sendAlertEmail } from './email';
-import { sendWhatsAppAlert, formatAuthAlert } from './whatsapp';
+import { sendWhatsAppAlert, formatAuthAlert, formatTariffChangeAlert } from './whatsapp';
+import {
+  snapshotTariff,
+  detectAndRecordChanges,
+  rollbackTariffChanges,
+} from './services/sippy/sippy-tariff-versioning.service';
 
 const SNAPSHOT_KEY = 'sippy_state_v1';
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -543,6 +552,218 @@ function diffStates(prev: SippyState, curr: SippyState): Change[] {
   return changes;
 }
 
+// ── CGE-003 / CGE-011: Tariff / Rate Change Detection + Auto-Rollback ────────
+// Phase 1 — Detect, alert, persist.
+// Phase 3 — Auto-rollback: any unauthorized addition, removal, or change is
+//            immediately reverted to the last known snapshot. A fresh snapshot
+//            is taken after rollback so the next poll sees clean state.
+
+interface TariffEntry {
+  id:   number;
+  name: string;
+}
+
+/**
+ * On watcher startup: for each active tariff that has no existing version
+ * snapshot in the DB, silently create a baseline snapshot.
+ * Tariffs that already have a snapshot (e.g. from Morocco workflows) are
+ * left untouched — the existing snapshot becomes the comparison baseline.
+ * No alerts are fired during baseline initialization.
+ */
+async function initializeTariffBaselines(creds: {
+  username: string; password: string; portalUrl: string;
+}): Promise<void> {
+  const { username, password, portalUrl } = creds;
+  const config = { username, password, portalUrl };
+
+  console.log(`[sippy-watcher:tariff] initializeTariffBaselines() called — portalUrl=${portalUrl}`);
+
+  let tariffs: TariffEntry[] = [];
+  try {
+    const result = await sippy.listSippyTariffs(username, password, portalUrl);
+    if (result.error) {
+      console.warn('[sippy-watcher:tariff] listSippyTariffs returned error during baseline init:', result.error);
+    }
+    tariffs = result.tariffs.map(t => ({ id: t.id, name: t.name }));
+  } catch (e: any) {
+    console.warn('[sippy-watcher:tariff] listSippyTariffs threw during baseline init:', e.message);
+    return;
+  }
+
+  console.log(`[sippy-watcher:tariff] listSippyTariffs returned ${tariffs.length} tariff(s).`);
+
+  if (tariffs.length === 0) {
+    console.warn('[sippy-watcher:tariff] No tariffs found — skipping baseline init. Check Sippy XML-RPC connectivity and credentials.');
+    return;
+  }
+
+  let baselined = 0;
+  let skipped = 0;
+  for (const tariff of tariffs) {
+    try {
+      const existing = await storage.getLatestTariffVersion(String(tariff.id));
+      if (existing) {
+        skipped++;
+        continue; // Already has a snapshot — use it as drift baseline
+      }
+      await snapshotTariff(config, tariff.id, {
+        source:    'auto_snapshot',
+        tariffName: tariff.name,
+        notes:     'CGE-003 watcher baseline — silent init, no alerts',
+        createdBy: 'sippy-watcher',
+      });
+      baselined++;
+    } catch (e: any) {
+      console.warn(`[sippy-watcher:tariff] baseline init failed for tariff ${tariff.id} (${tariff.name}):`, e.message);
+    }
+  }
+  console.log(
+    `[sippy-watcher:tariff] Baseline init complete: ${baselined} snapshot(s) created, ${skipped} tariff(s) already had snapshots.`,
+  );
+}
+
+/**
+ * Poll tariff state and fire alerts for any changes detected since the last
+ * snapshot. Called on every watcher polling cycle after the existing
+ * account/vendor/auth-IP diff completes.
+ *
+ * Each changed tariff generates:
+ *   • One email alert (HTML, matching existing watcher template)
+ *   • One WhatsApp alert (tariff_change type)
+ *   • One sippy_change_events record (for unified watcher audit trail)
+ *   • TariffChangeEvent rows in tariff_change_events (via detectAndRecordChanges)
+ */
+async function checkTariffChanges(creds: {
+  username: string; password: string; portalUrl: string;
+}): Promise<number> {
+  const { username, password, portalUrl } = creds;
+  const config = { username, password, portalUrl };
+
+  let tariffs: TariffEntry[] = [];
+  try {
+    const result = await sippy.listSippyTariffs(username, password, portalUrl);
+    if (result.error) {
+      console.warn('[sippy-watcher:tariff] listSippyTariffs returned error during poll:', result.error);
+    }
+    tariffs = result.tariffs.map(t => ({ id: t.id, name: t.name }));
+  } catch (e: any) {
+    console.warn('[sippy-watcher:tariff] listSippyTariffs threw during poll:', e.message);
+    return 0;
+  }
+
+  console.log(`[sippy-watcher:tariff] Poll: ${tariffs.length} tariff(s) found.`);
+  if (tariffs.length === 0) return 0;
+
+  let totalChanges = 0;
+  for (const tariff of tariffs) {
+    try {
+      const result = await detectAndRecordChanges(config, tariff.id, {
+        tariffName: tariff.name,
+        createdBy:  'sippy-watcher',
+      });
+
+      const delta = result.added + result.removed + result.changed;
+      if (delta === 0) continue;
+
+      totalChanges += delta;
+      console.log(
+        `[sippy-watcher:tariff] 📊 Tariff "${tariff.name}" (${tariff.id}): ` +
+        `+${result.added} added, -${result.removed} removed, ~${result.changed} changed.`,
+      );
+
+      const subject = `📊 Tariff Change — ${tariff.name} (+${result.added} / -${result.removed} / ~${result.changed} rates)`;
+
+      // ── Email alert ────────────────────────────────────────────────────────
+      const bodyRows = [
+        { icon: '📋', label: 'Tariff',      value: `${tariff.name} (ID: ${tariff.id})` },
+        { icon: '➕', label: 'Added',       value: `${result.added} rate(s)` },
+        { icon: '➖', label: 'Removed',     value: `${result.removed} rate(s)` },
+        { icon: '✏️',  label: 'Changed',    value: `${result.changed} rate(s)` },
+        { icon: '📝', label: 'Total Delta', value: `${delta} rate(s)` },
+        { icon: '🕐', label: 'Detected',    value: new Date().toUTCString() },
+      ];
+      await sendAlertEmail({
+        subject,
+        bodyHtml: buildSippyChangeEmail(
+          'Tariff Rate Change Detected',
+          bodyRows,
+          'orange',
+          '⚠️ Only BitsAuto should modify tariffs directly. If this change was not made through BitsAuto, investigate immediately.',
+        ),
+        includeWatcherRecipients: true,
+      });
+
+      // ── WhatsApp alert ─────────────────────────────────────────────────────
+      sendWhatsAppAlert(
+        'tariff_change',
+        formatTariffChangeAlert({
+          tariffName: tariff.name,
+          tariffId:   tariff.id,
+          added:      result.added,
+          removed:    result.removed,
+          changed:    result.changed,
+        }),
+      ).catch(() => {/* non-blocking */});
+
+      // ── sippy_change_events record (unified watcher audit trail) ───────────
+      storage.recordSippyChangeEvents([{
+        category:   'tariffs',
+        changeType: 'tariff_changed',
+        subject,
+        clientName:  null,
+        vendorName:  null,
+        oldValue:    null,
+        newValue:    `+${result.added}/-${result.removed}/~${result.changed} rates`,
+        meta: {
+          iTariff:    tariff.id,
+          tariffName: tariff.name,
+          added:      result.added,
+          removed:    result.removed,
+          changed:    result.changed,
+          tariffVersionId: result.version.id,
+        },
+      }]).catch(e => console.warn('[sippy-watcher:tariff] persist change event error:', e.message));
+
+      // ── CGE-011: Auto-rollback (gated — requires ACR + explicit opt-in) ───────
+      // SAFETY: rollback is disabled until the Approved Configuration Repository
+      // (Phase 2.1–2.3) is in place so the watcher can distinguish authorized
+      // BitsAuto writes from unauthorized manual changes. Without ACR, rollback
+      // would also undo legitimate rate deployments.
+      //
+      // Enable only via settings.tariffAutoRollbackEnabled = true (default false).
+      // Do NOT enable in production until Phase 2.3 classification is operational.
+      const rbSettings = await storage.getSettings().catch(() => null);
+      const rollbackEnabled = (rbSettings as any)?.tariffAutoRollbackEnabled === true;
+
+      if (rollbackEnabled) {
+        try {
+          console.log(`[sippy-watcher:tariff] 🔄 Rollback ENABLED — starting revert for "${tariff.name}" (${result.changeEvents.length} events)…`);
+          const rb = await rollbackTariffChanges(config, result.changeEvents);
+          console.log(
+            `[sippy-watcher:tariff] 🔄 Rollback complete: deleted=${rb.deleted} restored=${rb.restored} failed=${rb.failed}`,
+            rb.errors.length ? `errors: ${rb.errors.join('; ')}` : '',
+          );
+          await snapshotTariff(config, tariff.id, {
+            source:     'auto_snapshot',
+            tariffName: tariff.name,
+            notes:      `post-rollback snapshot — CGE-011 revert (deleted=${rb.deleted} restored=${rb.restored})`,
+            createdBy:  'sippy-watcher:rollback',
+          });
+        } catch (rbErr: any) {
+          console.warn(`[sippy-watcher:tariff] ⚠️ Rollback error for tariff ${tariff.id} (non-fatal):`, rbErr.message);
+        }
+      } else {
+        console.log(`[sippy-watcher:tariff] ℹ️ Rollback gated (tariffAutoRollbackEnabled=false) — detection + alert only.`);
+      }
+
+    } catch (e: any) {
+      console.warn(`[sippy-watcher:tariff] checkTariffChanges failed for tariff ${tariff.id} (${tariff.name}):`, e.message);
+    }
+  }
+
+  return totalChanges;
+}
+
 // ── Main Poll Loop ────────────────────────────────────────────────────────────
 
 async function runWatcherCycle(): Promise<void> {
@@ -617,10 +838,23 @@ async function runWatcherCycle(): Promise<void> {
     console.log('[sippy-watcher] No Sippy changes detected.');
   }
 
+  // ── CGE-003: Tariff change detection ────────────────────────────────────────
+  // Runs after the identity-object diff. Fully independent — a tariff poll
+  // failure does not affect the account/vendor/auth snapshot save below.
+  let tariffChanges = 0;
+  try {
+    tariffChanges = await checkTariffChanges(creds);
+    if (tariffChanges === 0) {
+      console.log('[sippy-watcher:tariff] No tariff changes detected.');
+    }
+  } catch (e: any) {
+    console.warn('[sippy-watcher:tariff] checkTariffChanges error (non-fatal):', e.message);
+  }
+
   // Save updated snapshot and track run stats
   currentSnapshot = curr;
   lastRunAt = new Date();
-  lastRunChanges = changes.length;
+  lastRunChanges = changes.length + tariffChanges;
   await storage.setSippySnapshot(SNAPSHOT_KEY, curr);
 }
 
@@ -634,6 +868,12 @@ export function initSippyWatcher(): void {
     watcherInitialized = true;
     try {
       lastRunError = null;
+      // Establish tariff baselines before the first poll cycle so the cycle
+      // does not false-positive on tariffs that have never been snapshotted.
+      const creds = await getSippyCredentials();
+      if (creds) {
+        await initializeTariffBaselines(creds);
+      }
       await runWatcherCycle();
     } catch (e: any) {
       lastRunError = e.message;
