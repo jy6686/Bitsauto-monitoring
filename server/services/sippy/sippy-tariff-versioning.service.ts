@@ -441,13 +441,31 @@ export async function rollbackTariffChanges(
 
     try {
       if (ev.changeType === 'added') {
-        // Unauthorized new prefix — delete it
+        // Unauthorized new prefix — delete it.
+        // Sippy's delete API requires the i_rate integer ID. Fetch the live rate
+        // list to find the i_rate for this prefix (the unauthorized rate is still
+        // live in Sippy at this point).
+        let iRate: number | undefined;
+        try {
+          const liveRates = await getTariffRatesList(config, ev.iTariff);
+          const match = liveRates.find(r => (r.prefix ?? '') === prefix);
+          if (match?.iRate) iRate = match.iRate;
+          if (iRate) {
+            console.log(`[tariff-rollback] Found iRate=${iRate} for prefix ${prefix} on tariff ${ev.iTariff}`);
+          } else {
+            console.warn(`[tariff-rollback] Could not find iRate for prefix ${prefix} — falling back to prefix-based delete`);
+          }
+        } catch (lookupErr: any) {
+          console.warn(`[tariff-rollback] iRate lookup failed for prefix ${prefix}:`, lookupErr.message);
+        }
+
         const res = await sippy.deleteSippyRateEntry(
           config.username,
           config.password,
           String(ev.iTariff),
           prefix,
           config.portalUrl,
+          iRate,
         );
         if (res.success) {
           deleted++;

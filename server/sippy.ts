@@ -9154,18 +9154,39 @@ export async function deleteSippyRateEntry(
   tariffId: string,
   prefix: string,
   portalUrl?: string,
+  iRate?: number,
 ): Promise<{ success: boolean; message: string }> {
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
-  // Official: deleteRateTariff() — also try legacy aliases
-  for (const method of ['deleteRateTariff', 'tariff.deleteRate', 'tariff.deleteDestination', 'rate.deleteRate']) {
+  // Sippy's delete API requires the i_rate integer ID, not the prefix string.
+  // Try i_rate-based methods first (most reliable), then prefix-based fallbacks.
+  const iRateMethods = iRate
+    ? [
+        // i_rate only (most common pattern in Sippy docs)
+        { method: 'deleteRateTariff',      params: { i_rate: iRate } },
+        { method: 'tariff.deleteRate',     params: { i_rate: iRate } },
+        { method: 'tariff.deleteRate',     params: { i_tariff: Number(tariffId), i_rate: iRate } },
+        { method: 'deleteRateTariff',      params: { i_tariff: Number(tariffId), i_rate: iRate } },
+      ]
+    : [];
+
+  // Prefix-based fallbacks
+  const prefixMethods = [
+    { method: 'deleteRateTariff',      params: { i_tariff: Number(tariffId), prefix } },
+    { method: 'deleteRateTariff',      params: { i_tariff: Number(tariffId), destination: prefix } },
+    { method: 'tariff.deleteRate',     params: { i_tariff: Number(tariffId), prefix } },
+    { method: 'tariff.deleteDestination', params: { i_tariff: Number(tariffId), destination: prefix } },
+    { method: 'rate.deleteRate',       params: { i_tariff: Number(tariffId), prefix } },
+  ];
+
+  for (const { method, params } of [...iRateMethods, ...prefixMethods]) {
     try {
-      const body = xmlRpcCall(method, { i_tariff: tariffId, destination: prefix });
+      const body = xmlRpcCall(method, params);
       const resp = await sippyPost(apiUrl, body, username, password);
       if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
-        return { success: true, message: `Rate deleted via ${method}` };
+        return { success: true, message: `Rate deleted via ${method} (${JSON.stringify(params)})` };
       }
     } catch { continue; }
   }
