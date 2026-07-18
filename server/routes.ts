@@ -30269,6 +30269,29 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // Named sub-routes MUST come before /:id to avoid being consumed as an id param
+  app.get('/api/tariff-versions/locked', async (req: any, res: any) => {
+    try {
+      const iTariff = (req.query.iTariff as string) || undefined;
+      const rows = await storage.listLockedTariffVersions(iTariff);
+      res.json(rows);
+    } catch (err: any) {
+      console.error('[tariff-versions/locked]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/tariff-versions/restore-audit', async (req: any, res: any) => {
+    try {
+      const iTariff = (req.query.iTariff as string) || undefined;
+      const rows = await storage.listTariffRestoreAudit(iTariff);
+      res.json(rows);
+    } catch (err: any) {
+      console.error('[tariff-versions/restore-audit]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/tariff-versions/:id', async (req: any, res: any) => {
     try {
       const id = Number(req.params.id);
@@ -30419,6 +30442,228 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       });
     } catch (err: any) {
       console.error('[tariff-versions/compare-live]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── P5 Restore Snapshot ───────────────────────────────────────────────────
+  //
+  // GET  /api/tariff-versions/locked              — registered before /:id above
+  // GET  /api/tariff-versions/restore-audit       — registered before /:id above
+  // POST /api/tariff-versions/:id/preview-restore — dry-run diff (no writes)
+  // POST /api/tariff-versions/:id/restore         — governed execute
+
+  // POST /api/tariff-versions/:id/preview-restore
+  // Dry-run: compares snapshot rates against current live Sippy rates.
+  // Returns impact summary identical to compare-live, reframed as restore perspective.
+  // No database writes — safe to call repeatedly.
+  app.post('/api/tariff-versions/:id/preview-restore', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid version ID' });
+
+      const version = await storage.getTariffVersion(id);
+      if (!version) return res.status(404).json({ error: 'Tariff version not found' });
+      if (!version.isLocked) return res.status(403).json({ error: 'Only locked snapshots are eligible for restore' });
+
+      const snapshotRates: any[] = JSON.parse(version.snapshotJson ?? '[]');
+
+      const settings = await storage.getSettings();
+      const { configFromSettings, getTariffRatesList } = await import('./services/sippy/index');
+      const config = configFromSettings(settings as any);
+      const liveRates = await getTariffRatesList(config, version.iTariff);
+
+      // Diff: snapshot is the target state, live is the current state
+      const liveByPrefix     = new Map(liveRates.map((r: any)      => [r.prefix ?? '', r]));
+      const snapshotByPrefix = new Map(snapshotRates.map((r: any)  => [r.prefix ?? '', r]));
+
+      // Rates in snapshot but not live → will be ADDED by restore
+      const willAdd    = snapshotRates.filter((r: any) => !liveByPrefix.has(r.prefix ?? ''));
+      // Rates in live but not snapshot → will be REMOVED by restore
+      const willRemove = liveRates.filter((r: any) => !snapshotByPrefix.has(r.prefix ?? ''));
+
+      // Rates that differ between snapshot and live → will be REVERTED
+      const willChange: any[] = [];
+      const numFields: Array<[string, string]> = [
+        ['price1', 'price1'], ['priceN', 'priceN'],
+        ['interval1', 'interval1'], ['intervalN', 'intervalN'],
+        ['connectFee', 'connectFee'], ['gracePeriod', 'gracePeriod'],
+        ['freeSeconds', 'freeSeconds'], ['postCallSurcharge', 'postCallSurcharge'],
+      ];
+      for (const [prefix, snapshotRate] of snapshotByPrefix) {
+        const liveRate = liveByPrefix.get(prefix);
+        if (!liveRate) continue;
+        const deltas: Record<string, { live: any; snapshot: any }> = {};
+        for (const [field] of numFields) {
+          const lv = Number(liveRate[field] ?? 0);
+          const sv = Number(snapshotRate[field] ?? 0);
+          if (Math.abs(lv - sv) > 0.000001) deltas[field] = { live: lv, snapshot: sv };
+        }
+        if (Object.keys(deltas).length > 0) {
+          willChange.push({ prefix, live: liveRate, snapshot: snapshotRate, deltas });
+        }
+      }
+
+      // Field-level breakdown for summary
+      const connectFeeChanges = willChange.filter(r => r.deltas.connectFee).length;
+      const intervalChanges   = willChange.filter(r => r.deltas.interval1 || r.deltas.intervalN).length;
+      const rateChanges       = willChange.filter(r => r.deltas.price1 || r.deltas.priceN).length;
+
+      res.json({
+        versionId:          id,
+        iTariff:            version.iTariff,
+        tariffName:         version.tariffName,
+        snapshotAt:         version.createdAt,
+        source:             version.source,
+        rateCountSnapshot:  snapshotRates.length,
+        rateCountLive:      liveRates.length,
+        summary: {
+          willAdd:            willAdd.length,
+          willRemove:         willRemove.length,
+          willChange:         willChange.length,
+          connectFeeChanges,
+          intervalChanges,
+          rateChanges,
+          total:              willAdd.length + willRemove.length + willChange.length,
+        },
+        willAdd,
+        willRemove,
+        willChange,
+      });
+    } catch (err: any) {
+      console.error('[tariff-versions/preview-restore]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/tariff-versions/:id/restore
+  // Governed execute — requires role admin or management, explicit confirmation.
+  // Never overwrites existing tariff_versions. Creates a new version record.
+  // Steps: governance checks → clear Sippy rates → push snapshot rates →
+  //        create new tariff_version → write audit record
+  app.post('/api/tariff-versions/:id/restore', async (req: any, res: any) => {
+    const t0 = Date.now();
+    try {
+      // ── Auth ──────────────────────────────────────────────────────────────
+      const userId = req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: 'Unauthorized' });
+      const role = await storage.getUserRole(userId);
+      if (!role || !['admin', 'management'].includes(role)) {
+        return res.status(403).json({ error: 'Forbidden — admin or management role required' });
+      }
+
+      // ── Confirmation guard ────────────────────────────────────────────────
+      const { confirmation, reason } = req.body ?? {};
+      if (confirmation !== 'RESTORE') {
+        return res.status(400).json({ error: 'confirmation must equal "RESTORE"' });
+      }
+
+      // ── Governance checks ─────────────────────────────────────────────────
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid version ID' });
+
+      const version = await storage.getTariffVersion(id);
+      if (!version)             return res.status(404).json({ error: 'Tariff version not found' });
+      if (!version.isLocked)    return res.status(403).json({ error: 'Only locked snapshots are eligible for restore' });
+
+      const snapshotRates: any[] = JSON.parse(version.snapshotJson ?? '[]');
+      if (snapshotRates.length === 0) {
+        return res.status(422).json({ error: 'Snapshot contains no rates — restore aborted' });
+      }
+
+      // ── Push to Sippy ─────────────────────────────────────────────────────
+      const settings = await storage.getSettings();
+      const { configFromSettings, getTariffRatesList } = await import('./services/sippy/index');
+      const { clearTariffRates, pushRate }              = await import('./services/sippy/sippy-tariff.service');
+      const config = configFromSettings(settings as any);
+
+      // Capture current live state for the audit diff
+      const liveBefore = await getTariffRatesList(config, version.iTariff);
+      const liveByPrefix     = new Map(liveBefore.map((r: any) => [r.prefix ?? '', r]));
+      const snapshotByPrefix = new Map(snapshotRates.map((r: any) => [r.prefix ?? '', r]));
+
+      const addedCount   = snapshotRates.filter((r: any) => !liveByPrefix.has(r.prefix ?? '')).length;
+      const removedCount = liveBefore.filter((r: any) => !snapshotByPrefix.has(r.prefix ?? '')).length;
+      let   changedCount = 0;
+      const numFields    = ['price1','priceN','interval1','intervalN','connectFee','gracePeriod','freeSeconds','postCallSurcharge'];
+      for (const [prefix, snap] of snapshotByPrefix) {
+        const live = liveByPrefix.get(prefix);
+        if (!live) continue;
+        if (numFields.some(f => Math.abs(Number(snap[f] ?? 0) - Number(live[f] ?? 0)) > 0.000001)) changedCount++;
+      }
+
+      // Clear existing rates and push snapshot rates
+      await clearTariffRates(config, version.iTariff);
+      let pushedCount = 0;
+      const pushErrors: string[] = [];
+      for (const rate of snapshotRates) {
+        try {
+          await pushRate(config, {
+            iTariff:            version.iTariff,
+            prefix:             rate.prefix,
+            price1:             rate.price1,
+            priceN:             rate.priceN,
+            interval1:          rate.interval1,
+            intervalN:          rate.intervalN,
+            freeSeconds:        rate.freeSeconds,
+            gracePeriod:        rate.gracePeriod,
+            connectFee:         rate.connectFee,
+            postCallSurcharge:  rate.postCallSurcharge,
+            destination:        rate.destination,
+          });
+          pushedCount++;
+        } catch (pushErr: any) {
+          pushErrors.push(`${rate.prefix}: ${pushErr.message}`);
+        }
+      }
+
+      if (pushedCount === 0) {
+        return res.status(500).json({ error: 'All rate pushes failed', details: pushErrors.slice(0, 5) });
+      }
+
+      // ── Create new tariff version record ──────────────────────────────────
+      const newVersion = await storage.createTariffVersion({
+        iTariff:        version.iTariff,
+        tariffName:     version.tariffName ?? undefined,
+        source:         'restore',
+        snapshotJson:   version.snapshotJson,  // identical rates — audit chain preserved
+        rateCount:      pushedCount,
+        notes:          `Restored from version #${id}. Reason: ${reason ?? 'not specified'}. Rates pushed: ${pushedCount}/${snapshotRates.length}.`,
+        createdBy:      userId,
+        isLocked:       false,                  // restored version starts unlocked
+        restoredFromId: id,
+      });
+
+      // ── Audit record ──────────────────────────────────────────────────────
+      const durationMs = Date.now() - t0;
+      await storage.createTariffRestoreAudit({
+        sourceVersionId: id,
+        newVersionId:    newVersion.id,
+        iTariff:         version.iTariff,
+        restoredBy:      userId,
+        ratesRestored:   pushedCount,
+        addedCount,
+        removedCount,
+        changedCount,
+        durationMs,
+        clientIp:        req.ip ?? req.headers['x-forwarded-for'] as string ?? null,
+        reason:          reason ?? null,
+      });
+
+      res.json({
+        ok:             true,
+        newVersionId:   newVersion.id,
+        iTariff:        version.iTariff,
+        ratesRestored:  pushedCount,
+        pushErrors:     pushErrors.length > 0 ? pushErrors : undefined,
+        addedCount,
+        removedCount,
+        changedCount,
+        durationMs,
+        message:        `Restore complete — tariff version #${newVersion.id} created with ${pushedCount} rates`,
+      });
+    } catch (err: any) {
+      console.error('[tariff-versions/restore]', err.message);
       res.status(500).json({ error: err.message });
     }
   });
@@ -30764,6 +31009,27 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const { lockBatch } = await import('./services/sippy/index');
       const { iTariff, limit = 1000 } = req.body ?? {};
       const result = await lockBatch({ iTariff: iTariff || undefined, limit });
+
+      // P5 — mark referenced tariff versions as locked (restore-eligible)
+      // A tariff version is "locked" once CDR snapshots are committed against it.
+      try {
+        const { db: dbConn } = await import('./db');
+        const { invoiceCdrSnapshots: snapTable, tariffVersions: tvTable } = await import('../shared/schema');
+        const { sql: rawSql } = await import('drizzle-orm');
+        await dbConn.execute(rawSql`
+          UPDATE tariff_versions
+          SET is_locked = TRUE
+          WHERE id IN (
+            SELECT DISTINCT tariff_version_id
+            FROM invoice_cdr_snapshots
+            WHERE tariff_version_id IS NOT NULL
+          )
+          AND is_locked = FALSE
+        `);
+      } catch (lockErr: any) {
+        console.warn('[rating-snapshots] lock-batch: auto-lock tariff versions warning:', lockErr.message);
+      }
+
       res.json(result);
     } catch (err: any) {
       console.error('[rating-snapshots] lock-batch error:', err.message);

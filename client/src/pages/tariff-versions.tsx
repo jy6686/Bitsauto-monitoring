@@ -19,26 +19,57 @@ import {
 import {
   Tabs, TabsContent, TabsList, TabsTrigger,
 } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
 import {
   GitBranch, Camera, Clock, TrendingDown, TrendingUp,
   Minus, Plus, ArrowRightLeft, RefreshCw, ChevronRight,
-  FileText, Activity, Scale,
+  FileText, Activity, Scale, RotateCcw, Shield, AlertTriangle,
+  CheckCircle2, XCircle, Lock,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface TariffVersion {
-  id:            number;
-  iTariff:       string;
-  tariffName?:   string;
-  source:        string;
-  rateCount:     number;
-  effectiveFrom?: string;
-  effectiveTo?:   string;
-  notes?:        string;
-  createdBy?:    string;
-  createdAt:     string;
+  id:              number;
+  iTariff:         string;
+  tariffName?:     string;
+  source:          string;
+  rateCount:       number;
+  effectiveFrom?:  string;
+  effectiveTo?:    string;
+  notes?:          string;
+  createdBy?:      string;
+  createdAt:       string;
+  isLocked?:       boolean;
+  restoredFromId?: number | null;
 }
+
+interface RestorePreview {
+  versionId:         number;
+  iTariff:           string;
+  tariffName?:       string;
+  snapshotAt:        string;
+  source:            string;
+  rateCountSnapshot: number;
+  rateCountLive:     number;
+  summary: {
+    willAdd:          number;
+    willRemove:       number;
+    willChange:       number;
+    connectFeeChanges:number;
+    intervalChanges:  number;
+    rateChanges:      number;
+    total:            number;
+  };
+  willAdd:    any[];
+  willRemove: any[];
+  willChange: any[];
+}
+
+// Wizard steps
+type RestoreStep = 'preview' | 'governance' | 'impact' | 'confirm' | 'result';
 
 interface TariffChangeEvent {
   id:              number;
@@ -107,6 +138,7 @@ function SourceBadge({ source }: { source: string }) {
     pre_change:      { label: "Pre-Change",    className: "bg-amber-500/15 text-amber-400 border-amber-500/30" },
     post_change:     { label: "Post-Change",   className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" },
     morocco_workflow:{ label: "Workflow",      className: "bg-purple-500/15 text-purple-400 border-purple-500/30" },
+    restore:         { label: "Restored",      className: "bg-violet-500/15 text-violet-400 border-violet-500/30" },
   };
   const cfg = map[source] ?? { label: source, className: "bg-slate-500/15 text-slate-400 border-slate-500/30" };
   return <Badge variant="outline" className={cfg.className}>{cfg.label}</Badge>;
@@ -157,6 +189,27 @@ export default function TariffVersionsPage() {
   const [selectedTariff, setSelectedTariff] = useState<string>("");
   const [detailVersionId, setDetailVersionId] = useState<number | null>(null);
   const [compareLiveId, setCompareLiveId] = useState<number | null>(null);
+
+  // ── P5 Restore Snapshot wizard state ─────────────────────────────────────
+  const [restoreVersionId, setRestoreVersionId]   = useState<number | null>(null);
+  const [restoreStep, setRestoreStep]             = useState<RestoreStep>('preview');
+  const [restoreConfirmText, setRestoreConfirmText] = useState('');
+  const [restoreAcknowledge, setRestoreAcknowledge] = useState(false);
+  const [restoreReason, setRestoreReason]         = useState('');
+  const [restoreResult, setRestoreResult]         = useState<any>(null);
+
+  function openRestoreWizard(id: number) {
+    setRestoreVersionId(id);
+    setRestoreStep('preview');
+    setRestoreConfirmText('');
+    setRestoreAcknowledge(false);
+    setRestoreReason('');
+    setRestoreResult(null);
+  }
+  function closeRestoreWizard() {
+    setRestoreVersionId(null);
+    setRestoreResult(null);
+  }
 
   // Load available tariffs from Sippy
   const { data: tariffs = [], isLoading: loadingTariffs } = useQuery<SippyTariff[]>({
@@ -220,6 +273,32 @@ export default function TariffVersionsPage() {
     },
     onError: (err: any) => {
       toast({ title: "Detection failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // Restore preview (dry-run diff — no writes)
+  const { data: restorePreview, isFetching: previewLoading, error: previewError } = useQuery<RestorePreview>({
+    queryKey: ["/api/tariff-versions", restoreVersionId, "preview-restore"],
+    queryFn: () => apiRequest("POST", `/api/tariff-versions/${restoreVersionId}/preview-restore`, {})
+      .then(r => r.json()),
+    enabled: restoreVersionId != null,
+    retry: false,
+  });
+
+  // Restore execute mutation
+  const restoreMutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/tariff-versions/${restoreVersionId}/restore`, {
+      confirmation: 'RESTORE',
+      reason:       restoreReason || undefined,
+    }).then(r => r.json()),
+    onSuccess: (data) => {
+      setRestoreResult(data);
+      setRestoreStep('result');
+      queryClient.invalidateQueries({ queryKey: ["/api/tariff-versions", selectedTariff] });
+      toast({ title: "Restore complete", description: `Version #${data.newVersionId} created with ${data.ratesRestored} rates.` });
+    },
+    onError: (err: any) => {
+      toast({ title: "Restore failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -347,6 +426,7 @@ export default function TariffVersionsPage() {
                   <TableRow>
                     <TableHead>ID</TableHead>
                     <TableHead>Source</TableHead>
+                    <TableHead>Lock</TableHead>
                     <TableHead>Rates</TableHead>
                     <TableHead>Effective From</TableHead>
                     <TableHead>Notes</TableHead>
@@ -366,6 +446,14 @@ export default function TariffVersionsPage() {
                         #{v.id}
                       </TableCell>
                       <TableCell><SourceBadge source={v.source} /></TableCell>
+                      <TableCell>
+                        {v.isLocked
+                          ? <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 gap-1 text-xs">
+                              <Lock className="h-2.5 w-2.5" /> Locked
+                            </Badge>
+                          : <span className="text-muted-foreground text-xs">—</span>
+                        }
+                      </TableCell>
                       <TableCell>{v.rateCount ?? 0}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {v.effectiveFrom
@@ -389,6 +477,17 @@ export default function TariffVersionsPage() {
                             <Scale className="h-3 w-3 mr-1" />
                             vs Live
                           </Button>
+                          {v.isLocked && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs text-violet-400 hover:text-violet-300 hover:bg-violet-500/10"
+                              onClick={e => { e.stopPropagation(); openRestoreWizard(v.id); }}
+                            >
+                              <RotateCcw className="h-3 w-3 mr-1" />
+                              Restore
+                            </Button>
+                          )}
                           <ChevronRight className="h-4 w-4 text-muted-foreground" />
                         </div>
                       </TableCell>
@@ -526,6 +625,397 @@ export default function TariffVersionsPage() {
                 </div>
               </TabsContent>
             </Tabs>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── P5 Restore Snapshot Wizard ─────────────────────────────────────── */}
+      <Dialog open={restoreVersionId != null} onOpenChange={open => !open && closeRestoreWizard()}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RotateCcw className="h-4 w-4 text-violet-400" />
+              Restore Snapshot #{restoreVersionId}
+            </DialogTitle>
+            <DialogDescription>
+              A restore creates a new tariff version from this locked snapshot and pushes it to Sippy.
+              Existing versions are never overwritten.
+            </DialogDescription>
+          </DialogHeader>
+
+          {/* Step indicators */}
+          <div className="flex items-center gap-1 text-xs text-muted-foreground mb-2">
+            {(['preview','governance','impact','confirm','result'] as RestoreStep[]).map((s, i) => (
+              <span key={s} className="flex items-center gap-1">
+                <span className={`px-2 py-0.5 rounded font-medium ${
+                  restoreStep === s ? 'bg-violet-500/20 text-violet-300' :
+                  (['preview','governance','impact','confirm','result'].indexOf(restoreStep) > i)
+                    ? 'text-emerald-400' : 'text-muted-foreground'
+                }`}>
+                  {i + 1}. {s.charAt(0).toUpperCase() + s.slice(1)}
+                </span>
+                {i < 4 && <ChevronRight className="h-3 w-3" />}
+              </span>
+            ))}
+          </div>
+
+          {/* ── Step 1: Preview (auto-loaded) ── */}
+          {restoreStep === 'preview' && (
+            <div className="space-y-4">
+              {previewLoading && (
+                <div className="text-center py-10 text-muted-foreground">
+                  <RefreshCw className="h-6 w-6 mx-auto mb-2 animate-spin opacity-50" />
+                  Fetching live Sippy rates and computing diff…
+                </div>
+              )}
+              {previewError && (
+                <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-destructive text-sm">
+                  <XCircle className="h-4 w-4 inline mr-2" />
+                  Preview failed: {(previewError as any)?.message ?? 'Unknown error'}
+                </div>
+              )}
+              {restorePreview && !previewLoading && (
+                <div className="space-y-4">
+                  <div className="rounded-lg border bg-muted/30 p-4 space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Snapshot</span>
+                      <span className="font-mono">#{restorePreview.versionId} · {restorePreview.source}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Tariff</span>
+                      <span>{restorePreview.tariffName ?? restorePreview.iTariff} (iTariff={restorePreview.iTariff})</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Snapshot taken</span>
+                      <span>{new Date(restorePreview.snapshotAt).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Snapshot rates</span>
+                      <span className="font-bold">{restorePreview.rateCountSnapshot}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Current live rates</span>
+                      <span className="font-bold">{restorePreview.rateCountLive}</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="rounded-lg border bg-emerald-500/5 border-emerald-500/20 p-3 text-center">
+                      <p className="text-2xl font-bold text-emerald-400">{restorePreview.summary.willAdd}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Will Add</p>
+                    </div>
+                    <div className="rounded-lg border bg-red-500/5 border-red-500/20 p-3 text-center">
+                      <p className="text-2xl font-bold text-red-400">{restorePreview.summary.willRemove}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Will Remove</p>
+                    </div>
+                    <div className="rounded-lg border bg-amber-500/5 border-amber-500/20 p-3 text-center">
+                      <p className="text-2xl font-bold text-amber-400">{restorePreview.summary.willChange}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Will Change</p>
+                    </div>
+                  </div>
+
+                  {restorePreview.summary.total === 0 && (
+                    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm text-emerald-400 flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      Snapshot is identical to live. A restore would create a new version with no rate changes.
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={closeRestoreWizard}>Cancel</Button>
+                    <Button
+                      className="bg-violet-600 hover:bg-violet-700 text-white"
+                      onClick={() => setRestoreStep('governance')}
+                    >
+                      Continue to Governance Checks
+                      <ChevronRight className="h-4 w-4 ml-1" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Step 2: Governance Checks ── */}
+          {restoreStep === 'governance' && restorePreview && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                {[
+                  { label: 'Snapshot integrity',      pass: true,  detail: `Version #${restorePreview.versionId} found and readable` },
+                  { label: 'Snapshot is locked',      pass: true,  detail: 'is_locked = TRUE — eligible for restore' },
+                  { label: 'Snapshot has rates',      pass: restorePreview.rateCountSnapshot > 0, detail: `${restorePreview.rateCountSnapshot} rates in snapshot` },
+                  { label: 'Target tariff exists',    pass: restorePreview.rateCountLive >= 0, detail: `iTariff ${restorePreview.iTariff} — ${restorePreview.rateCountLive} live rates` },
+                  { label: 'No overwrite of history', pass: true,  detail: 'Will create new version — existing versions preserved' },
+                ].map(chk => (
+                  <div key={chk.label} className={`flex items-center gap-3 rounded-lg border p-3 text-sm ${
+                    chk.pass ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-red-500/20 bg-red-500/5'
+                  }`}>
+                    {chk.pass
+                      ? <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                      : <XCircle className="h-4 w-4 text-red-400 shrink-0" />
+                    }
+                    <span className={chk.pass ? 'text-emerald-300' : 'text-red-300'}>{chk.label}</span>
+                    <span className="text-muted-foreground ml-auto text-xs">{chk.detail}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex justify-between gap-2">
+                <Button variant="outline" onClick={() => setRestoreStep('preview')}>Back</Button>
+                <Button
+                  className="bg-violet-600 hover:bg-violet-700 text-white"
+                  disabled={restorePreview.rateCountSnapshot === 0}
+                  onClick={() => setRestoreStep('impact')}
+                >
+                  Continue to Impact Summary
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 3: Impact Summary ── */}
+          {restoreStep === 'impact' && restorePreview && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-muted-foreground text-xs mb-1">Rate changes</p>
+                  <p className="text-xl font-bold">{restorePreview.summary.rateChanges}</p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-muted-foreground text-xs mb-1">Interval changes</p>
+                  <p className="text-xl font-bold">{restorePreview.summary.intervalChanges}</p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-muted-foreground text-xs mb-1">Connect fee changes</p>
+                  <p className="text-xl font-bold">{restorePreview.summary.connectFeeChanges}</p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-muted-foreground text-xs mb-1">Total affected prefixes</p>
+                  <p className="text-xl font-bold">{restorePreview.summary.total}</p>
+                </div>
+              </div>
+
+              {restorePreview.summary.total > 0 && (
+                <Tabs defaultValue={restorePreview.summary.willChange > 0 ? 'change' : restorePreview.summary.willAdd > 0 ? 'add' : 'remove'}>
+                  <TabsList className="text-xs">
+                    <TabsTrigger value="change">Will Change ({restorePreview.summary.willChange})</TabsTrigger>
+                    <TabsTrigger value="add">Will Add ({restorePreview.summary.willAdd})</TabsTrigger>
+                    <TabsTrigger value="remove">Will Remove ({restorePreview.summary.willRemove})</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="change">
+                    <div className="max-h-64 overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Prefix</TableHead>
+                            <TableHead>Field</TableHead>
+                            <TableHead>Live → Snapshot</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {restorePreview.willChange.flatMap((r: any) =>
+                            Object.entries(r.deltas).map(([field, d]: [string, any]) => (
+                              <TableRow key={`${r.prefix}-${field}`}>
+                                <TableCell className="font-mono text-xs">{r.prefix}</TableCell>
+                                <TableCell className="text-xs text-muted-foreground">{field}</TableCell>
+                                <TableCell>
+                                  <span className="flex items-center gap-1 text-xs">
+                                    <span className="text-red-400 line-through">{d.live}</span>
+                                    <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                                    <span className="text-emerald-400">{d.snapshot}</span>
+                                  </span>
+                                </TableCell>
+                              </TableRow>
+                            ))
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="add">
+                    <div className="max-h-64 overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Prefix</TableHead>
+                            <TableHead>Destination</TableHead>
+                            <TableHead>Price 1</TableHead>
+                            <TableHead>Price N</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {restorePreview.willAdd.map((r: any, i: number) => (
+                            <TableRow key={i}>
+                              <TableCell className="font-mono text-xs text-emerald-400">{r.prefix ?? '—'}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground">{r.destination ?? '—'}</TableCell>
+                              <TableCell className="text-xs">{r.price1 ?? '—'}</TableCell>
+                              <TableCell className="text-xs">{r.priceN ?? '—'}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="remove">
+                    <div className="max-h-64 overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Prefix</TableHead>
+                            <TableHead>Destination</TableHead>
+                            <TableHead>Price 1</TableHead>
+                            <TableHead>Price N</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {restorePreview.willRemove.map((r: any, i: number) => (
+                            <TableRow key={i}>
+                              <TableCell className="font-mono text-xs text-red-400">{r.prefix ?? '—'}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground">{r.destination ?? '—'}</TableCell>
+                              <TableCell className="text-xs">{r.price1 ?? '—'}</TableCell>
+                              <TableCell className="text-xs">{r.priceN ?? '—'}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              )}
+
+              <div className="flex justify-between gap-2">
+                <Button variant="outline" onClick={() => setRestoreStep('governance')}>Back</Button>
+                <Button
+                  className="bg-violet-600 hover:bg-violet-700 text-white"
+                  onClick={() => setRestoreStep('confirm')}
+                >
+                  Proceed to Confirmation
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 4: Explicit Confirmation ── */}
+          {restoreStep === 'confirm' && restorePreview && (
+            <div className="space-y-5">
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm space-y-1">
+                <div className="flex items-center gap-2 text-amber-400 font-semibold mb-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  You are about to push {restorePreview.rateCountSnapshot} rates to Sippy
+                </div>
+                <p className="text-muted-foreground">
+                  Tariff <strong>{restorePreview.tariffName ?? restorePreview.iTariff}</strong> (iTariff={restorePreview.iTariff})
+                  will be restored to snapshot #{restorePreview.versionId}.
+                  A new tariff version will be created. Existing versions are preserved.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="restore-ack"
+                    checked={restoreAcknowledge}
+                    onCheckedChange={v => setRestoreAcknowledge(!!v)}
+                    className="mt-0.5"
+                  />
+                  <label htmlFor="restore-ack" className="text-sm leading-relaxed cursor-pointer">
+                    I understand this will overwrite live Sippy rates and create a new tariff version.
+                    All existing rate changes since snapshot #{restoreVersionId} will be replaced.
+                  </label>
+                </div>
+
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Reason (optional)</label>
+                  <Textarea
+                    placeholder="e.g. Reverting erroneous rate upload from 2026-07-18"
+                    value={restoreReason}
+                    onChange={e => setRestoreReason(e.target.value)}
+                    className="text-sm resize-none"
+                    rows={2}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">
+                    Type <strong className="text-foreground">RESTORE</strong> to confirm
+                  </label>
+                  <Input
+                    placeholder="RESTORE"
+                    value={restoreConfirmText}
+                    onChange={e => setRestoreConfirmText(e.target.value)}
+                    className="font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-between gap-2">
+                <Button variant="outline" onClick={() => setRestoreStep('impact')}>Back</Button>
+                <Button
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                  disabled={
+                    restoreConfirmText !== 'RESTORE' ||
+                    !restoreAcknowledge ||
+                    restoreMutation.isPending
+                  }
+                  onClick={() => restoreMutation.mutate()}
+                >
+                  {restoreMutation.isPending
+                    ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Restoring…</>
+                    : <><Shield className="h-4 w-4 mr-2" />Execute Restore</>
+                  }
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Step 5: Result ── */}
+          {restoreStep === 'result' && restoreResult && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-5 text-center">
+                <CheckCircle2 className="h-10 w-10 text-emerald-400 mx-auto mb-2" />
+                <p className="text-lg font-bold text-emerald-300">Restore Complete</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {restoreResult.message}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs text-muted-foreground">New Version ID</p>
+                  <p className="text-xl font-bold font-mono">#{restoreResult.newVersionId}</p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs text-muted-foreground">Rates Restored</p>
+                  <p className="text-xl font-bold">{restoreResult.ratesRestored}</p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs text-muted-foreground">Duration</p>
+                  <p className="text-xl font-bold">{restoreResult.durationMs}ms</p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs text-muted-foreground">Tariff</p>
+                  <p className="text-xl font-bold">{restoreResult.iTariff}</p>
+                </div>
+              </div>
+
+              {restoreResult.pushErrors?.length > 0 && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-400">
+                  <p className="font-semibold mb-1">{restoreResult.pushErrors.length} prefix(es) failed to push:</p>
+                  <ul className="space-y-0.5 font-mono">
+                    {restoreResult.pushErrors.map((e: string, i: number) => <li key={i}>{e}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <Button onClick={closeRestoreWizard}>Close</Button>
+              </div>
+            </div>
           )}
         </DialogContent>
       </Dialog>

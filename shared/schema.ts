@@ -2523,17 +2523,20 @@ export const insertSmtpSenderProfileSchema = createInsertSchema(smtpSenderProfil
 // Design: Once a snapshot row is written, snapshotJson is never mutated.
 // source: 'manual' | 'auto_snapshot' | 'morocco_workflow' | 'pre_change' | 'post_change'
 export const tariffVersions = pgTable("tariff_versions", {
-  id:            serial("id").primaryKey(),
-  iTariff:       varchar("i_tariff",     { length: 64  }).notNull(),
-  tariffName:    varchar("tariff_name",  { length: 256 }),
-  source:        varchar("source",       { length: 32  }).notNull().default('manual'),
-  snapshotJson:  text("snapshot_json").notNull(),
-  rateCount:     integer("rate_count").default(0),
-  effectiveFrom: timestamp("effective_from"),
-  effectiveTo:   timestamp("effective_to"),
-  notes:         text("notes"),
-  createdBy:     varchar("created_by",   { length: 128 }),
-  createdAt:     timestamp("created_at").defaultNow().notNull(),
+  id:              serial("id").primaryKey(),
+  iTariff:         varchar("i_tariff",     { length: 64  }).notNull(),
+  tariffName:      varchar("tariff_name",  { length: 256 }),
+  source:          varchar("source",       { length: 32  }).notNull().default('manual'),
+  snapshotJson:    text("snapshot_json").notNull(),
+  rateCount:       integer("rate_count").default(0),
+  effectiveFrom:   timestamp("effective_from"),
+  effectiveTo:     timestamp("effective_to"),
+  notes:           text("notes"),
+  createdBy:       varchar("created_by",   { length: 128 }),
+  createdAt:       timestamp("created_at").defaultNow().notNull(),
+  // P5 — Restore Snapshot governance fields
+  isLocked:        boolean("is_locked").notNull().default(false),
+  restoredFromId:  integer("restored_from_id"),
 });
 export type TariffVersion       = typeof tariffVersions.$inferSelect;
 export type InsertTariffVersion = typeof tariffVersions.$inferInsert;
@@ -2567,6 +2570,27 @@ export const tariffChangeEvents = pgTable("tariff_change_events", {
 export type TariffChangeEvent       = typeof tariffChangeEvents.$inferSelect;
 export type InsertTariffChangeEvent = typeof tariffChangeEvents.$inferInsert;
 export const insertTariffChangeEventSchema = createInsertSchema(tariffChangeEvents).omit({ id: true, createdAt: true });
+
+// ── Tariff Restore Audit — P5 ─────────────────────────────────────────────────
+// Immutable record of every governed restore operation.
+// Written once after a successful restore; never updated.
+export const tariffRestoreAudit = pgTable("tariff_restore_audit", {
+  id:              serial("id").primaryKey(),
+  sourceVersionId: integer("source_version_id").notNull(),
+  newVersionId:    integer("new_version_id").notNull(),
+  iTariff:         varchar("i_tariff",    { length: 64  }).notNull(),
+  restoredBy:      varchar("restored_by", { length: 128 }),
+  restoredAt:      timestamp("restored_at").defaultNow().notNull(),
+  ratesRestored:   integer("rates_restored").notNull().default(0),
+  addedCount:      integer("added_count").notNull().default(0),
+  removedCount:    integer("removed_count").notNull().default(0),
+  changedCount:    integer("changed_count").notNull().default(0),
+  durationMs:      integer("duration_ms"),
+  clientIp:        varchar("client_ip",   { length: 64  }),
+  reason:          text("reason"),
+});
+export type TariffRestoreAudit       = typeof tariffRestoreAudit.$inferSelect;
+export type InsertTariffRestoreAudit = typeof tariffRestoreAudit.$inferInsert;
 
 // ── Rating Verification — Layer 4B ────────────────────────────────────────────
 // Deterministic telecom rating reproduction and comparison.

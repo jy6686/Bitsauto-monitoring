@@ -853,6 +853,43 @@ export async function runSafeMigrations(): Promise<void> {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_governed_calls_channel_a ON governed_calls (channel_a)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_governed_calls_channel_b ON governed_calls (channel_b)`);
 
+    // ── P5 Restore Snapshot (migration 033) ──────────────────────────────────
+    // Add governance columns to tariff_versions
+    await client.query(`ALTER TABLE tariff_versions ADD COLUMN IF NOT EXISTS is_locked BOOLEAN NOT NULL DEFAULT FALSE`);
+    await client.query(`ALTER TABLE tariff_versions ADD COLUMN IF NOT EXISTS restored_from_id INTEGER`);
+
+    // Back-fill: any tariff version already referenced by a locked CDR snapshot is locked
+    await client.query(`
+      UPDATE tariff_versions
+      SET is_locked = TRUE
+      WHERE id IN (
+        SELECT DISTINCT tariff_version_id
+        FROM invoice_cdr_snapshots
+        WHERE tariff_version_id IS NOT NULL
+      )
+      AND is_locked = FALSE
+    `);
+
+    // Tariff restore audit table — immutable record of every restore operation
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tariff_restore_audit (
+        id                SERIAL PRIMARY KEY,
+        source_version_id INTEGER      NOT NULL,
+        new_version_id    INTEGER      NOT NULL,
+        i_tariff          VARCHAR(64)  NOT NULL,
+        restored_by       VARCHAR(128),
+        restored_at       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        rates_restored    INTEGER      NOT NULL DEFAULT 0,
+        added_count       INTEGER      NOT NULL DEFAULT 0,
+        removed_count     INTEGER      NOT NULL DEFAULT 0,
+        changed_count     INTEGER      NOT NULL DEFAULT 0,
+        duration_ms       INTEGER,
+        client_ip         VARCHAR(64),
+        reason            TEXT
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_tra_i_tariff ON tariff_restore_audit (i_tariff, restored_at DESC)`);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);
