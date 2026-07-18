@@ -30556,6 +30556,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
       const { status, notes } = req.body ?? {};
       if (!status) return res.status(400).json({ error: 'status required' });
+      const before = await storage.getRatingVerification(id);
+      const previousStatus = before?.verificationStatus ?? null;
       const updated = await storage.updateRatingVerificationStatus(id, status, notes);
       try {
         const { auditEvents: aeTable } = await import('@shared/schema');
@@ -30566,9 +30568,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           actorType:  (req.user as any) ? 'user' : 'system',
           targetType: 'rating_verification',
           targetId:   String(id),
-          targetName: `Verification #${id} → ${status}`,
+          targetName: `Verification #${id}: ${previousStatus} → ${status}`,
           severity:   'info',
-          metadata:   { newStatus: status, notes: notes ?? null },
+          metadata:   { previousStatus, newStatus: status, notes: notes ?? null, cdrCallId: before?.cdrCallId ?? null, iTariff: before?.iTariff ?? null },
         });
       } catch (_ae) { /* audit failure must not block response */ }
       res.json(updated);
@@ -30602,6 +30604,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         return res.json({ updated: [], failed: [], message: 'No matching records' });
       }
 
+      // Capture previous statuses before any updates (for audit quality)
+      const beforeMap = new Map<number, string>();
+      for (const id of targetIds) {
+        try {
+          const rec = await storage.getRatingVerification(id);
+          if (rec) beforeMap.set(id, rec.verificationStatus);
+        } catch (_) { /* non-blocking */ }
+      }
+
       const updated: number[] = [];
       const failed: Array<{ id: number; error: string }> = [];
 
@@ -30612,6 +30623,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         } catch (err: any) {
           failed.push({ id, error: err.message });
         }
+      }
+
+      // Summarise previous status distribution for the audit record
+      const prevStatusCounts: Record<string, number> = {};
+      for (const id of updated) {
+        const ps = beforeMap.get(id) ?? 'unknown';
+        prevStatusCounts[ps] = (prevStatusCounts[ps] ?? 0) + 1;
       }
 
       // Write single audit event summarising the bulk operation
@@ -30628,6 +30646,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           severity:   'info',
           metadata:   {
             newStatus,
+            previousStatusDistribution: prevStatusCounts,
             updatedCount:  updated.length,
             failedCount:   failed.length,
             ids:           Array.isArray(ids) ? ids : null,
