@@ -30557,6 +30557,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const { status, notes } = req.body ?? {};
       if (!status) return res.status(400).json({ error: 'status required' });
       const updated = await storage.updateRatingVerificationStatus(id, status, notes);
+      try {
+        const { auditEvents: aeTable } = await import('@shared/schema');
+        await db.insert(aeTable).values({
+          category:   'financial',
+          action:     'RATING_VERIFICATION_STATUS',
+          actor:      (req.user as any)?.email ?? (req.user as any)?.firstName ?? 'system',
+          actorType:  (req.user as any) ? 'user' : 'system',
+          targetType: 'rating_verification',
+          targetId:   String(id),
+          targetName: `Verification #${id} → ${status}`,
+          severity:   'info',
+          metadata:   { newStatus: status, notes: notes ?? null },
+        });
+      } catch (_ae) { /* audit failure must not block response */ }
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -30599,6 +30613,29 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           failed.push({ id, error: err.message });
         }
       }
+
+      // Write single audit event summarising the bulk operation
+      try {
+        const { auditEvents: aeTable } = await import('@shared/schema');
+        await db.insert(aeTable).values({
+          category:   'financial',
+          action:     'RATING_VERIFICATION_BULK_STATUS',
+          actor:      (req.user as any)?.email ?? (req.user as any)?.firstName ?? 'system',
+          actorType:  (req.user as any) ? 'user' : 'system',
+          targetType: 'rating_verification',
+          targetId:   null,
+          targetName: `${updated.length} records → ${newStatus}`,
+          severity:   'info',
+          metadata:   {
+            newStatus,
+            updatedCount:  updated.length,
+            failedCount:   failed.length,
+            ids:           Array.isArray(ids) ? ids : null,
+            statusFilter:  statusFilter ?? null,
+            notes:         notes ?? null,
+          },
+        });
+      } catch (_ae) { /* audit failure must not block response */ }
 
       res.json({ updated, failed });
     } catch (err: any) {
