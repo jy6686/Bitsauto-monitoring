@@ -78,9 +78,10 @@ import {
   type CommercialNotificationRecipient, type InsertCommercialNotificationRecipient,
   smtpSenderProfiles,
   type SmtpSenderProfile, type InsertSmtpSenderProfile,
-  tariffVersions, tariffChangeEvents,
+  tariffVersions, tariffChangeEvents, tariffRestoreAudit,
   type TariffVersion, type InsertTariffVersion,
   type TariffChangeEvent, type InsertTariffChangeEvent,
+  type TariffRestoreAudit, type InsertTariffRestoreAudit,
   ratingVerifications,
   type RatingVerification, type InsertRatingVerification,
   invoiceCdrSnapshots,
@@ -3281,6 +3282,44 @@ export class DatabaseStorage implements IStorage {
   async bulkCreateTariffChangeEvents(rows: InsertTariffChangeEvent[]): Promise<TariffChangeEvent[]> {
     if (!rows.length) return [];
     return db.insert(tariffChangeEvents).values(rows).returning();
+  }
+
+  // ── P5 Restore Snapshot ──────────────────────────────────────────────────────
+
+  /** Mark a tariff version as governance-locked (eligible for restore). */
+  async lockTariffVersion(id: number): Promise<void> {
+    await db.update(tariffVersions)
+      .set({ isLocked: true })
+      .where(eq(tariffVersions.id, id));
+  }
+
+  /** List only locked tariff versions (eligible for restore). */
+  async listLockedTariffVersions(iTariff?: string): Promise<TariffVersion[]> {
+    if (iTariff) {
+      return db.select().from(tariffVersions)
+        .where(and(eq(tariffVersions.iTariff, iTariff), eq(tariffVersions.isLocked, true)))
+        .orderBy(desc(tariffVersions.createdAt));
+    }
+    return db.select().from(tariffVersions)
+      .where(eq(tariffVersions.isLocked, true))
+      .orderBy(desc(tariffVersions.createdAt));
+  }
+
+  /** Write an immutable audit record for a completed restore operation. */
+  async createTariffRestoreAudit(data: InsertTariffRestoreAudit): Promise<TariffRestoreAudit> {
+    const [row] = await db.insert(tariffRestoreAudit).values(data).returning();
+    return row;
+  }
+
+  /** List restore audit records, newest first. */
+  async listTariffRestoreAudit(iTariff?: string): Promise<TariffRestoreAudit[]> {
+    if (iTariff) {
+      return db.select().from(tariffRestoreAudit)
+        .where(eq(tariffRestoreAudit.iTariff, iTariff))
+        .orderBy(desc(tariffRestoreAudit.restoredAt));
+    }
+    return db.select().from(tariffRestoreAudit)
+      .orderBy(desc(tariffRestoreAudit.restoredAt));
   }
 
   // ── Portal Governance ──────────────────────────────────────────────────────
