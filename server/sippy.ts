@@ -6128,6 +6128,126 @@ export async function deleteAllRatesInTariff(
   assertSippyOk(text, 'deleteAllRatesInTariff');
 }
 
+// ── pushRatesBulkXlsx() — direct tariff rate restore via upload token ─────────
+
+/**
+ * pushRatesBulkXlsx() — upload all rates for a tariff in one XLSX file.
+ *
+ * Uses Sippy's official getUploadToken / file-upload API (docs 3000073011).
+ * This is the CORRECT path for bulk tariff rate restoration — it does NOT go
+ * through the account-lookup path that pushRateToSippy() uses.
+ *
+ * Columns match Sippy's own export template exactly (internal-ptcl_Rates.xlsx).
+ *
+ * @param iTariff    Sippy tariff ID (integer, e.g. 33)
+ * @param rates      Full rate array from snapshotJson
+ * @param portalUrl  Full Sippy portal URL (https://...)
+ */
+export async function pushRatesBulkXlsx(
+  username: string,
+  password: string,
+  iTariff: number,
+  rates: Array<{
+    prefix:       string;
+    price1:       number;
+    priceN:       number;
+    interval1?:   number;
+    intervalN?:   number;
+    gracePeriod?: number;
+    destination?: string;
+  }>,
+  portalUrl: string,
+): Promise<{ success: boolean; pushed: number; message: string; uploadToken?: string }> {
+  if (rates.length === 0) {
+    return { success: false, pushed: 0, message: 'No rates supplied' };
+  }
+
+  const base   = sippyBase(portalUrl);
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  // Build multi-row XLSX — columns match Sippy's own export template exactly.
+  const headers = [
+    'Action [A|D|U|S|SA]', 'Id', 'Prefix', 'Country',
+    'Interval 1', 'Interval N', 'Price 1', 'Price N',
+    'Forbidden', 'Grace Period', 'Activation Date', 'Expiration Date',
+  ];
+  const dataRows = rates.map(r => [
+    'A',
+    null,
+    r.prefix,
+    r.destination ?? null,
+    r.interval1 ?? 1,
+    r.intervalN ?? 1,
+    r.price1,
+    r.priceN,
+    0,
+    r.gracePeriod ?? 0,
+    null,
+    null,
+  ]);
+  const ws  = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
+  const wb  = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  const xlsxBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+
+  // Get upload token for this tariff
+  const _pIso     = new Date(Date.now() + 10_000).toISOString();
+  const processOn = `${_pIso.slice(0,4)}${_pIso.slice(5,7)}${_pIso.slice(8,10)}T${_pIso.slice(11,19)}`;
+  const tokenXml  = buildGetUploadTokenXml(1, processOn, undefined, { i_tariff: iTariff });
+  const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10_000);
+
+  if (tokenResp.statusCode !== 200 || tokenResp.body.includes('faultCode')) {
+    const fault = extractFaultString(tokenResp.body) ?? 'getUploadToken failed';
+    return { success: false, pushed: 0, message: `getUploadToken error: ${fault}` };
+  }
+
+  const tokenMembers = extractStructMembers(extractAllTags(tokenResp.body, 'struct')[0] ?? '');
+  const uploadToken  = tokenMembers['token'];
+  const uploadUrl    = tokenMembers['url'];
+
+  if (!uploadToken || !uploadUrl) {
+    return { success: false, pushed: 0, message: 'Sippy did not return an upload token' };
+  }
+
+  console.log(`[pushRatesBulkXlsx] token=${uploadToken} rates=${rates.length} i_tariff=${iTariff}`);
+
+  // Upload XLSX file
+  const uploadResult = await uploadBinaryFile(uploadUrl, xlsxBuffer, 'rates.xlsx');
+  console.log(`[pushRatesBulkXlsx] upload: success=${uploadResult.success} body=${uploadResult.body.substring(0, 200)}`);
+
+  if (!uploadResult.success) {
+    return { success: false, pushed: 0, message: `XLSX upload failed: ${uploadResult.body}`, uploadToken };
+  }
+
+  // Poll for processing completion (max 30s)
+  let finalStatus = 'FILE_UPLOADED';
+  for (let poll = 1; poll <= 15; poll++) {
+    await new Promise(res => setTimeout(res, 2_000));
+    try {
+      const statusResp = await sippyPost(
+        apiUrl, xmlRpcCall('getUploadStatus', { token: uploadToken }), username, password, 8_000,
+      );
+      if (statusResp.statusCode === 200 && !statusResp.body.includes('faultCode')) {
+        const sm = extractStructMembers(extractAllTags(statusResp.body, 'struct')[0] ?? '');
+        if (sm['status']) finalStatus = sm['status'];
+      }
+    } catch { /* keep polling */ }
+    console.log(`[pushRatesBulkXlsx] poll #${poll}: status=${finalStatus}`);
+    if (finalStatus === 'DONE' || finalStatus === 'FAIL') break;
+  }
+
+  if (finalStatus === 'FAIL') {
+    return { success: false, pushed: 0, message: `Sippy upload processing FAIL for i_tariff=${iTariff}`, uploadToken };
+  }
+
+  return {
+    success: true,
+    pushed:  rates.length,
+    message: `Bulk upload ${finalStatus === 'DONE' ? 'DONE' : 'FILE_UPLOADED (getUploadStatus may be unsupported)'} — ${rates.length} rates for i_tariff=${iTariff}`,
+    uploadToken,
+  };
+}
+
 // ── Portal User Management ────────────────────────────────────────────────────
 
 export interface SippyPortalUser {
