@@ -30269,6 +30269,29 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // Named sub-routes MUST come before /:id to avoid being consumed as an id param
+  app.get('/api/tariff-versions/locked', async (req: any, res: any) => {
+    try {
+      const iTariff = (req.query.iTariff as string) || undefined;
+      const rows = await storage.listLockedTariffVersions(iTariff);
+      res.json(rows);
+    } catch (err: any) {
+      console.error('[tariff-versions/locked]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/tariff-versions/restore-audit', async (req: any, res: any) => {
+    try {
+      const iTariff = (req.query.iTariff as string) || undefined;
+      const rows = await storage.listTariffRestoreAudit(iTariff);
+      res.json(rows);
+    } catch (err: any) {
+      console.error('[tariff-versions/restore-audit]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/tariff-versions/:id', async (req: any, res: any) => {
     try {
       const id = Number(req.params.id);
@@ -30425,34 +30448,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   // ── P5 Restore Snapshot ───────────────────────────────────────────────────
   //
-  // GET  /api/tariff-versions/locked              — list locked versions (restore eligible)
-  // GET  /api/tariff-versions/restore-audit       — full audit log of restore operations
+  // GET  /api/tariff-versions/locked              — registered before /:id above
+  // GET  /api/tariff-versions/restore-audit       — registered before /:id above
   // POST /api/tariff-versions/:id/preview-restore — dry-run diff (no writes)
   // POST /api/tariff-versions/:id/restore         — governed execute
-
-  // GET /api/tariff-versions/locked
-  app.get('/api/tariff-versions/locked', async (req: any, res: any) => {
-    try {
-      const iTariff = (req.query.iTariff as string) || undefined;
-      const rows = await storage.listLockedTariffVersions(iTariff);
-      res.json(rows);
-    } catch (err: any) {
-      console.error('[tariff-versions/locked]', err.message);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // GET /api/tariff-versions/restore-audit
-  app.get('/api/tariff-versions/restore-audit', async (req: any, res: any) => {
-    try {
-      const iTariff = (req.query.iTariff as string) || undefined;
-      const rows = await storage.listTariffRestoreAudit(iTariff);
-      res.json(rows);
-    } catch (err: any) {
-      console.error('[tariff-versions/restore-audit]', err.message);
-      res.status(500).json({ error: err.message });
-    }
-  });
 
   // POST /api/tariff-versions/:id/preview-restore
   // Dry-run: compares snapshot rates against current live Sippy rates.
