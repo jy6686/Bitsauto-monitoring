@@ -824,12 +824,12 @@ export default function CarrierReconciliationPage() {
             </div>
             <div>
               <Label className="text-xs mb-1.5 block">Tariff (optional)</Label>
-              <Select value={form.iTariff} onValueChange={v => setForm(f => ({ ...f, iTariff: v }))}>
+              <Select value={form.iTariff || "__none__"} onValueChange={v => setForm(f => ({ ...f, iTariff: v === "__none__" ? "" : v }))}>
                 <SelectTrigger data-testid="select-recon-tariff">
                   <SelectValue placeholder="All tariffs" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All tariffs</SelectItem>
+                  <SelectItem value="__none__">All tariffs</SelectItem>
                   {tariffs.map(t => (
                     <SelectItem key={String(t.iTariff)} value={String(t.iTariff)}>{t.name}</SelectItem>
                   ))}
