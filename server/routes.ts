@@ -30527,6 +30527,57 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // GET /api/rating-verifications/export — download verification report (PDF / XLSX / CSV)
+  // Query: format=pdf|xlsx|csv, iTariff, status, severity, discrepancyType
+  app.get('/api/rating-verifications/export', async (req: any, res: any) => {
+    try {
+      const {
+        format = 'csv', iTariff, status, severity, discrepancyType,
+      } = req.query as Record<string, string>;
+
+      const opts = {
+        iTariff:         iTariff         || undefined,
+        status:          status          || undefined,
+        severity:        severity        || undefined,
+        discrepancyType: discrepancyType || undefined,
+      };
+
+      const { buildVerificationReportCSV, buildVerificationReportXLSX, buildVerificationReportPDF,
+              LARGE_EXPORT_THRESHOLD, storeTempFile } = await import('./services/billing/reconciliation-export');
+
+      if (format === 'pdf') {
+        const { buf, rowCount } = await buildVerificationReportPDF(opts);
+        const filename = `rating-verification-report-${new Date().toISOString().substring(0,10)}.pdf`;
+        if (rowCount > LARGE_EXPORT_THRESHOLD) {
+          const token = storeTempFile(buf, filename, 'application/pdf');
+          return res.json({ token, filename, rowCount });
+        }
+        res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="${filename}"` });
+        return res.send(buf);
+      }
+
+      if (format === 'xlsx') {
+        const { xlsx, rowCount } = await buildVerificationReportXLSX(opts);
+        const filename = `rating-verification-${new Date().toISOString().substring(0,10)}.xlsx`;
+        if (rowCount > LARGE_EXPORT_THRESHOLD) {
+          const token = storeTempFile(xlsx, filename, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+          return res.json({ token, filename, rowCount });
+        }
+        res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': `attachment; filename="${filename}"` });
+        return res.send(xlsx);
+      }
+
+      // Default: CSV
+      const { csv, rowCount } = await buildVerificationReportCSV(opts);
+      const filename = `rating-verification-${new Date().toISOString().substring(0,10)}.csv`;
+      res.set({ 'Content-Type': 'text/csv', 'Content-Disposition': `attachment; filename="${filename}"` });
+      return res.send(csv);
+    } catch (err: any) {
+      console.error('[rating-verifications/export]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Rating Snapshots (Layer 4C) ───────────────────────────────────────────
   // GET  /api/rating-snapshots             — list with filters
   // GET  /api/rating-snapshots/summary     — aggregated economics summary

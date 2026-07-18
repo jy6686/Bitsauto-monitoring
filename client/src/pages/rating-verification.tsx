@@ -19,9 +19,12 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   ShieldCheck, AlertTriangle, XCircle, CheckCircle2,
   RefreshCw, Play, FileSearch, Info, TrendingDown,
-  DollarSign, Zap, ThumbsUp,
+  DollarSign, Zap, ThumbsUp, Download, FileText, FileSpreadsheet,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -226,6 +229,38 @@ export default function RatingVerificationPage() {
     ? Math.round((summary.exact / summary.total) * 100)
     : null;
 
+  const exportVerif = async (format: 'csv' | 'xlsx' | 'pdf') => {
+    try {
+      const params = new URLSearchParams({ format });
+      if (selectedTariff !== "__all__") params.set("iTariff", selectedTariff);
+      if (filterType !== "all")     params.set("discrepancyType", filterType);
+      if (filterSeverity !== "all") params.set("severity", filterSeverity);
+
+      const res = await fetch(`/api/rating-verifications/export?${params}`);
+      if (!res.ok) throw new Error(await res.text());
+
+      const ct = res.headers.get("content-type") ?? "";
+      if (ct.includes("application/json")) {
+        // Large export — use temp token
+        const { token, filename } = await res.json();
+        const dl = await fetch(`/api/billing/reconciliation/export/download/${token}`);
+        const blob = await dl.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
+        URL.revokeObjectURL(url);
+      } else {
+        const blob = await res.blob();
+        const cd = res.headers.get("content-disposition") ?? "";
+        const filename = cd.match(/filename="([^"]+)"/)?.[1] ?? `rating-verification.${format}`;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (err: any) {
+      toast({ title: "Export failed", description: err.message, variant: "destructive" });
+    }
+  };
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* Header */}
@@ -254,6 +289,28 @@ export default function RatingVerificationPage() {
               ))}
             </SelectContent>
           </Select>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => exportVerif("csv")}>
+                <FileText className="h-4 w-4 mr-2" />
+                CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportVerif("xlsx")}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                Excel (.xlsx)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => exportVerif("pdf")}>
+                <FileText className="h-4 w-4 mr-2" />
+                PDF
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button
             data-testid="button-run-batch"
             onClick={() => batchMutation.mutate({ iTariff: selectedTariff !== "__all__" ? selectedTariff : undefined, limit: 500 })}
