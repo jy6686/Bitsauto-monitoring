@@ -151,7 +151,7 @@ export default function RatingVerificationPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [selectedTariff, setSelectedTariff] = useState<string>("");
+  const [selectedTariff, setSelectedTariff] = useState<string>("__all__");
   const [filterType, setFilterType]         = useState<string>("all");
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
   const [detailId, setDetailId]             = useState<number | null>(null);
@@ -163,7 +163,7 @@ export default function RatingVerificationPage() {
 
   const { data: summary } = useQuery<DiscrepancySummary>({
     queryKey: ["/api/rating-verifications/summary", selectedTariff],
-    queryFn: () => apiRequest("GET", `/api/rating-verifications/summary${selectedTariff ? `?iTariff=${selectedTariff}` : ""}`).then(r => r.json()),
+    queryFn: () => apiRequest("GET", `/api/rating-verifications/summary${selectedTariff !== "__all__" ? `?iTariff=${selectedTariff}` : ""}`).then(r => r.json()),
     refetchInterval: 30000,
   });
 
@@ -171,7 +171,7 @@ export default function RatingVerificationPage() {
     queryKey: ["/api/rating-verifications", selectedTariff, filterType, filterSeverity],
     queryFn: () => {
       const params = new URLSearchParams();
-      if (selectedTariff) params.set("iTariff", selectedTariff);
+      if (selectedTariff !== "__all__") params.set("iTariff", selectedTariff);
       if (filterType !== "all") params.set("discrepancyType", filterType);
       if (filterSeverity !== "all") params.set("severity", filterSeverity);
       params.set("limit", "200");
@@ -225,7 +225,7 @@ export default function RatingVerificationPage() {
               <SelectValue placeholder={loadingTariffs ? "Loading…" : "All tariffs"} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All tariffs</SelectItem>
+              <SelectItem value="__all__">All tariffs</SelectItem>
               {tariffs.map(t => (
                 <SelectItem key={String(t.iTariff)} value={String(t.iTariff)}>
                   {t.name}
@@ -235,7 +235,7 @@ export default function RatingVerificationPage() {
           </Select>
           <Button
             data-testid="button-run-batch"
-            onClick={() => batchMutation.mutate({ iTariff: selectedTariff, limit: 500 })}
+            onClick={() => batchMutation.mutate({ iTariff: selectedTariff !== "__all__" ? selectedTariff : undefined, limit: 500 })}
             disabled={batchMutation.isPending}
           >
             <Play className={`h-4 w-4 mr-2 ${batchMutation.isPending ? "animate-pulse" : ""}`} />

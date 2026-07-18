@@ -127,7 +127,7 @@ export default function RatingSnapshotsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const [selectedTariff, setSelectedTariff] = useState<string>("");
+  const [selectedTariff, setSelectedTariff] = useState<string>("__all__");
   const [filterStatus, setFilterStatus]     = useState<string>("all");
   const [detailId, setDetailId]             = useState<number | null>(null);
   const [batchResult, setBatchResult]       = useState<LockBatchResult | null>(null);
@@ -140,7 +140,7 @@ export default function RatingSnapshotsPage() {
   const { data: summary } = useQuery<SnapshotSummary>({
     queryKey: ["/api/rating-snapshots/summary", selectedTariff],
     queryFn: () =>
-      apiRequest("GET", `/api/rating-snapshots/summary${selectedTariff ? `?iTariff=${selectedTariff}` : ""}`).then(r => r.json()),
+      apiRequest("GET", `/api/rating-snapshots/summary${selectedTariff !== "__all__" ? `?iTariff=${selectedTariff}` : ""}`).then(r => r.json()),
     refetchInterval: 30000,
   });
 
@@ -148,7 +148,7 @@ export default function RatingSnapshotsPage() {
     queryKey: ["/api/rating-snapshots", selectedTariff, filterStatus],
     queryFn: () => {
       const params = new URLSearchParams();
-      if (selectedTariff) params.set("iTariff", selectedTariff);
+      if (selectedTariff !== "__all__") params.set("iTariff", selectedTariff);
       if (filterStatus !== "all") params.set("verificationStatus", filterStatus);
       params.set("limit", "200");
       return apiRequest("GET", `/api/rating-snapshots?${params}`).then(r => r.json());
@@ -219,7 +219,7 @@ export default function RatingSnapshotsPage() {
               <SelectValue placeholder={loadingTariffs ? "Loading…" : "All tariffs"} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All tariffs</SelectItem>
+              <SelectItem value="__all__">All tariffs</SelectItem>
               {tariffs.map(t => (
                 <SelectItem key={String(t.iTariff)} value={String(t.iTariff)}>
                   {t.name}
@@ -229,7 +229,7 @@ export default function RatingSnapshotsPage() {
           </Select>
           <Button
             data-testid="button-lock-batch"
-            onClick={() => lockMutation.mutate({ iTariff: selectedTariff || undefined, limit: 1000 })}
+            onClick={() => lockMutation.mutate({ iTariff: selectedTariff !== "__all__" ? selectedTariff : undefined, limit: 1000 })}
             disabled={lockMutation.isPending || auditMutation.isPending}
           >
             <Lock className={`h-4 w-4 mr-2 ${lockMutation.isPending ? "animate-pulse" : ""}`} />
@@ -238,7 +238,7 @@ export default function RatingSnapshotsPage() {
           <Button
             data-testid="button-audit"
             variant="outline"
-            onClick={() => auditMutation.mutate({ iTariff: selectedTariff || undefined, limit: 500 })}
+            onClick={() => auditMutation.mutate({ iTariff: selectedTariff !== "__all__" ? selectedTariff : undefined, limit: 500 })}
             disabled={lockMutation.isPending || auditMutation.isPending}
           >
             <Fingerprint className={`h-4 w-4 mr-2 ${auditMutation.isPending ? "animate-pulse" : ""}`} />
