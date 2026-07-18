@@ -20,12 +20,15 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  Tabs, TabsContent, TabsList, TabsTrigger,
+} from "@/components/ui/tabs";
+import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
   ArrowRightLeft, Play, AlertTriangle, CheckCircle2, TrendingDown,
   Eye, DollarSign, ShieldAlert, Info, Download, FileText, Loader2, FileSpreadsheet, Mail, History,
-  Calendar, Clock, Trash2, Plus, ToggleLeft, ToggleRight, Send, Pencil,
+  Calendar, Clock, Trash2, Plus, ToggleLeft, ToggleRight, Send, Pencil, Search,
 } from "lucide-react";
 
 interface CarrierReconciliation {
@@ -59,6 +62,30 @@ interface ReconciliationResult {
     snapshotCount:            number;
     recommendations:          string[];
   };
+}
+
+interface DrillRow {
+  id:             number;
+  cdrId?:         string | null;
+  cdrStartTime?:  string | null;
+  callee?:        string | null;
+  caller?:        string | null;
+  reproducedCost: number;
+  actualCost:     number;
+  delta:          number;
+  status:         'matched' | 'cost_drift' | 'missing_cdr';
+}
+
+interface DrillData {
+  reconciliation: CarrierReconciliation;
+  summary: {
+    total:      number;
+    matched:    number;
+    costDrift:  number;
+    missingCdr: number;
+    totalDelta: number;
+  };
+  rows: DrillRow[];
 }
 
 interface SippyTariff { iTariff: string | number; name: string; }
@@ -148,6 +175,7 @@ export default function CarrierReconciliationPage() {
 
   const [showForm, setShowForm]       = useState(false);
   const [detailId, setDetailId]       = useState<number | null>(null);
+  const [drillId, setDrillId]         = useState<number | null>(null);
   const [lastResult, setLastResult]   = useState<ReconciliationResult | null>(null);
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterTariff, setFilterTariff] = useState("");
@@ -278,6 +306,12 @@ export default function CarrierReconciliationPage() {
     queryKey: ["/api/carrier-reconciliations", detailId],
     queryFn: () => apiRequest("GET", `/api/carrier-reconciliations/${detailId}`).then(r => r.json()),
     enabled: detailId != null,
+  });
+
+  const { data: drillData, isFetching: drillLoading } = useQuery<DrillData>({
+    queryKey: ["/api/carrier-reconciliations", drillId, "rows"],
+    queryFn: () => apiRequest("GET", `/api/carrier-reconciliations/${drillId}/rows`).then(r => r.json()),
+    enabled: drillId != null,
   });
 
   const runMutation = useMutation({
@@ -649,6 +683,7 @@ export default function CarrierReconciliationPage() {
                     <TableHead>Type</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Date</TableHead>
+                    <TableHead />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -682,6 +717,18 @@ export default function CarrierReconciliationPage() {
                       <TableCell><StatusBadge status={r.status} /></TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {new Date(r.createdAt).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={e => { e.stopPropagation(); setDrillId(r.id); }}
+                          title="Variance drill-down"
+                        >
+                          <Search className="h-3 w-3 mr-1" />
+                          Drill Down
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -1204,6 +1251,134 @@ export default function CarrierReconciliationPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Variance Drill-down dialog */}
+      <Dialog open={drillId != null} onOpenChange={open => !open && setDrillId(null)}>
+        <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Search className="h-4 w-4" />
+              Variance Drill-Down
+              {drillData && (
+                <span className="text-muted-foreground font-normal text-sm">
+                  — {drillData.reconciliation.carrierName} · {drillData.reconciliation.periodStart} → {drillData.reconciliation.periodEnd}
+                </span>
+              )}
+            </DialogTitle>
+            {drillData && (
+              <DialogDescription>
+                {drillData.summary.total} CDR snapshots · Total |Δ| ${drillData.summary.totalDelta.toFixed(6)}
+              </DialogDescription>
+            )}
+          </DialogHeader>
+
+          {drillLoading ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <Loader2 className="h-6 w-6 mx-auto mb-2 animate-spin opacity-50" />
+              Loading CDR rows…
+            </div>
+          ) : drillData ? (
+            <>
+              {/* Summary bar */}
+              <div className="grid grid-cols-4 gap-3 my-2">
+                <div className="rounded-lg border bg-slate-500/5 border-slate-500/20 p-3 text-center">
+                  <p className="text-2xl font-bold font-mono">{drillData.summary.total}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Total CDRs</p>
+                </div>
+                <div className="rounded-lg border bg-emerald-500/5 border-emerald-500/20 p-3 text-center">
+                  <p className="text-2xl font-bold text-emerald-400 font-mono">{drillData.summary.matched}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Matched</p>
+                </div>
+                <div className="rounded-lg border bg-amber-500/5 border-amber-500/20 p-3 text-center">
+                  <p className="text-2xl font-bold text-amber-400 font-mono">{drillData.summary.costDrift}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Cost Drift</p>
+                </div>
+                <div className="rounded-lg border bg-red-500/5 border-red-500/20 p-3 text-center">
+                  <p className="text-2xl font-bold text-red-400 font-mono">{drillData.summary.missingCdr}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Missing CDR ID</p>
+                </div>
+              </div>
+
+              {drillData.summary.total === 0 ? (
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                  No CDR snapshots found for this period and tariff.
+                </div>
+              ) : (
+                <Tabs defaultValue={drillData.summary.costDrift > 0 ? "drift" : "all"}>
+                  <TabsList>
+                    <TabsTrigger value="all">All ({drillData.summary.total})</TabsTrigger>
+                    <TabsTrigger value="drift">Cost Drift ({drillData.summary.costDrift})</TabsTrigger>
+                    <TabsTrigger value="missing">Missing CDR ({drillData.summary.missingCdr})</TabsTrigger>
+                  </TabsList>
+
+                  {(["all", "drift", "missing"] as const).map(tab => {
+                    const filtered = tab === "all"     ? drillData.rows
+                                   : tab === "drift"   ? drillData.rows.filter(r => r.status === "cost_drift")
+                                   : drillData.rows.filter(r => r.status === "missing_cdr");
+                    return (
+                      <TabsContent key={tab} value={tab}>
+                        <div className="max-h-96 overflow-y-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="text-xs">Snapshot</TableHead>
+                                <TableHead className="text-xs">CDR ID</TableHead>
+                                <TableHead className="text-xs">Start Time</TableHead>
+                                <TableHead className="text-xs">From → To</TableHead>
+                                <TableHead className="text-xs">Reproduced</TableHead>
+                                <TableHead className="text-xs">Actual (Sippy)</TableHead>
+                                <TableHead className="text-xs">Δ</TableHead>
+                                <TableHead className="text-xs">Status</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {filtered.map(row => (
+                                <TableRow key={row.id}>
+                                  <TableCell className="font-mono text-xs text-muted-foreground">#{row.id}</TableCell>
+                                  <TableCell className="font-mono text-xs max-w-[100px] truncate">{row.cdrId ?? "—"}</TableCell>
+                                  <TableCell className="text-xs text-muted-foreground">
+                                    {row.cdrStartTime ? new Date(row.cdrStartTime).toLocaleString() : "—"}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-muted-foreground max-w-[140px] truncate">
+                                    {row.caller ?? "—"} → {row.callee ?? "—"}
+                                  </TableCell>
+                                  <TableCell className="font-mono text-xs">${row.reproducedCost.toFixed(6)}</TableCell>
+                                  <TableCell className="font-mono text-xs">${row.actualCost.toFixed(6)}</TableCell>
+                                  <TableCell className="font-mono text-xs">
+                                    <span className={
+                                      Math.abs(row.delta) < 0.0001 ? "text-emerald-400"
+                                      : Math.abs(row.delta) < 0.01  ? "text-amber-400"
+                                      : "text-red-400"
+                                    }>
+                                      {row.delta > 0 ? "+" : ""}{row.delta.toFixed(6)}
+                                    </span>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-xs capitalize ${
+                                        row.status === "matched"     ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+                                        : row.status === "cost_drift"  ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                                        : "bg-red-500/15 text-red-400 border-red-500/30"
+                                      }`}
+                                    >
+                                      {row.status.replace(/_/g, " ")}
+                                    </Badge>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </TabsContent>
+                    );
+                  })}
+                </Tabs>
+              )}
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       {/* Add schedule prompt when none exist */}
       {!schedulesLoading && schedules.length === 0 && (
         <div className="flex items-center justify-between p-4 rounded-lg border border-dashed border-violet-500/30 bg-violet-500/5">

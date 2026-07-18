@@ -31649,6 +31649,65 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // GET /api/carrier-reconciliations/:id/rows — per-CDR variance drill-down
+  // Loads invoice_cdr_snapshots for the reconciliation period/tariff and returns
+  // per-row cost comparison (reproducedCost vs actualCost), sorted by |delta| desc.
+  app.get('/api/carrier-reconciliations/:id/rows', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const recon = await storage.getCarrierReconciliation(id);
+      if (!recon) return res.status(404).json({ error: 'Not found' });
+
+      const snapshots = await storage.listInvoiceCdrSnapshots({
+        iTariff: recon.iTariff ?? undefined,
+        limit: 10000,
+      });
+
+      const periodStart = recon.periodStart ?? '1970-01-01';
+      const periodEnd   = recon.periodEnd   ?? '9999-12-31';
+
+      const inPeriod = snapshots.filter(s => {
+        if (!s.cdrStartTime) return false;
+        const d = String(s.cdrStartTime).slice(0, 10);
+        return d >= periodStart && d <= periodEnd;
+      });
+
+      const rows = inPeriod.map(s => {
+        const reproduced = Number(s.reproducedCost ?? 0);
+        const actual     = Number(s.actualCost ?? 0);
+        const delta      = +(actual - reproduced).toFixed(6);
+        const status: string = !s.cdrId         ? 'missing_cdr'
+                             : Math.abs(delta) > 0.0001 ? 'cost_drift'
+                             : 'matched';
+        return {
+          id:             s.id,
+          cdrId:          s.cdrId,
+          cdrStartTime:   s.cdrStartTime,
+          callee:         (s as any).callee  ?? null,
+          caller:         (s as any).caller  ?? null,
+          reproducedCost: reproduced,
+          actualCost:     actual,
+          delta,
+          status,
+        };
+      }).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+      const summary = {
+        total:       rows.length,
+        matched:     rows.filter(r => r.status === 'matched').length,
+        costDrift:   rows.filter(r => r.status === 'cost_drift').length,
+        missingCdr:  rows.filter(r => r.status === 'missing_cdr').length,
+        totalDelta:  +rows.reduce((s, r) => s + Math.abs(r.delta), 0).toFixed(6),
+      };
+
+      res.json({ reconciliation: recon, summary, rows });
+    } catch (err: any) {
+      console.error('[carrier-reconciliations/rows]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Billing Reconciliation Export ─────────────────────────────────────────────
   // GET /api/billing/reconciliation/export/csv    — CDR snapshot CSV (scoped to filters)
   // GET /api/billing/reconciliation/export/csv-summary — reconciliation summary CSV
