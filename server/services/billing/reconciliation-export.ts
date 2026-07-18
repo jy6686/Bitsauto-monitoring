@@ -788,3 +788,150 @@ export async function buildClientReconXLSX(opts: Parameters<typeof buildClientRe
 
   return { xlsx: buildXLSXBuffer([{ name: 'Client Reconciliation', headers, rows: dataRows }]), rowCount: rows.length };
 }
+
+// ── Rating Verification Report — CSV / XLSX / PDF ─────────────────────────────
+//
+// Exports the full rating verification dataset for finance review.
+// Fields: ID, CDR Call ID, Start Time, Prefix, Destination, Tariff ID,
+//         Duration, Billed, Sippy Cost, Reproduced Cost, Delta, Delta %,
+//         Discrepancy Type, Severity, Status, Notes, Snapshot Ref, Created, Verified At
+
+const VERIF_HEADERS = [
+  'ID', 'CDR Call ID', 'Start Time', 'Prefix', 'Destination',
+  'Tariff ID', 'Duration (s)', 'Billed (s)',
+  'Sippy Cost', 'Reproduced Cost', 'Delta', 'Delta %',
+  'Discrepancy Type', 'Severity', 'Status',
+  'Notes', 'Tariff Version (Snapshot)', 'Created At', 'Verified At',
+];
+
+function verifRow(r: any): (string | number)[] {
+  return [
+    r.id,
+    r.cdrCallId   ?? '',
+    r.cdrStartTime ?? '',
+    r.prefix      ?? '',
+    r.destination ?? '',
+    r.iTariff     ?? '',
+    r.durationSecs ?? '',
+    r.billedSecs  ?? '',
+    r.sippyActualCost != null ? +r.sippyActualCost.toFixed(8) : '',
+    r.reproducedCost  != null ? +r.reproducedCost.toFixed(8)  : '',
+    r.deltaAmount     != null ? +r.deltaAmount.toFixed(8)      : '',
+    r.deltaPct        != null ? +r.deltaPct.toFixed(4)         : '',
+    r.discrepancyType,
+    r.severity,
+    r.verificationStatus,
+    r.notes        ?? '',
+    r.tariffVersionId ?? '',
+    r.createdAt    ? new Date(r.createdAt).toISOString()  : '',
+    r.verifiedAt   ? new Date(r.verifiedAt).toISOString() : '',
+  ];
+}
+
+export async function buildVerificationReportCSV(opts: {
+  iTariff?:            string;
+  status?:             string;
+  severity?:           string;
+  discrepancyType?:    string;
+  limit?:              number;
+}): Promise<{ csv: string; rowCount: number }> {
+  const rows = await storage.listRatingVerifications({
+    iTariff:          opts.iTariff      || undefined,
+    verificationStatus: opts.status && opts.status !== 'all'          ? opts.status          : undefined,
+    severity:         opts.severity     && opts.severity !== 'all'    ? opts.severity        : undefined,
+    discrepancyType:  opts.discrepancyType && opts.discrepancyType !== 'all' ? opts.discrepancyType : undefined,
+    limit:            opts.limit ?? 50000,
+  });
+
+  const escape = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const lines  = [VERIF_HEADERS.map(escape).join(',')];
+  for (const r of rows) lines.push(verifRow(r).map(escape).join(','));
+
+  return { csv: lines.join('\r\n'), rowCount: rows.length };
+}
+
+export async function buildVerificationReportXLSX(opts: Parameters<typeof buildVerificationReportCSV>[0]): Promise<{ xlsx: Buffer; rowCount: number }> {
+  const rows = await storage.listRatingVerifications({
+    iTariff:          opts.iTariff      || undefined,
+    verificationStatus: opts.status && opts.status !== 'all'          ? opts.status          : undefined,
+    severity:         opts.severity     && opts.severity !== 'all'    ? opts.severity        : undefined,
+    discrepancyType:  opts.discrepancyType && opts.discrepancyType !== 'all' ? opts.discrepancyType : undefined,
+    limit:            opts.limit ?? 50000,
+  });
+
+  return {
+    xlsx: buildXLSXBuffer([{ name: 'Rating Verification', headers: VERIF_HEADERS, rows: rows.map(verifRow) }]),
+    rowCount: rows.length,
+  };
+}
+
+export async function buildVerificationReportPDF(opts: Parameters<typeof buildVerificationReportCSV>[0]): Promise<{ buf: Buffer; rowCount: number }> {
+  const rows = await storage.listRatingVerifications({
+    iTariff:          opts.iTariff      || undefined,
+    verificationStatus: opts.status && opts.status !== 'all'          ? opts.status          : undefined,
+    severity:         opts.severity     && opts.severity !== 'all'    ? opts.severity        : undefined,
+    discrepancyType:  opts.discrepancyType && opts.discrepancyType !== 'all' ? opts.discrepancyType : undefined,
+    limit:            opts.limit ?? 50000,
+  });
+
+  const total       = rows.length;
+  const approved    = rows.filter(r => r.verificationStatus === 'approved').length;
+  const verified    = rows.filter(r => r.verificationStatus === 'verified').length;
+  const discrepant  = rows.filter(r => !['verified','approved','pending'].includes(r.verificationStatus)).length;
+  const totalDelta  = rows.reduce((s, r) => s + Math.abs(r.deltaAmount ?? 0), 0);
+
+  const summaryItems: [string, string][] = [
+    ['Total Records',  total.toLocaleString()],
+    ['Approved',       approved.toLocaleString()],
+    ['Verified',       verified.toLocaleString()],
+    ['Discrepancies',  discrepant.toLocaleString()],
+    ['Total |Delta|',  `$${totalDelta.toFixed(4)}`],
+    ['Generated',      new Date().toUTCString()],
+  ];
+
+  const colWidths = [30, 90, 80, 50, 70, 55, 55, 65, 65, 70, 70, 70, 65, 60, 65, 80, 55];
+  const tableHeaders = [
+    'ID', 'CDR Call ID', 'Start Time', 'Prefix',
+    'Tariff', 'Duration', 'Billed',
+    'Sippy Cost', 'Reproduced', 'Delta', 'Delta %',
+    'Discrepancy', 'Severity', 'Status',
+    'Notes', 'Snapshot', 'Created At',
+  ];
+  const tableRows = rows.map(r => [
+    String(r.id),
+    r.cdrCallId    ?? '—',
+    r.cdrStartTime ?? '—',
+    r.prefix       ?? '—',
+    r.iTariff      ?? '—',
+    r.durationSecs != null ? `${r.durationSecs}s` : '—',
+    r.billedSecs   != null ? `${r.billedSecs}s`   : '—',
+    r.sippyActualCost != null ? `$${r.sippyActualCost.toFixed(6)}` : '—',
+    r.reproducedCost  != null ? `$${r.reproducedCost.toFixed(6)}`  : '—',
+    r.deltaAmount     != null ? `${r.deltaAmount > 0 ? '+' : ''}${r.deltaAmount.toFixed(6)}` : '—',
+    r.deltaPct        != null ? `${r.deltaPct.toFixed(2)}%`        : '—',
+    r.discrepancyType ?? '—',
+    r.severity        ?? '—',
+    r.verificationStatus,
+    r.notes           ? r.notes.substring(0, 40) : '—',
+    r.tariffVersionId != null ? `#${r.tariffVersionId}` : '—',
+    r.createdAt ? new Date(r.createdAt).toISOString().substring(0, 19).replace('T', ' ') : '—',
+  ]);
+
+  const analysisLines: string[] = [];
+  const byType: Record<string, number> = {};
+  for (const r of rows) byType[r.discrepancyType] = (byType[r.discrepancyType] ?? 0) + 1;
+  for (const [type, count] of Object.entries(byType).sort((a, b) => b[1] - a[1]).slice(0, 6)) {
+    analysisLines.push(`${type.replace(/_/g, ' ')}: ${count} record(s)`);
+  }
+
+  const buf = await buildPdfBuffer(
+    'Rating Verification Report',
+    `BitsAuto Finance · ${opts.iTariff ? `Tariff ${opts.iTariff}` : 'All Tariffs'} · ${opts.status && opts.status !== 'all' ? opts.status : 'All Statuses'}`,
+    summaryItems,
+    tableHeaders,
+    tableRows,
+    colWidths,
+    analysisLines,
+  );
+  return { buf, rowCount: total };
+}
