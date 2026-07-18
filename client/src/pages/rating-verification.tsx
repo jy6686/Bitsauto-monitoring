@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -20,7 +21,7 @@ import {
 import {
   ShieldCheck, AlertTriangle, XCircle, CheckCircle2,
   RefreshCw, Play, FileSearch, Info, TrendingDown,
-  DollarSign, Zap,
+  DollarSign, Zap, ThumbsUp,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -110,6 +111,7 @@ function SeverityBadge({ severity }: { severity: string }) {
 
 function StatusBadge({ status }: { status: string }) {
   const cfg: Record<string, string> = {
+    approved: "bg-violet-500/15 text-violet-400 border-violet-500/30",
     verified: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
     pending:  "bg-blue-500/15 text-blue-400 border-blue-500/30",
     disputed: "bg-red-500/15 text-red-400 border-red-500/30",
@@ -156,6 +158,7 @@ export default function RatingVerificationPage() {
   const [filterSeverity, setFilterSeverity] = useState<string>("all");
   const [detailId, setDetailId]             = useState<number | null>(null);
   const [batchResult, setBatchResult]       = useState<BatchResult | null>(null);
+  const [selectedIds, setSelectedIds]       = useState<Set<number>>(new Set());
 
   const { data: tariffs = [], isLoading: loadingTariffs } = useQuery<SippyTariff[]>({
     queryKey: ["/api/sippy/tariffs"],
@@ -186,7 +189,7 @@ export default function RatingVerificationPage() {
   });
 
   const batchMutation = useMutation({
-    mutationFn: (opts: { iTariff: string; limit: number }) =>
+    mutationFn: (opts: { iTariff?: string; limit: number }) =>
       apiRequest("POST", "/api/rating-verifications/run-batch", opts).then(r => r.json()),
     onSuccess: (data: BatchResult) => {
       setBatchResult(data);
@@ -199,6 +202,24 @@ export default function RatingVerificationPage() {
     onError: (err: any) => {
       toast({ title: "Batch failed", description: err.message, variant: "destructive" });
     },
+  });
+
+  const bulkApproveMutation = useMutation({
+    mutationFn: (body: { ids?: number[]; statusFilter?: string; newStatus: string; notes?: string }) =>
+      apiRequest("POST", "/api/rating-verifications/bulk-status", body).then(r => r.json()),
+    onSuccess: (data: { updated: number[]; failed: Array<{ id: number; error: string }> }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/rating-verifications"] });
+      setSelectedIds(new Set());
+      const failCount = data.failed.length;
+      toast({
+        title: `${data.updated.length} verification(s) approved`,
+        description: failCount > 0
+          ? `${failCount} failed — check individual records`
+          : "All approvals recorded successfully",
+        variant: failCount > 0 ? "destructive" : "default",
+      });
+    },
+    onError: (err: any) => toast({ title: "Approval failed", description: err.message, variant: "destructive" }),
   });
 
   const matchPct = summary && summary.total > 0
@@ -339,7 +360,40 @@ export default function RatingVerificationPage() {
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <CardTitle className="text-base">Verification Results</CardTitle>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap items-center">
+              {/* Batch approval toolbar */}
+              {selectedIds.size > 0 && (
+                <div className="flex items-center gap-2 border-r pr-2 mr-1">
+                  <span className="text-xs text-muted-foreground">{selectedIds.size} selected</span>
+                  <Button
+                    size="sm"
+                    className="h-7 text-xs"
+                    disabled={bulkApproveMutation.isPending}
+                    onClick={() => bulkApproveMutation.mutate({ ids: [...selectedIds], newStatus: "approved" })}
+                  >
+                    <ThumbsUp className="h-3 w-3 mr-1" />
+                    Approve Selected
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 text-xs"
+                    onClick={() => setSelectedIds(new Set())}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                disabled={bulkApproveMutation.isPending}
+                onClick={() => bulkApproveMutation.mutate({ statusFilter: "verified", newStatus: "approved" })}
+              >
+                <ThumbsUp className="h-3 w-3 mr-1" />
+                {bulkApproveMutation.isPending ? "Approving…" : "Approve All Verified"}
+              </Button>
               <Select value={filterType} onValueChange={setFilterType}>
                 <SelectTrigger data-testid="select-filter-type" className="w-44 h-8 text-xs">
                   <SelectValue placeholder="All types" />
@@ -366,6 +420,7 @@ export default function RatingVerificationPage() {
           </div>
           <CardDescription className="text-xs">
             {verifications.length} result(s) shown
+            {selectedIds.size > 0 && ` · ${selectedIds.size} selected`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -382,6 +437,16 @@ export default function RatingVerificationPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={verifications.length > 0 && verifications.every(v => selectedIds.has(v.id))}
+                        onCheckedChange={checked => {
+                          if (checked) setSelectedIds(new Set(verifications.map(v => v.id)));
+                          else setSelectedIds(new Set());
+                        }}
+                        aria-label="Select all"
+                      />
+                    </TableHead>
                     <TableHead>Call ID</TableHead>
                     <TableHead>Prefix</TableHead>
                     <TableHead>Duration</TableHead>
@@ -398,30 +463,43 @@ export default function RatingVerificationPage() {
                     <TableRow
                       key={v.id}
                       data-testid={`row-verification-${v.id}`}
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => setDetailId(v.id)}
+                      className={`hover:bg-muted/50 ${selectedIds.has(v.id) ? "bg-muted/30" : ""}`}
                     >
-                      <TableCell className="font-mono text-xs text-muted-foreground max-w-[100px] truncate">
+                      <TableCell onClick={e => e.stopPropagation()}>
+                        <Checkbox
+                          checked={selectedIds.has(v.id)}
+                          onCheckedChange={checked => {
+                            const next = new Set(selectedIds);
+                            if (checked) next.add(v.id); else next.delete(v.id);
+                            setSelectedIds(next);
+                          }}
+                          aria-label={`Select verification ${v.id}`}
+                        />
+                      </TableCell>
+                      <TableCell
+                        className="font-mono text-xs text-muted-foreground max-w-[100px] truncate cursor-pointer"
+                        onClick={() => setDetailId(v.id)}
+                      >
                         {v.cdrCallId ?? "—"}
                       </TableCell>
-                      <TableCell className="font-mono text-sm">{v.prefix ?? "—"}</TableCell>
-                      <TableCell className="text-sm">{v.durationSecs != null ? `${v.durationSecs}s` : "—"}</TableCell>
-                      <TableCell className="font-mono text-sm">
+                      <TableCell className="font-mono text-sm cursor-pointer" onClick={() => setDetailId(v.id)}>{v.prefix ?? "—"}</TableCell>
+                      <TableCell className="text-sm cursor-pointer" onClick={() => setDetailId(v.id)}>{v.durationSecs != null ? `${v.durationSecs}s` : "—"}</TableCell>
+                      <TableCell className="font-mono text-sm cursor-pointer" onClick={() => setDetailId(v.id)}>
                         {v.sippyActualCost != null ? `$${v.sippyActualCost.toFixed(6)}` : "—"}
                       </TableCell>
-                      <TableCell className="font-mono text-sm">
+                      <TableCell className="font-mono text-sm cursor-pointer" onClick={() => setDetailId(v.id)}>
                         {v.reproducedCost != null ? `$${v.reproducedCost.toFixed(6)}` : "—"}
                       </TableCell>
-                      <TableCell className="font-mono text-sm">
+                      <TableCell className="font-mono text-sm cursor-pointer" onClick={() => setDetailId(v.id)}>
                         {v.deltaAmount != null ? (
                           <span className={v.deltaAmount > 0.0001 ? "text-red-400" : v.deltaAmount < -0.0001 ? "text-amber-400" : "text-emerald-400"}>
                             {v.deltaAmount > 0 ? "+" : ""}{v.deltaAmount.toFixed(6)}
                           </span>
                         ) : "—"}
                       </TableCell>
-                      <TableCell><DiscrepancyBadge type={v.discrepancyType} /></TableCell>
-                      <TableCell><SeverityBadge severity={v.severity} /></TableCell>
-                      <TableCell><StatusBadge status={v.verificationStatus} /></TableCell>
+                      <TableCell className="cursor-pointer" onClick={() => setDetailId(v.id)}><DiscrepancyBadge type={v.discrepancyType} /></TableCell>
+                      <TableCell className="cursor-pointer" onClick={() => setDetailId(v.id)}><SeverityBadge severity={v.severity} /></TableCell>
+                      <TableCell className="cursor-pointer" onClick={() => setDetailId(v.id)}><StatusBadge status={v.verificationStatus} /></TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
