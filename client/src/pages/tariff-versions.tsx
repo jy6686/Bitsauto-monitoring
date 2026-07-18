@@ -22,7 +22,7 @@ import {
 import {
   GitBranch, Camera, Clock, TrendingDown, TrendingUp,
   Minus, Plus, ArrowRightLeft, RefreshCw, ChevronRight,
-  FileText, Activity,
+  FileText, Activity, Scale,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -61,6 +61,36 @@ interface VersionDetail {
   version:      TariffVersion | null;
   changeEvents: TariffChangeEvent[];
   rates:        any[];
+}
+
+interface CompareDelta {
+  before: number;
+  after:  number;
+}
+
+interface CompareChangedRow {
+  prefix:  string;
+  before:  any;
+  after:   any;
+  deltas:  Record<string, CompareDelta>;
+}
+
+interface CompareResult {
+  snapshotId:        number;
+  iTariff:           string;
+  tariffName?:       string;
+  snapshotAt:        string;
+  rateCountSnapshot: number;
+  rateCountLive:     number;
+  summary: {
+    added:   number;
+    removed: number;
+    changed: number;
+    total:   number;
+  };
+  added:   any[];
+  removed: any[];
+  changed: CompareChangedRow[];
 }
 
 interface SippyTariff {
@@ -126,6 +156,7 @@ export default function TariffVersionsPage() {
 
   const [selectedTariff, setSelectedTariff] = useState<string>("");
   const [detailVersionId, setDetailVersionId] = useState<number | null>(null);
+  const [compareLiveId, setCompareLiveId] = useState<number | null>(null);
 
   // Load available tariffs from Sippy
   const { data: tariffs = [], isLoading: loadingTariffs } = useQuery<SippyTariff[]>({
@@ -146,6 +177,13 @@ export default function TariffVersionsPage() {
     queryKey: ["/api/tariff-versions", detailVersionId, "detail"],
     queryFn: () => apiRequest("GET", `/api/tariff-versions/${detailVersionId}`).then(r => r.json()),
     enabled: detailVersionId != null,
+  });
+
+  // Compare snapshot vs live Sippy rates (non-destructive)
+  const { data: compareData, isFetching: compareLoading } = useQuery<CompareResult>({
+    queryKey: ["/api/tariff-versions", compareLiveId, "compare-live"],
+    queryFn: () => apiRequest("GET", `/api/tariff-versions/${compareLiveId}/compare-live`).then(r => r.json()),
+    enabled: compareLiveId != null,
   });
 
   // Snapshot mutation
@@ -341,7 +379,18 @@ export default function TariffVersionsPage() {
                         {new Date(v.createdAt).toLocaleString()}
                       </TableCell>
                       <TableCell>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                            onClick={e => { e.stopPropagation(); setCompareLiveId(v.id); }}
+                          >
+                            <Scale className="h-3 w-3 mr-1" />
+                            vs Live
+                          </Button>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -478,6 +527,183 @@ export default function TariffVersionsPage() {
               </TabsContent>
             </Tabs>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Compare vs Live dialog */}
+      <Dialog open={compareLiveId != null} onOpenChange={open => !open && setCompareLiveId(null)}>
+        <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Scale className="h-4 w-4" />
+              Snapshot #{compareLiveId} vs Live Sippy
+              {compareData?.tariffName && (
+                <span className="text-muted-foreground font-normal text-sm">— {compareData.tariffName}</span>
+              )}
+            </DialogTitle>
+            {compareData && (
+              <DialogDescription className="mt-1">
+                Snapshotted {new Date(compareData.snapshotAt).toLocaleString()} ·{" "}
+                {compareData.rateCountSnapshot} snapshot rates vs {compareData.rateCountLive} live rates
+              </DialogDescription>
+            )}
+          </DialogHeader>
+
+          {compareLoading ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <RefreshCw className="h-6 w-6 mx-auto mb-2 animate-spin opacity-50" />
+              Fetching live rates from Sippy…
+            </div>
+          ) : compareData ? (
+            <>
+              {/* Summary bar */}
+              <div className="grid grid-cols-3 gap-3 my-2">
+                <div className="rounded-lg border bg-emerald-500/5 border-emerald-500/20 p-3 text-center">
+                  <p className="text-2xl font-bold text-emerald-400">{compareData.summary.added}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Added in Live</p>
+                </div>
+                <div className="rounded-lg border bg-red-500/5 border-red-500/20 p-3 text-center">
+                  <p className="text-2xl font-bold text-red-400">{compareData.summary.removed}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Removed from Live</p>
+                </div>
+                <div className="rounded-lg border bg-amber-500/5 border-amber-500/20 p-3 text-center">
+                  <p className="text-2xl font-bold text-amber-400">{compareData.summary.changed}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Modified</p>
+                </div>
+              </div>
+
+              {compareData.summary.total === 0 ? (
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                  <Scale className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  Snapshot is identical to live Sippy rates. No changes detected.
+                </div>
+              ) : (
+                <Tabs defaultValue={
+                  compareData.summary.changed > 0 ? "changed"
+                  : compareData.summary.added > 0 ? "added"
+                  : "removed"
+                }>
+                  <TabsList>
+                    <TabsTrigger value="changed">
+                      Modified ({compareData.summary.changed})
+                    </TabsTrigger>
+                    <TabsTrigger value="added">
+                      Added ({compareData.summary.added})
+                    </TabsTrigger>
+                    <TabsTrigger value="removed">
+                      Removed ({compareData.summary.removed})
+                    </TabsTrigger>
+                  </TabsList>
+
+                  {/* Changed rates */}
+                  <TabsContent value="changed">
+                    <div className="max-h-96 overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Prefix</TableHead>
+                            <TableHead>Price 1</TableHead>
+                            <TableHead>Price N</TableHead>
+                            <TableHead>Interval 1</TableHead>
+                            <TableHead>Interval N</TableHead>
+                            <TableHead>Connect Fee</TableHead>
+                            <TableHead>Surcharge</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {compareData.changed.map((row, i) => (
+                            <TableRow key={i}>
+                              <TableCell className="font-mono text-xs">{row.prefix || "—"}</TableCell>
+                              {(['price1','priceN','interval1','intervalN','connectFee','postCallSurcharge'] as const).map(field => {
+                                const delta = row.deltas[field];
+                                return (
+                                  <TableCell key={field}>
+                                    {delta ? (
+                                      <span className="flex items-center gap-1 text-xs">
+                                        <span className="text-red-400 line-through">{delta.before}</span>
+                                        <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                                        <span className="text-emerald-400">{delta.after}</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-muted-foreground text-xs">{row.after[field] ?? "—"}</span>
+                                    )}
+                                  </TableCell>
+                                );
+                              })}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+
+                  {/* Added rates */}
+                  <TabsContent value="added">
+                    <div className="max-h-96 overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Prefix</TableHead>
+                            <TableHead>Destination</TableHead>
+                            <TableHead>Price 1</TableHead>
+                            <TableHead>Price N</TableHead>
+                            <TableHead>Interval 1</TableHead>
+                            <TableHead>Interval N</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {compareData.added.map((r: any, i: number) => (
+                            <TableRow key={i}>
+                              <TableCell className="font-mono text-xs text-emerald-400">{r.prefix ?? "—"}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground max-w-[140px] truncate">
+                                {r.destination ?? "—"}
+                              </TableCell>
+                              <TableCell className="text-xs">{r.price1 ?? "—"}</TableCell>
+                              <TableCell className="text-xs">{r.priceN ?? "—"}</TableCell>
+                              <TableCell className="text-xs">{r.interval1 ?? "—"}s</TableCell>
+                              <TableCell className="text-xs">{r.intervalN ?? "—"}s</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+
+                  {/* Removed rates */}
+                  <TabsContent value="removed">
+                    <div className="max-h-96 overflow-y-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Prefix</TableHead>
+                            <TableHead>Destination</TableHead>
+                            <TableHead>Price 1</TableHead>
+                            <TableHead>Price N</TableHead>
+                            <TableHead>Interval 1</TableHead>
+                            <TableHead>Interval N</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {compareData.removed.map((r: any, i: number) => (
+                            <TableRow key={i}>
+                              <TableCell className="font-mono text-xs text-red-400">{r.prefix ?? "—"}</TableCell>
+                              <TableCell className="text-xs text-muted-foreground max-w-[140px] truncate">
+                                {r.destination ?? "—"}
+                              </TableCell>
+                              <TableCell className="text-xs">{r.price1 ?? "—"}</TableCell>
+                              <TableCell className="text-xs">{r.priceN ?? "—"}</TableCell>
+                              <TableCell className="text-xs">{r.interval1 ?? "—"}s</TableCell>
+                              <TableCell className="text-xs">{r.intervalN ?? "—"}s</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              )}
+            </>
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>
