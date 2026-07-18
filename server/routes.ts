@@ -30614,6 +30614,23 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const pushedCount = bulkResult.pushed;
       const pushErrors: string[] = [];
 
+      // ── Verify live Sippy rates after upload ──────────────────────────────
+      // Guard against silent upload failures: read rates back from Sippy and
+      // abort BEFORE writing any DB records if Sippy still shows 0 rates.
+      // Allow 3s for Sippy's async import processor to commit the file.
+      await new Promise(res => setTimeout(res, 3_000));
+      const liveAfter = await getTariffRatesList(config, version.iTariff);
+      const verifiedLiveCount = liveAfter.length;
+      if (verifiedLiveCount === 0 && snapshotRates.length > 0) {
+        return res.status(500).json({
+          error:          'Restore bulk upload reported success but live Sippy verification shows 0 rates — upload may have failed silently',
+          uploadMessage:  bulkResult.message,
+          pushedCount,
+          snapshotCount:  snapshotRates.length,
+          liveCount:      verifiedLiveCount,
+        });
+      }
+
       // ── Create new tariff version record ──────────────────────────────────
       const newVersion = await storage.createTariffVersion({
         iTariff:        version.iTariff,
