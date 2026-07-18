@@ -6248,6 +6248,66 @@ export async function pushRatesBulkXlsx(
   };
 }
 
+// ── addRateDirectToTariff() — per-rate fallback (no getUploadToken) ──────────
+
+/**
+ * addRateDirectToTariff() — push ONE rate to a tariff via direct XML-RPC.
+ *
+ * Used as a fallback when getUploadToken/XLSX bulk upload is not supported by
+ * this Sippy instance (e.g. older builds that return "Fatal error").
+ * Tries a list of known method names until one succeeds.
+ */
+export async function addRateDirectToTariff(
+  username: string,
+  password: string,
+  iTariff: number,
+  rate: {
+    prefix:       string;
+    price1:       number;
+    priceN:       number;
+    interval1?:   number;
+    intervalN?:   number;
+    gracePeriod?: number;
+    destination?: string;
+  },
+  portalUrl: string,
+): Promise<{ success: boolean; message: string; method?: string }> {
+  const base   = sippyBase(portalUrl);
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {
+    i_tariff:   iTariff,
+    prefix:     rate.prefix,
+    destination: rate.destination ?? rate.prefix,
+    price_1:    rate.price1,
+    price_n:    rate.priceN,
+    interval_1: rate.interval1 ?? 1,
+    interval_n: rate.intervalN ?? 1,
+    rate:       rate.price1,           // legacy alias
+  };
+  if (rate.gracePeriod) params.grace_period = rate.gracePeriod;
+
+  const methods = [
+    'addRateInTariff', 'addRateToTariff', 'setRateInTariff', 'updateRateInTariff',
+    'addRateTariff',   'tariff.setRate',   'tariff.addDestination',
+    'addRate',         'setRate',          'updateRate',
+  ];
+
+  for (const method of methods) {
+    try {
+      const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password, 10_000);
+      console.log(`[addRateDirectToTariff] ${method} → HTTP ${resp.statusCode} body=${resp.body.substring(0, 200)}`);
+      if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
+        return { success: true, message: `Rate added via ${method}`, method };
+      }
+    } catch (e: any) {
+      console.log(`[addRateDirectToTariff] ${method} threw: ${e.message}`);
+    }
+  }
+
+  return { success: false, message: `No working XML-RPC add-rate method found for i_tariff=${iTariff} prefix=${rate.prefix}` };
+}
+
 // ── Portal User Management ────────────────────────────────────────────────────
 
 export interface SippyPortalUser {

@@ -307,40 +307,74 @@ export async function bulkPushRates(
     destination?: string;
   }>,
 ): Promise<{ pushed: number; message: string }> {
-  const t0 = Date.now();
+  const t0    = Date.now();
+  const iT    = Number(iTariff);
+
+  // ── Attempt 1: XLSX bulk upload via getUploadToken ──────────────────────────
+  let xlsxOk = false;
   try {
     const result = await sippy.pushRatesBulkXlsx(
       config.username,
       config.password,
-      Number(iTariff),
+      iT,
       rates,
       config.portalUrl,
     );
-
-    await auditLog({
-      operationType: 'tariff_update',
-      portalUrl:     config.portalUrl,
-      params:        { action: 'bulkPushRates', iTariff, count: rates.length },
-      result:        result.success ? 'success' : 'failure',
-      errorMessage:  result.success ? undefined : result.message,
-      durationMs:    Date.now() - t0,
-    });
-
-    if (!result.success) throw new Error(result.message);
-
-    return { pushed: result.pushed, message: result.message };
-  } catch (err) {
-    const sippyErr = normalizeSippyError(err, 'bulkPushRates');
-    await auditLog({
-      operationType: 'tariff_update',
-      portalUrl:     config.portalUrl,
-      params:        { action: 'bulkPushRates', iTariff, count: rates.length },
-      result:        'failure',
-      errorMessage:  sippyErr.message,
-      durationMs:    Date.now() - t0,
-    });
-    throw sippyErr;
+    if (result.success) {
+      await auditLog({
+        operationType: 'tariff_update',
+        portalUrl:     config.portalUrl,
+        params:        { action: 'bulkPushRates', method: 'xlsx', iTariff, count: rates.length },
+        result:        'success',
+        durationMs:    Date.now() - t0,
+      });
+      return { pushed: result.pushed, message: result.message };
+    }
+    console.warn(`[bulkPushRates] XLSX upload failed (${result.message}), falling back to per-rate XML-RPC`);
+  } catch (err: any) {
+    console.warn(`[bulkPushRates] XLSX upload threw (${err?.message}), falling back to per-rate XML-RPC`);
   }
+
+  // ── Attempt 2: per-rate direct XML-RPC (addRateDirectToTariff) ───────────────
+  let pushed      = 0;
+  let lastMethod: string | undefined;
+  const errors: string[] = [];
+
+  for (const rate of rates) {
+    const r = await sippy.addRateDirectToTariff(
+      config.username,
+      config.password,
+      iT,
+      rate,
+      config.portalUrl,
+    );
+    if (r.success) {
+      pushed++;
+      lastMethod = r.method;
+    } else {
+      errors.push(`prefix=${rate.prefix}: ${r.message}`);
+    }
+  }
+
+  const success = pushed === rates.length;
+  const msg     = success
+    ? `${pushed} rate(s) pushed via direct XML-RPC (${lastMethod})`
+    : `${pushed}/${rates.length} rate(s) pushed via direct XML-RPC; errors: ${errors.slice(0, 3).join('; ')}`;
+
+  await auditLog({
+    operationType: 'tariff_update',
+    portalUrl:     config.portalUrl,
+    params:        { action: 'bulkPushRates', method: 'direct-xmlrpc', iTariff, count: rates.length, pushed },
+    result:        success ? 'success' : 'failure',
+    errorMessage:  success ? undefined : msg,
+    durationMs:    Date.now() - t0,
+  });
+
+  if (!success && pushed === 0) {
+    throw normalizeSippyError(new Error(msg), 'bulkPushRates');
+  }
+
+  return { pushed, message: msg };
 }
 
 // ── Tariff version detection ──────────────────────────────────────────────────
