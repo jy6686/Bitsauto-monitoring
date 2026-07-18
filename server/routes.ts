@@ -30484,6 +30484,49 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // POST /api/rating-verifications/bulk-status — bulk approve/flag/dispute
+  // Body: { ids?: number[], statusFilter?: string, newStatus: string, notes?: string }
+  //   ids[]        — explicit ID list
+  //   statusFilter — approve all with this current status (e.g. 'verified')
+  // Returns: { updated: number[], failed: Array<{id, error}> }
+  app.post('/api/rating-verifications/bulk-status', async (req: any, res: any) => {
+    try {
+      const { ids, statusFilter, newStatus, notes } = req.body ?? {};
+      if (!newStatus) return res.status(400).json({ error: 'newStatus required' });
+
+      let targetIds: number[] = [];
+
+      if (Array.isArray(ids) && ids.length > 0) {
+        targetIds = ids.map(Number).filter(n => !isNaN(n));
+      } else if (statusFilter) {
+        const rows = await storage.listRatingVerifications({ verificationStatus: statusFilter, limit: 10000 });
+        targetIds = rows.map(r => r.id);
+      } else {
+        return res.status(400).json({ error: 'ids[] or statusFilter required' });
+      }
+
+      if (targetIds.length === 0) {
+        return res.json({ updated: [], failed: [], message: 'No matching records' });
+      }
+
+      const updated: number[] = [];
+      const failed: Array<{ id: number; error: string }> = [];
+
+      for (const id of targetIds) {
+        try {
+          await storage.updateRatingVerificationStatus(id, newStatus, notes);
+          updated.push(id);
+        } catch (err: any) {
+          failed.push({ id, error: err.message });
+        }
+      }
+
+      res.json({ updated, failed });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Rating Snapshots (Layer 4C) ───────────────────────────────────────────
   // GET  /api/rating-snapshots             — list with filters
   // GET  /api/rating-snapshots/summary     — aggregated economics summary
