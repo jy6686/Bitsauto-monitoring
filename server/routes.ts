@@ -32854,6 +32854,21 @@ ${footer}
     }
   });
 
+  // ── POST /api/dmr/send-email — manually trigger DMR email (finance team) ──────
+  // Body: { date?: 'YYYY-MM-DD', extraRecipients?: string[] }
+  // Defaults to yesterday UTC. Also fires automatically daily at 07:00 UTC.
+  app.post('/api/dmr/send-email', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { date, extraRecipients } = req.body ?? {};
+      const { sendDailyDMREmail } = await import('./services/email/dmr-email.service');
+      const result = await sendDailyDMREmail({ date: date || undefined, extraRecipients: extraRecipients || [] });
+      res.json(result);
+    } catch (err: any) {
+      console.error('[dmr] send-email error:', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Margin Intelligence Engine ─────────────────────────────────────────────────
   // GET  /api/margin/clients?date=    — ranked client margins
   // GET  /api/margin/vendors?date=    — ranked vendor costs
