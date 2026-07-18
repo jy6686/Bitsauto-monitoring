@@ -373,6 +373,13 @@ app.use((req, res, next) => {
   const { storage: gdprStorage } = await import('./storage');
   initGdprRetention(gdprStorage);
 
+  // DMR daily email scheduler — fires at 07:00 UTC, sends Excel to finance team
+  import('./services/email/dmr-email.service').then(({ startDMREmailScheduler }) => {
+    startDMREmailScheduler();
+  }).catch((e: any) => {
+    console.error('[dmr-scheduler] Failed to start (non-fatal):', e?.message);
+  });
+
   app.use((err: any, req: Request, res: Response, next: NextFunction) => {
     if (res.headersSent) return next(err);
 
