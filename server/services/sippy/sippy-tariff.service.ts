@@ -288,6 +288,61 @@ export async function clearTariffRates(
   }
 }
 
+/**
+ * Bulk-upload all rates for a tariff in one XLSX file via the upload-token path.
+ * This is the CORRECT replacement for the per-rate pushRate() loop in the restore route.
+ * pushRate() called sippy.pushRateToSippy() which is account-based and silently fails
+ * when called without an accountName — this function uses the direct tariff upload path.
+ */
+export async function bulkPushRates(
+  config: SippyConfig,
+  iTariff: string | number,
+  rates: Array<{
+    prefix:       string;
+    price1:       number;
+    priceN:       number;
+    interval1?:   number;
+    intervalN?:   number;
+    gracePeriod?: number;
+    destination?: string;
+  }>,
+): Promise<{ pushed: number; message: string }> {
+  const t0 = Date.now();
+  try {
+    const result = await sippy.pushRatesBulkXlsx(
+      config.username,
+      config.password,
+      Number(iTariff),
+      rates,
+      config.portalUrl,
+    );
+
+    await auditLog({
+      operationType: 'tariff_update',
+      portalUrl:     config.portalUrl,
+      params:        { action: 'bulkPushRates', iTariff, count: rates.length },
+      result:        result.success ? 'success' : 'failure',
+      errorMessage:  result.success ? undefined : result.message,
+      durationMs:    Date.now() - t0,
+    });
+
+    if (!result.success) throw new Error(result.message);
+
+    return { pushed: result.pushed, message: result.message };
+  } catch (err) {
+    const sippyErr = normalizeSippyError(err, 'bulkPushRates');
+    await auditLog({
+      operationType: 'tariff_update',
+      portalUrl:     config.portalUrl,
+      params:        { action: 'bulkPushRates', iTariff, count: rates.length },
+      result:        'failure',
+      errorMessage:  sippyErr.message,
+      durationMs:    Date.now() - t0,
+    });
+    throw sippyErr;
+  }
+}
+
 // ── Tariff version detection ──────────────────────────────────────────────────
 
 /**

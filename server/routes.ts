@@ -30574,7 +30574,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // ── Push to Sippy ─────────────────────────────────────────────────────
       const settings = await storage.getSettings();
       const { configFromSettings, getTariffRatesList } = await import('./services/sippy/index');
-      const { clearTariffRates, pushRate }              = await import('./services/sippy/sippy-tariff.service');
+      const { clearTariffRates, bulkPushRates }         = await import('./services/sippy/sippy-tariff.service');
       const config = configFromSettings(settings as any);
 
       // Capture current live state for the audit diff
@@ -30592,34 +30592,27 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         if (numFields.some(f => Math.abs(Number(snap[f] ?? 0) - Number(live[f] ?? 0)) > 0.000001)) changedCount++;
       }
 
-      // Clear existing rates and push snapshot rates
+      // Clear existing rates then bulk-upload snapshot rates via XLSX upload-token path.
+      // NOTE: pushRate() was replaced by bulkPushRates() because the old per-rate path
+      // called sippy.pushRateToSippy() (account-based) which silently returns {success:false}
+      // when called without accountName — resulting in clearTariffRates() succeeding but
+      // all 14 pushes silently failing while still reporting pushedCount=14.
       await clearTariffRates(config, version.iTariff);
-      let pushedCount = 0;
+      const bulkResult = await bulkPushRates(
+        config,
+        version.iTariff,
+        snapshotRates.map((r: any) => ({
+          prefix:      String(r.prefix      ?? ''),
+          price1:      Number(r.price1      ?? r.price_1      ?? 0),
+          priceN:      Number(r.priceN      ?? r.price_n      ?? 0),
+          interval1:   Number(r.interval1   ?? r.interval_1   ?? 1),
+          intervalN:   Number(r.intervalN   ?? r.interval_n   ?? 1),
+          gracePeriod: Number(r.gracePeriod ?? r.grace_period ?? 0),
+          destination: r.destination ?? undefined,
+        })),
+      );
+      const pushedCount = bulkResult.pushed;
       const pushErrors: string[] = [];
-      for (const rate of snapshotRates) {
-        try {
-          await pushRate(config, {
-            iTariff:            version.iTariff,
-            prefix:             rate.prefix,
-            price1:             rate.price1,
-            priceN:             rate.priceN,
-            interval1:          rate.interval1,
-            intervalN:          rate.intervalN,
-            freeSeconds:        rate.freeSeconds,
-            gracePeriod:        rate.gracePeriod,
-            connectFee:         rate.connectFee,
-            postCallSurcharge:  rate.postCallSurcharge,
-            destination:        rate.destination,
-          });
-          pushedCount++;
-        } catch (pushErr: any) {
-          pushErrors.push(`${rate.prefix}: ${pushErr.message}`);
-        }
-      }
-
-      if (pushedCount === 0) {
-        return res.status(500).json({ error: 'All rate pushes failed', details: pushErrors.slice(0, 5) });
-      }
 
       // ── Create new tariff version record ──────────────────────────────────
       const newVersion = await storage.createTariffVersion({
