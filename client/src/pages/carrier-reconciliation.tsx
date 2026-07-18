@@ -852,12 +852,26 @@ export default function CarrierReconciliationPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs mb-1.5 block">Carrier Name *</Label>
-                <Input
-                  data-testid="input-carrier-name"
-                  value={form.carrierName}
-                  onChange={e => setForm(f => ({ ...f, carrierName: e.target.value }))}
-                  placeholder="e.g. Tata Communications"
-                />
+                <Select
+                  value={form.carrierName || "__none__"}
+                  onValueChange={val => {
+                    const t = tariffs.find(t => t.name === val);
+                    setForm(f => ({
+                      ...f,
+                      carrierName: val === "__none__" ? "" : val,
+                      iTariff: t ? String(t.iTariff) : f.iTariff,
+                    }));
+                  }}
+                >
+                  <SelectTrigger data-testid="input-carrier-name" className="h-9 text-sm">
+                    <SelectValue placeholder="Select carrier…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tariffs.map(t => (
+                      <SelectItem key={t.iTariff} value={t.name}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label className="text-xs mb-1.5 block">Invoice Reference</Label>
