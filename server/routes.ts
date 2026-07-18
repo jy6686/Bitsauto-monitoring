@@ -30344,6 +30344,85 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // GET /api/tariff-versions/:id/compare-live
+  // Non-destructive: loads snapshot, fetches live Sippy rates, returns full diff.
+  // Does NOT create a new tariff_versions record.
+  // Returns: { snapshotId, iTariff, snapshotAt, rateCountSnapshot, rateCountLive,
+  //            added[], removed[], changed[{ prefix, before, after, deltas }] }
+  app.get('/api/tariff-versions/:id/compare-live', async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid version ID' });
+
+      const version = await storage.getTariffVersion(id);
+      if (!version) return res.status(404).json({ error: 'Tariff version not found' });
+
+      const baseline: any[] = JSON.parse(version.snapshotJson ?? '[]');
+
+      const settings = await storage.getSettings();
+      const { configFromSettings, getTariffRatesList } = await import('./services/sippy/index');
+      const config = configFromSettings(settings as any);
+
+      const live = await getTariffRatesList(config, version.iTariff);
+
+      // Full diff — price, interval, connect fee, grace period, surcharge
+      const liveByPrefix = new Map(live.map((r: any) => [r.prefix ?? '', r]));
+      const baseByPrefix = new Map(baseline.map((r: any) => [r.prefix ?? '', r]));
+
+      const added   = live.filter((r: any) => !baseByPrefix.has(r.prefix ?? ''));
+      const removed = baseline.filter((r: any) => !liveByPrefix.has(r.prefix ?? ''));
+
+      const changed: any[] = [];
+      for (const [prefix, after] of liveByPrefix) {
+        const before = baseByPrefix.get(prefix);
+        if (!before) continue;
+
+        const deltas: Record<string, { before: any; after: any }> = {};
+        const numFields: Array<[string, string]> = [
+          ['price1',           'price1'],
+          ['priceN',           'priceN'],
+          ['interval1',        'interval1'],
+          ['intervalN',        'intervalN'],
+          ['connectFee',       'connectFee'],
+          ['gracePeriod',      'gracePeriod'],
+          ['freeSeconds',      'freeSeconds'],
+          ['postCallSurcharge','postCallSurcharge'],
+        ];
+        for (const [field, afterField] of numFields) {
+          const bv = Number(before[field] ?? 0);
+          const av = Number((after as any)[afterField] ?? 0);
+          if (Math.abs(bv - av) > 0.000001) {
+            deltas[field] = { before: bv, after: av };
+          }
+        }
+        if (Object.keys(deltas).length > 0) {
+          changed.push({ prefix, before, after, deltas });
+        }
+      }
+
+      res.json({
+        snapshotId:       id,
+        iTariff:          version.iTariff,
+        tariffName:       version.tariffName,
+        snapshotAt:       version.createdAt,
+        rateCountSnapshot:baseline.length,
+        rateCountLive:    live.length,
+        summary: {
+          added:   added.length,
+          removed: removed.length,
+          changed: changed.length,
+          total:   added.length + removed.length + changed.length,
+        },
+        added,
+        removed,
+        changed,
+      });
+    } catch (err: any) {
+      console.error('[tariff-versions/compare-live]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── Rating Verification (Layer 4B) ────────────────────────────────────────
   // GET  /api/rating-verifications            — list with filters
   // GET  /api/rating-verifications/summary    — aggregated discrepancy stats
