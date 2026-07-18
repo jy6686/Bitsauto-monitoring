@@ -18,3 +18,12 @@ vite.config.ts.*
 *.pdf
 client/public/downloads/
 attached_assets/generated_videos/attached_assets/
+*.tmp
+page-*.jpg
+pagev*.jpg
+.~lock.*
+finance-audit*.js
+finance-audit*.cjs
+finance-cert-report.cjs
+platform-freeze-audit.cjs
+lu*.tmp
