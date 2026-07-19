@@ -9,6 +9,7 @@ import { registerBusinessPartnerRoutes }    from './routes-business-partners';
 import { registerVendorBillRoutes }         from './routes-vendor-bills';
 import { registerVendorPaymentRoutes }      from './routes-vendor-payments';
 import { registerVendorAdjustmentRoutes }   from './routes-vendor-adjustments';
+import { registerVendorStatementRoutes }    from './routes-vendor-statement';
 import { seedGovernanceData }               from './seed-governance';
 import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
@@ -35040,6 +35041,7 @@ ${footer}
   registerVendorBillRoutes(app);
   registerVendorPaymentRoutes(app);
   registerVendorAdjustmentRoutes(app);
+  registerVendorStatementRoutes(app);
   // Non-blocking: 10s timeout so late routes always register
 
   await Promise.race([
