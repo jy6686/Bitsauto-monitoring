@@ -6,6 +6,7 @@ import { registerConfigurationValueRoutes } from './routes-configuration-values'
 import { registerValidationRuleRoutes }     from './routes-validation-rules';
 import { registerGovernanceReviewRoutes }   from './routes-governance-review';
 import { registerBusinessPartnerRoutes }    from './routes-business-partners';
+import { registerVendorBillRoutes }         from './routes-vendor-bills';
 import { seedGovernanceData }               from './seed-governance';
 import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
@@ -35034,6 +35035,7 @@ ${footer}
   registerValidationRuleRoutes(app);
   registerGovernanceReviewRoutes(app);
   registerBusinessPartnerRoutes(app);
+  registerVendorBillRoutes(app);
   // Non-blocking: 10s timeout so late routes always register
 
   await Promise.race([
