@@ -248,6 +248,7 @@ const DOMAINS: Domain[] = [
         { href: '/account-statement', label: 'Account Statement', desc: 'Transaction-level per-account view',         icon: FileText },
       ]},
       { label: 'Accounts Payable', desc: 'Vendor bills, verification, approval, payments and statements', icon: Wallet, items: [
+        { href: '/finance/business-partners',   label: 'Business Partners',   desc: 'Vendor, client and carrier master data',      icon: Building2 },
         { href: '/finance/vendor-bills',        label: 'Vendor Bills',        desc: 'AP invoices received from vendors',            icon: FileText },
         { href: '/finance/vendor-verification', label: 'Vendor Verification', desc: 'Review and verify vendor bills',               icon: ShieldCheck },
         { href: '/finance/vendor-approval',     label: 'Vendor Approval',     desc: 'Single and bulk bill approval workflow',       icon: CheckCircle },
