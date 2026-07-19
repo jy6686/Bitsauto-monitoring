@@ -278,28 +278,37 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/security-ops",         label: "Security Ops",   icon: Shield,        roles: ['admin','super_admin'], isNew: true },
     ],
   },
-  // ─── 8. Finance & Billing ────────────────────────────────────────────────────
+  // ─── 8. Finance ──────────────────────────────────────────────────────────────
   {
     key: 'finance',
-    label: 'Finance & Billing',
+    label: 'Finance',
     roles: ['admin','management'],
     items: [
+      // Dashboard
+      { href: "/finance-cockpit",        label: "Finance Cockpit",        icon: LayoutDashboard,  roles: ['admin','management']                           },
+      // Accounts Receivable
       { href: "/billing",                label: "Billing",                icon: Wallet,           roles: ['admin','management']                           },
-      { href: "/billing-disputes",       label: "Billing Disputes",       icon: FileText,         roles: ['admin','management']                           },
       { href: "/invoices",               label: "Invoices",               icon: ReceiptText,      roles: ['admin','management']                           },
       { href: "/invoice-jobs",           label: "Invoice Queue",          icon: SendHorizonal,    roles: ['admin','management']                           },
-      { href: "/invoice-templates",      label: "Invoice Templates",      icon: FileCode2,        roles: ['admin','management']                           },
       { href: "/credit-notes",           label: "Credit Notes",           icon: ReceiptText,      roles: ['admin','management']                           },
       { href: "/credit-control",         label: "Credit Control",         icon: Banknote,         roles: ['admin','management']                           },
-      { href: "/dispute-cases",          label: "Dispute Cases",          icon: Shield,           roles: ['admin','management']                           },
-      { href: "/dispute-defense",        label: "Dispute Defense",        icon: ShieldCheck,      roles: ['admin','management']                           },
+      { href: "/payment-reminders",      label: "Payment Reminders",      icon: Bell,             roles: ['admin','management']                           },
+      { href: "/account-statement",      label: "Account Statement",      icon: FileText,         roles: ['admin','management']                           },
+      // Revenue Assurance
       { href: "/client-reconciliation",  label: "Client Reconciliation",  icon: Users,            roles: ['admin','management']                           },
       { href: "/carrier-reconciliation", label: "Carrier Reconciliation", icon: ArrowRightLeft,   roles: ['admin','management']                           },
-      { href: "/margin-intelligence",    label: "Margin Intelligence",    icon: TrendingUp,       roles: ['admin','management']                           },
+      { href: "/cdr-reconciliation",     label: "CDR Reconciliation",     icon: ArrowRightLeft,   roles: ['admin','management']                           },
       { href: "/dmr",                    label: "Daily Minutes Report",   icon: Activity,         roles: ['admin','management']                           },
+      { href: "/unbilled-usage",         label: "Unbilled Usage",         icon: Wallet,           roles: ['admin','management']                           },
+      { href: "/margin-intelligence",    label: "Margin Intelligence",    icon: TrendingUp,       roles: ['admin','management']                           },
       { href: "/ai-assurance",           label: "AI Assurance",           icon: BrainCircuit,     roles: ['admin','management']                           },
-      { href: "/partner-profiles",       label: "Partner Portal",         icon: ShieldCheck,      roles: ['admin','management']                           },
-      { href: "/rate-cards",             label: "Rate Cards",             icon: CreditCard,       roles: ['admin','management'], hasSubmenu: 'ratecards'  },
+      // Disputes
+      { href: "/billing-disputes",       label: "Billing Disputes",       icon: Shield,           roles: ['admin','management']                           },
+      { href: "/dispute-cases",          label: "Dispute Cases",          icon: ClipboardList,    roles: ['admin','management']                           },
+      { href: "/dispute-defense",        label: "Dispute Defense",        icon: ShieldCheck,      roles: ['admin','management']                           },
+      // Finance Settings
+      { href: "/invoice-templates",      label: "Invoice Templates",      icon: FileCode2,        roles: ['admin','management']                           },
+      { href: "/invoice-schedules",      label: "Invoice Schedules",      icon: History,          roles: ['admin','management']                           },
       { href: "/executive-reports",      label: "Executive Reports",      icon: BarChart3,        roles: ['admin','management']                           },
     ],
   },
@@ -398,12 +407,12 @@ const WORKSPACE_RAIL: Record<string, NavItem[]> = {
     { href: '/security-ops',     label: 'Security Ops',    icon: Shield,        roles: ADM_MGT, isNew: true   },
   ],
   'finance': [
-    { href: '/billing',              label: 'Billing',          icon: Wallet,        roles: ADM_MGT              },
-    { href: '/invoices',             label: 'Invoices',         icon: ReceiptText,   roles: ADM_MGT              },
-    { href: '/dispute-cases',        label: 'Disputes',         icon: Shield,        roles: ADM_MGT              },
-    { href: '/margin-intelligence',  label: 'Margin Intel',     icon: TrendingUp,    roles: ADM_MGT, isNew: true  },
-    { href: '/dmr',                  label: 'Daily Minutes',    icon: Activity,      roles: ADM_MGT              },
-    { href: '/credit-control',       label: 'Credit Control',   icon: Banknote,      roles: ADM_MGT              },
+    { href: '/finance-cockpit',      label: 'Finance Cockpit',  icon: LayoutDashboard, roles: ADM_MGT            },
+    { href: '/invoices',             label: 'Invoices',           icon: ReceiptText,   roles: ADM_MGT            },
+    { href: '/billing-disputes',     label: 'Disputes',           icon: Shield,        roles: ADM_MGT            },
+    { href: '/client-reconciliation',label: 'Reconciliation',     icon: ArrowRightLeft,roles: ADM_MGT            },
+    { href: '/dmr',                  label: 'Daily Minutes',      icon: Activity,      roles: ADM_MGT            },
+    { href: '/margin-intelligence',  label: 'Margin Intel',       icon: TrendingUp,    roles: ADM_MGT            },
   ],
   'platform': [
     { href: '/settings',           label: 'Platform Settings', icon: Settings,          roles: ['super_admin','admin'] as Role[] },
