@@ -143,7 +143,7 @@ function ReconRowsTable({ sessionId }: { sessionId: number }) {
                   <TableHead className="text-xs text-right">Delta (s)</TableHead>
                   <TableHead className="text-xs text-right">Their Cost</TableHead>
                   <TableHead className="text-xs text-right">Our Cost</TableHead>
-                  <TableHead className="text-xs">Sippy Call ID</TableHead>
+                  <TableHead className="text-xs">Call ID</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

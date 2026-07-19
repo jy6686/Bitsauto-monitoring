@@ -138,7 +138,7 @@ function DiscrepancyTypeLabel({ type }: { type: string }) {
     exact_match:               "Exact Match",
     overbilled_by_carrier:     "Carrier Overbilled",
     underbilled_by_carrier:    "Carrier Underbilled",
-    sippy_vs_reproduced_drift: "Sippy/Reproduced Drift",
+    sippy_vs_reproduced_drift: "Platform/Reproduced Drift",
     large_discrepancy:         "Large Discrepancy",
     missing_snapshots:         "Missing Snapshots",
   };
@@ -406,7 +406,7 @@ export default function CarrierReconciliationPage() {
             Carrier Invoice Reconciliation
           </h1>
           <p className="text-muted-foreground mt-1">
-            Compare vendor invoices against Sippy actuals and BitsAuto reproduced costs. Shadow verification mode — intelligence only, no automatic accounting actions.
+            Compare vendor invoices against platform actuals and BitsAuto reproduced costs. Shadow verification mode — intelligence only, no automatic accounting actions.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -1203,11 +1203,11 @@ export default function CarrierReconciliationPage() {
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   {[
                     ["Carrier Total",     `$${(detail.carrierTotal ?? 0).toFixed(6)}`],
-                    ["Sippy Total",       `$${(detail.sippyTotal ?? 0).toFixed(6)}`],
+                    ["Platform Total",     `$${(detail.sippyTotal ?? 0).toFixed(6)}`],
                     ["Reproduced Total",  `$${(detail.reproducedTotal ?? 0).toFixed(6)}`],
                     ["Snapshot Total",    `$${(detail.snapshotTotal ?? 0).toFixed(6)}`],
                     ["Δ Carrier vs BitsAuto", `$${(detail.deltaCarrierVsReproduced ?? 0).toFixed(6)}`],
-                    ["Δ Carrier vs Sippy",    `$${(detail.deltaCarrierVsSippy ?? 0).toFixed(6)}`],
+                    ["Δ Carrier vs Platform",  `$${(detail.deltaCarrierVsSippy ?? 0).toFixed(6)}`],
                   ].map(([label, val]) => (
                     <div key={label}>
                       <p className="text-muted-foreground">{label}</p>
@@ -1339,7 +1339,7 @@ export default function CarrierReconciliationPage() {
                                 <TableHead className="text-xs">Start Time</TableHead>
                                 <TableHead className="text-xs">From → To</TableHead>
                                 <TableHead className="text-xs">Reproduced</TableHead>
-                                <TableHead className="text-xs">Actual (Sippy)</TableHead>
+                                <TableHead className="text-xs">Actual (Platform)</TableHead>
                                 <TableHead className="text-xs">Δ</TableHead>
                                 <TableHead className="text-xs">Status</TableHead>
                               </TableRow>

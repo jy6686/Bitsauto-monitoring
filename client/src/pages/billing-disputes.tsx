@@ -198,7 +198,7 @@ export default function BillingDisputesPage() {
             <FileText className="w-6 h-6 text-amber-400" />
             <h2 className="text-2xl font-bold tracking-tight">Billing Dispute Tracker</h2>
           </div>
-          <p className="text-muted-foreground text-sm mt-1">Track CDR discrepancies between your Sippy billing and vendor invoices</p>
+          <p className="text-muted-foreground text-sm mt-1">Track CDR discrepancies between your billing records and vendor invoices</p>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ["/api/disputes"] })} disabled={isLoading} data-testid="button-refresh-disputes">

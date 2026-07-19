@@ -206,7 +206,7 @@ export default function DMRPage() {
         <TableHeader>
           <TableRow>
             <TableHead>Client / Vendor</TableHead>
-            <TableHead className="text-center" colSpan={2}>Sippy (Source)</TableHead>
+            <TableHead className="text-center" colSpan={2}>Platform (Source)</TableHead>
             <TableHead className="text-center" colSpan={2}>BitsAuto (Platform)</TableHead>
             <TableHead className="text-center" colSpan={2}>Difference</TableHead>
             <TableHead>Status</TableHead>
@@ -289,7 +289,7 @@ export default function DMRPage() {
             Daily Minutes Report
           </h1>
           <p className="text-muted-foreground mt-1">
-            Daily telecom operational economics — Sippy vs BitsAuto reconciliation
+            Daily revenue and cost reconciliation
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -308,10 +308,10 @@ export default function DMRPage() {
                 "Date":                r.reportDate,
                 "Account":             r.accountName ?? r.accountId ?? "—",
                 "Vendor":              r.vendorName  ?? r.vendorId  ?? "—",
-                "Sippy Duration (m)":  r.sippyDuration    != null ? Math.round(r.sippyDuration    / 60) : "",
+                "Platform Duration (m)": r.sippyDuration    != null ? Math.round(r.sippyDuration    / 60) : "",
                 "Platform Duration (m)":r.platformDuration != null ? Math.round(r.platformDuration / 60) : "",
                 "Drift Duration (m)":  r.driftDuration    != null ? Math.round(r.driftDuration    / 60) : "",
-                "Sippy Amount ($)":    r.sippyAmount    ?? "",
+                "Platform Amount ($)":  r.sippyAmount    ?? "",
                 "Platform Amount ($)": r.platformAmount ?? "",
                 "Sell ($)":            r.sellAmount     ?? "",
                 "Buy ($)":             r.buyAmount      ?? "",
@@ -350,7 +350,7 @@ export default function DMRPage() {
           <p className="text-sm font-semibold text-blue-400">Append-Only Revenue Assurance</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             DMR rows are never overwritten. Recalculation creates a new version (v2, v3…) with full lineage back to the original.
-            Historical economics are immutable — this is the telecom operations audit trail.
+            Historical economics are immutable — this is the Finance operations audit trail.
           </p>
         </div>
       </div>

@@ -269,10 +269,10 @@ function ClientDetailDialog({ row, open, onClose }: {
 
           <Separator />
 
-          {/* DMR Sippy */}
+          {/* DMR Arbiter */}
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1 flex items-center gap-1.5">
-              <CalendarDays className="h-3.5 w-3.5" /> DMR (Sippy Arbiter)
+              <CalendarDays className="h-3.5 w-3.5" /> DMR (Arbiter)
             </p>
             <div className="divide-y divide-border/40">
               <FieldRow label="Duration" value={fmtMin(row.dmrDurationSec)} />
@@ -602,7 +602,7 @@ export default function ClientReconciliationPage() {
             <TableHead>Period</TableHead>
             <TableHead className="text-center" colSpan={2}>Client Reported</TableHead>
             <TableHead className="text-center" colSpan={2}>BitsAuto Invoice</TableHead>
-            <TableHead className="text-center" colSpan={2}>DMR (Sippy)</TableHead>
+            <TableHead className="text-center" colSpan={2}>DMR</TableHead>
             <TableHead>Delta</TableHead>
             <TableHead>Severity</TableHead>
             <TableHead>Status</TableHead>
@@ -734,7 +734,7 @@ export default function ClientReconciliationPage() {
             Client Revenue Reconciliation
           </h1>
           <p className="text-muted-foreground mt-1">
-            Compare client-submitted billing against BitsAuto invoice and Sippy operational truth
+            Compare client-submitted billing against BitsAuto invoice and operational records
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -804,8 +804,8 @@ export default function ClientReconciliationPage() {
           <p className="text-xs text-muted-foreground mt-0.5">
             Vendor → BitsAuto is covered by Carrier Reconciliation.
             BitsAuto → Customer is this module.
-            Together they complete full telecom finance triangulation.
-            DMR serves as the neutral Sippy arbiter when client and invoice figures disagree.
+            Together they complete full Finance billing triangulation.
+            DMR serves as the neutral arbiter when client and invoice figures disagree.
           </p>
         </div>
       </div>
@@ -839,7 +839,7 @@ export default function ClientReconciliationPage() {
             <span className="font-medium text-foreground">Comparison hierarchy:</span>
             <span><span className="text-blue-400 font-semibold">Client says</span> → primary dispute trigger</span>
             <span><span className="text-emerald-400 font-semibold">BitsAuto invoice</span> → our computed figure</span>
-            <span><span className="text-purple-400 font-semibold">DMR (Sippy)</span> → neutral arbiter</span>
+            <span><span className="text-purple-400 font-semibold">DMR</span> → neutral arbiter</span>
             <span className="italic">If BitsAuto ≈ DMR but client disagrees → client-side data issue</span>
             <span className="italic">If BitsAuto ≠ DMR → investigate invoice calculation</span>
           </div>
@@ -1022,7 +1022,7 @@ export default function ClientReconciliationPage() {
                     >
                       <FormControl>
                         <SelectTrigger data-testid="select-client-name">
-                          <SelectValue placeholder="Select Sippy account…" />
+                          <SelectValue placeholder="Select account…" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
