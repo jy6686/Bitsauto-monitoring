@@ -12,7 +12,7 @@ import {
   HeartPulse, Mic, Bot, ClipboardList, ArrowRightLeft, BrainCircuit,
   FileSpreadsheet, Rewind, Upload, Star, Package, Search,
   MessageSquare, Bell, Sun, Moon, LogOut, UserPlus, Briefcase,
-  Telescope, Cpu, AreaChart, ClockIcon, GitCompare, Layers2, MoreHorizontal,
+  Telescope, Cpu, AreaChart, ClockIcon, GitCompare, Layers2, MoreHorizontal, Hash,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -261,8 +261,13 @@ const DOMAINS: Domain[] = [
         { href: '/dispute-defense',  label: 'Dispute Defense',  desc: 'Evidence and defense toolkit',      icon: ShieldAlert },
       ]},
       { label: 'Finance Settings', desc: 'Invoice templates, schedules and billing configuration', icon: FileSpreadsheet, items: [
-        { href: '/invoice-templates', label: 'Invoice Templates', desc: 'Reusable invoice layout templates',          icon: FileSpreadsheet },
-        { href: '/invoice-schedules', label: 'Invoice Schedules', desc: 'Automated billing cycle scheduling',         icon: History },
+        { href: '/invoice-templates',   label: 'Invoice Templates',    desc: 'Reusable invoice layout templates',             icon: FileSpreadsheet },
+        { href: '/invoice-schedules',   label: 'Invoice Schedules',    desc: 'Automated billing cycle scheduling',            icon: History },
+        { href: '/payment-terms',       label: 'Payment Terms',        desc: 'Due-date rules and early-payment discounts',    icon: ClockIcon },
+        { href: '/numbering-prefixes',  label: 'Numbering & Prefixes', desc: 'Invoice number sequences and reference formats', icon: Hash },
+        { href: '/reminder-rules',      label: 'Reminder Rules',       desc: 'Automated payment reminder schedules',          icon: Bell },
+        { href: '/currency-settings',   label: 'Currency',             desc: 'Base currency and exchange rate settings',      icon: Banknote },
+        { href: '/tax-vat',             label: 'Tax / VAT',            desc: 'VAT rules, rates and FTA compliance',           icon: FileText },
       ]},
     ],
   },
