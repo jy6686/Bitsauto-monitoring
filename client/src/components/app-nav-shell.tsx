@@ -14,6 +14,7 @@ import {
   MessageSquare, Bell, Sun, Moon, LogOut, UserPlus, Briefcase,
   Telescope, Cpu, AreaChart, ClockIcon, GitCompare, Layers2, MoreHorizontal, Hash,
   CheckCircle, CreditCard,
+  Landmark, Scale, SendHorizontal, PieChart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -255,6 +256,13 @@ const DOMAINS: Domain[] = [
         { href: '/finance/vendor-payments',     label: 'Vendor Payments',     desc: 'Record and allocate vendor payments',          icon: CreditCard },
         { href: '/finance/vendor-adjustments',  label: 'Vendor Adjustments',  desc: 'Debit and credit notes against vendors',       icon: Calculator },
         { href: '/finance/vendor-statement',    label: 'Vendor Statement',    desc: 'Vendor AP statement and running balance',      icon: FileSpreadsheet },
+      ]},
+      { label: 'Treasury', desc: 'Bank accounts, wallets, payment runs, reconciliation and cash position', icon: Landmark, items: [
+        { href: '/finance/bank-accounts',       label: 'Bank Accounts',       desc: 'Current, savings and escrow bank accounts',    icon: Landmark },
+        { href: '/finance/wallets',             label: 'Wallets',             desc: 'Crypto and stablecoin wallets (USDT, etc.)',   icon: Wallet },
+        { href: '/finance/payment-runs',        label: 'Payment Runs',        desc: 'Batch vendor payment runs from treasury',      icon: SendHorizontal },
+        { href: '/finance/bank-reconciliation', label: 'Bank Reconciliation', desc: 'Match bank statements to system transactions', icon: Scale },
+        { href: '/finance/cash-position',       label: 'Cash Position',       desc: 'Net cash position and liquidity dashboard',   icon: PieChart },
       ]},
       { label: 'Revenue Assurance', desc: 'Reconciliation, margin intelligence, DMR and AI assurance', icon: Brain, items: [
         { href: '/client-reconciliation',  label: 'Client Reconciliation', desc: 'Client-side billing reconciliation',  icon: ArrowRightLeft },

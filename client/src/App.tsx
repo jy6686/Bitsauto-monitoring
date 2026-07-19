@@ -147,6 +147,11 @@ import VendorApprovalPage from "@/pages/vendor-approval";
 import VendorPaymentsPage from "@/pages/vendor-payments";
 import VendorAdjustmentsPage from "@/pages/vendor-adjustments";
 import VendorStatementPage from "@/pages/vendor-statement";
+import BankAccountsPage from "@/pages/bank-accounts";
+import WalletsPage from "@/pages/wallets";
+import PaymentRunsPage from "@/pages/payment-runs";
+import BankReconciliationPage from "@/pages/bank-reconciliation";
+import CashPositionPage from "@/pages/cash-position";
 import RoutingManagerPage from "@/pages/routing-manager";
 import AuthStudioPage from "@/pages/auth-studio";
 import ApprovalQueuePage from "@/pages/approval-queue";
@@ -273,6 +278,11 @@ const VendorApprovalWS      = withWorkspace('billing-ops', VendorApprovalPage);
 const VendorPaymentsWS      = withWorkspace('billing-ops', VendorPaymentsPage);
 const VendorAdjustmentsWS   = withWorkspace('billing-ops', VendorAdjustmentsPage);
 const VendorStatementWS     = withWorkspace('billing-ops', VendorStatementPage);
+const BankAccountsWS        = withWorkspace('billing-ops', BankAccountsPage);
+const WalletsWS             = withWorkspace('billing-ops', WalletsPage);
+const PaymentRunsWS         = withWorkspace('billing-ops', PaymentRunsPage);
+const BankReconciliationWS  = withWorkspace('billing-ops', BankReconciliationPage);
+const CashPositionWS        = withWorkspace('billing-ops', CashPositionPage);
 
 // dispute-governance workspace
 const BillingDisputesWS  = withWorkspace('dispute-governance', BillingDisputesPage);
@@ -720,6 +730,21 @@ function Router() {
       </Route>
       <Route path="/finance/vendor-statement">
         {() => <ProtectedRoute component={VendorStatementWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance/bank-accounts">
+        {() => <ProtectedRoute component={BankAccountsWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance/wallets">
+        {() => <ProtectedRoute component={WalletsWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance/payment-runs">
+        {() => <ProtectedRoute component={PaymentRunsWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance/bank-reconciliation">
+        {() => <ProtectedRoute component={BankReconciliationWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance/cash-position">
+        {() => <ProtectedRoute component={CashPositionWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/dispute-cases">
         {() => <ProtectedRoute component={DisputeCasesWS} requiredRoles={['admin', 'management']} />}

@@ -4566,5 +4566,48 @@ export const insertVendorAdjustmentSchema = createInsertSchema(vendorAdjustments
   ),
 });
 
+// ── Treasury Accounts ─────────────────────────────────────────────────────────
+// Generic treasury account abstraction — bank, wallet, cash, escrow.
+// Bank Accounts and Wallets are filtered UI views of this single table.
+// Payment Runs, Bank Reconciliation and Cash Position all reference
+// treasury_account_id rather than type-specific foreign keys.
+export const treasuryAccounts = pgTable("treasury_accounts", {
+  id:                 serial("id").primaryKey(),
+  accountNumber:      varchar("account_number",    { length: 30  }).notNull().unique(),  // TA-YYYY-NNNN
+  name:               varchar("name",              { length: 255 }).notNull(),
+  type:               varchar("type",              { length: 20  }).notNull().default("bank"),   // bank | wallet | cash | escrow
+  custodyType:        varchar("custody_type",      { length: 20  }),                              // custodial | on_chain | null
+  currency:           varchar("currency",          { length: 10  }).notNull().default("USD"),
+  institutionName:    varchar("institution_name",  { length: 255 }),                              // bank name or exchange name
+  accountIdentifier:  varchar("account_identifier",{ length: 500 }),                              // account no, IBAN, wallet address
+  network:            varchar("network",           { length: 50  }),                              // TRC20, ERC20, BEP20, etc.
+  openingBalance:     numeric("opening_balance",   { precision: 14, scale: 4 }).notNull().default("0"),
+  currentBalance:     numeric("current_balance",   { precision: 14, scale: 4 }).notNull().default("0"),
+  isDefault:          boolean("is_default").notNull().default(false),
+  status:             varchar("status",            { length: 20  }).notNull().default("active"),  // active | inactive | frozen
+  notes:              text("notes"),
+  createdBy:          varchar("created_by",        { length: 255 }).notNull(),
+  createdAt:          timestamp("created_at",      { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:          timestamp("updated_at",      { withTimezone: true }).notNull().defaultNow(),
+  deletedAt:          timestamp("deleted_at",      { withTimezone: true }),
+});
+export type TreasuryAccount       = typeof treasuryAccounts.$inferSelect;
+export type InsertTreasuryAccount = typeof treasuryAccounts.$inferInsert;
+export const insertTreasuryAccountSchema = createInsertSchema(treasuryAccounts, {
+  name:     (s) => s.min(1, "Account name is required"),
+  type:     (s) => s.refine(
+    (v) => ["bank","wallet","cash","escrow"].includes(v),
+    "Invalid account type",
+  ),
+  custodyType: (s) => s.refine(
+    (v) => v == null || ["custodial","on_chain"].includes(v),
+    "Invalid custody type",
+  ).optional(),
+  status: (s) => s.refine(
+    (v) => ["active","inactive","frozen"].includes(v),
+    "Invalid status",
+  ),
+});
+
 // Phase 1 read migration — re-exported from shared/destinations-view.ts
 export { destinationsView } from './destinations-view';
