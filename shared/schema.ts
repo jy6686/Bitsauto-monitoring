@@ -4376,5 +4376,116 @@ export type VendorRateNormalizedPrefix       = typeof vendorRateNormalizedPrefix
 export type InsertVendorRateNormalizedPrefix  = typeof vendorRateNormalizedPrefixes.$inferInsert;
 
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// ACCOUNTS PAYABLE DOMAIN — CAP-003 Phase 3 Sprint A1
+// Migration: shared/migrations/023_ap_foundation.sql
+// Tables: business_partners · vendor_bills · vendor_bill_lines
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Business Partners ─────────────────────────────────────────────────────────
+// Unified Finance entity for vendors, clients, and carriers.
+// Excludes all telecom fields; optional FKs link to telecom-domain records.
+export const businessPartners = pgTable("business_partners", {
+  id:                       serial("id").primaryKey(),
+  name:                     varchar("name",                 { length: 256  }).notNull(),
+  type:                     varchar("type",                 { length: 20   }).notNull().default("vendor"),    // vendor | client | carrier
+  status:                   varchar("status",               { length: 20   }).notNull().default("active"),    // active | inactive | suspended
+  taxId:                    varchar("tax_id",               { length: 64   }),
+  currency:                 varchar("currency",             { length: 8    }).notNull().default("USD"),
+  paymentTermsDays:         integer("payment_terms_days").notNull().default(30),
+  bankName:                 varchar("bank_name",            { length: 128  }),
+  bankAccountNumber:        varchar("bank_account_number",  { length: 64   }),
+  bankIban:                 varchar("bank_iban",            { length: 64   }),
+  bankSwift:                varchar("bank_swift",           { length: 32   }),
+  contactName:              varchar("contact_name",         { length: 128  }),
+  contactEmail:             varchar("contact_email",        { length: 255  }),
+  contactPhone:             varchar("contact_phone",        { length: 32   }),
+  addressLine1:             varchar("address_line1",        { length: 255  }),
+  addressLine2:             varchar("address_line2",        { length: 255  }),
+  city:                     varchar("city",                 { length: 100  }),
+  country:                  varchar("country",              { length: 64   }),
+  notes:                    text("notes"),
+  // Optional cross-domain linkage — nullable, no telecom data pulled through
+  linkedClientProfileId:    integer("linked_client_profile_id").references(() => clientProfiles.id, { onDelete: "set null" }),
+  linkedCanonicalVendorId:  integer("linked_canonical_vendor_id").references(() => canonicalVendors.id, { onDelete: "set null" }),
+  // Audit
+  createdBy:                varchar("created_by",           { length: 128  }),
+  createdAt:                timestamp("created_at").notNull().defaultNow(),
+  updatedAt:                timestamp("updated_at").notNull().defaultNow(),
+  deletedAt:                timestamp("deleted_at"),                                                         // NULL = active
+});
+export type BusinessPartner       = typeof businessPartners.$inferSelect;
+export type InsertBusinessPartner = typeof businessPartners.$inferInsert;
+export const insertBusinessPartnerSchema = createInsertSchema(businessPartners, {
+  name:    (s) => s.min(1, "Name is required"),
+  type:    (s) => s.refine((v) => ["vendor", "client", "carrier"].includes(v), "Invalid type"),
+  status:  (s) => s.refine((v) => ["active", "inactive", "suspended"].includes(v), "Invalid status"),
+});
+
+// ── Vendor Bills ──────────────────────────────────────────────────────────────
+// AP invoices received from vendors.
+// bill_number = DRAFT-{uuid} until submitted; permanent VB-YYYY-NNNN on submit.
+export const vendorBills = pgTable("vendor_bills", {
+  id:                  serial("id").primaryKey(),
+  billNumber:          varchar("bill_number",         { length: 64   }).notNull().unique(),
+  businessPartnerId:   integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: "restrict" }),
+  vendorReference:     varchar("vendor_reference",    { length: 128  }),                                    // vendor's own invoice number
+  billDate:            date("bill_date").notNull(),
+  dueDate:             date("due_date").notNull(),
+  currency:            varchar("currency",            { length: 8    }).notNull().default("USD"),
+  subtotal:            numeric("subtotal",            { precision: 14, scale: 4 }).notNull().default("0"),
+  taxAmount:           numeric("tax_amount",          { precision: 14, scale: 4 }).notNull().default("0"),
+  total:               numeric("total",               { precision: 14, scale: 4 }).notNull().default("0"),
+  outstanding:         numeric("outstanding",         { precision: 14, scale: 4 }).notNull().default("0"),
+  status:              varchar("status",              { length: 32   }).notNull().default("draft"),
+    // draft | submitted | under_review | approved | partially_paid | paid | disputed | void
+  approvalStatus:      varchar("approval_status",     { length: 32   }).notNull().default("pending"),
+    // pending | approved | rejected
+  attachmentUrl:       text("attachment_url"),
+  notes:               text("notes"),
+  // Audit
+  createdBy:           varchar("created_by",          { length: 128  }),
+  approvedBy:          varchar("approved_by",         { length: 128  }),
+  approvedAt:          timestamp("approved_at"),
+  createdAt:           timestamp("created_at").notNull().defaultNow(),
+  updatedAt:           timestamp("updated_at").notNull().defaultNow(),
+  deletedAt:           timestamp("deleted_at"),                                                             // NULL = active
+});
+export type VendorBill       = typeof vendorBills.$inferSelect;
+export type InsertVendorBill = typeof vendorBills.$inferInsert;
+export const insertVendorBillSchema = createInsertSchema(vendorBills, {
+  billNumber:        (s) => s.min(1, "Bill number is required"),
+  businessPartnerId: (s) => s.min(1, "Business partner is required"),
+  status:            (s) => s.refine(
+    (v) => ["draft","submitted","under_review","approved","partially_paid","paid","disputed","void"].includes(v),
+    "Invalid status"
+  ),
+  approvalStatus:    (s) => s.refine(
+    (v) => ["pending","approved","rejected"].includes(v),
+    "Invalid approval status"
+  ),
+});
+
+// ── Vendor Bill Lines ─────────────────────────────────────────────────────────
+// Line items for vendor_bills. Cascade-deleted with parent. No soft delete.
+export const vendorBillLines = pgTable("vendor_bill_lines", {
+  id:            serial("id").primaryKey(),
+  vendorBillId:  integer("vendor_bill_id").notNull().references(() => vendorBills.id, { onDelete: "cascade" }),
+  lineNumber:    integer("line_number").notNull(),
+  description:   varchar("description", { length: 512 }).notNull(),
+  quantity:      numeric("quantity",    { precision: 12, scale: 4 }).notNull().default("1"),
+  unitPrice:     numeric("unit_price",  { precision: 14, scale: 6 }).notNull().default("0"),  // higher precision before rounding
+  amount:        numeric("amount",      { precision: 14, scale: 4 }).notNull().default("0"),  // quantity × unit_price, rounded
+  taxRate:       numeric("tax_rate",    { precision: 6,  scale: 4 }).notNull().default("0"),  // e.g. 0.0500 = 5%
+  taxAmount:     numeric("tax_amount",  { precision: 14, scale: 4 }).notNull().default("0"),
+  glCode:        varchar("gl_code",     { length: 32   }),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+});
+export type VendorBillLine       = typeof vendorBillLines.$inferSelect;
+export type InsertVendorBillLine = typeof vendorBillLines.$inferInsert;
+export const insertVendorBillLineSchema = createInsertSchema(vendorBillLines, {
+  description: (s) => s.min(1, "Description is required"),
+});
+
 // Phase 1 read migration — re-exported from shared/destinations-view.ts
 export { destinationsView } from './destinations-view';
