@@ -37387,6 +37387,31 @@ ${footer}
     } catch (e: any) { res.status(500).json({ success: false, rates: [], error: e.message }); }
   });
 
+  // ── DEF-017 Diagnostic: Sippy rate-method probe ───────────────────────────
+  // GET /api/debug/sippy-rate-probe?iTariff=33&prefix=9230
+  // Admin only. Tries all known XML-RPC add-rate methods and returns full results.
+  // Remove once DEF-017 is resolved.
+  app.get('/api/debug/sippy-rate-probe', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res: any) => {
+    try {
+      const settings = await storage.getSettings();
+      const username  = settings?.sippyUsername ?? settings?.username ?? '';
+      const password  = settings?.sippyPassword ?? settings?.password ?? '';
+      const portalUrl = settings?.sippyUrl ?? settings?.portalUrl ?? '';
+      const iTariff   = parseInt(String(req.query.iTariff ?? '33'), 10);
+      const prefix    = String(req.query.prefix ?? '9230');
+      if (!username || !portalUrl) return res.status(400).json({ error: 'Sippy credentials not configured in Settings.' });
+      const results = await sippy.probeRateMethods(username, password, iTariff, prefix, portalUrl);
+      const working = results.filter(r => r.success).map(r => r.method);
+      res.json({
+        iTariff,
+        prefix,
+        portalUrl,
+        working,
+        allResults: results,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   return httpServer;
 }
 
