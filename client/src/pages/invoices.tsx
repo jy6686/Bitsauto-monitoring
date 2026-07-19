@@ -306,7 +306,10 @@ export default function InvoicesPage() {
       });
     },
     onError: (err: any) => {
-      toast({ title: "Generation failed", description: err.message, variant: "destructive" });
+      const desc = err.message?.toLowerCase().includes("fetch")
+        ? "Unable to generate the invoice. Please try again or contact your administrator."
+        : err.message;
+      toast({ title: "Invoice generation failed", description: desc, variant: "destructive" });
     },
   });
 
@@ -548,10 +551,10 @@ export default function InvoicesPage() {
                 toast({ title: `${skipped} snapshot(s) already exist`, description: "Click Generate Draft Invoice to proceed." });
               } else {
                 toast({
-                  title: "No CDRs from Admin API",
+                  title: "No billing records found",
                   description: total === 0
-                    ? (job.phase && job.phase.length > 20 ? job.phase : "Admin API returned 0 CDRs for this account and billing period. Verify the iAccount ID and XML-RPC credentials in Settings → Sippy Connection.")
-                    : `${total} CDRs fetched but none were new.`,
+                    ? "No billing records were found for this account and period. Contact your administrator if this is unexpected."
+                    : `${total} records fetched but none were new.`,
                   variant: "destructive",
                 });
               }
@@ -716,8 +719,8 @@ export default function InvoicesPage() {
                     <TableHead>Invoice #</TableHead>
                     <TableHead>Customer</TableHead>
                     <TableHead>Period</TableHead>
-                    <TableHead className="text-right text-xs">DMR Amount</TableHead>
-                    <TableHead className="text-right text-xs">Sippy Amount</TableHead>
+                    <TableHead className="text-right text-xs">Verified Amount</TableHead>
+                    <TableHead className="text-right text-xs">Billed Amount</TableHead>
                     <TableHead className="text-right text-xs">Difference</TableHead>
                     <TableHead>Lines</TableHead>
                     <TableHead>Status</TableHead>
@@ -818,7 +821,7 @@ export default function InvoicesPage() {
             <DialogTitle>Generate Invoice</DialogTitle>
             <DialogDescription>
               {generateMode === 'sippy'
-                ? "Fetches CDRs and billing data directly from Sippy — no snapshots required."
+                ? "Fetches billing records for the selected account and period."
                 : "Creates a DRAFT invoice from locked immutable rating snapshots."}
             </DialogDescription>
           </DialogHeader>
@@ -848,7 +851,7 @@ export default function InvoicesPage() {
               </Select>
               {fetchingTariff && (
                 <p className="text-xs text-muted-foreground mt-1.5 flex items-center gap-1">
-                  <RefreshCw className="h-3 w-3 animate-spin" /> Fetching account details from Sippy…
+                  <RefreshCw className="h-3 w-3 animate-spin" /> Fetching account details…
                 </p>
               )}
             </div>
@@ -1012,12 +1015,12 @@ export default function InvoicesPage() {
                 disabled={!form.iAccount || !form.periodStart || !form.periodEnd || generateDirectMutation.isPending || fetchingTariff}
               >
                 {generateDirectMutation.isPending
-                  ? <><RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" />Fetching CDRs from Sippy…</>
+                  ? <><RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" />Fetching billing data…</>
                   : !form.iAccount
                     ? "Select a client account"
                     : !form.periodStart || !form.periodEnd
                       ? "Select billing period"
-                      : <><Zap className="h-3.5 w-3.5 mr-1.5" />Generate Invoice from Sippy</>
+                      : <><Zap className="h-3.5 w-3.5 mr-1.5" />Generate Invoice</>
                 }
               </Button>
             )}
@@ -1040,7 +1043,7 @@ export default function InvoicesPage() {
                     <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 rounded px-3 py-2">
                       <Layers className="h-3.5 w-3.5 shrink-0 mt-0.5 text-amber-400/70" />
                       <span>
-                        Step 1 fetches billing CDRs via the <span className="text-amber-300 font-medium">Sippy Admin API (XML-RPC)</span> for tariff <span className="font-mono text-amber-300">ID {form.iTariff}</span>.
+                        Step 1 fetches billing records for the selected account and period.
                         Step 2 crystallises verified records into locked, immutable snapshots used for invoice line items.
                       </span>
                     </div>
@@ -1048,8 +1051,8 @@ export default function InvoicesPage() {
                       <div className="text-xs text-muted-foreground px-1">
                         <span className="text-amber-300 font-medium">0 new snapshots created</span>
                         {lockBatchResult.skipped > 0
-                          ? ` — ${lockBatchResult.skipped} snapshot(s) already exist for this tariff.`
-                          : " — Admin API returned 0 CDRs. Check the iAccount ID and XML-RPC credentials in Settings → Sippy Connection."}
+                          ? ` — ${lockBatchResult.skipped} snapshot(s) already exist for this period.`
+                          : " — No billing records found for this account and period. Contact your administrator if this is unexpected."}
                       </div>
                     )}
                     <Button
@@ -1062,7 +1065,7 @@ export default function InvoicesPage() {
                     >
                       {lockBatchRunning
                         ? <><RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" />{seedJobPhase || 'Starting…'}</>
-                        : <><Zap className="h-3.5 w-3.5 mr-2" />Fetch via Admin API + Lock Batch</>
+                        : <><Zap className="h-3.5 w-3.5 mr-2" />Fetch &amp; Lock Billing Records</>
                       }
                     </Button>
                   </div>
@@ -1178,7 +1181,7 @@ export default function InvoicesPage() {
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
                   onClick={() => { setGenerateMode('snapshot'); setDmrGateError(null); setSnapshotGateError(null); }}
                 >
-                  <Lock className="h-3 w-3" /> Advanced: Use locked CDR snapshots (audit-grade)
+                  <Lock className="h-3 w-3" /> Advanced: Use locked immutable snapshots (audit-grade)
                 </button>
               ) : (
                 <button
@@ -1187,7 +1190,7 @@ export default function InvoicesPage() {
                   className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
                   onClick={() => { setGenerateMode('sippy'); setDmrGateError(null); setSnapshotGateError(null); }}
                 >
-                  ← Back to Sippy direct mode
+                  ← Standard mode
                 </button>
               )}
             </div>

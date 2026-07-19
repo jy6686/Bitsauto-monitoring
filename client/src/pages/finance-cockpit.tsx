@@ -200,11 +200,11 @@ export default function FinanceCockpitPage() {
   const { toast } = useToast();
 
   const { data: invoiceData,    isLoading: invLoading }    = useQuery<any>({ queryKey: ["/api/invoices"] });
-  const { data: disputeData,    isLoading: dispLoading }   = useQuery<any>({ queryKey: ["/api/billing-disputes"] });
+  const { data: disputeData,    isLoading: dispLoading }   = useQuery<any>({ queryKey: ["/api/disputes"] });
   const { data: dmrData,        isLoading: dmrLoading }    = useQuery<any>({ queryKey: ["/api/dmr"] });
-  const { data: reconcData,     isLoading: reconLoading }  = useQuery<any>({ queryKey: ["/api/client-reconciliations"] });
+  const { data: reconcData,     isLoading: reconLoading }  = useQuery<any>({ queryKey: ["/api/client-reconciliation"] });
   const { data: aiData,         isLoading: aiLoading }     = useQuery<any>({ queryKey: ["/api/ai-assurance/alerts"] });
-  const { data: marginData,     isLoading: marginLoading } = useQuery<any>({ queryKey: ["/api/margin-intelligence/alerts"] });
+  const { data: marginData,     isLoading: marginLoading } = useQuery<any>({ queryKey: ["/api/margin/alerts"] });
   const { data: identityData }                             = useQuery<any>({ queryKey: ["/api/identity"] });
   const { data: balAlertData,   isLoading: balAlertLoading } = useQuery<any>({
     queryKey: ["/api/noc/balance-alerts"],

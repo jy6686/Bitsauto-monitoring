@@ -2,7 +2,7 @@ import { useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
-  DollarSign, ArrowLeft, PhoneCall, Clock, TrendingUp,
+  DollarSign, PhoneCall, Clock, TrendingUp,
   BarChart2, FileText, RefreshCw, AlertTriangle, CheckCircle2,
   Minus, ExternalLink,
 } from "lucide-react";
@@ -129,10 +129,9 @@ export default function BillingPage() {
   if (isNaN(connectionId)) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-3 text-muted-foreground">
-        <AlertTriangle className="h-8 w-8 text-amber-400" />
-        <p className="font-medium text-foreground">Select a vendor connection to view billing</p>
-        <p className="text-sm">Go to Operations → Routing Manager → open a vendor connection</p>
-        <Link href="/routing-manager" className="text-sm text-primary hover:underline flex items-center gap-1">← Open Routing Manager</Link>
+        <DollarSign className="h-8 w-8 text-muted-foreground/30" />
+        <p className="font-medium text-foreground">Billing Overview</p>
+        <p className="text-sm">No billing account selected.</p>
       </div>
     );
   }
@@ -157,13 +156,6 @@ export default function BillingPage() {
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <Link
-            href="/routing-manager"
-            className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2"
-            data-testid="link-back-routing-manager"
-          >
-            <ArrowLeft className="w-3 h-3" /> Routing Manager
-          </Link>
           <div className="flex items-center gap-3 flex-wrap">
             <h2 className="text-2xl font-bold tracking-tight">{data.connName}</h2>
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/25">
@@ -171,7 +163,7 @@ export default function BillingPage() {
             </span>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
-            Connection #{data.connId} · Billing overview from CDR cache
+            Billing overview
             {data.updatedAt && (
               <span className="ml-2 text-muted-foreground/60">
                 · updated {new Date(data.updatedAt).toLocaleTimeString()}
