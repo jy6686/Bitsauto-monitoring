@@ -6308,6 +6308,74 @@ export async function addRateDirectToTariff(
   return { success: false, message: `No working XML-RPC add-rate method found for i_tariff=${iTariff} prefix=${rate.prefix}` };
 }
 
+/**
+ * probeRateMethods — diagnostic only, NOT used in production flows.
+ *
+ * Tries every known XML-RPC method name and returns the full result for each:
+ * status code, first 400 chars of response body, fault code/string if present.
+ * Does NOT stop at first success — exhausts all methods so we can see exactly
+ * what this Sippy instance accepts vs rejects.
+ *
+ * Used by GET /api/debug/sippy-rate-probe to diagnose DEF-017.
+ */
+export async function probeRateMethods(
+  username: string,
+  password: string,
+  iTariff: number,
+  testPrefix: string,
+  portalUrl: string,
+): Promise<Array<{
+  method: string;
+  statusCode?: number;
+  body?: string;
+  faultCode?: string;
+  faultString?: string;
+  success: boolean;
+  error?: string;
+}>> {
+  const base   = sippyBase(portalUrl);
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const params: Record<string, string | number> = {
+    i_tariff:    iTariff,
+    prefix:      testPrefix,
+    destination: testPrefix,
+    price_1:     0.001,
+    price_n:     0.001,
+    interval_1:  1,
+    interval_n:  1,
+    rate:        0.001,
+  };
+
+  const methods = [
+    'addRateInTariff', 'addRateToTariff', 'setRateInTariff', 'updateRateInTariff',
+    'addRateTariff',   'tariff.setRate',   'tariff.addRate',  'tariff.updateRate',
+    'tariff.addDestination', 'addRate', 'setRate', 'updateRate',
+    'rate.add', 'rate.set', 'setTariffRate',
+  ];
+
+  const results = [];
+  for (const method of methods) {
+    try {
+      const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password, 8_000);
+      const body  = resp.body.substring(0, 400);
+      const fcMatch  = resp.body.match(/<member>\s*<name>faultCode<\/name>\s*<value><int>(\d+)<\/int>/);
+      const fsMatch  = resp.body.match(/<member>\s*<name>faultString<\/name>\s*<value><string>([^<]*)<\/string>/);
+      results.push({
+        method,
+        statusCode: resp.statusCode,
+        body,
+        faultCode:   fcMatch?.[1],
+        faultString: fsMatch?.[1],
+        success: resp.statusCode === 200 && !resp.body.includes('<fault>'),
+      });
+    } catch (e: any) {
+      results.push({ method, success: false, error: e.message });
+    }
+  }
+  return results;
+}
+
 // ── Portal User Management ────────────────────────────────────────────────────
 
 export interface SippyPortalUser {
