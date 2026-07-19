@@ -1,0 +1,145 @@
+2026-07-19T18:49:46Z info: Deployment: 0484ea16-fb37-47e9-b317-17b765282846
+2026-07-19T18:49:46Z info: Build: e8c72e73-c2aa-437d-9230-0529c754f448
+2026-07-19T18:49:47Z info: Running Security Scan
+2026-07-19T18:49:51Z info: Installing packages
+--> npm install
+
+--> npm install
+
+
+up to date, audited 778 packages in 4s
+
+
+up to date, audited 778 packages in 4s
+
+106 packages are looking for funding
+  run `npm fund` for details
+
+106 packages are looking for funding
+  run `npm fund` for details
+
+
+25 vulnerabilities (1 low, 8 moderate, 16 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues possible (including breaking changes), run:
+  npm audit fix --force
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+
+
+25 vulnerabilities (1 low, 8 moderate, 16 high)
+
+To address issues that do not require attention, run:
+  npm audit fix
+
+To address all issues possible (including breaking changes), run:
+  npm audit fix --force
+
+Some issues need review, and may require choosing
+a different dependency.
+
+Run `npm audit` for details.
+
+npm notice
+npm notice New major version of npm available! 10.8.2 -> 12.0.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.1
+npm notice To update run: npm install -g npm@12.0.1
+npm notice
+
+npm notice
+npm notice New major version of npm available! 10.8.2 -> 12.0.1
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.0.1
+npm notice To update run: npm install -g npm@12.0.1
+npm notice
+
+2026-07-19T18:49:56Z info: Starting Build
+
+> rest-express@1.0.0 build
+> tsx script/build.ts
+
+
+building client...
+
+vite v7.3.0 building client environment for production...
+
+transforming...
+
+Browserslist: browsers data (caniuse-lite) is 9 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+[plugin vite:esbuild] client/src/pages/dmr.tsx: Duplicate key "Platform Duration (m)" in object literal
+310 |                  "Vendor":              r.vendorName  ?? r.vendorId  ?? "—",
+311 |                  "Platform Duration (m)": r.sippyDuration    != null ? Math.round(r.sippyDuration    / 60) : "",
+312 |                  "Platform Duration (m)":r.platformDuration != null ? Math.round(r.platformDuration / 60) : "",
+    |                  ^
+313 |                  "Drift Duration (m)":  r.driftDuration    != null ? Math.round(r.driftDuration    / 60) : "",
+314 |                  "Platform Amount ($)":  r.sippyAmount    ?? "",
+
+
+[plugin vite:esbuild] client/src/pages/dmr.tsx: Duplicate key "Platform Amount ($)" in object literal
+313 |                  "Drift Duration (m)":  r.driftDuration    != null ? Math.round(r.driftDuration    / 60) : "",
+314 |                  "Platform Amount ($)":  r.sippyAmount    ?? "",
+315 |                  "Platform Amount ($)": r.platformAmount ?? "",
+    |                  ^
+316 |                  "Sell ($)":            r.sellAmount     ?? "",
+317 |                  "Buy ($)":             r.buyAmount      ?? "",
+
+
+✓ 4305 modules transformed.
+
+rendering chunks...
+
+[plugin vite:reporter] 
+(!) /home/runner/workspace/node_modules/xlsx/xlsx.mjs is dynamically imported by /home/runner/workspace/client/src/pages/client-reconciliation.tsx, /home/runner/workspace/client/src/pages/rate-cards.tsx but also statically imported by /home/runner/workspace/client/src/lib/export-excel.ts, /home/runner/workspace/client/src/pages/cdr-reconciliation.tsx, /home/runner/workspace/client/src/pages/cdrs.tsx, /home/runner/workspace/client/src/pages/destination-catalog.tsx, /home/runner/workspace/client/src/pages/portal-view.tsx, /home/runner/workspace/client/src/pages/rate-editor.tsx, /home/runner/workspace/client/src/pages/reports.tsx, /home/runner/workspace/client/src/pages/routing-manager.tsx, /home/runner/workspace/client/src/pages/tariff-profiles.tsx, /home/runner/workspace/client/src/pages/vendor-sla-scorecard.tsx, dynamic import will not move module into another chunk.
+
+
+[plugin vite:reporter] 
+(!) /home/runner/workspace/client/src/pages/calls-list.tsx is dynamically imported by /home/runner/workspace/client/src/portals/registry/module-registry.ts but also statically imported by /home/runner/workspace/client/src/App.tsx, dynamic import will not move module into another chunk.
+
+
+[plugin vite:reporter] 
+(!) /home/runner/workspace/client/src/pages/noc-command.tsx is dynamically imported by /home/runner/workspace/client/src/portals/registry/module-registry.ts but also statically imported by /home/runner/workspace/client/src/App.tsx, dynamic import will not move module into another chunk.
+
+
+[plugin vite:reporter] 
+(!) /home/runner/workspace/client/src/pages/ops-console.tsx is dynamically imported by /home/runner/workspace/client/src/portals/registry/module-registry.ts but also statically imported by /home/runner/workspace/client/src/App.tsx, dynamic import will not move module into another chunk.
+
+[plugin vite:reporter] 
+(!) /home/runner/workspace/client/src/pages/live-traffic.tsx is dynamically imported by /home/runner/workspace/client/src/portals/registry/module-registry.ts but also statically imported by /home/runner/workspace/client/src/App.tsx, dynamic import will not move module into another chunk.
+
+
+computing gzip size...
+
+../dist/public/index.html                                      2.20 kB │ gzip:     0.87 kB
+../dist/public/assets/index-BWHP-_P2.css                     242.29 kB │ gzip:    40.21 kB
+../dist/public/assets/PortalAwareNocDashboard-CofcmnTM.js      0.68 kB │ gzip:     0.41 kB
+../dist/public/assets/html2canvas.esm-DXEQVQnt.js            201.04 kB │ gzip:    47.07 kB
+../dist/public/assets/index-BLAGwvDl.js                    8,052.17 kB │ gzip: 1,943.71 kB
+✓ built in 28.63s
+building server...
+
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+
+  dist/index.cjs  5.7mb ⚠️
+
+⚡ Done in 2130ms
+
+2026-07-19T18:50:32Z info: Pushing pid1 binary layer...
+2026-07-19T18:50:34Z info: Pushing hosting layer...
+2026-07-19T18:50:34Z info: Pushing Repl layer...
+2026-07-19T18:50:34Z info: Retrieved cached nix layer
+2026-07-19T18:50:34Z info: Created pid1 binary layer
+2026-07-19T18:50:34Z info: Created hosting layer
+2026-07-19T18:51:45Z info: Security Scan Complete
