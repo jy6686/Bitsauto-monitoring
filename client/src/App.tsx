@@ -140,6 +140,12 @@ import NumberingPrefixesPage from "@/pages/numbering-prefixes";
 import ReminderRulesPage from "@/pages/reminder-rules";
 import CurrencySettingsPage from "@/pages/currency-settings";
 import TaxVatPage from "@/pages/tax-vat";
+import VendorBillsPage from "@/pages/vendor-bills";
+import VendorVerificationPage from "@/pages/vendor-verification";
+import VendorApprovalPage from "@/pages/vendor-approval";
+import VendorPaymentsPage from "@/pages/vendor-payments";
+import VendorAdjustmentsPage from "@/pages/vendor-adjustments";
+import VendorStatementPage from "@/pages/vendor-statement";
 import RoutingManagerPage from "@/pages/routing-manager";
 import AuthStudioPage from "@/pages/auth-studio";
 import ApprovalQueuePage from "@/pages/approval-queue";
@@ -258,7 +264,13 @@ const PaymentTermsWS     = withWorkspace('billing-ops', PaymentTermsPage);
 const NumberingPrefixesWS = withWorkspace('billing-ops', NumberingPrefixesPage);
 const ReminderRulesWS    = withWorkspace('billing-ops', ReminderRulesPage);
 const CurrencySettingsWS = withWorkspace('billing-ops', CurrencySettingsPage);
-const TaxVatWS           = withWorkspace('billing-ops', TaxVatPage);
+const TaxVatWS              = withWorkspace('billing-ops', TaxVatPage);
+const VendorBillsWS         = withWorkspace('billing-ops', VendorBillsPage);
+const VendorVerificationWS  = withWorkspace('billing-ops', VendorVerificationPage);
+const VendorApprovalWS      = withWorkspace('billing-ops', VendorApprovalPage);
+const VendorPaymentsWS      = withWorkspace('billing-ops', VendorPaymentsPage);
+const VendorAdjustmentsWS   = withWorkspace('billing-ops', VendorAdjustmentsPage);
+const VendorStatementWS     = withWorkspace('billing-ops', VendorStatementPage);
 
 // dispute-governance workspace
 const BillingDisputesWS  = withWorkspace('dispute-governance', BillingDisputesPage);
@@ -685,6 +697,24 @@ function Router() {
       </Route>
       <Route path="/tax-vat">
         {() => <ProtectedRoute component={TaxVatWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance/vendor-bills">
+        {() => <ProtectedRoute component={VendorBillsWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance/vendor-verification">
+        {() => <ProtectedRoute component={VendorVerificationWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance/vendor-approval">
+        {() => <ProtectedRoute component={VendorApprovalWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance/vendor-payments">
+        {() => <ProtectedRoute component={VendorPaymentsWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance/vendor-adjustments">
+        {() => <ProtectedRoute component={VendorAdjustmentsWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance/vendor-statement">
+        {() => <ProtectedRoute component={VendorStatementWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/dispute-cases">
         {() => <ProtectedRoute component={DisputeCasesWS} requiredRoles={['admin', 'management']} />}

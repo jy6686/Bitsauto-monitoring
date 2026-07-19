@@ -13,6 +13,7 @@ import {
   FileSpreadsheet, Rewind, Upload, Star, Package, Search,
   MessageSquare, Bell, Sun, Moon, LogOut, UserPlus, Briefcase,
   Telescope, Cpu, AreaChart, ClockIcon, GitCompare, Layers2, MoreHorizontal, Hash,
+  CheckCircle, CreditCard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
@@ -245,6 +246,14 @@ const DOMAINS: Domain[] = [
         { href: '/credit-control',    label: 'Credit Control',    desc: 'Credit rules, events and risk management',   icon: Banknote },
         { href: '/payment-reminders', label: 'Payment Reminders', desc: 'Dunning and payment reminder schedules',     icon: Bell },
         { href: '/account-statement', label: 'Account Statement', desc: 'Transaction-level per-account view',         icon: FileText },
+      ]},
+      { label: 'Accounts Payable', desc: 'Vendor bills, verification, approval, payments and statements', icon: Wallet, items: [
+        { href: '/finance/vendor-bills',        label: 'Vendor Bills',        desc: 'AP invoices received from vendors',            icon: FileText },
+        { href: '/finance/vendor-verification', label: 'Vendor Verification', desc: 'Review and verify vendor bills',               icon: ShieldCheck },
+        { href: '/finance/vendor-approval',     label: 'Vendor Approval',     desc: 'Single and bulk bill approval workflow',       icon: CheckCircle },
+        { href: '/finance/vendor-payments',     label: 'Vendor Payments',     desc: 'Record and allocate vendor payments',          icon: CreditCard },
+        { href: '/finance/vendor-adjustments',  label: 'Vendor Adjustments',  desc: 'Debit and credit notes against vendors',       icon: Calculator },
+        { href: '/finance/vendor-statement',    label: 'Vendor Statement',    desc: 'Vendor AP statement and running balance',      icon: FileSpreadsheet },
       ]},
       { label: 'Revenue Assurance', desc: 'Reconciliation, margin intelligence, DMR and AI assurance', icon: Brain, items: [
         { href: '/client-reconciliation',  label: 'Client Reconciliation', desc: 'Client-side billing reconciliation',  icon: ArrowRightLeft },
