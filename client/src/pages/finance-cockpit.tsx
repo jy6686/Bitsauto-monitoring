@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,15 +7,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
   DollarSign, AlertTriangle, TrendingDown, TrendingUp,
-  FileText, RefreshCw, ArrowRight, BrainCircuit, Scale,
-  BarChart3, Activity, ShieldAlert, Users, Clock, Wallet,
-  AlertOctagon, CheckCircle2, Play,
+  FileText, RefreshCw, ArrowRight, Scale,
+  BarChart3, Activity, ShieldAlert, Clock,
+  CheckCircle2, Bell, ReceiptText, Banknote, Plus,
 } from "lucide-react";
 import { Link } from "wouter";
-import { apiRequest } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────────
 function fmt(n: number | undefined | null, prefix = "$") {
   if (n == null) return "—";
   return `${prefix}${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -24,19 +22,22 @@ function fmtPct(n: number | undefined | null) {
   if (n == null) return "—";
   return `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
 }
+function fmtDate(d: string | undefined | null) {
+  if (!d) return "—";
+  return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
-// ── KPI strip card ────────────────────────────────────────────────────────────
+// ── KPI card ──────────────────────────────────────────────────────────────────
 interface KpiCardProps {
   label: string;
   value: string;
   sub?: string;
-  trend?: "up" | "down" | "neutral";
   icon: React.ElementType;
   accent?: "default" | "warn" | "danger" | "ok";
   href?: string;
   testId?: string;
 }
-function KpiCard({ label, value, sub, trend, icon: Icon, accent = "default", href, testId }: KpiCardProps) {
+function KpiCard({ label, value, sub, icon: Icon, accent = "default", href, testId }: KpiCardProps) {
   const accentCls = {
     default: "text-primary",
     warn:    "text-amber-500",
@@ -45,24 +46,18 @@ function KpiCard({ label, value, sub, trend, icon: Icon, accent = "default", hre
   }[accent];
 
   const card = (
-    <Card className="relative overflow-hidden">
+    <Card className="relative overflow-hidden hover:shadow-md transition-shadow">
       <CardContent className="pt-4 pb-3">
         <div className="flex items-start justify-between">
-          <div>
+          <div className="min-w-0">
             <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{label}</p>
             <p className={`text-2xl font-bold mt-1 ${accentCls}`} data-testid={testId}>{value}</p>
             {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
           </div>
-          <div className={`p-2 rounded-lg bg-muted ${accentCls}`}>
+          <div className={`p-2 rounded-lg bg-muted ${accentCls} shrink-0`}>
             <Icon className="w-4 h-4" />
           </div>
         </div>
-        {trend && (
-          <div className="mt-2 flex items-center gap-1 text-xs">
-            {trend === "up"   && <TrendingUp   className="w-3 h-3 text-emerald-500" />}
-            {trend === "down" && <TrendingDown  className="w-3 h-3 text-red-500" />}
-          </div>
-        )}
       </CardContent>
     </Card>
   );
@@ -71,215 +66,282 @@ function KpiCard({ label, value, sub, trend, icon: Icon, accent = "default", hre
   return card;
 }
 
-// ── Collections queue item ───────────────────────────────────────────────────
-function CollectionRow({ dispute }: { dispute: any }) {
-  const urgency = dispute.status === "escalated" ? "danger" : dispute.status === "open" ? "warn" : "default";
-  const urgencyColor = {
-    danger:  "border-l-red-500",
-    warn:    "border-l-amber-400",
-    default: "border-l-muted",
-  }[urgency];
-
+// ── Panel header ──────────────────────────────────────────────────────────────
+function PanelHeader({ icon: Icon, iconCls, title, href }: {
+  icon: React.ElementType; iconCls?: string; title: string; href?: string;
+}) {
   return (
-    <div className={`border-l-4 ${urgencyColor} pl-3 py-2`}>
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium truncate">{dispute.clientName ?? "Unknown Client"}</p>
-        <Badge
-          variant={urgency === "danger" ? "destructive" : urgency === "warn" ? "outline" : "secondary"}
-          className="text-xs ml-2 shrink-0"
-        >
-          {dispute.status}
-        </Badge>
+    <>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Icon className={`w-4 h-4 ${iconCls ?? "text-muted-foreground"}`} />
+            {title}
+          </CardTitle>
+          {href && (
+            <Link href={href}>
+              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
+                View all <ArrowRight className="w-3 h-3" />
+              </Button>
+            </Link>
+          )}
+        </div>
+      </CardHeader>
+      <Separator />
+    </>
+  );
+}
+
+// ── Empty state ───────────────────────────────────────────────────────────────
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="flex items-center gap-2 py-8 justify-center text-sm text-muted-foreground">
+      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+      {message}
+    </div>
+  );
+}
+
+// ── Invoice row ───────────────────────────────────────────────────────────────
+function InvoiceRow({ inv }: { inv: any }) {
+  const statusColor: Record<string, string> = {
+    paid:     "text-emerald-500",
+    approved: "text-blue-500",
+    sent:     "text-blue-400",
+    overdue:  "text-red-500",
+    void:     "text-muted-foreground",
+    draft:    "text-muted-foreground",
+  };
+  const color = statusColor[inv.status] ?? "text-muted-foreground";
+  return (
+    <div className="flex items-center justify-between py-2 gap-2">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate">{inv.clientName ?? inv.accountName ?? `Invoice #${inv.id}`}</p>
+        <p className="text-xs text-muted-foreground">{fmtDate(inv.createdAt ?? inv.issueDate)}</p>
       </div>
-      <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
-        <span>{dispute.disputeType ?? "dispute"}</span>
-        {dispute.amount != null && <span>{fmt(dispute.amount)}</span>}
-        {dispute.openedAt && (
-          <span className="flex items-center gap-0.5">
-            <Clock className="w-2.5 h-2.5" />
-            {new Date(dispute.openedAt).toLocaleDateString()}
-          </span>
-        )}
+      <div className="text-right shrink-0">
+        <p className="text-sm font-medium">{fmt(inv.totalAmount ?? inv.amount)}</p>
+        <Badge variant="outline" className={`text-xs ${color}`}>{inv.status}</Badge>
       </div>
     </div>
   );
 }
 
-// ── Revenue assurance row ────────────────────────────────────────────────────
-function AssuranceRow({ row, type }: { row: any; type: "dmr" | "recon" | "margin" }) {
-  const icons = { dmr: Activity, recon: Scale, margin: TrendingDown };
-  const Icon = icons[type];
-
+// ── Reminder row ──────────────────────────────────────────────────────────────
+function ReminderRow({ rem }: { rem: any }) {
   return (
-    <div className="flex items-start gap-3 py-2">
-      <div className="p-1.5 rounded bg-muted mt-0.5">
-        <Icon className="w-3.5 h-3.5 text-muted-foreground" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">
-          {row.clientName ?? row.accountName ?? row.vendorName ?? "—"}
+    <div className="flex items-center justify-between py-2 gap-2">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate">{rem.clientName ?? rem.accountName ?? "Client"}</p>
+        <p className="text-xs text-muted-foreground flex items-center gap-1">
+          <Clock className="w-2.5 h-2.5" />
+          {rem.nextSendAt ? fmtDate(rem.nextSendAt) : rem.template ?? "Payment reminder"}
         </p>
-        <p className="text-xs text-muted-foreground mt-0.5">{row.description ?? row.status ?? ""}</p>
       </div>
-      {row.variance != null && (
-        <span className={`text-xs font-medium shrink-0 ${row.variance < 0 ? "text-red-500" : "text-emerald-500"}`}>
-          {fmtPct(row.variance)}
-        </span>
-      )}
-      {row.amount != null && (
-        <span className="text-xs text-muted-foreground shrink-0">{fmt(row.amount)}</span>
+      {rem.amount != null && (
+        <p className="text-sm font-medium text-amber-500 shrink-0">{fmt(rem.amount)}</p>
       )}
     </div>
   );
 }
 
-// ── AI alert row ─────────────────────────────────────────────────────────────
-function AiAlertRow({ alert }: { alert: any }) {
+// ── Margin alert row ──────────────────────────────────────────────────────────
+function MarginAlertRow({ alert: a }: { alert: any }) {
   const severityColor: Record<string, string> = {
     critical: "text-red-500",
     high:     "text-orange-500",
     medium:   "text-amber-500",
-    low:      "text-blue-500",
+    low:      "text-blue-400",
   };
-
+  const color = severityColor[a.severity] ?? "text-muted-foreground";
   return (
-    <div className="flex items-start gap-3 py-2">
-      <BrainCircuit className={`w-4 h-4 mt-0.5 shrink-0 ${severityColor[alert.severity] ?? "text-muted-foreground"}`} />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{alert.alertType ?? "AI Alert"}</p>
-        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{alert.summary ?? alert.message ?? ""}</p>
-        {alert.affectedClient && (
-          <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-            <Users className="w-2.5 h-2.5" />
-            {alert.affectedClient}
-          </p>
-        )}
-      </div>
-      <Badge
-        variant={alert.severity === "critical" || alert.severity === "high" ? "destructive" : "outline"}
-        className="text-xs shrink-0"
-      >
-        {alert.severity ?? "info"}
-      </Badge>
-    </div>
-  );
-}
-
-// ── Balance Alert row ─────────────────────────────────────────────────────────
-const SEVERITY_CONFIG: Record<string, { color: string; badge: "destructive" | "outline" | "secondary"; label: string }> = {
-  critical: { color: "text-red-500",   badge: "destructive", label: "CRITICAL" },
-  urgent:   { color: "text-amber-500", badge: "outline",      label: "URGENT"   },
-  warning:  { color: "text-yellow-500",badge: "secondary",    label: "WARNING"  },
-};
-
-function BalanceAlertRow({ alert: a }: { alert: any }) {
-  const cfg = SEVERITY_CONFIG[a.severity] ?? SEVERITY_CONFIG.warning;
-  return (
-    <div className="flex items-center justify-between py-2">
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{a.accountName ?? `Account #${a.accountId}`}</p>
-        <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
-          <span className={cfg.color}>
-            ${Number(a.currentBalance).toFixed(2)} / threshold ${Number(a.thresholdUsd).toFixed(0)}
-          </span>
-          <span className="text-muted-foreground/60">
-            · {new Date(a.triggeredAt).toLocaleDateString()}
-          </span>
+    <div className="flex items-start justify-between py-2 gap-2">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate">{a.alertType ?? "Margin alert"}</p>
+        <p className="text-xs text-muted-foreground line-clamp-1">
+          {a.summary ?? a.message ?? a.affectedClient ?? ""}
         </p>
       </div>
-      <Badge variant={cfg.badge} className="text-xs shrink-0 ml-2">
-        {cfg.label}
+      <div className="shrink-0 text-right">
+        {a.marginDeltaPct != null && (
+          <p className={`text-sm font-medium ${color}`}>{fmtPct(a.marginDeltaPct)}</p>
+        )}
+        <Badge
+          variant={a.severity === "critical" ? "destructive" : "outline"}
+          className="text-xs"
+        >
+          {a.severity ?? "info"}
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
+// ── DMR status row ────────────────────────────────────────────────────────────
+function DmrRow({ row }: { row: any }) {
+  const isAnomaly = row.status === "anomaly" || (row.driftPct != null && Math.abs(row.driftPct) > 5);
+  return (
+    <div className="flex items-center justify-between py-2 gap-2">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate">{row.date ?? row.reportDate ?? "—"}</p>
+        <p className="text-xs text-muted-foreground">{row.status ?? "pending"}</p>
+      </div>
+      {row.driftPct != null && (
+        <p className={`text-sm font-medium shrink-0 ${isAnomaly ? "text-red-500" : "text-emerald-500"}`}>
+          {fmtPct(row.driftPct)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Reconciliation row ────────────────────────────────────────────────────────
+function ReconRow({ row }: { row: any }) {
+  const statusColor: Record<string, string> = {
+    matched:      "text-emerald-500",
+    reconciled:   "text-emerald-500",
+    mismatch:     "text-red-500",
+    pending:      "text-amber-500",
+    in_progress:  "text-blue-400",
+  };
+  const color = statusColor[row.status] ?? "text-muted-foreground";
+  return (
+    <div className="flex items-center justify-between py-2 gap-2">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate">{row.clientName ?? row.accountName ?? "Client"}</p>
+        <p className="text-xs text-muted-foreground">{row.period ?? fmtDate(row.createdAt)}</p>
+      </div>
+      <div className="shrink-0 text-right">
+        {row.variancePct != null && (
+          <p className={`text-sm font-medium ${Math.abs(row.variancePct) > 2 ? "text-red-500" : "text-emerald-500"}`}>
+            {fmtPct(row.variancePct)}
+          </p>
+        )}
+        <Badge variant="outline" className={`text-xs ${color}`}>{row.status ?? "pending"}</Badge>
+      </div>
+    </div>
+  );
+}
+
+// ── Credit event row ──────────────────────────────────────────────────────────
+function CreditEventRow({ event: ev }: { event: any }) {
+  const isAlert = ["breach", "suspended"].includes(ev.eventType);
+  return (
+    <div className="flex items-center justify-between py-2 gap-2">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate">{ev.clientName ?? ev.accountName ?? "Client"}</p>
+        <p className="text-xs text-muted-foreground">{fmtDate(ev.createdAt ?? ev.triggeredAt)}</p>
+      </div>
+      <Badge variant={isAlert ? "destructive" : "outline"} className="text-xs shrink-0">
+        {ev.eventType ?? "event"}
       </Badge>
     </div>
   );
 }
 
-// ── Main page ────────────────────────────────────────────────────────────────
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function FinanceCockpitPage() {
-  const qc = useQueryClient();
-  const { toast } = useToast();
 
-  const { data: invoiceData,    isLoading: invLoading }    = useQuery<any>({ queryKey: ["/api/invoices"] });
-  const { data: disputeData,    isLoading: dispLoading }   = useQuery<any>({ queryKey: ["/api/disputes"] });
-  const { data: dmrData,        isLoading: dmrLoading }    = useQuery<any>({ queryKey: ["/api/dmr"] });
-  const { data: reconcData,     isLoading: reconLoading }  = useQuery<any>({ queryKey: ["/api/client-reconciliation"] });
-  const { data: aiData,         isLoading: aiLoading }     = useQuery<any>({ queryKey: ["/api/ai-assurance/alerts"] });
-  const { data: marginData,     isLoading: marginLoading } = useQuery<any>({ queryKey: ["/api/margin/alerts"] });
-  const { data: identityData }                             = useQuery<any>({ queryKey: ["/api/identity"] });
-  const { data: balAlertData,   isLoading: balAlertLoading } = useQuery<any>({
-    queryKey: ["/api/noc/balance-alerts"],
-    refetchInterval: 5 * 60 * 1000,
+  // ── Data fetches ─────────────────────────────────────────────────────────────
+  const { data: invoiceData,   isLoading: invLoading }    = useQuery<any>({ queryKey: ["/api/invoices"] });
+  const { data: disputeData,   isLoading: dispLoading }   = useQuery<any>({ queryKey: ["/api/disputes"] });
+  const { data: dmrData,       isLoading: dmrLoading }    = useQuery<any>({ queryKey: ["/api/dmr"] });
+  const { data: reconcData,    isLoading: reconLoading }  = useQuery<any>({ queryKey: ["/api/client-reconciliation"] });
+  const { data: marginData,    isLoading: marginLoading } = useQuery<any>({ queryKey: ["/api/margin/alerts"] });
+  const { data: remindersData, isLoading: remLoading }    = useQuery<any>({ queryKey: ["/api/payment-reminders"] });
+  const { data: creditData,    isLoading: ccLoading }     = useQuery<any>({ queryKey: ["/api/credit-control/events"] });
+
+  // ── Data normalization ────────────────────────────────────────────────────────
+  const invoices     = invoiceData?.invoices        ?? invoiceData?.data     ?? [];
+  const disputes     = disputeData?.disputes        ?? disputeData?.data     ?? [];
+  const dmrRows      = dmrData?.reports             ?? dmrData?.data         ?? [];
+  const reconRows    = reconcData?.reconciliations  ?? reconcData?.data      ?? [];
+  const marginAl     = marginData?.alerts           ?? marginData?.data      ?? [];
+  const reminders    = remindersData?.reminders     ?? remindersData?.data   ?? (Array.isArray(remindersData) ? remindersData : []);
+  const creditEvents = creditData?.events           ?? creditData?.data      ?? (Array.isArray(creditData)    ? creditData    : []);
+
+  // ── KPI computations ──────────────────────────────────────────────────────────
+  const nowDate    = new Date();
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+
+  // Total Receivables: approved / sent / overdue invoices not yet collected
+  const outstandingInvoices = invoices.filter((i: any) =>
+    ["approved", "sent", "overdue"].includes(i.status)
+  );
+  const totalReceivables = outstandingInvoices.reduce(
+    (s: number, i: any) => s + (i.totalAmount ?? i.amount ?? 0), 0
+  );
+
+  // Overdue Receivables: past due date and not settled
+  const overdueInvoices = invoices.filter((i: any) => {
+    if (["paid", "void", "cancelled", "draft"].includes(i.status)) return false;
+    return i.dueDate && new Date(i.dueDate) < nowDate;
   });
+  const overdueCount  = overdueInvoices.length;
+  const overdueAmount = overdueInvoices.reduce((s: number, i: any) => s + (i.totalAmount ?? 0), 0);
 
-  const runAlertMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/noc/balance-alerts/run").then(r => r.json()),
-    onSuccess: (data: any) => {
-      qc.invalidateQueries({ queryKey: ["/api/noc/balance-alerts"] });
-      toast({ title: "Balance check complete", description: `Checked ${data.checked ?? 0} accounts, ${data.triggered ?? 0} triggered, ${data.resolved ?? 0} resolved.` });
-    },
-    onError: (e: any) => toast({ title: "Balance check failed", description: e.message, variant: "destructive" }),
-  });
-
-  const invoices      = invoiceData?.invoices    ?? invoiceData?.data ?? [];
-  const disputes      = disputeData?.disputes    ?? disputeData?.data ?? [];
-  const dmrRows       = dmrData?.reports         ?? dmrData?.data     ?? [];
-  const reconRows     = reconcData?.reconciliations ?? reconcData?.data ?? [];
-  const aiAlerts      = aiData?.alerts           ?? aiData?.data      ?? [];
-  const marginAl      = marginData?.alerts       ?? marginData?.data  ?? [];
-  const identities    = identityData?.identities ?? [];
-  const balAlerts     = balAlertData?.alerts     ?? [];
-  const criticalBalAlerts = balAlerts.filter((a: any) => a.severity === "critical").length;
-  const urgentBalAlerts   = balAlerts.filter((a: any) => a.severity === "urgent").length;
-
-  // KPI computations
-  const totalBilled    = invoices.filter((i: any) => i.status !== "void").reduce((s: number, i: any) => s + (i.totalAmount ?? 0), 0);
-  const totalOverdue   = disputes.filter((d: any) => ["open","escalated"].includes(d.status)).length;
-  const totalDisputed  = disputes.reduce((s: number, d: any) => s + (d.amount ?? 0), 0);
-  const openAlerts     = aiAlerts.filter((a: any) => !a.resolvedAt).length;
-  const criticalAlerts = aiAlerts.filter((a: any) => !a.resolvedAt && ["critical","high"].includes(a.severity)).length;
-  const dmrDrift       = dmrRows.filter((r: any) => r.status === "anomaly" || r.driftPct != null && Math.abs(r.driftPct) > 10).length;
-  const reconMismatch  = reconRows.filter((r: any) => r.status === "mismatch" || r.variancePct != null && Math.abs(r.variancePct) > 5).length;
-  const identityCount  = identities.length;
-
-  // Collections queue: open + escalated disputes sorted by severity
-  const collectionsQueue = [...disputes]
-    .filter((d: any) => ["open","escalated","reviewing"].includes(d.status))
-    .sort((a: any, b: any) => {
-      const rank = (s: string) => s === "escalated" ? 0 : s === "open" ? 1 : 2;
-      return rank(a.status) - rank(b.status);
+  // Revenue Today: invoices created / issued today (proxy for daily revenue)
+  const revenueToday = invoices
+    .filter((i: any) => {
+      const d = i.createdAt ?? i.generatedAt ?? i.issueDate;
+      return d && new Date(d) >= todayStart;
     })
-    .slice(0, 12);
+    .reduce((s: number, i: any) => s + (i.totalAmount ?? 0), 0);
 
-  // Revenue assurance: DMR anomalies
-  const dmrAnomalies = dmrRows
-    .filter((r: any) => r.status === "anomaly" || (r.driftPct != null && Math.abs(r.driftPct) > 5))
-    .slice(0, 5)
-    .map((r: any) => ({ ...r, description: `DMR drift ${r.driftPct != null ? fmtPct(r.driftPct) : r.status}`, variance: r.driftPct }));
+  // Margin Alerts: unresolved
+  const activeMarginAlerts = marginAl.filter((a: any) => !a.resolvedAt);
+  const marginAlertCount   = activeMarginAlerts.length;
+  const marginImpact       = activeMarginAlerts.reduce(
+    (s: number, a: any) => s + Math.abs(a.marginDeltaUsd ?? a.amount ?? 0), 0
+  );
 
-  // Reconciliation mismatches
-  const reconMismatches = reconRows
-    .filter((r: any) => r.status === "mismatch" || (r.variancePct != null && Math.abs(r.variancePct) > 2))
-    .slice(0, 5)
-    .map((r: any) => ({ ...r, description: `Recon variance ${r.variancePct != null ? fmtPct(r.variancePct) : r.status}`, variance: r.variancePct }));
+  // Open Disputes
+  const openDisputeCount = disputes.filter((d: any) => ["open", "escalated"].includes(d.status)).length;
+  const disputedAmount   = disputes
+    .filter((d: any) => ["open", "escalated"].includes(d.status))
+    .reduce((s: number, d: any) => s + (d.amount ?? 0), 0);
 
-  // Margin anomalies
-  const marginAnomalies = marginAl
-    .filter((a: any) => !a.resolvedAt)
-    .slice(0, 5)
-    .map((a: any) => ({ ...a, description: a.alertType ?? "Margin anomaly", variance: a.marginDeltaPct }));
+  // Pending Reconciliations
+  const pendingReconCount = reconRows.filter((r: any) =>
+    !["matched", "reconciled", "closed", "approved"].includes(r.status)
+  ).length;
 
-  // AI queue: unresolved, sorted by severity
-  const severityRank: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-  const aiQueue = [...aiAlerts]
-    .filter((a: any) => !a.resolvedAt)
-    .sort((a: any, b: any) => (severityRank[a.severity] ?? 4) - (severityRank[b.severity] ?? 4))
-    .slice(0, 15);
+  // ── Panel data ────────────────────────────────────────────────────────────────
+  const recentInvoices = [...invoices]
+    .sort((a: any, b: any) =>
+      new Date(b.createdAt ?? b.issueDate ?? 0).getTime() -
+      new Date(a.createdAt ?? a.issueDate ?? 0).getTime()
+    )
+    .slice(0, 6);
 
-  const anyLoading = invLoading || dispLoading || dmrLoading || reconLoading || aiLoading || marginLoading;
+  const pendingReminders = [...reminders]
+    .filter((r: any) => r.enabled !== false)
+    .slice(0, 6);
+
+  const activeMarginList = activeMarginAlerts.slice(0, 6);
+
+  const recentDmr = [...dmrRows]
+    .sort((a: any, b: any) =>
+      new Date(b.date ?? b.reportDate ?? 0).getTime() -
+      new Date(a.date ?? a.reportDate ?? 0).getTime()
+    )
+    .slice(0, 6);
+
+  const recentRecon = [...reconRows].slice(0, 6);
+
+  const recentCreditEvents = [...creditEvents]
+    .sort((a: any, b: any) =>
+      new Date(b.createdAt ?? b.triggeredAt ?? 0).getTime() -
+      new Date(a.createdAt ?? a.triggeredAt ?? 0).getTime()
+    )
+    .slice(0, 6);
+
+  const kpiLoading = invLoading || dispLoading || marginLoading || reconLoading;
 
   return (
     <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
-      {/* Header */}
+
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -287,7 +349,7 @@ export default function FinanceCockpitPage() {
             Finance Cockpit
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Unified finance operations centre — real-time billing, assurance and collections.
+            What does the Finance team need to act on right now?
           </p>
         </div>
         <Button
@@ -301,350 +363,243 @@ export default function FinanceCockpitPage() {
         </Button>
       </div>
 
-      {/* ── KPI Strip ──────────────────────────────────────────────────────── */}
-      {anyLoading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Card key={i}><CardContent className="pt-4 pb-3"><Skeleton className="h-12 w-full" /></CardContent></Card>
+      {/* ── Executive KPI Strip (6 cards) ───────────────────────────────────── */}
+      {kpiLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i}>
+              <CardContent className="pt-4 pb-3"><Skeleton className="h-12 w-full" /></CardContent>
+            </Card>
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <KpiCard
-            label="Billed MTD"
-            value={fmt(totalBilled)}
+            label="Total Receivables"
+            value={fmt(totalReceivables)}
+            sub={`${outstandingInvoices.length} outstanding`}
             icon={DollarSign}
             accent="default"
             href="/invoices"
-            testId="kpi-billed-mtd"
+            testId="kpi-total-receivables"
           />
           <KpiCard
-            label="Open Disputes"
-            value={String(totalOverdue)}
-            sub={fmt(totalDisputed) + " at risk"}
-            icon={FileText}
-            accent={totalOverdue > 5 ? "danger" : totalOverdue > 0 ? "warn" : "ok"}
-            href="/billing-disputes"
-            testId="kpi-open-disputes"
+            label="Overdue Receivables"
+            value={fmt(overdueAmount)}
+            sub={overdueCount > 0 ? `${overdueCount} overdue` : "none overdue"}
+            icon={AlertTriangle}
+            accent={overdueCount > 5 ? "danger" : overdueCount > 0 ? "warn" : "ok"}
+            href="/invoices"
+            testId="kpi-overdue-receivables"
           />
           <KpiCard
-            label="DMR Drift"
-            value={String(dmrDrift)}
-            sub={dmrDrift > 0 ? "anomalies detected" : "all clean"}
-            icon={Activity}
-            accent={dmrDrift > 3 ? "danger" : dmrDrift > 0 ? "warn" : "ok"}
-            href="/dmr"
-            testId="kpi-dmr-drift"
-          />
-          <KpiCard
-            label="Recon Variance"
-            value={String(reconMismatch)}
-            sub={reconMismatch > 0 ? "mismatches" : "reconciled"}
-            icon={Scale}
-            accent={reconMismatch > 3 ? "danger" : reconMismatch > 0 ? "warn" : "ok"}
-            href="/client-reconciliation"
-            testId="kpi-recon-variance"
-          />
-          <KpiCard
-            label="AI Alerts"
-            value={String(openAlerts)}
-            sub={criticalAlerts > 0 ? `${criticalAlerts} critical` : "no criticals"}
-            icon={BrainCircuit}
-            accent={criticalAlerts > 0 ? "danger" : openAlerts > 0 ? "warn" : "ok"}
-            href="/ai-assurance"
-            testId="kpi-ai-alerts"
+            label="Revenue Today"
+            value={fmt(revenueToday)}
+            sub="invoices issued today"
+            icon={TrendingUp}
+            accent={revenueToday > 0 ? "ok" : "default"}
+            href="/invoices"
+            testId="kpi-revenue-today"
           />
           <KpiCard
             label="Margin Alerts"
-            value={String(marginAl.filter((a: any) => !a.resolvedAt).length)}
+            value={String(marginAlertCount)}
+            sub={marginImpact > 0 ? `${fmt(marginImpact)} at risk` : "no active alerts"}
             icon={TrendingDown}
-            accent={marginAl.filter((a: any) => !a.resolvedAt && a.severity === "critical").length > 0 ? "danger" : "default"}
+            accent={marginAlertCount > 0 ? "warn" : "ok"}
             href="/margin-intelligence"
             testId="kpi-margin-alerts"
           />
           <KpiCard
-            label="Identity Records"
-            value={String(identityCount)}
-            sub={identityCount === 0 ? "seed from Sippy" : "canonical identities"}
-            icon={Users}
-            accent={identityCount === 0 ? "warn" : "ok"}
-            href="/client-identity"
-            testId="kpi-identity-records"
+            label="Open Disputes"
+            value={String(openDisputeCount)}
+            sub={disputedAmount > 0 ? `${fmt(disputedAmount)} at risk` : "no open disputes"}
+            icon={ShieldAlert}
+            accent={openDisputeCount > 3 ? "danger" : openDisputeCount > 0 ? "warn" : "ok"}
+            href="/billing-disputes"
+            testId="kpi-open-disputes"
           />
           <KpiCard
-            label="Low Balance"
-            value={String(balAlerts.length)}
-            sub={criticalBalAlerts > 0 ? `${criticalBalAlerts} critical` : urgentBalAlerts > 0 ? `${urgentBalAlerts} urgent` : balAlerts.length === 0 ? "all healthy" : ""}
-            icon={Wallet}
-            accent={criticalBalAlerts > 0 ? "danger" : urgentBalAlerts > 0 ? "warn" : balAlerts.length > 0 ? "warn" : "ok"}
-            href="/balance"
-            testId="kpi-balance-alerts"
+            label="Pending Reconciliations"
+            value={String(pendingReconCount)}
+            sub={pendingReconCount > 0 ? "require action" : "all reconciled"}
+            icon={Scale}
+            accent={pendingReconCount > 3 ? "danger" : pendingReconCount > 0 ? "warn" : "ok"}
+            href="/client-reconciliation"
+            testId="kpi-pending-reconciliations"
           />
         </div>
       )}
 
-      {/* ── Main workspace: 3-column ──────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* ── Operational Work Queue (2 rows × 3 panels) ──────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
-        {/* LEFT — Collections Queue */}
+        {/* Panel 1 — Recent Invoices */}
         <Card className="flex flex-col">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-amber-500" />
-                Collections Queue
-              </CardTitle>
-              <Link href="/billing-disputes">
-                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
-                  View all <ArrowRight className="w-3 h-3" />
-                </Button>
-              </Link>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {collectionsQueue.length} open / escalated
-            </p>
-          </CardHeader>
-          <Separator />
+          <PanelHeader icon={ReceiptText} iconCls="text-blue-500" title="Recent Invoices" href="/invoices" />
           <CardContent className="p-0 flex-1">
-            <ScrollArea className="h-[420px]">
+            <ScrollArea className="h-[280px]">
               <div className="px-4 divide-y">
-                {dispLoading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <div key={i} className="py-3"><Skeleton className="h-10 w-full" /></div>
-                  ))
-                ) : collectionsQueue.length === 0 ? (
-                  <div className="py-8 text-center text-sm text-muted-foreground">
-                    No open disputes or collections items.
-                  </div>
-                ) : collectionsQueue.map((d: any, i: number) => (
-                  <CollectionRow key={d.id ?? i} dispute={d} />
-                ))}
+                {invLoading
+                  ? Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="py-3"><Skeleton className="h-8 w-full" /></div>
+                    ))
+                  : recentInvoices.length === 0
+                  ? <EmptyState message="No invoices found." />
+                  : recentInvoices.map((inv: any, i: number) => (
+                      <InvoiceRow key={inv.id ?? i} inv={inv} />
+                    ))
+                }
               </div>
             </ScrollArea>
           </CardContent>
         </Card>
 
-        {/* CENTRE — Revenue Assurance Grid */}
+        {/* Panel 2 — Payment Reminders */}
         <Card className="flex flex-col">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Activity className="w-4 h-4 text-blue-500" />
-                Revenue Assurance
-              </CardTitle>
-            </div>
-            <p className="text-xs text-muted-foreground">DMR drift · recon mismatches · margin anomalies</p>
-          </CardHeader>
-          <Separator />
-          <CardContent className="px-4 flex-1">
-            <ScrollArea className="h-[420px]">
-              {dmrLoading || reconLoading || marginLoading ? (
-                Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="py-2"><Skeleton className="h-10 w-full" /></div>
-                ))
-              ) : (
-                <>
-                  {/* DMR anomalies */}
-                  {dmrAnomalies.length > 0 && (
-                    <>
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide pt-2 pb-1">
-                        DMR Drift
-                      </p>
-                      <div className="divide-y">
-                        {dmrAnomalies.map((r: any, i: number) => (
-                          <AssuranceRow key={`dmr-${i}`} row={r} type="dmr" />
-                        ))}
-                      </div>
-                    </>
-                  )}
-
-                  {/* Reconciliation mismatches */}
-                  {reconMismatches.length > 0 && (
-                    <>
-                      <Separator className="my-3" />
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide pb-1">
-                        Recon Mismatches
-                      </p>
-                      <div className="divide-y">
-                        {reconMismatches.map((r: any, i: number) => (
-                          <AssuranceRow key={`recon-${i}`} row={r} type="recon" />
-                        ))}
-                      </div>
-                    </>
-                  )}
-
-                  {/* Margin anomalies */}
-                  {marginAnomalies.length > 0 && (
-                    <>
-                      <Separator className="my-3" />
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide pb-1">
-                        Margin Anomalies
-                      </p>
-                      <div className="divide-y">
-                        {marginAnomalies.map((r: any, i: number) => (
-                          <AssuranceRow key={`margin-${i}`} row={r} type="margin" />
-                        ))}
-                      </div>
-                    </>
-                  )}
-
-                  {dmrAnomalies.length === 0 && reconMismatches.length === 0 && marginAnomalies.length === 0 && (
-                    <div className="py-8 text-center text-sm text-muted-foreground">
-                      All revenue assurance checks are clean.
-                    </div>
-                  )}
-                </>
-              )}
-            </ScrollArea>
-          </CardContent>
-        </Card>
-
-        {/* RIGHT — AI Assurance Queue */}
-        <Card className="flex flex-col">
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <BrainCircuit className="w-4 h-4 text-purple-500" />
-                AI Assurance Queue
-              </CardTitle>
-              <Link href="/ai-assurance">
-                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
-                  View all <ArrowRight className="w-3 h-3" />
-                </Button>
-              </Link>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Human-reviewed · {criticalAlerts} critical · {openAlerts} unresolved
-            </p>
-          </CardHeader>
-          <Separator />
+          <PanelHeader icon={Bell} iconCls="text-amber-500" title="Payment Reminders" href="/payment-reminders" />
           <CardContent className="p-0 flex-1">
-            <ScrollArea className="h-[420px]">
+            <ScrollArea className="h-[280px]">
               <div className="px-4 divide-y">
-                {aiLoading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <div key={i} className="py-3"><Skeleton className="h-12 w-full" /></div>
-                  ))
-                ) : aiQueue.length === 0 ? (
-                  <div className="py-8 text-center text-sm text-muted-foreground">
-                    No unresolved AI alerts.
-                  </div>
-                ) : aiQueue.map((a: any, i: number) => (
-                  <AiAlertRow key={a.id ?? i} alert={a} />
-                ))}
+                {remLoading
+                  ? Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="py-3"><Skeleton className="h-8 w-full" /></div>
+                    ))
+                  : pendingReminders.length === 0
+                  ? <EmptyState message="No pending reminders." />
+                  : pendingReminders.map((r: any, i: number) => (
+                      <ReminderRow key={r.id ?? i} rem={r} />
+                    ))
+                }
               </div>
             </ScrollArea>
           </CardContent>
         </Card>
+
+        {/* Panel 3 — Margin Alerts */}
+        <Card className="flex flex-col">
+          <PanelHeader icon={TrendingDown} iconCls="text-orange-500" title="Margin Alerts" href="/margin-intelligence" />
+          <CardContent className="p-0 flex-1">
+            <ScrollArea className="h-[280px]">
+              <div className="px-4 divide-y">
+                {marginLoading
+                  ? Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="py-3"><Skeleton className="h-8 w-full" /></div>
+                    ))
+                  : activeMarginList.length === 0
+                  ? <EmptyState message="No active margin alerts." />
+                  : activeMarginList.map((a: any, i: number) => (
+                      <MarginAlertRow key={a.id ?? i} alert={a} />
+                    ))
+                }
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        {/* Panel 4 — DMR Status */}
+        <Card className="flex flex-col">
+          <PanelHeader icon={Activity} iconCls="text-blue-400" title="DMR Status" href="/dmr" />
+          <CardContent className="p-0 flex-1">
+            <ScrollArea className="h-[280px]">
+              <div className="px-4 divide-y">
+                {dmrLoading
+                  ? Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="py-3"><Skeleton className="h-8 w-full" /></div>
+                    ))
+                  : recentDmr.length === 0
+                  ? <EmptyState message="No DMR reports found." />
+                  : recentDmr.map((r: any, i: number) => (
+                      <DmrRow key={r.id ?? i} row={r} />
+                    ))
+                }
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        {/* Panel 5 — Client Reconciliation */}
+        <Card className="flex flex-col">
+          <PanelHeader icon={Scale} iconCls="text-emerald-500" title="Client Reconciliation" href="/client-reconciliation" />
+          <CardContent className="p-0 flex-1">
+            <ScrollArea className="h-[280px]">
+              <div className="px-4 divide-y">
+                {reconLoading
+                  ? Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="py-3"><Skeleton className="h-8 w-full" /></div>
+                    ))
+                  : recentRecon.length === 0
+                  ? <EmptyState message="No reconciliation records." />
+                  : recentRecon.map((r: any, i: number) => (
+                      <ReconRow key={r.id ?? i} row={r} />
+                    ))
+                }
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        {/* Panel 6 — Credit Control */}
+        <Card className="flex flex-col">
+          <PanelHeader icon={Banknote} iconCls="text-red-400" title="Credit Control" href="/credit-control" />
+          <CardContent className="p-0 flex-1">
+            <ScrollArea className="h-[280px]">
+              <div className="px-4 divide-y">
+                {ccLoading
+                  ? Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="py-3"><Skeleton className="h-8 w-full" /></div>
+                    ))
+                  : recentCreditEvents.length === 0
+                  ? <EmptyState message="No credit events." />
+                  : recentCreditEvents.map((ev: any, i: number) => (
+                      <CreditEventRow key={ev.id ?? i} event={ev} />
+                    ))
+                }
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
       </div>
 
-      {/* ── Balance Alerts panel ──────────────────────────────────────────── */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Wallet className="w-4 h-4 text-amber-500" />
-              Balance Alerts
-              {balAlerts.length > 0 && (
-                <Badge variant={criticalBalAlerts > 0 ? "destructive" : "outline"} className="text-xs">
-                  {balAlerts.length} active
-                </Badge>
-              )}
-            </CardTitle>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-xs gap-1"
-                onClick={() => runAlertMutation.mutate()}
-                disabled={runAlertMutation.isPending}
-                data-testid="button-run-balance-check"
-              >
-                {runAlertMutation.isPending
-                  ? <RefreshCw className="w-3 h-3 animate-spin" />
-                  : <Play className="w-3 h-3" />
-                }
-                Run check
-              </Button>
-              <Link href="/balance">
-                <Button variant="ghost" size="sm" className="h-7 text-xs gap-1">
-                  Balance Monitor <ArrowRight className="w-3 h-3" />
-                </Button>
-              </Link>
-            </div>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Accounts below configured thresholds · auto-refreshes every 5 min
-          </p>
-        </CardHeader>
-        <Separator />
-        <CardContent className="p-0">
-          {balAlertLoading ? (
-            <div className="px-4 py-3 space-y-2">
-              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
-            </div>
-          ) : balAlerts.length === 0 ? (
-            <div className="flex items-center gap-3 px-4 py-5 text-sm text-muted-foreground">
-              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-              All monitored accounts are above their balance thresholds.
-            </div>
-          ) : (
-            <ScrollArea className="max-h-[280px]">
-              <div className="px-4 divide-y">
-                {[...balAlerts]
-                  .sort((a: any, b: any) => {
-                    const rank: Record<string, number> = { critical: 0, urgent: 1, warning: 2 };
-                    return (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3);
-                  })
-                  .map((a: any, i: number) => (
-                    <BalanceAlertRow key={a.id ?? i} alert={a} />
-                  ))
-                }
-              </div>
-            </ScrollArea>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ── Finance navigation shortcuts ──────────────────────────────────── */}
+      {/* ── Quick Actions ────────────────────────────────────────────────────── */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm text-muted-foreground uppercase tracking-wide font-medium">
-            Finance Modules
+            Quick Actions
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
-            {[
-              { href: "/invoices",               label: "Invoices" },
-              { href: "/invoice-jobs",           label: "Invoice Queue" },
-              { href: "/credit-notes",           label: "Credit Notes" },
-              { href: "/billing-disputes",       label: "Disputes" },
-              { href: "/dispute-cases",          label: "Dispute Cases" },
-              { href: "/credit-control",         label: "Credit Control" },
-              { href: "/client-reconciliation",  label: "Client Reconciliation" },
-              { href: "/carrier-reconciliation", label: "Carrier Reconciliation" },
-              { href: "/dmr",                    label: "Daily Minutes Report" },
-              { href: "/ai-assurance",           label: "AI Assurance" },
-              { href: "/margin-intelligence",    label: "Margin Intelligence" },
-              { href: "/client-identity",        label: "Client Identity Map" },
-              { href: "/executive-reports",      label: "Executive Reports" },
-              { href: "/balance",                label: "Balance Monitor" },
-            ].map(m => (
-              <Link key={m.href} href={m.href}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-xs h-8"
-                  data-testid={`shortcut-${m.label.toLowerCase().replace(/\W+/g, "-")}`}
-                >
-                  {m.label}
-                </Button>
-              </Link>
-            ))}
+            <Link href="/invoices">
+              <Button variant="outline" size="sm" className="text-xs h-8 gap-1.5" data-testid="qa-create-invoice">
+                <Plus className="w-3 h-3" /> Create Invoice
+              </Button>
+            </Link>
+            <Link href="/billing-disputes">
+              <Button variant="outline" size="sm" className="text-xs h-8 gap-1.5" data-testid="qa-view-disputes">
+                <ShieldAlert className="w-3 h-3" /> View Disputes
+              </Button>
+            </Link>
+            <Link href="/dmr">
+              <Button variant="outline" size="sm" className="text-xs h-8 gap-1.5" data-testid="qa-run-dmr">
+                <Activity className="w-3 h-3" /> Run DMR
+              </Button>
+            </Link>
+            <Link href="/client-reconciliation">
+              <Button variant="outline" size="sm" className="text-xs h-8 gap-1.5" data-testid="qa-open-reconciliation">
+                <Scale className="w-3 h-3" /> Open Reconciliation
+              </Button>
+            </Link>
+            <Link href="/invoice-templates">
+              <Button variant="outline" size="sm" className="text-xs h-8 gap-1.5" data-testid="qa-finance-settings">
+                <FileText className="w-3 h-3" /> Finance Settings
+              </Button>
+            </Link>
           </div>
         </CardContent>
       </Card>
+
     </div>
   );
 }
