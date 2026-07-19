@@ -271,7 +271,7 @@ export default function RatingVerificationPage() {
             Rating Verification
           </h1>
           <p className="text-muted-foreground mt-1">
-            Deterministic telecom cost reproduction — validates Sippy billing against historical tariff economics.
+            Deterministic cost reproduction — validates billing records against historical tariff economics.
           </p>
         </div>
 
@@ -507,7 +507,7 @@ export default function RatingVerificationPage() {
                     <TableHead>Call ID</TableHead>
                     <TableHead>Prefix</TableHead>
                     <TableHead>Duration</TableHead>
-                    <TableHead>Sippy Cost</TableHead>
+                    <TableHead>Platform Cost</TableHead>
                     <TableHead>Reproduced</TableHead>
                     <TableHead>Delta</TableHead>
                     <TableHead>Type</TableHead>
@@ -603,7 +603,7 @@ export default function RatingVerificationPage() {
                   <p className="font-mono">{detail.durationSecs ?? "—"}s / {detail.billedSecs ?? "—"}s</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1">Sippy Actual</p>
+                  <p className="text-xs text-muted-foreground mb-1">Platform Actual</p>
                   <p className="font-mono text-red-400">${detail.sippyActualCost?.toFixed(8) ?? "—"}</p>
                 </div>
                 <div>

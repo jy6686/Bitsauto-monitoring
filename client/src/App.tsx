@@ -135,6 +135,11 @@ import CreditNotesPage from "@/pages/credit-notes";
 import CreditControlPage from "@/pages/credit-control";
 import ClientIdentityPage from "@/pages/client-identity";
 import FinanceCockpitPage from "@/pages/finance-cockpit";
+import PaymentTermsPage from "@/pages/payment-terms";
+import NumberingPrefixesPage from "@/pages/numbering-prefixes";
+import ReminderRulesPage from "@/pages/reminder-rules";
+import CurrencySettingsPage from "@/pages/currency-settings";
+import TaxVatPage from "@/pages/tax-vat";
 import RoutingManagerPage from "@/pages/routing-manager";
 import AuthStudioPage from "@/pages/auth-studio";
 import ApprovalQueuePage from "@/pages/approval-queue";
@@ -249,6 +254,11 @@ const UnbilledUsageWS    = withWorkspace('billing-ops', UnbilledUsagePage);
 const AccountStatementWS = withWorkspace('billing-ops', AccountStatementPage);
 const InvoiceSchedulesWS = withWorkspace('billing-ops', InvoiceSchedulesPage);
 const PaymentRemindersWS = withWorkspace('billing-ops', PaymentRemindersPage);
+const PaymentTermsWS     = withWorkspace('billing-ops', PaymentTermsPage);
+const NumberingPrefixesWS = withWorkspace('billing-ops', NumberingPrefixesPage);
+const ReminderRulesWS    = withWorkspace('billing-ops', ReminderRulesPage);
+const CurrencySettingsWS = withWorkspace('billing-ops', CurrencySettingsPage);
+const TaxVatWS           = withWorkspace('billing-ops', TaxVatPage);
 
 // dispute-governance workspace
 const BillingDisputesWS  = withWorkspace('dispute-governance', BillingDisputesPage);
@@ -660,6 +670,21 @@ function Router() {
       </Route>
       <Route path="/invoice-templates">
         {() => <ProtectedRoute component={InvoiceTemplatesWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/payment-terms">
+        {() => <ProtectedRoute component={PaymentTermsWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/numbering-prefixes">
+        {() => <ProtectedRoute component={NumberingPrefixesWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/reminder-rules">
+        {() => <ProtectedRoute component={ReminderRulesWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/currency-settings">
+        {() => <ProtectedRoute component={CurrencySettingsWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/tax-vat">
+        {() => <ProtectedRoute component={TaxVatWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/dispute-cases">
         {() => <ProtectedRoute component={DisputeCasesWS} requiredRoles={['admin', 'management']} />}

@@ -279,7 +279,7 @@ export default function InvoiceSchedulesPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs mb-1.5 block">Sippy Account ID</Label>
+                <Label className="text-xs mb-1.5 block">Account ID</Label>
                 <Input data-testid="input-schedule-iaccount" value={form.iAccount} onChange={e => setForm(f => ({ ...f, iAccount: e.target.value }))} placeholder="e.g. 42" type="number" />
               </div>
               <div>

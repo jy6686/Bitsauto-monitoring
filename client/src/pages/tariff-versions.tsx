@@ -638,7 +638,7 @@ export default function TariffVersionsPage() {
               Restore Snapshot #{restoreVersionId}
             </DialogTitle>
             <DialogDescription>
-              A restore creates a new tariff version from this locked snapshot and pushes it to Sippy.
+              A restore creates a new tariff version from this locked snapshot and deploys it to the platform.
               Existing versions are never overwritten.
             </DialogDescription>
           </DialogHeader>
@@ -665,7 +665,7 @@ export default function TariffVersionsPage() {
               {previewLoading && (
                 <div className="text-center py-10 text-muted-foreground">
                   <RefreshCw className="h-6 w-6 mx-auto mb-2 animate-spin opacity-50" />
-                  Fetching live Sippy rates and computing diff…
+                  Fetching live rates and computing diff…
                 </div>
               )}
               {previewError && (
@@ -906,7 +906,7 @@ export default function TariffVersionsPage() {
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm space-y-1">
                 <div className="flex items-center gap-2 text-amber-400 font-semibold mb-2">
                   <AlertTriangle className="h-4 w-4" />
-                  You are about to push {restorePreview.rateCountSnapshot} rates to Sippy
+                  You are about to deploy {restorePreview.rateCountSnapshot} rates to the platform
                 </div>
                 <p className="text-muted-foreground">
                   Tariff <strong>{restorePreview.tariffName ?? restorePreview.iTariff}</strong> (iTariff={restorePreview.iTariff})
@@ -924,7 +924,7 @@ export default function TariffVersionsPage() {
                     className="mt-0.5"
                   />
                   <label htmlFor="restore-ack" className="text-sm leading-relaxed cursor-pointer">
-                    I understand this will overwrite live Sippy rates and create a new tariff version.
+                    I understand this will overwrite live platform rates and create a new tariff version.
                     All existing rate changes since snapshot #{restoreVersionId} will be replaced.
                   </label>
                 </div>
@@ -1026,7 +1026,7 @@ export default function TariffVersionsPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Scale className="h-4 w-4" />
-              Snapshot #{compareLiveId} vs Live Sippy
+              Snapshot #{compareLiveId} vs Live Platform
               {compareData?.tariffName && (
                 <span className="text-muted-foreground font-normal text-sm">— {compareData.tariffName}</span>
               )}
@@ -1042,7 +1042,7 @@ export default function TariffVersionsPage() {
           {compareLoading ? (
             <div className="text-center py-12 text-muted-foreground">
               <RefreshCw className="h-6 w-6 mx-auto mb-2 animate-spin opacity-50" />
-              Fetching live rates from Sippy…
+              Fetching live rates from platform…
             </div>
           ) : compareData ? (
             <>
@@ -1065,7 +1065,7 @@ export default function TariffVersionsPage() {
               {compareData.summary.total === 0 ? (
                 <div className="text-center py-8 text-muted-foreground text-sm">
                   <Scale className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                  Snapshot is identical to live Sippy rates. No changes detected.
+                  Snapshot is identical to live platform rates. No changes detected.
                 </div>
               ) : (
                 <Tabs defaultValue={

@@ -209,7 +209,7 @@ export default function RatingSnapshotsPage() {
             Immutable Rating Snapshots
           </h1>
           <p className="text-muted-foreground mt-1">
-            Crystallized telecom finance truth — permanent, tamper-evident per-CDR economic records. Foundation for invoice delivery and carrier reconciliation.
+            Crystallized Finance records — permanent, tamper-evident per-CDR economic truth. Foundation for invoice delivery and carrier reconciliation.
           </p>
         </div>
 
@@ -501,7 +501,7 @@ export default function RatingSnapshotsPage() {
                     <p className="font-mono font-bold text-emerald-400">${detail.reproducedCost.toFixed(8)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-muted-foreground">Actual (Sippy)</p>
+                    <p className="text-xs text-muted-foreground">Actual (Platform)</p>
                     <p className="font-mono">{detail.actualCost != null ? `$${detail.actualCost.toFixed(8)}` : "—"}</p>
                   </div>
                   <div>
