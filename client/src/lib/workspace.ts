@@ -173,7 +173,7 @@ export const WORKSPACE_LABELS: Record<WorkspaceDomain, string> = {
   'intelligence':    'Intelligence',
   'troubleshooting': 'Troubleshooting',
   'security':        'Security & Compliance',
-  'finance':         'Finance & Billing',
+  'finance':         'Finance',
   'platform':        'Platform',
 };
 
