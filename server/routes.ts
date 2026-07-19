@@ -11,6 +11,7 @@ import { registerVendorPaymentRoutes }      from './routes-vendor-payments';
 import { registerVendorAdjustmentRoutes }   from './routes-vendor-adjustments';
 import { registerVendorStatementRoutes }    from './routes-vendor-statement';
 import { registerTreasuryAccountRoutes }    from './routes-treasury-accounts';
+import { registerPaymentRunRoutes }         from './routes-payment-runs';
 import { seedGovernanceData }               from './seed-governance';
 import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
@@ -35044,6 +35045,7 @@ ${footer}
   registerVendorAdjustmentRoutes(app);
   registerVendorStatementRoutes(app);
   registerTreasuryAccountRoutes(app);
+  registerPaymentRunRoutes(app);
   // Non-blocking: 10s timeout so late routes always register
 
   await Promise.race([
