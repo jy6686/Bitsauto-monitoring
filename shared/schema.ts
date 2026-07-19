@@ -4487,5 +4487,84 @@ export const insertVendorBillLineSchema = createInsertSchema(vendorBillLines, {
   description: (s) => s.min(1, "Description is required"),
 });
 
+// ── Vendor Payments ───────────────────────────────────────────────────────────
+// Outbound payments made to vendors. One payment may settle multiple bills via
+// vendor_payment_allocations.
+export const vendorPayments = pgTable("vendor_payments", {
+  id:                  serial("id").primaryKey(),
+  paymentNumber:       varchar("payment_number",      { length: 64   }).notNull().unique(),  // VP-YYYY-NNNN
+  businessPartnerId:   integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: "restrict" }),
+  paymentDate:         date("payment_date").notNull(),
+  currency:            varchar("currency",            { length: 8    }).notNull().default("USD"),
+  amount:              numeric("amount",              { precision: 14, scale: 4 }).notNull(),
+  paymentMethod:       varchar("payment_method",      { length: 32   }).notNull().default("bank_transfer"),
+    // bank_transfer | cheque | card | direct_debit | cash | other
+  reference:           varchar("reference",           { length: 128  }),                     // bank tx ID / cheque number
+  notes:               text("notes"),
+  status:              varchar("status",              { length: 20   }).notNull().default("posted"),  // posted | reversed
+  reversedAt:          timestamp("reversed_at"),
+  reversedBy:          varchar("reversed_by",         { length: 128  }),
+  // Audit
+  createdBy:           varchar("created_by",          { length: 128  }),
+  createdAt:           timestamp("created_at").notNull().defaultNow(),
+  updatedAt:           timestamp("updated_at").notNull().defaultNow(),
+  deletedAt:           timestamp("deleted_at"),                                              // NULL = active
+});
+export type VendorPayment       = typeof vendorPayments.$inferSelect;
+export type InsertVendorPayment = typeof vendorPayments.$inferInsert;
+export const insertVendorPaymentSchema = createInsertSchema(vendorPayments, {
+  paymentMethod: (s) => s.refine(
+    (v) => ["bank_transfer","cheque","card","direct_debit","cash","other"].includes(v),
+    "Invalid payment method",
+  ),
+});
+
+// ── Vendor Payment Allocations ────────────────────────────────────────────────
+// Maps a payment to the bills it settles. Cascade-deleted with parent payment.
+export const vendorPaymentAllocations = pgTable("vendor_payment_allocations", {
+  id:               serial("id").primaryKey(),
+  vendorPaymentId:  integer("vendor_payment_id").notNull().references(() => vendorPayments.id, { onDelete: "cascade" }),
+  vendorBillId:     integer("vendor_bill_id").notNull().references(() => vendorBills.id, { onDelete: "restrict" }),
+  allocatedAmount:  numeric("allocated_amount", { precision: 14, scale: 4 }).notNull(),
+  createdAt:        timestamp("created_at").notNull().defaultNow(),
+});
+export type VendorPaymentAllocation       = typeof vendorPaymentAllocations.$inferSelect;
+export type InsertVendorPaymentAllocation = typeof vendorPaymentAllocations.$inferInsert;
+
+// ── Vendor Adjustments ────────────────────────────────────────────────────────
+// Credit notes, debit notes and write-offs raised against vendors.
+export const vendorAdjustments = pgTable("vendor_adjustments", {
+  id:                  serial("id").primaryKey(),
+  adjustmentNumber:    varchar("adjustment_number",   { length: 64   }).notNull().unique(),  // VA-YYYY-NNNN
+  businessPartnerId:   integer("business_partner_id").notNull().references(() => businessPartners.id, { onDelete: "restrict" }),
+  vendorBillId:        integer("vendor_bill_id").references(() => vendorBills.id, { onDelete: "restrict" }),  // optional
+  type:                varchar("type",                { length: 20   }).notNull().default("credit_note"),
+    // credit_note | debit_note | write_off
+  adjustmentDate:      date("adjustment_date").notNull(),
+  currency:            varchar("currency",            { length: 8    }).notNull().default("USD"),
+  amount:              numeric("amount",              { precision: 14, scale: 4 }).notNull(),
+  reason:              varchar("reason",              { length: 256  }).notNull(),
+  description:         text("description"),
+  status:              varchar("status",              { length: 20   }).notNull().default("draft"),  // draft | posted | reversed
+  postedAt:            timestamp("posted_at"),
+  postedBy:            varchar("posted_by",           { length: 128  }),
+  reversedAt:          timestamp("reversed_at"),
+  reversedBy:          varchar("reversed_by",         { length: 128  }),
+  // Audit
+  createdBy:           varchar("created_by",          { length: 128  }),
+  createdAt:           timestamp("created_at").notNull().defaultNow(),
+  updatedAt:           timestamp("updated_at").notNull().defaultNow(),
+  deletedAt:           timestamp("deleted_at"),                                              // NULL = active
+});
+export type VendorAdjustment       = typeof vendorAdjustments.$inferSelect;
+export type InsertVendorAdjustment = typeof vendorAdjustments.$inferInsert;
+export const insertVendorAdjustmentSchema = createInsertSchema(vendorAdjustments, {
+  reason: (s) => s.min(1, "Reason is required"),
+  type:   (s) => s.refine(
+    (v) => ["credit_note","debit_note","write_off"].includes(v),
+    "Invalid adjustment type",
+  ),
+});
+
 // Phase 1 read migration — re-exported from shared/destinations-view.ts
 export { destinationsView } from './destinations-view';
