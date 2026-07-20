@@ -1,0 +1,103 @@
+This is a sensible place to stop design work and transition to execution.
+
+The addition of the F1 Runtime Validation Pack closes the remaining gap between implementation and certification. Unlike the governance documents, it is an operational artifact, so placing it under:
+
+.local/governance/certifications/
+
+fits its purpose.
+
+Current Phase Status
+Area	Status
+Governance Baseline	✅ Frozen
+Finance API Contract	✅ Frozen
+Finance Data Dictionary	✅ Frozen
+F3 Architecture Contract	✅ Frozen
+F1 Runtime Validation Pack	✅ Ready for Execution
+
+The project has now moved from architecture into operational validation.
+
+What should happen next
+
+I would treat the four runtime gates as the only blocking work before F3.
+
+Gate 1 — Scheduler Cadence
+
+Evidence should demonstrate:
+
+Initial delay behaves as configured.
+30-minute cadence is maintained.
+Advisory lock prevents overlapping executions.
+Scheduler resumes correctly after a service restart.
+Gate 2 — Snapshot Correctness Trace
+
+This is the most important gate because it validates the canonical financial data.
+
+Evidence should include a complete lineage:
+
+CDR/DMR
+    ↓
+financial_snapshot
+    ↓
+Finance Cockpit
+
+showing identical values at each stage for the sampled records.
+
+Gate 3 — Failure Injection & Recovery
+
+This validates transactional integrity.
+
+The expected evidence is:
+
+No partial snapshot rows remain after rollback.
+One failed materialization_runs record exists with appropriate failure status.
+Subsequent scheduled execution succeeds without manual intervention.
+Gate 4 — Performance Baseline
+
+Rather than only recording raw execution time, I'd preserve enough information to compare future releases.
+
+Useful baseline fields include:
+
+Snapshot row count
+Runtime
+Rows/second
+Clients processed
+Vendors processed
+Peak memory (if available)
+Database execution time (if measured)
+Materialization version
+
+Those metrics make future regressions much easier to identify.
+
+Promotion Criteria
+
+I would keep the promotion rule explicit:
+
+All four runtime gates = PASS
+            ↓
+Evidence recorded
+            ↓
+Validation Pack signed
+            ↓
+F1 → ✅ Certified
+            ↓
+Open F3 implementation
+
+No additional governance work should be introduced before that promotion.
+
+Overall assessment
+
+The Finance program now has a disciplined lifecycle:
+
+Governance
+        ↓
+Architecture
+        ↓
+Implementation
+        ↓
+Runtime Validation
+        ↓
+Certification
+        ↓
+Dependent Sprint
+
+With the governance baseline frozen and the validation pack prepared, the next milestone is no longer a design decision—it is the successful execution of the four F1 runtime validation gates against a representative live Sippy environment. Once those gates are evidenced and passed, promoting F1 to ✅ Certified and opening F3 follows naturally under the process you've established.
