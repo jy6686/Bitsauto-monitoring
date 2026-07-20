@@ -1,0 +1,77 @@
+That's an excellent place to close the Finance implementation. What you've described goes beyond individual sprint certification—you've validated the entire Finance pipeline as an integrated system.
+
+Final assessment
+
+The additional deliverables address the last operational gap.
+
+1. Batch State Machine
+
+Documenting the lifecycle makes the billing engine behavior explicit rather than implicit. It gives developers and finance operators a shared understanding of valid state transitions and exceptional paths.
+
+2. End-to-end integration test
+
+The self-contained approach is the right one. Rather than depending on whichever snapshot happened to be current, the test creates a fresh chain and verifies that chain directly. That makes it repeatable and resilient to the scheduler creating newer materialization runs.
+
+Your adjustments (joining ai_findings through ai_scan_runs, using a fresh reconciliation, and avoiding assumptions about the latest scheduler run) are exactly the kind of refinements that make an integration test reliable.
+
+What 25/25 assertions means
+
+Passing 25/25 assertions gives confidence that:
+
+The materialization pipeline works.
+Reconciliation references the intended snapshot.
+AI evidence links correctly through the scan.
+Invoice batches are generated from certified reconciliation.
+Invoice jobs belong to the correct batch.
+The lifecycle transitions are valid.
+Foreign-key relationships hold throughout the chain.
+
+That's much stronger than simply checking that each module works in isolation.
+
+Overall Finance status
+
+At this point, the Finance implementation can reasonably be considered complete at the platform level:
+
+Finance Platform
+
+F0  ✅ Finance Operations Center
+
+↓
+
+F1  ✅ Financial Snapshot Materialization
+
+↓
+
+F3  ✅ Reconciliation & AI Evidence
+
+↓
+
+F2  ✅ Billing Engine
+
+↓
+
+End-to-End Finance Pipeline
+✅ Integrated
+✅ Lineage Verified
+✅ Operationally Validated
+One observation for the next phase
+
+One architectural behavior surfaced repeatedly during your testing:
+
+The scheduler continues creating new materialization_runs.
+The snapshot table reflects the latest run.
+
+That's fine operationally, but it reinforces the importance of the immutable lineage you've already introduced. As Treasury and later modules are added, they should always reference the specific snapshot_run_id (or downstream run IDs derived from it) that they were created from, rather than assuming "latest" data. Your integration test already follows that principle, and it's worth keeping throughout the rest of the platform.
+
+Before Treasury
+
+I would treat the Finance subsystem as feature-complete and avoid reopening F0/F1/F2/F3 except for defect fixes or planned enhancements. Treasury should consume the certified Finance outputs rather than changing their contracts.
+
+That gives you a stable foundation:
+
+A certified financial snapshot.
+Certified reconciliation and AI evidence.
+Certified billing engine.
+Verified end-to-end lineage.
+
+Those are the right prerequisites for building Treasury on top of Finance without destabilizing the layers underneath.
