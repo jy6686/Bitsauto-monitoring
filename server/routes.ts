@@ -37424,6 +37424,109 @@ ${footer}
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Finance Data Health (F0) ────────────────────────────────────────────────
+  // GET  /api/finance/health            — Finance Operations Center health data
+  // POST /api/finance/health/materialize-now — async trigger (returns jobId immediately)
+
+  app.get('/api/finance/health', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const now = Date.now();
+      const slaDefaults: Record<string, number> = { dmr: 15, snapshot: 30, margin: 30, cockpit: 30, invoice_queue: 5 };
+
+      async function safeQuery(query: string): Promise<{ rows: any[]; missing: boolean }> {
+        try {
+          const r = await db.execute(sql.raw(query));
+          return { rows: (r as any).rows ?? (Array.isArray(r) ? r : []), missing: false };
+        } catch {
+          return { rows: [], missing: true };
+        }
+      }
+
+      function freshnessStatus(latest: string | null, slaMins: number): 'healthy' | 'stale' | 'never' {
+        if (!latest) return 'never';
+        const ageMins = (now - new Date(latest).getTime()) / 60000;
+        return ageMins <= slaMins ? 'healthy' : 'stale';
+      }
+
+      const [dmrR, marginR, snapshotR, runsR, invoiceStatusR, invoiceLatestR] = await Promise.all([
+        safeQuery(`SELECT COUNT(*) as cnt, MAX(generated_at) as latest FROM daily_minutes_reports`),
+        safeQuery(`SELECT COUNT(*) as cnt, MAX(date) as latest FROM margin_analytics_daily`),
+        safeQuery(`SELECT COUNT(*) as cnt, MAX(updated_at) as latest FROM financial_snapshot`),
+        safeQuery(`SELECT id, started_at, completed_at, status, rows_processed, clients_processed, vendors_processed, duration_ms, error, snapshot_version FROM materialization_runs ORDER BY started_at DESC LIMIT 20`),
+        safeQuery(`SELECT status, COUNT(*) as cnt FROM invoices GROUP BY status`),
+        safeQuery(`SELECT MAX(created_at) as latest FROM invoices`),
+      ]);
+
+      const dmr    = { count: parseInt(dmrR.rows[0]?.cnt ?? '0'), latest: dmrR.rows[0]?.latest ?? null, missing: dmrR.missing };
+      const margin = { count: parseInt(marginR.rows[0]?.cnt ?? '0'), latest: marginR.rows[0]?.latest ?? null, missing: marginR.missing };
+      const snap   = { count: parseInt(snapshotR.rows[0]?.cnt ?? '0'), latest: snapshotR.rows[0]?.latest ?? null, missing: snapshotR.missing };
+
+      const dmrStatus  = dmrR.missing  ? 'never' : freshnessStatus(dmr.latest, slaDefaults.dmr);
+      const margStatus = marginR.missing ? 'never' : freshnessStatus(margin.latest, slaDefaults.margin);
+      const snapStatus = snapshotR.missing ? 'never' : freshnessStatus(snap.latest, slaDefaults.snapshot);
+
+      const runs = runsR.rows;
+      const lastRun = runs[0] ?? null;
+      const schedulerStatus = runsR.missing ? 'never' : !lastRun ? 'idle' : lastRun.status === 'failed' ? 'failed' : 'running';
+
+      const invoiceByStatus: Record<string, number> = {};
+      for (const row of invoiceStatusR.rows) invoiceByStatus[row.status] = parseInt(row.cnt ?? '0');
+      const invoiceTotal = Object.values(invoiceByStatus).reduce((a, b) => a + b, 0);
+      const invoiceLatest = invoiceLatestR.rows[0]?.latest ?? null;
+
+      // Integrity
+      const dmrAccR  = await safeQuery(`SELECT COUNT(DISTINCT account_id) as cnt FROM daily_minutes_reports`);
+      const snapAccR = await safeQuery(`SELECT COUNT(DISTINCT client_id) as cnt FROM financial_snapshot`);
+      const dmrAccounts  = parseInt(dmrAccR.rows[0]?.cnt ?? '0');
+      const snapAccounts = parseInt(snapAccR.rows[0]?.cnt ?? '0');
+
+      // Health scores
+      const dataHealth = (() => {
+        const layers = [{ s: dmrStatus, w: 1 }, { s: margStatus, w: 1 }, { s: snapStatus, w: 2 }];
+        const total = layers.reduce((a, l) => a + l.w * (l.s === 'healthy' ? 100 : l.s === 'stale' ? 40 : 0), 0);
+        const max = layers.reduce((a, l) => a + l.w * 100, 0);
+        return Math.round(total / max * 100);
+      })();
+      const schedulerHealth = runsR.missing || !lastRun ? 0 : schedulerStatus === 'failed' ? 20 : schedulerStatus === 'idle' ? 60 : 100;
+      const consistency = snap.missing ? 0 : dmrAccounts === 0 ? 50 : Math.round(Math.min(snapAccounts, dmrAccounts) / Math.max(snapAccounts, dmrAccounts, 1) * 100);
+      const apiHealth = Math.round((1 - [dmrR, marginR, invoiceStatusR].filter(r => r.missing).length / 3) * 100);
+      const overall = Math.round(dataHealth * 0.4 + schedulerHealth * 0.3 + consistency * 0.2 + apiHealth * 0.1);
+
+      // Warnings
+      const warnings: { level: 'warn' | 'error'; message: string }[] = [];
+      if (dmrStatus === 'stale') warnings.push({ level: 'warn', message: `DMR data stale — last update over ${slaDefaults.dmr}min ago` });
+      if (dmrStatus === 'never') warnings.push({ level: 'warn', message: 'DMR has no rows — ensure DMR generation is running' });
+      if (snapStatus === 'never') warnings.push({ level: 'warn', message: 'Financial Snapshot not yet built — pending Sprint F1 materialization' });
+      if (snapStatus === 'stale') warnings.push({ level: 'warn', message: `Financial Snapshot stale — last update over ${slaDefaults.snapshot}min ago` });
+      if (runsR.missing) warnings.push({ level: 'warn', message: 'Materialization scheduler not yet configured — pending Sprint F1' });
+      if (schedulerStatus === 'failed' && lastRun?.error) warnings.push({ level: 'error', message: `Last materialization run failed: ${lastRun.error}` });
+      if (dmrAccounts > 0 && snapAccounts > 0 && dmrAccounts !== snapAccounts) warnings.push({ level: 'warn', message: `Snapshot inconsistency — DMR has ${dmrAccounts} accounts, Snapshot has ${snapAccounts}` });
+      if ((invoiceByStatus.draft ?? 0) > 0) warnings.push({ level: 'warn', message: `${invoiceByStatus.draft} invoices still in draft — review invoice queue` });
+
+      res.json({
+        generated_at: new Date().toISOString(),
+        pipeline: {
+          cdr:      { count: cdrCache.size, latest: null, status: cdrCache.size > 0 ? 'healthy' : 'stale', label: 'Sippy CDRs (cache)' },
+          dmr:      { ...dmr, status: dmrStatus,  label: 'Daily Minutes Report' },
+          snapshot: { ...snap, status: snapStatus, label: 'Financial Snapshot' },
+          margin:   { ...margin, status: margStatus, label: 'Margin Analytics' },
+          invoices: { total: invoiceTotal, byStatus: invoiceByStatus, latest: invoiceLatest, missing: invoiceStatusR.missing, label: 'Invoices' },
+        },
+        integrity: { dmrAccounts, snapshotAccounts: snapAccounts, consistent: dmrAccounts === snapAccounts || snapAccounts === 0 },
+        materialization: { runs, lastRun, schedulerStatus, missing: runsR.missing },
+        health: { overall, dataHealth, schedulerHealth, consistency, apiHealth },
+        sla: slaDefaults,
+        warnings,
+        build: { version: process.env.FINANCE_BUILD_VERSION ?? 'v1.4', commit: (process.env.REPL_ID ?? '').slice(0, 8) || 'dev', schemaVersion: 1 },
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/finance/health/materialize-now', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    const jobId = `mat-${Date.now()}`;
+    res.json({ jobId, status: 'queued', message: 'Materialization queued. Refresh in 30s to see results. (Sprint F1 will wire the actual scheduler.)' });
+  });
+
   return httpServer;
 }
 

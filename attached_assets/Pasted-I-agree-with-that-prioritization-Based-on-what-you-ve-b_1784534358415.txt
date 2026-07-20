@@ -1,0 +1,98 @@
+I agree with that prioritization. Based on what you've built so far, Phase 4 Treasury should pause after Sprint T2, and the next engineering effort should be a Finance Integration Stabilization phase rather than continuing to add more modules.
+
+The reason is architectural: you already have enough UI and workflows to demonstrate the platform. The bottleneck is getting all of those modules to consume the same production finance dataset.
+
+Proposed Finance Integration Phase (before resuming Treasury)
+Sprint F1 — Data Materialization (Highest ROI)
+
+Goal: Establish a single financial materialization pipeline from DMR/rating data.
+
+Deliverables:
+
+DMR → Margin Intelligence scheduled materialization (remove manual "Compute Margins" dependency).
+Fix Revenue Drift calculation:
+Revenue = Sell Amount
+Cost = Buy Amount
+Margin = Sell − Buy
+Feed Finance Cockpit KPIs from the same materialized tables.
+Add scheduler health/status so Finance can see when the last materialization ran.
+
+Success criteria:
+
+Margin page displays live client/vendor margins.
+Revenue Drift shows non-zero margins where appropriate.
+Finance Cockpit reflects real operational data without manual intervention.
+Sprint F2 — Billing Engine Integration
+
+Goal: Make invoice generation production-ready.
+
+Deliverables:
+
+Batch invoice generation:
+Generate All Clients
+Generate Selected Clients
+Generate by Billing Cycle
+Resolve billing recipients automatically from Business Partner/Account contacts.
+SMTP sender profile configuration and validation.
+Queue improvements:
+Recipient preview
+Missing-contact validation
+Delivery audit
+
+Success criteria:
+
+One click generates invoices for an entire billing cycle.
+Invoice Queue automatically populates sender and recipient information.
+Successful SMTP dispatch without manual email entry.
+Sprint F3 — Reconciliation & AI Evidence
+
+Goal: Make Finance explainable and auditable.
+
+Deliverables:
+
+Wire DMR output into Client Reconciliation.
+AI Assurance drill-down:
+detector executed
+threshold
+evidence
+rows scanned
+reason for alert/no alert
+Link AI recommendations directly to reconciliation and DMR evidence.
+
+Success criteria:
+
+Reconciliation displays live client data.
+Clicking an AI scan provides actionable evidence rather than just metadata.
+Finance users can trace anomalies back to underlying records.
+After F1–F3
+
+Resume Treasury:
+
+T3 — Bank Reconciliation
+T4 — Cash Position Dashboard
+T5 — Treasury Certification
+
+At that point, Treasury will be operating on a stable financial foundation instead of partially populated upstream modules.
+
+Governance recommendation
+
+I would also formalize this as a separate phase in your roadmap rather than treating it as bug fixing.
+
+CAP-003
+
+Phase 1  Billing Foundation        ✅
+Phase 2  Finance Workspace         ✅
+Phase 3  Accounts Payable          ✅
+Phase 4  Treasury                  ⏸ (paused after T2)
+
+Phase F  Finance Integration       ← NEW
+    F1 Data Materialization
+    F2 Billing Engine Integration
+    F3 Reconciliation & AI Evidence
+
+Resume:
+    Treasury T3
+    Treasury T4
+    Treasury Certification
+
+This makes it clear that the work is integration and production readiness, not new feature development. It also gives you measurable exit criteria before continuing Treasury, reducing the risk of building additional modules on top of incomplete data flows.

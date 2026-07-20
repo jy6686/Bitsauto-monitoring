@@ -238,6 +238,7 @@ const DOMAINS: Domain[] = [
     groups: [
       { label: 'Dashboard', desc: 'Finance operations overview and KPI summary', icon: LayoutDashboard, items: [
         { href: '/finance-cockpit', label: 'Finance Cockpit', desc: 'Unified finance operations centre — billing, assurance and collections', icon: LayoutDashboard },
+        { href: '/finance/health', label: 'Data Health', desc: 'Finance pipeline health, scheduler status and materialization history', icon: HeartPulse },
       ]},
       { label: 'Accounts Receivable', desc: 'Invoices, billing, credit and payment management', icon: FileText, items: [
         { href: '/billing',           label: 'Billing Overview',  desc: 'Billing summary & CDR-based payments',       icon: Wallet },

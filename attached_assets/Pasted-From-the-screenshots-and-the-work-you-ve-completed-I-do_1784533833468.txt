@@ -1,0 +1,309 @@
+From the screenshots and the work you've completed, I don't think you're looking at one isolated bug. You're seeing the difference between features that have been built and features that are actually connected to the live Sippy/Finance data pipeline.
+
+Your UI is largely complete, but many finance modules are still operating on empty or partial datasets.
+
+Here's what I see.
+
+1. Invoice Generation
+Current
+
+Your invoice page only has:
+
+Generate Invoice
+Export
+
+There is no Batch Generate or Generate All Clients.
+
+That means invoice generation is still designed as an individual action.
+
+For a telecom billing platform this is not sufficient.
+
+It should support:
+
+Billing Cycle
+        │
+        ▼
+Generate All Drafts
+        │
+        ▼
+Finance Review
+        │
+Approve
+        │
+Queue
+        │
+SMTP Delivery
+        │
+Completed
+
+You should have:
+
+Generate Selected
+Generate All Clients
+Generate by Billing Cycle
+Scheduled Monthly Billing
+Auto Queue
+2. Email addresses not loading
+
+You mentioned:
+
+not fetching email ids from account configuration contact details
+
+That is a real integration gap.
+
+The expected flow should be
+
+Business Partner
+      │
+Contact Persons
+      │
+Billing Contact
+      │
+Invoice Queue
+      │
+SMTP
+
+Instead it appears the Invoice Queue is disconnected.
+
+Your screenshot even shows
+
+No SMTP sender profile configured
+
+That means two different datasets are missing:
+
+Sender
+
+SMTP Profile
+
+Recipient
+
+Business Partner
+    Billing Contact
+
+The invoice module should automatically resolve
+
+partner
+      ↓
+primary billing contact
+      ↓
+email
+
+without manual entry.
+
+3. AI Revenue Assurance
+
+You asked
+
+how to view AI revenue assurance report
+
+From your screenshots:
+
+AI Revenue Assurance
+
+shows
+
+0 alerts
+
+Scan History
+
+shows
+
+Completed
+5 detectors
+0 alerts
+
+This means
+
+The engine is running.
+
+It is not generating anomalies.
+
+But there is no drill-down.
+
+You should be able to click
+
+Scan #4
+
+and see
+
+detectors executed
+rows scanned
+evidence
+thresholds
+execution log
+why no alerts were created
+
+Currently it is only showing metadata.
+
+4. Client Reconciliation
+
+Your reconciliation page shows
+
+0 clients
+
+yet DMR contains
+
+72 account rows
+
+Those two modules are clearly not reading the same dataset.
+
+Likely:
+
+DMR
+
+↓
+
+reconciliation snapshot
+
+↓
+
+client reconciliation
+
+is not wired.
+
+5. Margin Intelligence
+
+Screenshot says
+
+No margin data
+
+Click Compute Margins
+
+Yet DMR already exists.
+
+This suggests
+
+DMR
+
+↓
+
+Margin Materialization
+
+has not executed.
+
+It isn't live.
+
+6. Revenue Drift / Heat Map
+
+Revenue
+
+$6.13
+
+Cost
+
+$6.13
+
+Margin
+
+0
+
+That looks like placeholder aggregation rather than true commercial calculations.
+
+The map renders, but the commercial engine isn't producing meaningful profitability metrics.
+
+7. Finance Cockpit
+
+Everything shows
+
+0
+
+because it appears to aggregate
+
+Invoices
+
+Disputes
+
+Margins
+
+Receivables
+
+Reminders
+
+Credit Control
+
+All of which currently have little or no operational data flowing into them.
+
+The Cockpit itself isn't necessarily broken—it simply has nothing meaningful to aggregate because its upstream modules are not fully integrated.
+
+8. Invoice Queue
+
+The queue is functioning.
+
+It correctly reports
+
+SMTP sender missing
+
+That is actually a useful validation.
+
+However it should also show
+
+Recipient Email
+
+Sender
+
+Template
+
+Attachments
+
+SMTP Account
+
+Delivery Log
+The bigger issue
+
+The Finance project has reached a point where adding more pages won't solve the problem.
+
+The next phase should focus on integration, not more UI.
+
+The data flow should look like this:
+
+Sippy
+      │
+      ▼
+CDRs
+      │
+      ▼
+Rating Engine
+      │
+      ▼
+Billing Snapshot
+      │
+      ├────────► Invoice
+      │
+      ├────────► Margin
+      │
+      ├────────► DMR
+      │
+      ├────────► AI Assurance
+      │
+      ├────────► Forecast
+      │
+      ├────────► Revenue Drift
+      │
+      └────────► Finance Cockpit
+
+Right now, many of those downstream consumers appear to be disconnected or only partially populated.
+
+My recommendation before continuing Treasury
+
+I would pause adding new Finance modules (such as additional Treasury features) and instead run a dedicated Finance Integration Sprint.
+
+Priority order:
+
+Billing Engine
+Batch invoice generation (all clients / billing cycle)
+Scheduled invoice generation
+Billing contact resolution
+SMTP integration
+Data Materialization
+DMR → Margin
+DMR → Forecast
+DMR → Revenue Drift
+DMR → AI Assurance
+DMR → Finance Cockpit
+Client/Vendor Reconciliation
+Ensure reconciliation uses actual imported billing data.
+Verify DMR feeds reconciliation rather than independent datasets.
+Finance Dashboard Validation
+Confirm every KPI is backed by a live query against production data rather than placeholder values.
+
+At this stage, the limiting factor is no longer the interface—it's ensuring that every Finance module is consuming the same live financial data produced from your Sippy traffic, rating, billing, and reconciliation pipelines. That integration work will have a much larger impact than continuing to add new Treasury screens.

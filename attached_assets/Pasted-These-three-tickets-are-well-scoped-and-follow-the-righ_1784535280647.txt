@@ -1,0 +1,297 @@
+These three tickets are well-scoped and follow the right dependency chain. I would make a few adjustments before implementation to avoid future refactoring.
+
+Overall sequence
+
+I would execute them in this order:
+
+F1 → F3 → F2
+
+instead of
+
+F1 → F2 → F3
+
+Reason:
+
+F1 establishes the canonical financial dataset.
+F3 validates that dataset through reconciliation and AI evidence.
+F2 (invoice generation) should consume the validated financial snapshot rather than generating invoices from potentially inconsistent upstream data.
+
+Invoice generation is a financial "publisher." It should be one of the last consumers of a validated dataset, not one of the first.
+
+Ticket #359 (F1)
+
+This is the highest-value sprint.
+
+I would add one more acceptance criterion.
+
+Add
+
+Materialization Audit
+
+Every scheduled run should create a record like:
+
+materialization_runs
+
+id
+started_at
+completed_at
+status
+rows_processed
+clients_processed
+vendors_processed
+duration_ms
+error
+
+Benefits:
+
+scheduler health
+debugging
+Finance audit
+historical performance
+
+Instead of only
+
+Last updated
+
+you gain
+
+Last run
+Previous run
+Duration
+Rows processed
+Success/Failure
+
+which is much more valuable operationally.
+
+Don't overwrite previous data
+
+Instead of
+
+DELETE
+INSERT
+
+prefer
+
+upsert snapshot
+
+or
+
+snapshot_version
+
+This makes historical reporting possible later.
+
+Ticket #360 (F2)
+
+Very good.
+
+I'd expand "Generate by Cycle."
+
+Instead of only
+
+Generate by Billing Cycle
+
+support
+
+Monthly
+
+Weekly
+
+Custom Range
+
+Internally this becomes
+
+billing_period_from
+
+billing_period_to
+
+rather than assuming months forever.
+
+Email resolution
+
+Current proposal:
+
+Business Partner
+
+↓
+
+Sippy Account
+
+I recommend:
+
+Invoice
+
+↓
+
+Business Partner
+
+↓
+
+Billing Contact
+
+↓
+
+Fallback Contact
+
+↓
+
+Account Contact
+
+↓
+
+Manual Override
+
+That hierarchy avoids future surprises.
+
+SMTP
+
+Don't tie SMTP to Billing.
+
+Instead create
+
+Communication Profiles
+
+SMTP
+
+SMS
+
+Webhook
+
+Treasury, Finance, CRM and Support will all reuse it.
+
+Ticket #361 (F3)
+
+This is excellent.
+
+I would strengthen AI evidence slightly.
+
+Instead of
+
+Rows scanned
+
+Threshold
+
+Evidence
+
+I'd store
+
+Detector
+
+Version
+
+Threshold
+
+Rows scanned
+
+Rows matched
+
+Rows ignored
+
+Execution time
+
+Reason
+
+Evidence IDs
+
+Later, if thresholds change, Finance can explain why Scan #18 behaved differently from Scan #42.
+
+One architectural recommendation
+
+Right now all three tickets still assume modules query different tables.
+
+I'd introduce one permanent layer.
+
+Sippy
+
+↓
+
+CDRs
+
+↓
+
+Rating
+
+↓
+
+DMR
+
+↓
+
+Financial Snapshot
+
+↓
+
+Margin
+
+Revenue Drift
+
+Cockpit
+
+Invoices
+
+AI
+
+Reconciliation
+
+Treasury
+
+The important part is
+
+Financial Snapshot
+
+Everything should consume this.
+
+Nothing except the materialization scheduler should read DMR directly.
+
+That prevents
+
+Margin reading one thing
+
+AI another
+
+Invoices another
+
+Cockpit another
+Additional Sprint F0 (small but valuable)
+
+Before F1 I'd add one tiny infrastructure task.
+
+Finance Data Health
+
+One page.
+
+Shows
+
+DMR rows
+
+Snapshot rows
+
+Margin rows
+
+Invoices
+
+Materialization age
+
+Scheduler status
+
+Last error
+
+Last success
+
+Data freshness
+
+Think of it as
+
+Finance Health Dashboard
+
+instead of guessing why pages are empty.
+
+This will save significant debugging time.
+
+Priority I'd recommend
+F0 – Finance Data Health (new, ~1–2 days)
+F1 – Data Materialization
+F3 – Reconciliation & AI Evidence
+F2 – Billing Engine
+Resume Treasury T3
+
+That order builds the platform around a verified, observable financial data pipeline. Once that foundation is in place, the remaining Finance and Treasury features can rely on a consistent source of truth instead of each implementing its own data path.

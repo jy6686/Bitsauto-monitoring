@@ -1,0 +1,241 @@
+I approve this direction. In fact, I think this is the right point in the project to switch from feature expansion to platform observability.
+
+One recommendation before you start coding F0: don't make it just a dashboard—make it the canonical Finance Operations Center.
+
+What I'd lock before implementation
+1. Introduce a canonical financial_snapshot
+
+Right now F0 visualizes the pipeline, but F1 creates the pipeline.
+
+I would explicitly define the architecture now:
+
+Sippy CDRs
+      │
+      ▼
+Rating Engine
+      │
+      ▼
+DMR
+      │
+      ▼
+financial_snapshot   ← Single source of truth
+      │
+ ┌────┼──────────────┬──────────────┬─────────────┐
+ ▼    ▼              ▼              ▼             ▼
+Margin Cockpit   AI Assurance   Reconciliation   Billing
+
+Rule:
+
+No Finance module except the materialization engine reads DMR directly.
+
+That one rule will eliminate most of the data inconsistencies you're seeing today.
+
+2. Separate Health from Materialization
+
+I'd expose two independent statuses.
+
+Data Health
+Fresh
+
+Stale
+
+Never Built
+
+Corrupt
+Scheduler Health
+Running
+
+Idle
+
+Failed
+
+Disabled
+
+This distinction matters because:
+
+Scheduler can be healthy while data is stale.
+Scheduler can fail while yesterday's data is still usable.
+3. Split the Health Score
+
+Instead of a single number only:
+
+Finance Health
+
+92%
+
+I'd calculate four component scores:
+
+Data Health
+
+96%
+
+Scheduler
+
+100%
+
+Consistency
+
+88%
+
+API Health
+
+94%
+
+Overall Health becomes a weighted aggregate.
+
+This makes troubleshooting much faster.
+
+4. Pipeline Graph Improvements
+
+Instead of a static graph:
+
+CDRs
+ ↓
+Rating
+ ↓
+DMR
+ ↓
+Snapshot
+ ↓
+Consumers
+
+Make every node clickable.
+
+Example:
+
+DMR
+
+72 Accounts
+
+18M Rows
+
+Last Update
+
+11:30
+
+[Details]
+
+Clicking Details opens:
+
+row count
+latest timestamp
+SQL duration
+errors
+upstream dependency
+
+That turns the graph into a diagnostic tool.
+
+5. Materialization History
+
+I strongly recommend adding one more field:
+
+snapshot_version
+
+Example:
+
+Run	Snapshot Version
+18	1
+19	1
+20	2
+
+When schemas evolve, you'll know exactly which snapshot format produced each run.
+
+6. Scheduler Actions
+
+For Run Now, I'd make it asynchronous.
+
+Run Now
+
+↓
+
+Job ID
+
+↓
+
+Queued
+
+↓
+
+Running
+
+↓
+
+Completed
+
+Don't keep the browser waiting for the materialization to finish.
+
+7. Add Data Lineage
+
+For every KPI shown in Finance Cockpit, expose:
+
+Revenue
+
+$123,456
+
+Source:
+
+financial_snapshot.revenue
+
+Updated:
+
+11:28
+
+Snapshot Run:
+
+#182
+
+When someone asks "Why is Revenue $123,456?", you immediately know where it came from.
+
+8. Add a "Warnings" panel
+
+Rather than only showing red errors, surface operational issues such as:
+
+⚠ Snapshot stale (42 min)
+
+⚠ Margin rows missing
+
+⚠ 2 clients missing billing contacts
+
+⚠ Invoice queue waiting for SMTP profile
+
+⚠ AI detector skipped due to missing snapshot
+
+These are exactly the issues you've encountered during development, and surfacing them centrally will reduce troubleshooting time.
+
+My only architectural addition
+
+I would rename the phase slightly.
+
+Instead of:
+
+Finance Integration Stabilization
+
+I'd call it:
+
+Finance Data Platform
+
+Because that's what you're really building.
+
+The sequence becomes:
+
+F0
+Finance Operations Center
+
+↓
+
+F1
+Financial Snapshot Platform
+
+↓
+
+F3
+Financial Validation
+
+↓
+
+F2
+Financial Publishing
+
+That naming better reflects the long-term role of this work. You're not just fixing integration—you are establishing the data platform that every Finance capability (current and future) will rely on.
+
+With these refinements, I think the plan is solid enough to freeze and implement. F0 will become the operational control center for Finance, F1 will establish the canonical data foundation, and the subsequent sprints will build on a consistent, observable pipeline rather than independent data paths.

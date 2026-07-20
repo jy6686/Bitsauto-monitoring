@@ -1,0 +1,176 @@
+I think this is now a much stronger roadmap than the original one. It shifts the focus from "adding features" to "making Finance observable and deterministic," which is exactly what a production telecom finance platform needs.
+
+I have a few refinements I'd make before freezing F0.
+
+1. Expand "Data Health" into a Dependency Graph
+
+Instead of only showing counts, show the pipeline itself.
+
+Sippy CDRs
+   │
+   ✓ 18.4M rows
+   │
+Rating
+   │
+   ✓ Completed
+   │
+DMR
+   │
+   ✓ 72 Accounts
+   │
+Financial Snapshot
+   │
+   ⚠ Last Run 31 min ago
+   │
+┌──────────────┬──────────────┬──────────────┬──────────────┐
+│ Margin       │ Revenue      │ AI           │ Reconciliation
+│ ✓            │ ✓            │ ✓            │ ⚠
+└──────────────┴──────────────┴──────────────┴──────────────┘
+
+A dependency view lets an operator immediately identify where the pipeline is broken, not just what is empty.
+
+2. Materialization History (Not Just Last Run)
+
+Instead of exposing only:
+
+Last run
+Last success
+
+show the last 20 runs.
+
+Started
+Finished
+Duration
+Rows
+Status
+Error
+
+This is invaluable for diagnosing intermittent scheduler failures.
+
+3. Add Data Freshness SLAs
+
+Instead of a fixed "2 hours", make freshness configurable per dataset.
+
+For example:
+
+Dataset	SLA
+DMR	15 min
+Snapshot	30 min
+Margin	30 min
+Cockpit	30 min
+Invoice Queue	5 min
+
+Then the UI evaluates against those thresholds rather than hardcoding a single timeout.
+
+4. Scheduler Actions
+
+The dashboard shouldn't be read-only.
+
+Provide actions such as:
+
+Run Materialization Now
+Retry Last Failed Run
+View Logs
+Download Materialization Report
+
+Access can be limited to Finance Admins.
+
+5. Health Score
+
+Instead of five separate indicators, compute an overall Finance Health score.
+
+Example:
+
+Finance Health
+
+96%
+
+🟢 Healthy
+
+derived from:
+
+scheduler health
+freshness
+failed jobs
+row consistency
+API availability
+
+That gives management a quick operational view.
+
+6. Snapshot Integrity
+
+One more health check I'd add:
+
+DMR Accounts
+
+72
+
+Snapshot Accounts
+
+72
+
+Status
+
+✓ Consistent
+
+If DMR has 72 accounts and Snapshot has 64, that's a synchronization problem that should be highlighted immediately.
+
+7. Version Awareness
+
+Since you've been introducing governance versions (v1.3, v1.4, etc.), expose the Finance platform version on the dashboard.
+
+For example:
+
+Finance Build
+
+v1.4
+
+Commit
+
+4095ad54
+
+Materialization Schema
+
+v3
+
+When troubleshooting production, knowing exactly which build and schema are running saves a lot of time.
+
+Revised implementation order
+
+With these refinements, I'd freeze the implementation plan as:
+
+F0
+ ├── Health Dashboard
+ ├── Dependency Graph
+ ├── Materialization History
+ ├── Snapshot Integrity
+ ├── Freshness SLA
+ ├── Scheduler Controls
+ └── Health Score
+
+↓
+
+F1
+ ├── Financial Snapshot
+ ├── Materialization Runs
+ ├── Scheduled Pipeline
+ ├── Revenue Drift Fix
+ ├── Margin Materialization
+ └── Cockpit KPIs
+
+↓
+
+F3
+ ├── Reconciliation
+ ├── AI Evidence
+ └── DMR Links
+
+↓
+
+F2
+ ├── Batch Billing
+ ├── Contact Resolution
+ ├── SMTP
+ └── Queue Improvements
+
+At that point, your Finance platform won't just have the required capabilities—it will also be observable. When a KPI is zero or a report is empty, you'll be able to determine within minutes whether the issue is stale data, a failed scheduler, an incomplete materialization, or a genuine absence of business activity. That operational visibility is often the difference between a feature-rich system and one that's maintainable in production.
