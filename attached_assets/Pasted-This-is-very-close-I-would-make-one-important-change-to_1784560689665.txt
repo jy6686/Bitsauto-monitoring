@@ -1,0 +1,179 @@
+This is very close. I would make one important change to the order.
+
+Swap Sprint #366 and Sprint #367
+
+The validation must exist before the UI.
+
+Otherwise you'll build a UI that can save invalid data if another API client (or future feature) bypasses the frontend.
+
+So the order should be:
+
+#363 — Live Calls NaN fix
+#364 — Login & Authentication Foundation
+#365 — Authorization Layer & Portal Routing
+#367 — Identity Validation — Access Rule Enforcement
+#366 — Portal Assignment Manager
+
+That way the UI is simply a consumer of already-enforced business rules.
+
+Sprint #367
+
+I would approve this almost exactly as written.
+
+Add one rule
+
+You've defined:
+
+FULL_PLATFORM
+PORTAL_ONLY
+MULTI_PORTAL
+
+I'd add one more validation:
+
+Disabled users
+Status = Disabled
+
+should override everything else.
+
+Meaning:
+
+Disabled
+
+↓
+
+No Login
+
+↓
+
+No Session
+
+↓
+
+No Portal
+
+No need to evaluate portal assignments for disabled accounts.
+
+Don't duplicate the portal list
+
+Instead of:
+
+['noc', 'finance', 'commercial', 'product', 'admin']
+
+hardcoded in multiple places, make the source of truth a shared constant (or configuration module) that both the server and client import.
+
+Later, when you add a new portal (for example partner or client), there's only one place to update.
+
+Sprint #366
+
+I like the direction very much.
+
+Since you've already built:
+
+Workspace Configuration
+Navigation Governance
+Navigation Manager
+
+adding Access & Portals inside Team Management is consistent.
+
+I would slightly improve the edit modal
+
+Instead of just:
+
+Access Scope
+Assigned Portals
+Landing Portal
+Status
+
+I'd also show a read-only summary so administrators immediately understand the impact.
+
+For example:
+
+User:
+Junaid
+
+Role:
+Admin
+
+Access Scope:
+Portal Only
+
+Assigned Portals:
+✓ NOC
+✓ Commercial
+
+Landing Portal:
+NOC
+
+Status:
+Active
+
+Effective Landing:
+https://app/.../noc
+
+That reduces mistakes because the admin can see where the user will actually land after login.
+
+Status
+
+I also recommend making the status values explicit rather than a simple toggle.
+
+Instead of:
+
+Active / Disabled
+
+consider:
+
+Active
+Disabled
+Locked
+
+Where:
+
+Active – Normal access.
+Disabled – Administrator has intentionally blocked the account.
+Locked – Temporary security lock (for example, too many failed login attempts).
+
+This matches the authentication work you're already planning.
+
+Overall architecture
+
+At this point the administration model becomes very coherent:
+
+Workspace Configuration
+        │
+        ▼
+Defines available workspaces
+
+Navigation Governance
+        │
+        ▼
+Defines which modules belong to each workspace
+
+Navigation Manager
+        │
+        ▼
+Defines what each workspace shows
+
+Access & Portals
+        │
+        ▼
+Defines who can enter which workspace
+
+Authorization Provider
+        │
+        ▼
+Enforces those decisions at runtime
+
+Each layer has a single responsibility, and they don't overlap.
+
+Final recommendation
+
+I would freeze this roadmap as:
+
+#363 — Live Calls NaN Fix
+#364 — Login & Authentication Foundation
+#365 — Authorization Layer & Portal Routing
+#367 — Identity Validation — Access Rule Enforcement
+#366 — Portal Assignment Manager
+Resume NOC Portal implementation
+
+I think this sequence provides the strongest foundation for the platform. It solves the current authorization gap, keeps responsibilities well separated, and lets the portal work continue on top of a stable identity and access model rather than having to retrofit those capabilities later.

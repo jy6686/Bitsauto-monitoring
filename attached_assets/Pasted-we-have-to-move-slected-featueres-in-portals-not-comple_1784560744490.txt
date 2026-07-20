@@ -1,0 +1,123 @@
+we have to move slected featueres in portals, not complete portal menu
+
+Yes, and this is an important distinction. I think we should formalize it because it changes how we build the portals.
+
+What we should not do
+
+Don't migrate an entire top-level menu just because it exists.
+
+For example, don't say:
+
+NOC Portal
+└── Clients
+    ├── All Client Pages
+    ├── All Billing Pages
+    ├── All KAM Pages
+    ├── All CRM Pages
+    └── ...
+
+That would make the NOC Portal unnecessarily large and duplicate functionality.
+
+What we should do
+
+Each portal should receive only the features that are relevant to that portal's workflow.
+
+For example:
+
+NOC Portal
+
+Top menu:
+
+Dashboard
+
+Chat
+
+Live Network
+
+Clients
+
+Operations
+
+BitsEye
+
+Analytics
+
+Intelligence
+
+Security
+
+But under Clients, don't move the entire Clients module.
+
+Move only the operational features that NOC needs, such as:
+
+Client Status
+Active Calls
+Route Assignment (view)
+Current Balance (read-only)
+Contacts
+Client Health
+
+Leave commercial functions where they belong.
+
+Commercial Portal
+
+Also has a Clients menu, but with different features:
+
+Client Profile
+Contracts
+Rate Manager
+Price Lists
+Send Rates
+KAM Dashboard
+Email Centre
+Disputes
+Finance Portal
+
+Its Clients section might include:
+
+Billing
+Invoices
+Payments
+Credit Limits
+Statements
+Same menu, different features
+
+This is the key architectural principle.
+
+The menu name can be the same across portals, but the features inside it are different.
+
+For example:
+
+Portal	Clients contains
+NOC	Status, Active Calls, Contacts, Balance (RO)
+Commercial	CRM, Contracts, Rates, KAM
+Finance	Billing, Invoices, Payments
+Build from the feature inventory
+
+You already have a platform inventory of modules. Rather than assigning whole menus to portals, classify each feature individually.
+
+For example:
+
+Feature	Main Platform	NOC	Commercial	Finance
+Live Calls	✓	✓	✓ (read-only)	✗
+Live Traffic	✓	✓	✗	✗
+Traffic Map	✓	✓	✗	✗
+Client Profile	✓	✗	✓	✗
+KAM Dashboard	✓	✗	✓	✗
+Email Centre	✓	✗	✓	✗
+Billing	✓	✗	✗	✓
+Route Tester	✓	✓	✗	✗
+
+Then the portal navigation is simply generated from the features assigned to that portal.
+
+I think this is the better long-term model
+
+Instead of saying:
+
+"Move the Clients menu to NOC."
+
+say:
+
+"Assign selected client-related features to the NOC Portal."
+
+That matches the governance tools you've already built (Workspace Configuration, Navigation Governance, Navigation Manager) because they already operate at the feature/module level rather than the whole-menu level. It also gives you the flexibility to reuse a feature in multiple portals (for example, Live Calls in both NOC and Commercial, with different permissions) without duplicating entire sections.
