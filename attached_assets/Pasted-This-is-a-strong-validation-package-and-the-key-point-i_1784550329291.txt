@@ -1,0 +1,79 @@
+This is a strong validation package, and the key point is that it's backed by runtime evidence, not just implementation claims.
+
+Assessment
+
+Based on what you've described, I would consider F1 certified, provided the certification document includes the evidence you summarized (timestamps, reconciliation results, performance metrics, and transaction behavior).
+
+The scheduler cadence confirmation is particularly valuable:
+
+Run #2 → 11:47:59 UTC
+Run #3 → 12:17:59 UTC
+Interval = 1800 seconds exactly
+
+That closes the operational part of the cadence gate.
+
+What the validation achieved
+
+The runtime validation did exactly what it was supposed to do:
+
+It uncovered defects that static review missed.
+It distinguished between UI issues and backend issues.
+It verified the end-to-end materialization pipeline.
+It produced a measurable performance baseline.
+It confirmed concurrency protection and transactional integrity.
+
+Those are the kinds of findings that justify a runtime certification phase.
+
+Production observations
+
+The three documented limitations also seem appropriate to carry forward as known items rather than certification blockers:
+
+Configurable scheduler fallback
+Reasonable enhancement for production deployments where "today only" versus "latest available DMR" should be a configurable policy.
+Queued response during advisory lock
+Acceptable if intentional, but worth documenting so operators understand the API behavior.
+safeQuery swallowing schema errors
+This is the one I'd keep an eye on. Silent failures are convenient for dashboards, but they can delay detection of schema regressions. If you continue using this pattern, consider logging enough diagnostic information internally to make future issues easier to diagnose.
+Recommendation for F3
+
+Since F1 is now certified, I would begin F3 with a narrow first milestone rather than building everything at once.
+
+Suggested sequence:
+
+Milestone 1
+Create the four reconciliation/evidence tables.
+Add indexes and foreign keys.
+Verify lineage.
+Milestone 2
+Implement reconciliation_runs.
+Generate reconciliation records from financial_snapshot.
+Milestone 3
+Implement AI scan runs and immutable findings.
+Milestone 4
+Validate the eight exit conditions from the frozen F3 contract.
+
+That approach mirrors the disciplined execution you used for F1.
+
+Project status
+
+The Finance roadmap now becomes:
+
+F0  ✅ Certified
+
+↓
+
+F1  ✅ Certified
+
+↓
+
+F3  ▶ Ready to Implement
+
+↓
+
+F2  Billing Engine
+
+↓
+
+Treasury
+
+The key difference now is that F3 is no longer waiting on architecture or validation planning. It can proceed against a certified upstream dataset, which was exactly the dependency you wanted before beginning reconciliation and AI evidence.

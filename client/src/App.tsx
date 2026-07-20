@@ -136,6 +136,7 @@ import CreditControlPage from "@/pages/credit-control";
 import ClientIdentityPage from "@/pages/client-identity";
 import FinanceCockpitPage from "@/pages/finance-cockpit";
 import FinanceHealthPage from "@/pages/finance-health";
+import FinanceReconciliationPage from "@/pages/finance-reconciliation";
 import PaymentTermsPage from "@/pages/payment-terms";
 import NumberingPrefixesPage from "@/pages/numbering-prefixes";
 import ReminderRulesPage from "@/pages/reminder-rules";
@@ -683,6 +684,9 @@ function Router() {
       </Route>
       <Route path="/finance/health">
         {() => <ProtectedRoute component={FinanceHealthPage} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance/reconciliation">
+        {() => <ProtectedRoute component={FinanceReconciliationPage} requiredRoles={['admin', 'management', 'finance']} />}
       </Route>
       <Route path="/partner-profiles">
         {() => <ProtectedRoute component={PartnerProfilesPage} requiredRoles={['admin', 'management']} />}

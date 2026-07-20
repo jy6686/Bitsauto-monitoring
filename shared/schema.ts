@@ -2233,6 +2233,74 @@ export const aiScanRuns = pgTable("ai_scan_runs", {
 export type AiScanRun       = typeof aiScanRuns.$inferSelect;
 export type InsertAiScanRun = typeof aiScanRuns.$inferInsert;
 
+// ── F3: Reconciliation & AI Evidence ─────────────────────────────────────────
+// reconciliation_runs: one per materialization run consumed
+export const reconciliationRuns = pgTable("reconciliation_runs", {
+  id:             serial("id").primaryKey(),
+  snapshotRunId:  integer("snapshot_run_id"),
+  startedAt:      timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt:    timestamp("completed_at", { withTimezone: true }),
+  status:         varchar("status",  { length: 16 }).notNull().default('running'),
+  reportDates:    text("report_dates").array().notNull().default([]),
+  recordsCreated: integer("records_created"),
+  discrepancies:  integer("discrepancies"),
+  durationMs:     integer("duration_ms"),
+  error:          text("error"),
+});
+export type ReconciliationRun       = typeof reconciliationRuns.$inferSelect;
+export type InsertReconciliationRun = typeof reconciliationRuns.$inferInsert;
+
+// reconciliation_records: one per entity × metric × date
+export const reconciliationRecords = pgTable("reconciliation_records", {
+  id:             serial("id").primaryKey(),
+  reconRunId:     integer("recon_run_id"),
+  snapshotRunId:  integer("snapshot_run_id"),
+  reportDate:     date("report_date").notNull(),
+  entityType:     varchar("entity_type",  { length: 16 }).notNull(),
+  entityId:       varchar("entity_id",    { length: 64 }),
+  entityName:     varchar("entity_name",  { length: 256 }),
+  metric:         varchar("metric",       { length: 64 }).notNull(),
+  snapshotValue:  numeric("snapshot_value", { precision: 14, scale: 4 }),
+  expectedValue:  numeric("expected_value", { precision: 14, scale: 4 }),
+  difference:     numeric("difference",     { precision: 14, scale: 4 }),
+  differencePct:  numeric("difference_pct", { precision: 7,  scale: 4 }),
+  status:         varchar("status",       { length: 16 }).notNull().default('matched'),
+  reasonCode:     varchar("reason_code",  { length: 64 }),
+  reasonDetail:   text("reason_detail"),
+  createdAt:      timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export type ReconciliationRecord       = typeof reconciliationRecords.$inferSelect;
+export type InsertReconciliationRecord = typeof reconciliationRecords.$inferInsert;
+
+// ai_findings: immutable — no UPDATE after insert
+export const aiFindings = pgTable("ai_findings", {
+  id:                    serial("id").primaryKey(),
+  aiScanId:              integer("ai_scan_id"),
+  reconRecordId:         integer("recon_record_id"),
+  snapshotRunId:         integer("snapshot_run_id"),
+  snapshotVersion:       integer("snapshot_version").notNull().default(1),
+  reconciliationVersion: integer("reconciliation_version").notNull().default(1),
+  detectorVersion:       integer("detector_version").notNull().default(1),
+  ruleVersion:           integer("rule_version").notNull().default(1),
+  reportDate:            date("report_date").notNull(),
+  findingType:           varchar("finding_type",  { length: 64 }).notNull(),
+  severity:              varchar("severity",      { length: 16 }).notNull().default('info'),
+  entityType:            varchar("entity_type",   { length: 16 }),
+  entityId:              varchar("entity_id",     { length: 64 }),
+  entityName:            varchar("entity_name",   { length: 256 }),
+  metric:                varchar("metric",        { length: 64 }),
+  observedValue:         numeric("observed_value", { precision: 14, scale: 4 }),
+  expectedRange:         jsonb("expected_range"),
+  confidenceScore:       numeric("confidence_score", { precision: 5, scale: 4 }),
+  explanation:           text("explanation").notNull(),
+  evidenceRefs:          jsonb("evidence_refs"),
+  createdAt:             timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  // NO updatedAt — immutable by design
+});
+export type AiFinding       = typeof aiFindings.$inferSelect;
+export type InsertAiFinding = typeof aiFindings.$inferInsert;
+// ── end F3 ───────────────────────────────────────────────────────────────────
+
 // adjustment_ledger: double-entry style ledger for all credit/debit adjustments
 // reference_type: credit_note | invoice | dispute | manual | write_off | carry_forward
 export const adjustmentLedger = pgTable("adjustment_ledger", {

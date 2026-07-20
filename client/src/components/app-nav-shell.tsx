@@ -266,6 +266,7 @@ const DOMAINS: Domain[] = [
         { href: '/finance/cash-position',       label: 'Cash Position',       desc: 'Net cash position and liquidity dashboard',   icon: PieChart },
       ]},
       { label: 'Revenue Assurance', desc: 'Reconciliation, margin intelligence, DMR and AI assurance', icon: Brain, items: [
+        { href: '/finance/reconciliation', label: 'Reconciliation & AI',   desc: 'F3 snapshot reconciliation and AI evidence — internal consistency checks and anomaly detection', icon: ArrowRightLeft },
         { href: '/client-reconciliation',  label: 'Client Reconciliation', desc: 'Client-side billing reconciliation',  icon: ArrowRightLeft },
         { href: '/carrier-reconciliation', label: 'Carrier Reconciliation',desc: 'Carrier-side cost reconciliation',    icon: ArrowRightLeft },
         { href: '/cdr-reconciliation',     label: 'CDR Reconciliation',    desc: 'Call-by-call CDR dispute matching',   icon: ArrowRightLeft },

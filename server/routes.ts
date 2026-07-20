@@ -37616,6 +37616,38 @@ ${footer}
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
 
+  // ── F3: Reconciliation & AI Evidence routes ──────────────────────────────────
+  app.get('/api/finance/reconciliation/runs', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const { getReconRuns } = await import('./services/finance/reconciliation.service');
+      res.json(await getReconRuns(30));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/finance/reconciliation/records/:runId', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { getReconRecords } = await import('./services/finance/reconciliation.service');
+      res.json(await getReconRecords(Number(req.params.runId)));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/finance/reconciliation/findings', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { getAiFindings } = await import('./services/finance/reconciliation.service');
+      const snapshotRunId = req.query.snapshotRunId ? Number(req.query.snapshotRunId) : undefined;
+      res.json(await getAiFindings(snapshotRunId, 100));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.post('/api/finance/reconciliation/run-now', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { runReconciliation } = await import('./services/finance/reconciliation.service');
+      const snapshotRunId = req.body?.snapshotRunId ? Number(req.body.snapshotRunId) : undefined;
+      runReconciliation('api', snapshotRunId).catch((e: any) => console.error('[recon-api] error:', e.message));
+      res.json({ status: 'queued', message: 'Reconciliation started. Refresh in 10s to see results.' });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
   // ── F1: 30-minute materialization scheduler ─────────────────────────────────
   {
     const INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
