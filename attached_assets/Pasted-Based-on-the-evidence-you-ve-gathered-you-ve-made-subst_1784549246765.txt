@@ -1,0 +1,91 @@
+Based on the evidence you've gathered, you've made substantial progress. The important distinction is between implementation complete and certification supported by evidence. Your latest results move the project much closer to the latter.
+
+Gate assessment
+✅ Gate 1 – Snapshot Correctness
+
+Your corrected reconciliation is convincing.
+
+The initial "2×" discrepancy was caused by double-counting the __AGGREGATE__ sentinel row in the SQL query, not by a defect in the materialization logic.
+
+Your corrected reconciliation shows:
+
+Client sell totals match the snapshot.
+Vendor buy totals match the snapshot.
+Aggregate margin matches.
+Remaining differences are at floating-point precision levels.
+
+That satisfies the intent of the gate.
+
+✅ Gate 2 – Snapshot Consumption
+
+You verified that the snapshot contains:
+
+Revenue
+Cost
+Margin
+Client count
+Vendor count
+
+Those are exactly the values the Finance Cockpit is expected to consume. I would still do one quick UI sanity check after deployment (confirm the widgets display those values), but the database evidence is strong.
+
+✅ Gate 3 – Failure Handling
+
+From your description, you've verified:
+
+Advisory lock works.
+Concurrent execution is prevented.
+Transaction boundaries (BEGIN / ROLLBACK) exist.
+Rollback leaves no partial rows.
+
+The one nuance I'd document is that the HTTP endpoint intentionally returns a queued response while handling materialization asynchronously. That's a design choice rather than a validation failure, but it should be noted in the certification evidence.
+
+✅ Gate 4 – Performance Baseline
+
+You've captured an initial baseline:
+
+26 rows
+~150 ms
+~173 rows/sec
+
+That's a perfectly reasonable first baseline. As your datasets grow, you'll be able to compare future runs against it.
+
+Before changing F1 to ✅
+
+There is one final thing I'd verify because it's operational rather than architectural:
+
+Scheduler cadence over time
+
+You have shown:
+
+Scheduler registers.
+Scheduler executes.
+Scheduler creates a run.
+
+I would also confirm that it continues to execute on the configured interval (e.g., the next scheduled run occurs as expected) before closing the Scheduler Cadence gate. A single successful execution demonstrates functionality; observing the recurring cadence demonstrates operational behavior.
+
+Certification recommendation
+
+Assuming:
+
+the recurring scheduler execution is observed,
+the Finance Health page reflects the corrected backend state,
+and the Finance Cockpit displays the snapshot-backed values,
+
+then I would be comfortable promoting:
+
+F1
+🟡 Feature Complete
+        ↓
+✅ Certified
+
+with the validation evidence you've collected.
+
+Next milestone
+
+Once F1 is certified, I would immediately shift to F3 implementation and keep the same discipline you've established:
+
+Implement one contract-defined component at a time.
+Validate the corresponding exit condition immediately.
+Accumulate certification evidence throughout the sprint rather than at the end.
+
+That process has already paid off during F1 by uncovering real runtime issues that wouldn't have been found through code inspection alone. It should serve you equally well for F3.
