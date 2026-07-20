@@ -1,0 +1,128 @@
+Based on what you've shared, the implementation sequence is coherent and the progression from #363 through #367 makes sense. Before treating those sprints as complete, I'd recommend one structured verification pass because several of the claimed outcomes are architectural rather than just "the app still runs."
+
+Sprint #363 – NaN Fix
+
+This appears consistent with the goal.
+
+The reported changes cover both classes of failures:
+
+✅ Centralized parseQueryInt() instead of scattered parseInt()
+✅ LiveDuration protected against NaN
+✅ Duration formatting made safe
+✅ Server-side limit/offset parsing corrected
+
+For acceptance I'd explicitly verify:
+
+?limit=
+?limit=abc
+Missing offset
+Missing days
+Missing duration
+
+All should return valid responses without NaN appearing in either the API or UI.
+
+Sprint #364 – Authentication
+
+The reported work aligns with the sprint:
+
+login validation
+clearer auth errors
+expanded /api/auth/user
+standardized "Unauthenticated" responses
+
+One thing to verify is that every consumer of /api/auth/user still works with the expanded payload. Expanding a response is normally safe, but it's worth checking any existing hooks or components that deserialize it.
+
+Sprint #365 – Authorization
+
+This is the first sprint I'd scrutinize more carefully.
+
+The summary claims:
+
+AuthorizationProvider
+PlatformAccessGuard
+portal-select
+login redirect
+welcome redirect
+resolver integration
+
+Those are all appropriate.
+
+The acceptance criteria should confirm:
+
+FULL_PLATFORM users reach the main application.
+PORTAL_ONLY users cannot escape /noc.
+MULTI_PORTAL (or hybrid, depending on your schema) users reach the selector.
+Deep links honor authorization rules.
+Browser back/forward doesn't bypass the guard.
+Sprint #367 – Identity Validation
+
+The reported implementation matches the governance design:
+
+shared constants
+validation utility
+disabled-user handling
+shared portal keys
+
+This is a good place to add unit tests around the validation logic because it becomes foundational for every portal.
+
+Sprint #366 – Portal Assignment
+
+The implementation follows the agreed direction:
+
+backend endpoint
+Team → Access tab
+portal assignment UI
+backend wiring
+
+The most important verification here is authorization:
+
+Admin can modify assignments.
+Non-admin cannot.
+Invalid portal keys are rejected.
+Invalid access-scope combinations are rejected.
+The UI reflects server validation rather than assuming success.
+Overall assessment
+
+Architecturally, the sequence now lines up with the roadmap you froze:
+
+#363
+Stability
+
+↓
+
+#364
+Authentication
+
+↓
+
+#365
+Authorization
+
+↓
+
+#367
+Identity Validation
+
+↓
+
+#366
+Portal Assignment
+
+↓
+
+#368
+NOC Portal Feature Assignment
+
+That's a sensible dependency chain.
+
+Before starting #368
+
+I would perform one final integration test covering the entire flow:
+
+Login as a full_platform user → confirm access to the main platform.
+Login as a portal_only NOC user → confirm landing at /noc.
+Remove /noc from the URL → confirm automatic redirect back to /noc.
+Update the user's portal assignment in the Team → Access tab → verify the new assignment takes effect after re-authentication (or after the intended refresh mechanism).
+Confirm the NOC portal renders only the features assigned through Navigation Governance.
+
+If those end-to-end checks pass, then #368 can focus solely on feature assignment without revisiting the authentication and authorization foundation.
