@@ -1,0 +1,89 @@
+Based on your summary, Phase 1 stayed within the correct scope. You didn't expand it into implementation work, which is exactly what we wanted.
+
+Assessment
+
+The changes you described are all Navigation Governance changes rather than application changes.
+
+Clients
+✅ Added missing existing pages.
+✅ Moved Dispute Cases to Operations where it operationally belongs.
+Products & Rates
+✅ Surfaced previously orphaned pages:
+Client Rate Report
+Rating Verification
+
+This is valuable because it exposes functionality that already existed but wasn't discoverable.
+
+Intelligence
+✅ Added:
+Executive Reports
+Carrier Scoring
+
+These fit naturally in an intelligence/decision-support section.
+
+Operations
+✅ Removed Test Campaigns (correctly identifying it as a NOC tool).
+✅ Added operational communication and support features:
+WhatsApp Alerts
+Email Centre
+Dispute Cases
+Auth Studio
+Dispute Defense
+
+This is a more coherent grouping than the previous arrangement.
+
+Analytics
+✅ Added:
+Margin Intelligence
+Revenue Heatmap
+CDR Re-rate
+
+Those belong in commercial analytics rather than being hidden elsewhere.
+
+What this achieves
+
+The Commercial Portal is now significantly closer to representing the actual commercial workflow without creating any new functionality.
+
+The progression is:
+
+Feature Audit
+        ↓
+Feature Assignment
+        ↓
+commercial.config.ts
+        ↓
+Portal Registry
+        ↓
+Commercial Portal Navigation
+
+That's consistent with the governance model established for the NOC Portal.
+
+Before calling Commercial "certified"
+
+I'd recommend one formal certification pass similar to what you did for Sprint #368.
+
+For each navigation entry, verify:
+
+Check	Expected
+Route exists	✅
+Route loads successfully	✅
+Navigation entry matches audit	✅
+No orphaned commercial pages remain	✅
+No NOC/Admin-only tools appear	✅
+Portal renders without errors	✅
+
+Only after that would I freeze the Commercial configuration.
+
+What I would do next
+
+I would not jump immediately into hierarchy filtering.
+
+Instead:
+
+Commercial Configuration Certification (confirm the portal reflects the audit exactly).
+Commercial Hierarchy Scope Service (the reusable getVisibleAccountIds() service).
+Wire Commercial modules to consume that service incrementally.
+
+That keeps configuration validation separate from data-visibility logic, making it easier to isolate issues if something doesn't behave as expected.
+
+Overall, this looks like a successful completion of the Commercial Portal configuration phase: it surfaced existing capabilities, corrected feature placement, and stayed true to the "discover and reassign, not rebuild" methodology you've been following.
