@@ -1,0 +1,168 @@
+This is another significant milestone, and the end-to-end validation is more valuable than simply implementing the code.
+
+Assessment of F2
+
+From your results, the architecture now aligns with the dependency chain you established:
+
+Financial Snapshot (F1)
+        │
+        ▼
+Reconciliation (F3)
+        │
+        ▼
+Invoice Batch (F2)
+        │
+        ▼
+Invoice Jobs
+
+That is the correct order for a carrier-grade billing system.
+
+What you validated
+✅ Period-first billing
+
+This is a major improvement over client-first generation.
+
+You validated:
+
+Monthly
+Weekly
+Bi-weekly
+
+with automatic period calculation.
+
+That matches how wholesale carriers typically close billing cycles.
+
+✅ Batch generation
+
+The batch:
+
+JUL-2026-002
+
+produced:
+
+5 clients
+Estimated revenue = $206.00
+5 pending jobs
+
+That confirms the batch layer is functioning.
+
+✅ Reconciliation gate
+
+The Billing Engine only proceeded after using:
+
+Reconciliation Run #4
+
+with:
+
+Snapshot Run 7
+0 discrepancies
+
+That's exactly the dependency F2 was supposed to enforce.
+
+Most important bug you discovered
+
+This is the architectural lesson I'd preserve:
+
+Reconciliation pointed to snapshot_run_id=3, while the latest snapshot data had moved to snapshot_run_id=7.
+
+That exposed an important lifecycle issue.
+
+Current behavior
+Snapshot 3
+
+↓
+
+Reconciliation 1
+
+↓
+
+Snapshot overwritten
+
+↓
+
+Snapshot 7
+
+The reconciliation still referenced the earlier snapshot.
+
+Why it matters
+
+This is acceptable during development, but in production you generally want historical snapshots to remain available so reconciliation, AI findings, and invoices continue to reference the exact dataset they were built from.
+
+If your current materialization process physically replaces rows, it's worth confirming that this is intentional. If the long-term goal is immutable history (which your governance suggests), then retaining prior snapshot runs is preferable.
+
+Invoice workflow
+
+The redesigned flow is much stronger:
+
+Billing Period
+
+↓
+
+Generate Batch
+
+↓
+
+Invoice Batch
+
+↓
+
+Invoice Jobs
+
+↓
+
+Finance Review
+
+↓
+
+Approve
+
+↓
+
+Send
+
+This also matches the UI direction you discussed earlier.
+
+One recommendation before certifying F2
+
+Before marking F2 complete, I'd run one operational validation:
+
+Batch regeneration
+
+For the same billing period:
+
+July 2026
+
+attempt to generate another batch.
+
+The system should have a clearly defined behavior, such as:
+
+prevent duplicate active batches,
+reuse an existing draft,
+or create a new revision (e.g. JUL-2026-003) while superseding the earlier draft.
+
+Whatever behavior you choose, it should be deterministic and documented. This is particularly important in billing systems where finance teams may rerun a billing cycle after corrections.
+
+Current roadmap
+
+At this point, the Finance roadmap appears to be:
+
+F0  ✅ Finance Operations Center
+
+↓
+
+F1  ✅ Financial Snapshot Materialization
+
+↓
+
+F3  ✅ Reconciliation & AI Evidence
+
+↓
+
+F2  🟡 Implemented & End-to-End Validated
+     (Pending final operational certification)
+
+↓
+
+Treasury
+
+The remaining work for F2 is no longer about architecture. It's about confirming operational behaviors such as duplicate batch handling, approval flow, and invoice lifecycle. Once those are validated, the Billing Engine will be built on a certified snapshot and reconciliation foundation, which is exactly the progression your governance model was designed to enforce.

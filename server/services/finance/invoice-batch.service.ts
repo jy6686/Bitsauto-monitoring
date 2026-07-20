@@ -28,6 +28,13 @@ export interface BatchScope {
   clientIds?: string[];   // account_id values from financial_snapshot
 }
 
+export interface ExistingBatchConflict {
+  batchRef: string;
+  batchId:  number;
+  status:   string;
+  jobCount: number;
+}
+
 export interface BatchPreview {
   periodStart:      string;
   periodEnd:        string;
@@ -43,15 +50,18 @@ export interface BatchPreview {
     revenue:     number;
     eligible:    boolean;
   }>;
+  existingBatch?: ExistingBatchConflict;  // set if an active batch already covers this period
+  blocked:        boolean;                // true = generation blocked (duplicate active batch)
 }
 
 export interface BatchResult {
-  status:       'success' | 'failed';
-  batchId?:     number;
-  batchRef?:    string;
-  clientsFound: number;
-  jobsCreated:  number;
-  error?:       string;
+  status:         'success' | 'failed';
+  batchId?:       number;
+  batchRef?:      string;
+  clientsFound:   number;
+  jobsCreated:    number;
+  error?:         string;
+  conflictBatch?: ExistingBatchConflict;
 }
 
 // ─── Period calculation ───────────────────────────────────────────────────────
@@ -151,7 +161,7 @@ async function getLatestReconRun(): Promise<{ reconRunId: number; snapshotRunId:
   ));
   const fb = (fallback as any).rows?.[0];
   if (!fb) return null;
-  return { reconRunId: 0, snapshotRunId: fb.snapshot_run_id }; // 0 = no certified recon run yet
+  return { reconRunId: null as any, snapshotRunId: fb.snapshot_run_id }; // null = no certified recon run yet
 }
 
 // ─── Scan eligible clients from financial_snapshot ───────────────────────────
@@ -194,6 +204,42 @@ async function scanEligibleClients(
   return allClients;
 }
 
+// ─── Duplicate batch detection ────────────────────────────────────────────────
+// An "active" batch is one in status: active, generating, closed (not cancelled/superseded).
+// If any such batch already covers periodStart..periodEnd, generation is blocked.
+
+const ACTIVE_BATCH_STATUSES = ['active', 'generating', 'closed'];
+
+async function findActiveBatchForPeriod(
+  periodStart: string,
+  periodEnd:   string,
+): Promise<ExistingBatchConflict | null> {
+  const statusList = ACTIVE_BATCH_STATUSES.map(s => `'${s}'`).join(', ');
+  // Only block if the existing batch has actual jobs (clients_found > 0).
+  // Empty batches (created from misconfiguration or snapshot-pointer bugs) are ignored.
+  const rows = await db.execute(sql.raw(
+    `SELECT ib.id, ib.batch_ref, ib.status,
+            COUNT(ij.id) AS job_count
+     FROM invoice_batches ib
+     LEFT JOIN invoice_jobs ij ON ij.batch_id = ib.id
+     WHERE ib.period_start    = '${periodStart}'
+       AND ib.period_end      = '${periodEnd}'
+       AND ib.status          IN (${statusList})
+       AND ib.clients_found   > 0
+     GROUP BY ib.id, ib.batch_ref, ib.status
+     ORDER BY ib.id DESC
+     LIMIT 1`
+  ));
+  const r = (rows as any).rows?.[0];
+  if (!r) return null;
+  return {
+    batchRef: r.batch_ref,
+    batchId:  r.id,
+    status:   r.status,
+    jobCount: parseInt(r.job_count ?? '0'),
+  };
+}
+
 // ─── Preview (no DB writes) ───────────────────────────────────────────────────
 
 export async function previewBatch(
@@ -205,11 +251,10 @@ export async function previewBatch(
   const period = calculatePeriod(cycle, customStart, customEnd);
   const recon  = await getLatestReconRun();
 
-  const clients = await scanEligibleClients(
-    period.start, period.end,
-    recon?.snapshotRunId ?? null,
-    scope,
-  );
+  const [clients, existingBatch] = await Promise.all([
+    scanEligibleClients(period.start, period.end, recon?.snapshotRunId ?? null, scope),
+    findActiveBatchForPeriod(period.start, period.end),
+  ]);
 
   const estimatedRevenue = clients.filter(c => c.eligible).reduce((s, c) => s + c.revenue, 0);
 
@@ -223,6 +268,8 @@ export async function previewBatch(
     clientsFound:   clients.filter(c => c.eligible).length,
     estimatedRevenue,
     clients,
+    existingBatch:  existingBatch ?? undefined,
+    blocked:        existingBatch !== null,
   };
 }
 
@@ -238,6 +285,18 @@ export async function generateInvoiceBatch(
 ): Promise<BatchResult> {
   try {
     const period = calculatePeriod(cycle, customStart, customEnd);
+
+    // ── Duplicate guard ──────────────────────────────────────────────────────
+    // Block if an active batch already covers this exact period.
+    // Finance teams must cancel the existing batch before re-running.
+    const conflict = await findActiveBatchForPeriod(period.start, period.end);
+    if (conflict) {
+      const msg = `Duplicate batch blocked: ${conflict.batchRef} (${conflict.status}) already covers ${period.start}→${period.end}. Cancel it first to re-run this period.`;
+      console.warn(`[invoice-batch] ${msg}`);
+      return { status: 'failed', clientsFound: 0, jobsCreated: 0, error: msg, conflictBatch: conflict };
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     const recon  = await getLatestReconRun();
     const batchRef = await nextBatchRef(period.start);
 
@@ -261,8 +320,8 @@ export async function generateInvoiceBatch(
           '${period.start}', '${period.end}',
           '${period.label.replace(/'/g, "''")}',
           '${scope.type}',
-          ${recon?.snapshotRunId ?? 'NULL'},
-          ${recon?.reconRunId    ?? 'NULL'},
+          ${recon?.snapshotRunId || 'NULL'},
+          ${recon?.reconRunId    || 'NULL'},
           'active',
           ${eligible.length},
           ${eligible.length}, 0,
@@ -274,9 +333,27 @@ export async function generateInvoiceBatch(
     const batchId: number = (batchRow as any).rows?.[0]?.id;
     if (!batchId) throw new Error('Failed to insert invoice_batch');
 
-    // Insert invoice_job rows for each eligible client
+    // Insert invoice_job rows for each eligible client.
+    // If prior batches for this period were cancelled, their non-terminal jobs must be cancelled
+    // first so the partial unique index (WHERE status <> 'CANCELLED') allows new insertions.
     let jobsCreated = 0;
     const billingPeriod = `${new Date(period.start).getFullYear()}-${String(new Date(period.start).getMonth() + 1).padStart(2, '0')}`;
+
+    // Cancel stale jobs from cancelled/superseded batches for this same billing period.
+    // Required so the partial unique index (WHERE status <> 'CANCELLED') doesn't block re-insertion.
+    await db.execute(sql.raw(
+      `UPDATE invoice_jobs
+       SET status = 'CANCELLED'
+       WHERE billing_period = '${billingPeriod}'
+         AND batch_id <> ${batchId}
+         AND status IN ('PENDING','GENERATED','REVIEW')
+         AND batch_id IN (
+           SELECT id FROM invoice_batches
+           WHERE period_start = '${period.start}'
+             AND period_end   = '${period.end}'
+             AND status IN ('cancelled','superseded')
+         )`
+    ));
 
     for (const client of eligible) {
       try {
@@ -290,7 +367,8 @@ export async function generateInvoiceBatch(
              ${batchId},
              ${notes ? `'${notes.replace(/'/g, "''")}'` : 'NULL'},
              '${triggeredBy}'
-           )`
+           )
+           ON CONFLICT DO NOTHING`
         ));
         jobsCreated++;
       } catch (err: any) {

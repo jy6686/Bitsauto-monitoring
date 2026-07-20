@@ -346,7 +346,22 @@ function GenerateBatchDialog({ onSuccess }: { onSuccess: () => void }) {
               </div>
             )}
 
-            {preview.clientsFound === 0 && (
+            {/* Duplicate batch conflict warning */}
+            {preview.blocked && preview.existingBatch && (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 flex gap-3 items-start">
+                <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />
+                <div className="text-sm">
+                  <p className="font-semibold text-amber-300">Duplicate batch blocked</p>
+                  <p className="text-amber-200/80 mt-0.5">
+                    <span className="font-mono font-bold">{preview.existingBatch.batchRef}</span>
+                    {' '}({preview.existingBatch.status}) already covers this period with{' '}
+                    {preview.existingBatch.jobCount} jobs. Cancel it in the Batches tab before re-running.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {!preview.blocked && preview.clientsFound === 0 && (
               <div className="text-center py-4 text-muted-foreground text-sm">
                 No eligible clients found for this period.
               </div>
@@ -357,7 +372,7 @@ function GenerateBatchDialog({ onSuccess }: { onSuccess: () => void }) {
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
                 <Button onClick={() => generateMutation.mutate()}
-                  disabled={generateMutation.isPending || preview.clientsFound === 0}
+                  disabled={generateMutation.isPending || preview.clientsFound === 0 || preview.blocked}
                   className="bg-emerald-600 hover:bg-emerald-700"
                   data-testid="button-confirm-generate">
                   {generateMutation.isPending
