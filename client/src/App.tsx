@@ -192,6 +192,7 @@ import NocCommandPage from "@/pages/noc-command";
 import NocDashboardPage from "@/pages/noc-dashboard";
 import ServerHealthPage from "@/pages/server-health";
 import NocIncidentsPage from "@/pages/noc-incidents";
+import CommercialPortalHomePage from "@/pages/commercial-portal-home";
 import RouteIntelligencePage from "@/pages/route-intelligence";
 import MfaSetupPage from "@/pages/mfa-setup";
 import MfaVerifyPage from "@/pages/mfa-verify";
@@ -872,6 +873,9 @@ function Router() {
       </Route>
       <Route path="/noc">
         {() => <PortalHomeRoute />}
+      </Route>
+      <Route path="/commercial">
+        {() => <ProtectedRoute component={CommercialPortalHomePage} requiredRoles={['admin','management','super_admin']} />}
       </Route>
       <Route path="/noc-dashboard">
         {() => <ProtectedRoute component={NocDashboardPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}

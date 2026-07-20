@@ -11,16 +11,18 @@
  */
 
 import { nocPortalConfig } from './noc.config';
+import { commercialPortalConfig } from './commercial.config';
 import type { PortalConfig } from '../types/portal-config.types';
 
 /**
  * REGISTRY: portal slug → static PortalConfig.
  * Add an entry here when a portal config file is created.
- * Portals not yet configured (commercial, finance, admin) are omitted
+ * Portals not yet configured (finance, admin) are omitted
  * until their config files exist.
  */
 const REGISTRY: Record<string, PortalConfig> = {
-  noc: nocPortalConfig,
+  noc:        nocPortalConfig,
+  commercial: commercialPortalConfig,
 };
 
 /**
@@ -31,4 +33,4 @@ export function getStaticPortalConfig(slug: string): PortalConfig | null {
   return REGISTRY[slug] ?? null;
 }
 
-export { nocPortalConfig };
+export { nocPortalConfig, commercialPortalConfig };
