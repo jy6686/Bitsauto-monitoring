@@ -4627,6 +4627,8 @@ export const materializationRuns = pgTable("materialization_runs", {
   error:             text("error"),
   snapshotVersion:   integer("snapshot_version").notNull().default(1),
   triggeredBy:       varchar("triggered_by", { length: 32 }).notNull().default('scheduler'),
+  consistencyFlag:   boolean("consistency_flag"),
+  consistencyDetails:jsonb("consistency_details"),
 });
 export type MaterializationRun       = typeof materializationRuns.$inferSelect;
 export type InsertMaterializationRun = typeof materializationRuns.$inferInsert;

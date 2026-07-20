@@ -1,0 +1,484 @@
+I completely agree with that direction, and I think it should become a permanent architecture principle, not just guidance for F1.
+
+Telecom/VoIP-First Design Principle
+
+From this point onward, every feature should be designed as if it will be deployed in a Tier-1/Carrier-grade Wholesale VoIP business, not as a generic ERP or accounting application.
+
+That means every module should answer the question:
+
+"How does a telecom carrier, wholesale voice operator, or A2P SMS provider actually run this process?"
+
+Business domains to model
+
+The platform should natively support telecom operations, including:
+
+Commercial
+Customer Accounts
+Vendor Accounts
+Carrier Relations
+Interconnect Management
+Rate Decks
+LCR
+Commercial Agreements
+Billing Cycles
+Credit Limits
+Routing Policies
+NOC
+Live Calls
+Active Channels
+CPS
+Concurrent Calls
+ASR
+ACD
+PDD
+SIP Response Codes
+RTP/MOS/Jitter
+Capacity
+Trunks
+POPs
+Finance
+
+Not generic accounting.
+
+Finance should understand:
+
+CDRs
+DMRs
+Rated Minutes
+Sell Cost
+Buy Cost
+Margin
+Revenue Leakage
+Unbilled Traffic
+Carrier Disputes
+Client Disputes
+Vendor Settlements
+Billing Cycles
+Credit Exposure
+Currency Conversion
+Taxes where applicable
+Routing
+
+Routing must understand:
+
+Prefixes
+Destination Sets
+LCR
+CLI
+Quality Routing
+Overflow
+Failover
+CPS
+Concurrent Channels
+Capacity Management
+Fraud
+
+Not generic fraud.
+
+Telecom fraud:
+
+IRSF
+Wangiri
+CLI Spoofing
+FAS
+Short Duration
+Traffic Bursts
+SIM Box
+Call Pumping
+Artificial Inflation
+Revenue Leakage
+AI
+
+AI should understand telecom metrics.
+
+Not merely:
+
+"Revenue increased"
+
+Instead:
+
+ASR dropped
+Vendor quality deteriorated
+Margin compression
+Route instability
+Billing anomalies
+Fraud indicators
+CPS spikes
+Prefix performance
+Carrier score changes
+API philosophy
+
+Every API should expose telecom concepts.
+
+Example:
+
+Instead of:
+
+GET /api/revenue
+
+Prefer:
+
+GET /api/finance/snapshot/revenue
+
+Instead of:
+
+GET /api/accounts
+
+Prefer:
+
+GET /api/business-partners
+
+Instead of:
+
+GET /api/orders
+
+Prefer:
+
+GET /api/billing-cycles
+Database philosophy
+
+Every table should represent telecom entities.
+
+Examples:
+
+Good:
+
+cdr
+dmr
+financial_snapshot
+vendor_rates
+client_rates
+destination_sets
+carrier_routes
+routing_profiles
+interconnects
+billing_cycles
+settlements
+disputes
+qos_metrics
+cps_history
+
+Avoid generic business terminology where telecom-specific concepts exist.
+
+UI philosophy
+
+The interface should look like software built for telecom operators.
+
+Examples:
+
+Finance Cockpit should show:
+
+Revenue
+Cost
+Margin
+Minutes
+ASR
+ACD
+CPS
+Active Routes
+Revenue Leakage
+Billing Health
+
+Not generic ERP widgets like "Orders" or "Sales."
+
+Governance Rule
+
+I recommend adding a permanent rule to your governance documents:
+
+Telecom-First Design Standard
+
+All platform features, APIs, schemas, workflows, dashboards, reports, AI analysis, and automation must be designed around real-world telecom and VoIP operations. Generic ERP or CRM abstractions should only be used when they do not obscure or replace established telecom concepts. The canonical business entities remain CDRs, DMRs, routing, interconnects, carrier agreements, billing cycles, settlements, disputes, quality metrics, and financial snapshots.
+
+How I'll approach future work
+
+For future discussions and reviews in this project, I'll evaluate proposed features against these questions:
+
+Is this how a wholesale VoIP carrier would operate?
+Does the data model reflect telecom entities rather than generic business objects?
+Can it scale to multi-switch, multi-vendor, multi-currency, multi-country deployments?
+Does it preserve auditability for carrier disputes and financial reconciliation?
+Would an NOC engineer, Finance analyst, or Carrier Relations manager recognize this workflow as industry-standard?
+
+Those principles fit well with the architecture you've been building and should help keep future features aligned with real telecom operations rather than drifting toward a generic business application.
+
+The advisor's note about making the API contract a durable repository artifact is exactly right — the governance directory we created is the right home. I'll write the contract document and begin F1 implementation in parallel:
+
+
+2 actions
+Contract is frozen at .local/governance/finance-api-contract.md. Now implementing F1 — all 10 steps. Starting with SQL table creation, schema definitions, and the snapshot service simultaneously:
+
+
+3 actions
+Both tables confirmed. Now step 2 (Drizzle schema) and step 3 (snapshot service) in parallel:
+
+
+6 actions
+Steps 1-3 done. Now steps 4-9: export the service, register the scheduler, add snapshot endpoints, migrate the margin routes, and fix Finance Cockpit — all in one batch:
+
+
+5 actions
+I have everything I need. Making all remaining changes in parallel — sippy index exports, margin route migrations, snapshot endpoints + scheduler, materialize-now wire, and Finance Cockpit fix:
+
+
+4 actions
+Good — app running. Final step: migrate Finance Cockpit off /api/dmr and verify the server started with the scheduler:
+
+
+6 actions
+Server is running. Let me check the log for scheduler registration and read the Cockpit DMR usage before migrating:
+
+
+4 actions
+Now I'll complete the Cockpit migration and verify scheduler registration simultaneously:
+
+
+3 actions
+The scheduler logs haven't appeared yet because it's on a 2-minute initial delay — that's correct by design. Let me read DmrRow and complete the cockpit migration now:
+
+
+2 actions
+Now I have all context. Making the Finance Cockpit migration — replacing the /api/dmr fetch with snapshot summary, and replacing the raw DMR panel with a financial summary panel:
+
+
+4 actions
+Now replace the DMR panel in the cockpit with the snapshot summary panel:
+
+
+2 actions
+Good — all 10 implementation steps are complete. Now running the exit condition inspection and final verification in parallel:
+
+
+5 actions
+Two remaining items found: Margin Intelligence still reads /api/dmr inside the materialize mutation (lines 141-143), and DmrRow is now an orphaned component. Fixing both:
+
+
+3 actions
+The Margin Intelligence mutation is a pre-flight DMR check before calling the old margin/materialize — both are now superseded by the F1 scheduler. I'll redirect it to materialize-now and remove the orphaned DmrRow:
+
+
+3 actions
+Good. Let me clean up the leftover stale comment and run the final exit condition inspection:
+
+
+3 actions
+The && chain stopped at the grep exit-code-1 (no matches = CLEAN is correct). Let me verify auth guards and write the certification simultaneously:
+
+
+2 actions
+All checks passed. Let me update the certification table, memory, and write the commit message:
+
+Based on what you've described, I would not certify F1 yet, but I would mark it as:
+
+🟡 F1 – Feature Complete, Pending Functional Certification
+
+The implementation progress is excellent, but there are a few production-grade validations that should be completed before declaring it certified—especially for a telecom billing platform.
+
+What appears complete
+
+From your implementation log, these look complete:
+
+✅ financial_snapshot table created.
+✅ materialization_runs table created.
+✅ Drizzle schema added.
+✅ Snapshot service implemented.
+✅ Scheduler registered.
+✅ Snapshot endpoints added.
+✅ Margin APIs migrated to financial_snapshot.
+✅ Finance Cockpit migrated from /api/dmr.
+✅ Manual materialize action redirected to scheduler.
+✅ Direct Finance UI dependency on DMR removed.
+✅ Exit-condition code inspection performed.
+
+That is strong progress and aligns with the architectural goals.
+
+Before certifying F1
+1. Materialization correctness (Highest Priority)
+
+Don't just verify that the scheduler runs—verify that it produces correct financial data.
+
+For a known DMR sample:
+
+Sell Amount: 125.50
+Buy Amount: 101.20
+
+Verify that the snapshot contains:
+
+Revenue = 125.50
+Cost    = 101.20
+Margin  = 24.30
+
+Then verify that:
+
+Margin Intelligence
+Revenue Drift
+Finance Cockpit
+
+all display the same values.
+
+2. Transaction rollback
+
+Deliberately force a failure during materialization.
+
+Confirm:
+
+snapshot rollback
+audit row written
+status = failed
+error stored
+no partial snapshot
+3. Advisory lock
+
+Attempt two simultaneous runs.
+
+Expected:
+
+Run 1
+Running
+
+Run 2
+Skipped (lock held)
+
+Never:
+
+Running
+
+Running
+4. Snapshot lineage
+
+Pick one snapshot row.
+
+Confirm:
+
+snapshot
+
+↓
+
+source_run_id
+
+↓
+
+materialization_runs
+
+↓
+
+timestamp
+
+↓
+
+scheduler
+
+This is essential for finance auditability.
+
+5. Revenue Drift
+
+The original bug was:
+
+sellAmount - sellAmount
+
+Explicitly verify that:
+
+Revenue
+
+125
+
+Cost
+
+101
+
+Margin
+
+24
+
+This deserves its own certification item because it was a known defect.
+
+6. Finance Cockpit
+
+Ensure all KPIs are sourced from the snapshot.
+
+No hidden fetches from:
+
+DMR
+margin_analytics_daily
+
+should remain.
+
+7. Performance
+
+Materialization should scale.
+
+Measure:
+
+rows/sec
+duration
+memory
+
+Even a simple benchmark (e.g., 100k–1M DMR rows) helps establish a baseline.
+
+8. Snapshot versioning
+
+Now that financial_snapshot exists, include:
+
+snapshot_version
+
+in the run metadata.
+
+It will make future schema evolution much easier to manage.
+
+F1 certification template
+
+Using the governance template you've adopted, I'd expect something like:
+
+Scope
+
+Financial Snapshot Platform
+
+Acceptance Criteria
+Criterion	Result
+Snapshot schema	✅
+Materialization scheduler	✅
+Advisory lock	⏳
+Rollback	⏳
+Margin migration	✅
+Cockpit migration	✅
+Revenue Drift fix	⏳
+Audit trail	✅
+Snapshot lineage	⏳
+Performance baseline	⏳
+Exit-condition inspection	✅
+Validation Summary
+
+Only include observations supported by the tests above.
+
+Known Limitations
+
+Only items intentionally deferred to F3/F2.
+
+Certification Decision
+
+Until the remaining runtime validations pass:
+
+🟡 Feature Complete – Functional Certification Pending
+
+One telecom-specific recommendation
+
+Since this platform targets wholesale VoIP, I'd add one F1 acceptance criterion that doesn't exist in generic finance systems:
+
+Financial Consistency Check
+
+For every materialization run:
+
+Total Sell Minutes
+=
+Σ Client Revenue Minutes
+
+Total Buy Minutes
+=
+Σ Vendor Cost Minutes
+
+Margin
+=
+Revenue − Cost
+
+If those aggregates don't reconcile within an acceptable tolerance, the run should be flagged. This provides an immediate sanity check that the snapshot is internally consistent before downstream modules rely on it.
+
+Once those runtime and financial integrity checks pass, I'd be comfortable certifying F1 as the canonical Finance data platform for the rest of the roadmap.

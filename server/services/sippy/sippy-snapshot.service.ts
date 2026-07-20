@@ -46,15 +46,28 @@ export interface SnapshotRow {
   rowType:        'client' | 'vendor' | 'aggregate';
 }
 
+export interface ConsistencyCheck {
+  passed:          boolean;
+  sigmaClientSell: number;
+  sigmaVendorBuy:  number;
+  aggSell:         number;
+  aggBuy:          number;
+  sellDivergencePct: number;
+  buyDivergencePct:  number;
+  tolerance:       number;
+  note?:           string;
+}
+
 export interface MaterializationResult {
-  runId:           number;
-  status:          'success' | 'failed';
-  rowsWritten:     number;
-  clientsProcessed:number;
-  vendorsProcessed:number;
-  durationMs:      number;
-  reportDates:     string[];
-  error?:          string;
+  runId:              number;
+  status:             'success' | 'failed';
+  rowsWritten:        number;
+  clientsProcessed:   number;
+  vendorsProcessed:   number;
+  durationMs:         number;
+  reportDates:        string[];
+  consistencyCheck?:  ConsistencyCheck;
+  error?:             string;
 }
 
 // ── DMR → Snapshot transform ──────────────────────────────────────────────────
@@ -249,6 +262,60 @@ export async function runMaterialization(
 
     const durationMs = Date.now() - t0;
 
+    // ── Financial Consistency Check (post-commit, telecom-specific) ───────
+    // Verify: Σ client sell ≈ aggregate sell, Σ vendor buy ≈ aggregate buy
+    // Tolerance: 0.5% — flags revenue leakage or allocation errors before
+    // downstream billing modules (F2/F3) rely on this snapshot.
+    const TOLERANCE = 0.005; // 0.5%
+    let consistencyCheck: ConsistencyCheck | undefined;
+    try {
+      const dateArr = dates.map(d => `'${d}'`).join(',');
+      const ccResult = await db.execute(sql.raw(`
+        SELECT
+          SUM(CASE WHEN row_type = 'client'    THEN sell_amount ELSE 0 END)::numeric AS sigma_sell,
+          SUM(CASE WHEN row_type = 'vendor'    THEN buy_amount  ELSE 0 END)::numeric AS sigma_buy,
+          SUM(CASE WHEN row_type = 'aggregate' THEN sell_amount ELSE 0 END)::numeric AS agg_sell,
+          SUM(CASE WHEN row_type = 'aggregate' THEN buy_amount  ELSE 0 END)::numeric AS agg_buy
+        FROM financial_snapshot
+        WHERE snapshot_run_id = ${runId}
+          AND report_date = ANY(ARRAY[${dateArr}]::date[])
+      `));
+      const cc = (ccResult as any).rows[0] ?? {};
+      const sigmaClientSell = parseFloat(cc.sigma_sell ?? '0');
+      const sigmaVendorBuy  = parseFloat(cc.sigma_buy  ?? '0');
+      const aggSell         = parseFloat(cc.agg_sell   ?? '0');
+      const aggBuy          = parseFloat(cc.agg_buy    ?? '0');
+
+      const sellDiv = aggSell > 0 ? Math.abs(sigmaClientSell - aggSell) / aggSell : 0;
+      const buyDiv  = aggBuy  > 0 ? Math.abs(sigmaVendorBuy  - aggBuy)  / aggBuy  : 0;
+      const passed  = sellDiv <= TOLERANCE && buyDiv <= TOLERANCE;
+
+      consistencyCheck = {
+        passed,
+        sigmaClientSell,
+        sigmaVendorBuy,
+        aggSell,
+        aggBuy,
+        sellDivergencePct: +( sellDiv * 100).toFixed(4),
+        buyDivergencePct:  +( buyDiv  * 100).toFixed(4),
+        tolerance:         TOLERANCE * 100,
+        note: !passed
+          ? `Sell divergence ${(sellDiv*100).toFixed(2)}%, buy divergence ${(buyDiv*100).toFixed(2)}% — exceeds ${TOLERANCE*100}% tolerance`
+          : undefined,
+      };
+
+      const ccJson = JSON.stringify(consistencyCheck).replace(/'/g, "''");
+      await db.execute(sql.raw(
+        `UPDATE materialization_runs SET
+           consistency_flag    = ${passed},
+           consistency_details = '${ccJson}'::jsonb
+         WHERE id = ${runId}`
+      ));
+    } catch (ccErr) {
+      // Non-fatal — log but don't fail the run
+      console.warn('[snapshot] Consistency check error (non-fatal):', ccErr);
+    }
+
     // ── Update run record: success ─────────────────────────────────────────
     await db.execute(sql.raw(
       `UPDATE materialization_runs SET
@@ -258,7 +325,7 @@ export async function runMaterialization(
        WHERE id = ${runId}`
     ));
 
-    return { runId, status: 'success', rowsWritten, clientsProcessed, vendorsProcessed, durationMs, reportDates: dates };
+    return { runId, status: 'success', rowsWritten, clientsProcessed, vendorsProcessed, durationMs, reportDates: dates, consistencyCheck };
   } catch (err: any) {
     try { await db.execute(sql.raw('ROLLBACK')); } catch {}
 
