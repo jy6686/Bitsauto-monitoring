@@ -1,0 +1,107 @@
+his is a good stopping point. T0 isn't Treasury itself—it's the prerequisite that allows Treasury to calculate due dates, receivables, and settlement schedules consistently.
+
+T0 Completion Status
+✅ Canonical payment terms introduced
+
+New canonical entity:
+
+client_payment_terms
+
+Purpose:
+
+Platform default payment policy
+Per-client overrides
+Historical versioning (effective_from / effective_to)
+Foundation for Treasury calculations
+✅ Identity integration
+
+Using:
+
+client_identity_map.id
+
+as the foreign key is the right choice because it keeps Treasury aligned with your canonical client identity layer rather than tying it directly to Sippy-specific identifiers.
+
+✅ Default seeding
+
+The behavior you've described is appropriate:
+
+New identity created
+Default Net 30 terms automatically assigned
+Commercial team can override later
+
+That gives Treasury a deterministic starting point while remaining configurable.
+
+✅ Deferred identity mapping
+
+The fact that only two clients are currently seeded is not a blocker.
+
+Your approach is sound:
+
+Sippy Client
+      │
+      ▼
+POST /api/identity/seed
+      │
+      ▼
+client_identity_map
+      │
+      ▼
+client_payment_terms (auto-created)
+
+As long as every client entering Treasury passes through the identity layer, you'll maintain consistency.
+
+Current roadmap
+Finance
+──────────────
+F0 ✅
+F1 ✅
+F3 ✅
+F2 ✅
+End-to-End ✅
+
+Freeze
+
+Treasury
+──────────────
+T0 ✅ Payment Terms Foundation
+
+↓
+
+T1 Treasury Operations Center
+
+↓
+
+T2 Settlement Engine
+
+↓
+
+T3 Payment Tracking
+
+↓
+
+T4 Cash Ledger
+
+↓
+
+T5 Forecasting
+
+↓
+
+T6 Credit & Exposure
+Recommendation before T1
+
+Before writing Treasury dashboard code, define a Treasury Data Contract similar to what you did for Finance. It should answer, for every KPI:
+
+KPI	Source	Calculation	Owner
+Outstanding Receivables	Invoice Batches + Payments	Invoice Balance − Payments	Treasury
+Due Today	Settlements	Due Date = Invoice Date + Due Days	Treasury
+Overdue	Settlements	Due Date < Today	Treasury
+Cash Position	Cash Ledger	Ledger Balance	Treasury
+Forecast	Forecast Engine	Based on Settlements	Treasury
+
+This ensures every Treasury metric has a single source of truth from day one and preserves the governance discipline that made the Finance implementation successful.
+
+Overall assessment
+Finance: ✅ Complete, certified, and frozen.
+Treasury T0: ✅ Complete.
+Next milestone: T1 – Treasury Operations Center, built on the certified Finance outputs and the new client_payment_terms foundation.
