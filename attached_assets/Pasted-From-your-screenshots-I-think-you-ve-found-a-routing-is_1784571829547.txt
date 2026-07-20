@@ -1,0 +1,101 @@
+From your screenshots, I think you've found a routing issue rather than a hierarchy issue.
+
+What I see
+
+In Team & Access → KAM Management, clicking the eye ("View") icon for Junaid opens:
+
+/bitseye?view=kam&kamId=6
+
+(visible in the third screenshot URL)
+
+That page is clearly the legacy BitsEye ("BitsEye Classic") interface, not BitsEye2.
+Your hierarchy work is unrelated to this. The button is simply pointing to the wrong destination.
+Expected behavior
+
+The KAM "View" button should open BitsEye2 (or the current Commercial telemetry view), not the legacy BitsEye page.
+
+Conceptually:
+
+Current
+
+Team & Access
+      ↓
+View
+      ↓
+/bitseye?view=kam&kamId=6      ❌ Legacy
+
+Should become:
+
+Team & Access
+      ↓
+View
+      ↓
+/bitseye2?...                  ✅ Current
+
+(or whatever the canonical BitsEye2 route is in your application).
+
+What to check in code
+
+Search for where the View button is created.
+
+It will likely look something like:
+
+navigate(`/bitseye?view=kam&kamId=${kam.id}`)
+
+or
+
+href={`/bitseye?view=kam&kamId=${kam.id}`}
+
+That should be updated to the current BitsEye2 route, not the legacy one.
+
+Before changing it
+
+Verify two things:
+
+What is the canonical BitsEye2 route?
+
+Examples might be:
+
+/bitseye2
+
+or
+
+/analytics/bitseye2
+
+or
+
+/commercial/bitseye
+
+Use the route that is already registered in your application rather than inventing a new one.
+
+Does BitsEye2 already support KAM filtering?
+
+It should accept something equivalent to:
+
+kamId=6
+
+or, even better in the long term, derive the scope from the authenticated user rather than a query parameter.
+
+Longer-term recommendation
+
+Once the Commercial hierarchy framework is integrated, I'd actually remove the dependency on kamId in the URL for normal users.
+
+Instead of:
+
+/bitseye2?kamId=6
+
+the flow becomes:
+
+Login
+      ↓
+Hierarchy Scope Service
+      ↓
+Visible Accounts
+      ↓
+BitsEye2
+
+The page automatically loads the correct customer portfolio based on the logged-in user. A kamId parameter would then only be needed for administrators or explicit "View As" functionality.
+
+I recommend fixing this in two steps
+Immediate fix: Update the Team & Access "View" button to point to the canonical BitsEye2 route.
+Future enhancement: Once Commercial hierarchy integration is complete, have BitsEye2 derive its scope from the authenticated user's hierarchy instead of relying on kamId for standard navigation. This keeps the URL cleaner and makes it harder to access another KAM's data accidentally.

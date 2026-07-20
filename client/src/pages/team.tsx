@@ -569,9 +569,9 @@ function KamRow({ kam, sippyAccounts, liveMap, openAlertCount, onEdit, onDelete 
           {/* Actions */}
           <div className="flex items-center gap-1 flex-shrink-0">
             <Link
-              href={`/bitseye?view=kam&kamId=${kam.id}`}
+              href={`/bitseye2?view=kam&kamId=${kam.id}`}
               data-testid={`link-bitseye-kam-${kam.id}`}
-              title="View in BitsEye"
+              title="View in BitsEye2"
               className="p-1.5 rounded-lg hover:bg-violet-500/10 text-muted-foreground hover:text-violet-400 transition-colors"
             >
               <Eye className="w-3.5 h-3.5" />
