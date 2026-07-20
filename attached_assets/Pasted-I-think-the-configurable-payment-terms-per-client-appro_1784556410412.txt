@@ -1,0 +1,217 @@
+I think the configurable payment terms per client approach is the right foundation.
+
+Why I wouldn't rely on Sippy
+
+Sippy is primarily a switching, routing, rating, and billing platform. While it may have customer/account information, payment terms are not a reliable source of truth for Treasury because they are a commercial/financial policy rather than a telecom routing attribute.
+
+Treasury needs payment terms that support:
+
+Commercial agreements
+Credit policy
+Collections
+Aging
+Cash forecasting
+Settlement scheduling
+
+Those belong in your platform.
+
+Recommended T0 prerequisite (before T1)
+
+Introduce a canonical table:
+
+client_payment_terms
+
+Suggested fields:
+
+Field	Purpose
+id	PK
+client_id	FK to client_identity_map
+payment_term	ENUM (NET_7, NET_15, NET_30, NET_45, NET_60, CUSTOM)
+due_days	Integer (7, 15, 30, 45, 60, etc.)
+credit_limit	Optional
+currency	Optional default
+effective_from	Versioning
+effective_to	Nullable
+is_active	Boolean
+created_at / updated_at	Audit
+
+This gives you flexibility without changing Finance.
+
+Why due_days matters more than an enum
+
+I would treat the enum as a convenience for the UI.
+
+Treasury should calculate due dates using the numeric value:
+
+Invoice Date
+      +
+due_days
+      =
+Due Date
+
+That allows:
+
+Net 30
+Net 45
+Net 90
+Net 10
+Custom contracts
+
+without schema changes.
+
+Default policy
+
+I would define:
+
+Platform Default = Net 30
+
+When a client is created:
+
+Payment Terms
+
+Net 30
+
+due_days = 30
+
+Finance and Treasury immediately work.
+
+Commercial can later override to:
+
+Net 15
+Net 45
+Net 60
+Custom
+
+No code changes required.
+
+T1 Dashboard
+
+Then Treasury Operations Center can compute:
+
+Outstanding Receivables
+Approved Invoice
+
+−
+
+Payments Received
+
+=
+
+Outstanding
+Due Today
+due_date == today
+
+AND
+
+balance > 0
+Due This Week
+today <= due_date <= +7 days
+Overdue
+today > due_date
+
+AND
+
+balance > 0
+Aging
+
+Buckets:
+
+0–30
+
+31–60
+
+61–90
+
+90+
+T2 Settlement Engine
+
+Settlement scheduling becomes deterministic:
+
+Invoice Approved
+        │
+        ▼
+Read client_payment_terms
+        │
+        ▼
+Calculate due_date
+        │
+        ▼
+Create settlement record
+        │
+        ▼
+Treasury Queue
+
+Exactly where Treasury should begin.
+
+Future-proofing
+
+One enhancement I'd recommend is supporting historical payment terms via effective_from/effective_to, as you suggested. This ensures invoices continue to use the terms that were in force when they were issued, even if a client's terms change later. Treasury should copy the resolved due_days (and resulting due_date) into the settlement record at creation time, rather than recalculating against current settings.
+
+That preserves the same immutability principle you've already established with:
+
+snapshot_run_id
+recon_run_id
+
+The settlement record becomes a snapshot of the commercial agreement at the time the obligation was created.
+
+Recommendation
+
+I would proceed with:
+
+Platform default: Net 30.
+Per-client override: client_payment_terms.
+Historical versioning: effective_from / effective_to.
+Settlement records: store the resolved payment terms and calculated due date when created.
+
+That keeps Treasury fully independent from Finance while maintaining the immutable, auditable lineage philosophy you've already applied successfully throughout the Finance pipeline.
+
+https://support.sippysoft.com/support/solutions
+
+Yes—this is an excellent resource and it's directly relevant to the next phase.
+
+The Sippy Knowledge Base confirms that Sippy already includes functionality around customers, billing, invoices, payment processors, balances, credit limits, and payment APIs, while also exposing XML-RPC APIs for customer and payment operations.
+
+How this affects Treasury
+
+Based on your architecture, I would not duplicate Sippy functionality. Instead, Treasury should integrate with it where appropriate.
+
+Here's how I would divide responsibilities:
+
+Capability	Sippy	BitsAuto Treasury
+Rating & Billing	✅	Read-only
+Invoice Generation	✅ (exists)	Your certified F2 remains canonical
+Customer Balances	✅	Synchronize/compare
+Payment APIs	✅	Integrate when needed
+Settlement Workflow	❌	✅ Treasury
+Cash Position	❌	✅ Treasury
+Cash Forecast	❌	✅ Treasury
+Payment Approval Workflow	❌	✅ Treasury
+Executive Treasury Dashboard	❌	✅ Treasury
+Payment Terms
+
+The documentation does not indicate that Sippy provides a robust, versioned commercial payment terms model (Net 30, Net 45, effective dates, etc.). It has customer balances, credit limits, invoices, and payment processors, but that's different from contractual payment terms.
+
+Therefore, I would still recommend:
+
+client_payment_terms
+default Net 30
+configurable per client
+versioned (effective_from / effective_to)
+Treasury stores the resolved due date on settlement creation
+Before implementing T1
+
+Since you're building a platform that complements Sippy rather than replaces it, I would spend a short amount of time reviewing these Sippy knowledge base areas first:
+
+Understanding Rating and Billing (to identify where your Finance outputs align with Sippy's billing model)
+Balance and Credit Limit (to determine whether Treasury should synchronize or independently manage exposure)
+How to invoice your customers (to understand Sippy's invoice lifecycle and avoid overlapping concepts)
+XML-RPC API – Payments (to see what payment operations can be synchronized instead of recreated)
+My recommendation
+
+Before writing any Treasury code, perform a Treasury Integration Review against the Sippy documentation and classify every Treasury feature into one of three categories:
+
+Consume from Sippy (read/sync only)
+Extend Sippy (add workflow around existing data)
+BitsAuto Native (new capability with no Sippy equivalent)
+
+That exercise will prevent duplicated functionality, reduce maintenance, and keep BitsAuto positioned as the orchestration and operations platform while Sippy remains the execution and switching platform—the same architectural separation you've successfully maintained throughout the Finance implementation.
