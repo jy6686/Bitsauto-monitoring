@@ -1,15 +1,25 @@
 /**
- * portal-config.types.ts
+ * portal-config.types.ts — Portal Configuration Contract
  *
- * Static frontend configuration types for the BitsAuto portal system.
+ * This file is the enforced contract for all portal configurations.
+ * Every portal (NOC, Commercial, Finance, Admin, future portals) MUST
+ * implement the PortalConfig interface defined here.
+ *
+ * Consumers:
+ *   - PortalNavBar       renders navigation.entries (Sprint #369)
+ *   - DashboardTemplate  renders workflows, quickActions, widgets
+ *   - configs/index.ts   registry of slug → PortalConfig
+ *
+ * Rules (see .local/governance/PORTAL-CONFIG-CONTRACT.md for full details):
+ *   1. All path values must reference routes registered in App.tsx.
+ *   2. PortalNavBar is NEVER portal-specific — only this contract changes.
+ *   3. Adding a portal requires only: a new config file + one registry entry.
+ *   4. Do NOT add portal-specific logic to app-nav-shell or PortalNavBar.
  *
  * The portal context (portal-context.tsx) handles dynamic, backend-driven
  * configuration (portal definitions, modules, sections via API).
- * These types cover the static UI configuration: navigation structure,
+ * These types cover the STATIC UI configuration: navigation structure,
  * quick actions, workflow cards, widget declarations, and permissions.
- *
- * One PortalConfig object is created per portal and passed to DashboardTemplate.
- * No portal-specific JSX is written — only configuration objects change.
  */
 
 // ── Portal identity ──────────────────────────────────────────────────────────
