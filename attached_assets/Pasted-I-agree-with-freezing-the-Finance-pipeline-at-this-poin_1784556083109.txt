@@ -1,0 +1,184 @@
+I agree with freezing the Finance pipeline at this point. With the contracts frozen and lineage verified, Treasury should be built as a consumer of Finance, not as an extension of it.
+
+Treasury should not start with payments
+
+A common mistake is to begin Treasury by recording payments. In a carrier-grade telecom platform, Treasury's first responsibility is cash position and settlement control, because payments are only one event in the treasury lifecycle.
+
+I would implement Treasury in this order:
+
+T1 — Treasury Operations Center (Foundation)
+
+This becomes Treasury's equivalent of Finance Operations Center.
+
+Purpose: Provide a real-time view of cash obligations and liquidity.
+
+Dashboards
+Cash Position
+Outstanding Receivables
+Outstanding Payables
+Due Today
+Due This Week
+Credit Exposure
+FX Exposure (future-ready)
+Bank Balance (manual/API)
+Inputs
+Invoice Batches (F2)
+Approved Invoices
+Vendor Bills
+Credit Limits
+Payment Records
+Outputs
+Treasury Health
+Settlement Queue
+Cash Forecast
+
+No accounting entries yet—just visibility.
+
+T2 — Settlement Engine
+
+This is Treasury's core engine.
+
+Client settlements
+Invoice
+      ↓
+Approved
+      ↓
+Awaiting Payment
+      ↓
+Paid
+      ↓
+Closed
+Vendor settlements
+Vendor Invoice
+      ↓
+Approved
+      ↓
+Scheduled
+      ↓
+Paid
+      ↓
+Closed
+
+Settlement is distinct from billing.
+
+Billing creates obligations.
+
+Treasury settles obligations.
+
+T3 — Payment Tracking
+
+Only after settlements exist.
+
+Track:
+
+Payment Date
+Value Date
+Amount
+Currency
+Exchange Rate
+Bank
+Method
+Reference
+Remittance Advice
+
+Support:
+
+Partial payments
+Overpayments
+Short payments
+Write-offs
+T4 — Cash Ledger
+
+This is not a general ledger.
+
+It's a Treasury ledger.
+
+Example entries:
+
+Date	Type	Debit	Credit	Balance
+Jul 20	Client Payment	10,000		55,000
+Jul 21	Vendor Settlement		8,500	46,500
+
+Every movement references the originating invoice batch or settlement.
+
+T5 — Cash Forecasting
+
+Once payment history exists, Treasury can forecast:
+
+Expected collections
+Expected disbursements
+Net cash
+Liquidity gap
+Upcoming funding needs
+
+This is where AI becomes useful.
+
+T6 — Credit & Exposure
+
+Treasury should own financial exposure.
+
+Track:
+
+Client credit utilization
+Vendor prepaid balances
+Deposit requirements
+Overdue aging
+Exposure by customer
+Exposure by vendor
+
+Generate alerts before Finance has to intervene.
+
+Architecture
+
+Treasury should consume only certified outputs.
+
+Financial Snapshot (F1)
+        │
+        ▼
+Reconciliation (F3)
+        │
+        ▼
+Invoice Batch (F2)
+        │
+        ▼
+Settlement Engine (T2)
+        │
+        ▼
+Payments (T3)
+        │
+        ▼
+Cash Ledger (T4)
+        │
+        ▼
+Forecasting (T5)
+
+Notice:
+
+Treasury never recalculates revenue.
+
+Treasury never recalculates margin.
+
+Treasury never modifies invoices.
+
+It only manages financial obligations after billing.
+
+One new governance rule
+
+I would add a Treasury-specific principle (within the Treasury documentation, not by changing the frozen Finance governance):
+
+Treasury Never Alters Financial History
+
+Treasury records settlements, payments, reversals, and adjustments as new transactional events. It never edits certified snapshots, reconciliation results, invoice batches, or billing amounts.
+
+That preserves the audit trail you've worked hard to establish.
+
+Recommended Treasury roadmap
+Phase	Module	Priority
+T1	Treasury Operations Center	⭐⭐⭐⭐⭐
+T2	Settlement Engine	⭐⭐⭐⭐⭐
+T3	Payment Tracking	⭐⭐⭐⭐
+T4	Cash Ledger	⭐⭐⭐⭐
+T5	Cash Forecasting	⭐⭐⭐
+T6	Credit & Exposure	⭐⭐⭐
+
+This sequence keeps Treasury aligned with the architecture you've established: Finance creates certified financial obligations; Treasury manages how those obligations are settled and how they affect liquidity. That separation will make the platform easier to maintain, audit, and extend over time.
