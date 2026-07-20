@@ -32,25 +32,62 @@ import {
   Phone, Activity, Map, Monitor, Terminal, LayoutGrid,
   Cpu, BarChart2, Shield, Wrench, FileText, TrendingUp,
   Zap, ArrowRight, Lock,
+  MessageCircle, Radio, Building2, Hash, HeartPulse, Clipboard,
+  Handshake, GitBranch, Telescope, Eye, History, Brain, Search,
+  Route, TrendingDown, Compass, ArrowRightLeft, ShieldAlert,
+  CheckCircle, Mic, Globe, Users, Wifi, Server, HardDrive,
+  Layers, Mail, MessageSquare, LayoutDashboard, SquareTerminal,
 } from "lucide-react";
 
 // ── Icon registry ─────────────────────────────────────────────────────────────
 // Maps the icon string in config to a Lucide component.
 // Add entries here as new portal configs reference new icons.
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
-  'phone':            Phone,
-  'activity':         Activity,
-  'map':              Map,
-  'monitor':          Monitor,
-  'terminal':         Terminal,
-  'layout-grid':      LayoutGrid,
-  'cpu':              Cpu,
-  'bar-chart-2':      BarChart2,
-  'shield':           Shield,
-  'wrench':           Wrench,
-  'file-text':        FileText,
-  'trending-up':      TrendingUp,
-  'zap':              Zap,
+  'phone':              Phone,
+  'activity':           Activity,
+  'map':                Map,
+  'monitor':            Monitor,
+  'terminal':           Terminal,
+  'layout-grid':        LayoutGrid,
+  'cpu':                Cpu,
+  'bar-chart-2':        BarChart2,
+  'shield':             Shield,
+  'wrench':             Wrench,
+  'file-text':          FileText,
+  'trending-up':        TrendingUp,
+  'zap':                Zap,
+  // Sprint #368 additions
+  'message-circle':     MessageCircle,
+  'radio':              Radio,
+  'building-2':         Building2,
+  'hash':               Hash,
+  'heart-pulse':        HeartPulse,
+  'clipboard':          Clipboard,
+  'handshake':          Handshake,
+  'git-branch':         GitBranch,
+  'telescope':          Telescope,
+  'eye':                Eye,
+  'history':            History,
+  'brain':              Brain,
+  'search':             Search,
+  'route':              Route,
+  'trending-down':      TrendingDown,
+  'compass':            Compass,
+  'arrow-right-left':   ArrowRightLeft,
+  'shield-alert':       ShieldAlert,
+  'check-circle':       CheckCircle,
+  'mic':                Mic,
+  'lock':               Lock,
+  'globe':              Globe,
+  'users':              Users,
+  'wifi':               Wifi,
+  'server':             Server,
+  'hard-drive':         HardDrive,
+  'layers':             Layers,
+  'mail':               Mail,
+  'message-square':     MessageSquare,
+  'layout-dashboard':   LayoutDashboard,
+  'square-terminal':    SquareTerminal,
 };
 
 function PortalIcon({ name, className }: { name: string; className?: string }) {
@@ -141,9 +178,9 @@ function WorkflowSection({
     <section className="px-6 py-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-        {variant === 'secondary' && (
+        {variant === 'secondary' && cards.some((c) => c.status === 'coming-soon') && (
           <span className="text-[10px] font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-            Coming in future phases
+            Some features coming soon
           </span>
         )}
       </div>
