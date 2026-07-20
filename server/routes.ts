@@ -33160,29 +33160,66 @@ ${footer}
   // GET  /api/margin/alerts           — active margin alerts
   // PATCH /api/margin/alerts/:id      — acknowledge alert
 
+  // ── Snapshot-backed reads (F1 migration) ─────────────────────────────────
   app.get('/api/margin/clients', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
-      const date = String(req.query.date ?? new Date().toISOString().slice(0, 10));
-      const { getTopClients } = await import('./services/sippy/index');
-      const rows = await getTopClients(date, Number(req.query.limit ?? 50));
-      res.json(rows);
+      const date  = String(req.query.date ?? new Date().toISOString().slice(0, 10));
+      const limit = Number(req.query.limit ?? 50);
+      const { querySnapshotClients } = await import('./services/sippy/index');
+      const rows = await querySnapshotClients(date, limit);
+      res.json(rows.map(r => ({
+        dimensionName: r.accountName ?? r.accountId ?? 'Unknown',
+        dimensionId:   r.accountId ?? null,
+        revenueUsd:    r.sellAmount,
+        costUsd:       r.buyAmount,
+        marginUsd:     r.marginAmount,
+        marginPct:     r.marginPercent,
+        durationMin:   r.billedSeconds != null ? +(r.billedSeconds / 60).toFixed(2) : null,
+        calls:         r.calls,
+        asr:           null,
+        acd:           null,
+        costPerMin:    r.billedSeconds ? +(r.buyAmount / (r.billedSeconds / 60)).toFixed(4) : null,
+      })));
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
 
   app.get('/api/margin/vendors', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
-      const date = String(req.query.date ?? new Date().toISOString().slice(0, 10));
-      const { getTopVendors } = await import('./services/sippy/index');
-      const rows = await getTopVendors(date, Number(req.query.limit ?? 50));
-      res.json(rows);
+      const date  = String(req.query.date ?? new Date().toISOString().slice(0, 10));
+      const limit = Number(req.query.limit ?? 50);
+      const { querySnapshotVendors } = await import('./services/sippy/index');
+      const rows = await querySnapshotVendors(date, limit);
+      res.json(rows.map(r => ({
+        dimensionName: r.vendorName ?? r.vendorId ?? 'Unknown',
+        dimensionId:   r.vendorId ?? null,
+        revenueUsd:    null,
+        costUsd:       r.buyAmount,
+        marginUsd:     r.marginAmount,
+        marginPct:     r.marginPercent,
+        durationMin:   r.billedSeconds != null ? +(r.billedSeconds / 60).toFixed(2) : null,
+        calls:         r.calls,
+        asr:           null,
+        acd:           null,
+        costPerMin:    r.billedSeconds ? +(r.buyAmount / (r.billedSeconds / 60)).toFixed(4) : null,
+      })));
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
 
   app.get('/api/margin/aggregate', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const date = String(req.query.date ?? new Date().toISOString().slice(0, 10));
-      const rows = await storage.getMarginAnalytics({ date, dimensionType: 'aggregate' });
-      res.json(rows[0] ?? null);
+      const { querySnapshotAggregate } = await import('./services/sippy/index');
+      const row = await querySnapshotAggregate(date);
+      if (!row) return res.json(null);
+      res.json({
+        date,
+        revenueUsd:  row.sellAmount,
+        costUsd:     row.buyAmount,
+        marginUsd:   row.marginAmount,
+        marginPct:   row.marginPercent,
+        calls:       row.calls,
+        durationMin: row.billedSeconds != null ? +(row.billedSeconds / 60).toFixed(2) : null,
+      });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
 
@@ -33190,11 +33227,17 @@ ${footer}
     try {
       const from = String(req.query.from ?? new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10));
       const to   = String(req.query.to   ?? new Date().toISOString().slice(0, 10));
-      const dim  = String(req.query.dimension ?? 'aggregate') as any;
+      const dim  = (String(req.query.dimension ?? 'aggregate')) as 'client' | 'vendor' | 'aggregate';
       const name = req.query.name ? String(req.query.name) : undefined;
-      const { getMarginTrend } = await import('./services/sippy/index');
-      const trend = await getMarginTrend(from, to, dim, name);
-      res.json(trend);
+      const { querySnapshotTrend } = await import('./services/sippy/index');
+      const trend = await querySnapshotTrend(from, to, dim, name);
+      res.json(trend.map(t => ({
+        date:       t.date,
+        marginPct:  t.marginPercent,
+        marginUsd:  t.marginAmount,
+        revenueUsd: t.sellAmount,
+        costUsd:    t.buyAmount,
+      })));
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
 
@@ -37523,9 +37566,84 @@ ${footer}
   });
 
   app.post('/api/finance/health/materialize-now', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
-    const jobId = `mat-${Date.now()}`;
-    res.json({ jobId, status: 'queued', message: 'Materialization queued. Refresh in 30s to see results. (Sprint F1 will wire the actual scheduler.)' });
+    try {
+      const { runMaterialization } = await import('./services/sippy/index');
+      const dates = req.body?.dates as string[] | undefined;
+      // Run async — return jobId immediately, result visible in runs history
+      const jobId = `mat-${Date.now()}`;
+      runMaterialization('api', dates).catch(e => console.error('[materialize-now] error:', e.message));
+      res.json({ jobId, status: 'queued', message: 'Materialization started. Refresh in 15s to see results.' });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
+
+  // ── F1: Financial Snapshot query endpoints ──────────────────────────────────
+
+  app.get('/api/finance/snapshot/summary', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { querySnapshotSummary } = await import('./services/sippy/index');
+      const date = req.query.date ? String(req.query.date) : undefined;
+      const summary = await querySnapshotSummary(date);
+      res.json(summary);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/finance/snapshot', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const date     = req.query.date    ? String(req.query.date)    : new Date().toISOString().slice(0, 10);
+      const rowType  = req.query.rowType ? String(req.query.rowType) : undefined;
+      const limit    = Math.min(Number(req.query.limit ?? 200), 1000);
+      const { querySnapshotClients, querySnapshotVendors, querySnapshotAggregate } = await import('./services/sippy/index');
+      let rows: any[] = [];
+      if (!rowType || rowType === 'client')    rows.push(...await querySnapshotClients(date, limit));
+      if (!rowType || rowType === 'vendor')    rows.push(...await querySnapshotVendors(date, limit));
+      if (!rowType || rowType === 'aggregate') { const a = await querySnapshotAggregate(date); if (a) rows.push(a); }
+      res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/finance/snapshot/runs', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const limit = Math.min(Number(req.query.limit ?? 20), 100);
+      const r = await db.execute(sql.raw(
+        `SELECT id, started_at, completed_at, status, report_dates, rows_written,
+                clients_processed, vendors_processed, duration_ms, error,
+                snapshot_version, triggered_by
+         FROM materialization_runs
+         ORDER BY started_at DESC
+         LIMIT ${limit}`
+      ));
+      res.json((r as any).rows ?? []);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // ── F1: 30-minute materialization scheduler ─────────────────────────────────
+  {
+    const INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+    let schedulerBusy = false;
+    const scheduleRun = async () => {
+      if (schedulerBusy) return;
+      schedulerBusy = true;
+      try {
+        const { runMaterialization } = await import('./services/sippy/index');
+        const result = await runMaterialization('scheduler');
+        if (result.status === 'success') {
+          console.log(`[snapshot-scheduler] ✓ run ${result.runId}: ${result.rowsWritten} rows, ${result.durationMs}ms`);
+        } else {
+          console.warn(`[snapshot-scheduler] ✗ run ${result.runId} failed: ${result.error}`);
+        }
+      } catch (e: any) {
+        // Advisory lock held by another process — normal, skip silently
+        if (!String(e.message).includes('advisory lock')) {
+          console.warn('[snapshot-scheduler] unexpected error:', e.message);
+        }
+      } finally {
+        schedulerBusy = false;
+      }
+    };
+    // First run after 2 minutes (let server fully start), then every 30 minutes
+    setTimeout(() => { scheduleRun(); setInterval(scheduleRun, INTERVAL_MS); }, 2 * 60 * 1000);
+    console.log('[snapshot-scheduler] registered — first run in 2 min, then every 30 min');
+  }
 
   return httpServer;
 }

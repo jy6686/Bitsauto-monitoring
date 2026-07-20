@@ -1,0 +1,57 @@
+Absolutely. For this project, I'll treat these APIs as the canonical Finance integration interfaces whenever we're working in this conversation or continuing the Finance implementation.
+
+Canonical Finance APIs to preserve
+
+Health & Operations (F0)
+
+GET /api/finance/health
+Scheduler action endpoints:
+Run Materialization
+Retry Failed Run
+View Logs
+Download Materialization Report
+
+Financial Snapshot (F1)
+
+GET /api/finance/snapshot/summary (new canonical summary endpoint)
+financial_snapshot as the single source of truth
+materialization_runs for audit/history
+
+Margin Intelligence
+
+GET /api/margin/clients
+GET /api/margin/vendors
+GET /api/margin/aggregate
+GET /api/margin/trend
+
+Finance Cockpit
+
+Migrate from raw /api/dmr consumption to financial_snapshot-based summary APIs.
+Architecture rule to preserve
+Sippy CDRs
+      ↓
+Rating
+      ↓
+DMR
+      ↓
+financial_snapshot   ← Canonical Finance dataset
+      ├── Margin Intelligence
+      ├── Revenue Drift
+      ├── Finance Cockpit
+      ├── Client Reconciliation
+      ├── AI Revenue Assurance
+      ├── Billing Engine
+      └── Treasury
+
+Rule: No Finance UI or reporting module should read daily_minutes_reports or margin_analytics_daily directly after F1 is complete. All downstream consumers should use financial_snapshot or APIs backed by it.
+
+F1 implementation guardrails
+Stable financial_snapshot schema (no breaking changes without versioning).
+materialization_runs as the authoritative audit trail.
+30-minute scheduled materialization.
+Advisory lock to prevent overlapping runs.
+Single transaction with rollback on failure.
+Audit record written for both success and failure.
+F1 is not certified until code inspection confirms there are no direct Finance UI reads from DMR.
+
+One note: I can keep using these conventions throughout this conversation, but I can't permanently remember them across future chats unless they're stored using ChatGPT's memory feature or maintained in your project's governance documents (which you've already started doing). Keeping the API contract in your repository (for example, under .local/governance/ or an api-contracts/ directory) is the most reliable long-term source of truth.

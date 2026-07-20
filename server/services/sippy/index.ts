@@ -278,6 +278,17 @@ export {
   diffVersions,
 } from './sippy-tariff-versioning.service';
 
+// ── F1: Financial Snapshot Materialization Engine ────────────────────────────
+export {
+  runMaterialization,
+  buildSnapshotRows,
+  querySnapshotClients,
+  querySnapshotVendors,
+  querySnapshotAggregate,
+  querySnapshotTrend,
+  querySnapshotSummary,
+} from './sippy-snapshot.service';
+
 // ── Finance isolation layer ───────────────────────────────────────────────────
 export * as finance from './sippy-finance.service';
 export {

@@ -137,18 +137,14 @@ export default function MarginIntelligencePage() {
   });
 
   const materializeMutation = useMutation({
-    mutationFn: async () => {
-      const dmrRows = await apiRequest("GET", `/api/dmr?date=${selectedDate}`).then(r => r.json()).catch(() => []);
-      if (!Array.isArray(dmrRows) || dmrRows.length === 0) {
-        await apiRequest("POST", "/api/dmr/generate", { date: selectedDate }).then(r => r.json()).catch(() => null);
-      }
-      return apiRequest("POST", "/api/margin/materialize", { date: selectedDate }).then(r => r.json());
-    },
-    onSuccess: (data) => {
+    mutationFn: () =>
+      apiRequest("POST", "/api/finance/health/materialize-now", { dates: [selectedDate] }).then(r => r.json()),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/margin"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/snapshot/summary"] });
       toast({
-        title: "Margin materialized",
-        description: `${data.clientRows} clients, ${data.vendorRows} vendors, ${data.alertsGenerated} alerts — margin: $${(data.aggregateMargin ?? 0).toFixed(2)}`,
+        title: "Materialization queued",
+        description: `Snapshot for ${selectedDate} will update within 15 seconds.`,
       });
     },
     onError: (err: any) => toast({ title: "Materialization failed", description: err.message, variant: "destructive" }),

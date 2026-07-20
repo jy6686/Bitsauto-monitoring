@@ -4611,3 +4611,47 @@ export const insertTreasuryAccountSchema = createInsertSchema(treasuryAccounts, 
 
 // Phase 1 read migration — re-exported from shared/destinations-view.ts
 export { destinationsView } from './destinations-view';
+
+// ── F1: Financial Snapshot & Materialization Runs ─────────────────────────────
+
+export const materializationRuns = pgTable("materialization_runs", {
+  id:                serial("id").primaryKey(),
+  startedAt:         timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt:       timestamp("completed_at", { withTimezone: true }),
+  status:            varchar("status", { length: 16 }).notNull().default('running'),
+  reportDates:       text("report_dates").array().notNull().default([]),
+  rowsWritten:       integer("rows_written"),
+  clientsProcessed:  integer("clients_processed"),
+  vendorsProcessed:  integer("vendors_processed"),
+  durationMs:        integer("duration_ms"),
+  error:             text("error"),
+  snapshotVersion:   integer("snapshot_version").notNull().default(1),
+  triggeredBy:       varchar("triggered_by", { length: 32 }).notNull().default('scheduler'),
+});
+export type MaterializationRun       = typeof materializationRuns.$inferSelect;
+export type InsertMaterializationRun = typeof materializationRuns.$inferInsert;
+export const insertMaterializationRunSchema = createInsertSchema(materializationRuns).omit({ id: true });
+
+export const financialSnapshot = pgTable("financial_snapshot", {
+  id:             serial("id").primaryKey(),
+  snapshotRunId:  integer("snapshot_run_id").references(() => materializationRuns.id, { onDelete: 'set null' }),
+  snapshotTime:   timestamp("snapshot_time", { withTimezone: true }).defaultNow().notNull(),
+  reportDate:     date("report_date").notNull(),
+  accountId:      varchar("account_id",   { length: 64 }),
+  accountName:    varchar("account_name", { length: 256 }),
+  vendorId:       varchar("vendor_id",    { length: 64 }),
+  vendorName:     varchar("vendor_name",  { length: 256 }),
+  destination:    varchar("destination",  { length: 256 }),
+  prefix:         varchar("prefix",       { length: 32 }),
+  sellAmount:     numeric("sell_amount",  { precision: 14, scale: 4 }).notNull().default('0'),
+  buyAmount:      numeric("buy_amount",   { precision: 14, scale: 4 }).notNull().default('0'),
+  marginAmount:   numeric("margin_amount",{ precision: 14, scale: 4 }).notNull().default('0'),
+  marginPercent:  numeric("margin_percent",{ precision: 7,  scale: 4 }).notNull().default('0'),
+  calls:          integer("calls"),
+  billedSeconds:  integer("billed_seconds"),
+  currency:       varchar("currency", { length: 8 }).notNull().default('USD'),
+  rowType:        varchar("row_type",  { length: 16 }).notNull().default('client'),
+});
+export type FinancialSnapshot       = typeof financialSnapshot.$inferSelect;
+export type InsertFinancialSnapshot = typeof financialSnapshot.$inferInsert;
+export const insertFinancialSnapshotSchema = createInsertSchema(financialSnapshot).omit({ id: true });

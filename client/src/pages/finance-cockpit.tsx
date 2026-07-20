@@ -177,24 +177,6 @@ function MarginAlertRow({ alert: a }: { alert: any }) {
   );
 }
 
-// ── DMR status row ────────────────────────────────────────────────────────────
-function DmrRow({ row }: { row: any }) {
-  const isAnomaly = row.status === "anomaly" || (row.driftPct != null && Math.abs(row.driftPct) > 5);
-  return (
-    <div className="flex items-center justify-between py-2 gap-2">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium truncate">{row.date ?? row.reportDate ?? "—"}</p>
-        <p className="text-xs text-muted-foreground">{row.status ?? "pending"}</p>
-      </div>
-      {row.driftPct != null && (
-        <p className={`text-sm font-medium shrink-0 ${isAnomaly ? "text-red-500" : "text-emerald-500"}`}>
-          {fmtPct(row.driftPct)}
-        </p>
-      )}
-    </div>
-  );
-}
-
 // ── Reconciliation row ────────────────────────────────────────────────────────
 function ReconRow({ row }: { row: any }) {
   const statusColor: Record<string, string> = {
@@ -245,7 +227,7 @@ export default function FinanceCockpitPage() {
   // ── Data fetches ─────────────────────────────────────────────────────────────
   const { data: invoiceData,   isLoading: invLoading }    = useQuery<any>({ queryKey: ["/api/invoices"] });
   const { data: disputeData,   isLoading: dispLoading }   = useQuery<any>({ queryKey: ["/api/disputes"] });
-  const { data: dmrData,       isLoading: dmrLoading }    = useQuery<any>({ queryKey: ["/api/dmr"] });
+  const { data: snapshotSummary, isLoading: snapLoading } = useQuery<any>({ queryKey: ["/api/finance/snapshot/summary"] });
   const { data: reconcData,    isLoading: reconLoading }  = useQuery<any>({ queryKey: ["/api/client-reconciliation"] });
   const { data: marginData,    isLoading: marginLoading } = useQuery<any>({ queryKey: ["/api/margin/alerts"] });
   const { data: remindersData, isLoading: remLoading }    = useQuery<any>({ queryKey: ["/api/payment-reminders"] });
@@ -254,7 +236,7 @@ export default function FinanceCockpitPage() {
   // ── Data normalization ────────────────────────────────────────────────────────
   const invoices     = invoiceData?.invoices        ?? invoiceData?.data     ?? [];
   const disputes     = disputeData?.disputes        ?? disputeData?.data     ?? [];
-  const dmrRows      = dmrData?.reports             ?? dmrData?.data         ?? [];
+  const snapSummary  = snapshotSummary ?? null;
   const reconRows    = reconcData?.reconciliations  ?? reconcData?.data      ?? [];
   const marginAl     = marginData?.alerts           ?? marginData?.data      ?? [];
   const reminders    = remindersData?.reminders     ?? remindersData?.data   ?? (Array.isArray(remindersData) ? remindersData : []);
@@ -320,12 +302,6 @@ export default function FinanceCockpitPage() {
 
   const activeMarginList = activeMarginAlerts.slice(0, 6);
 
-  const recentDmr = [...dmrRows]
-    .sort((a: any, b: any) =>
-      new Date(b.date ?? b.reportDate ?? 0).getTime() -
-      new Date(a.date ?? a.reportDate ?? 0).getTime()
-    )
-    .slice(0, 6);
 
   const recentRecon = [...reconRows].slice(0, 6);
 
@@ -497,24 +473,44 @@ export default function FinanceCockpitPage() {
           </CardContent>
         </Card>
 
-        {/* Panel 4 — DMR Status */}
+        {/* Panel 4 — Financial Snapshot */}
         <Card className="flex flex-col">
-          <PanelHeader icon={Activity} iconCls="text-blue-400" title="DMR Status" href="/dmr" />
-          <CardContent className="p-0 flex-1">
-            <ScrollArea className="h-[280px]">
-              <div className="px-4 divide-y">
-                {dmrLoading
-                  ? Array.from({ length: 4 }).map((_, i) => (
-                      <div key={i} className="py-3"><Skeleton className="h-8 w-full" /></div>
-                    ))
-                  : recentDmr.length === 0
-                  ? <EmptyState message="No DMR reports found." />
-                  : recentDmr.map((r: any, i: number) => (
-                      <DmrRow key={r.id ?? i} row={r} />
-                    ))
-                }
-              </div>
-            </ScrollArea>
+          <PanelHeader icon={Activity} iconCls="text-blue-400" title="Financial Snapshot" href="/finance-health" />
+          <CardContent className="p-4 flex-1">
+            {snapLoading
+              ? Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="mb-3"><Skeleton className="h-6 w-full" /></div>
+                ))
+              : !snapSummary || snapSummary.latestDate === null
+              ? <EmptyState message="No snapshot data yet. Materialization runs every 30 min." />
+              : (
+                <div className="space-y-3" data-testid="snapshot-summary-panel">
+                  <div className="flex items-center justify-between text-xs text-muted-foreground pb-1 border-b">
+                    <span>Date: <span className="font-medium text-foreground">{snapSummary.latestDate ?? "—"}</span></span>
+                    <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${snapSummary.lastRunStatus === 'success' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-amber-500/10 text-amber-400 border-amber-500/30'}`}>
+                      {snapSummary.lastRunStatus ?? "pending"}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { label: "Revenue", value: `$${(snapSummary.totalSell ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, cls: "text-emerald-400" },
+                      { label: "Cost",    value: `$${(snapSummary.totalBuy  ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, cls: "text-red-400" },
+                      { label: "Margin",  value: `$${(snapSummary.totalMargin ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`, cls: "text-blue-400" },
+                      { label: "Margin%", value: `${(snapSummary.marginPercent ?? 0).toFixed(1)}%`, cls: "text-purple-400" },
+                    ].map(({ label, value, cls }) => (
+                      <div key={label} className="rounded bg-muted/40 px-2 py-1.5">
+                        <p className="text-[10px] text-muted-foreground">{label}</p>
+                        <p className={`text-sm font-semibold ${cls}`}>{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground pt-1">
+                    <span>{snapSummary.clientCount ?? 0} clients · {snapSummary.vendorCount ?? 0} vendors</span>
+                    <span>{(snapSummary.totalCalls ?? 0).toLocaleString()} calls</span>
+                  </div>
+                </div>
+              )
+            }
           </CardContent>
         </Card>
 
