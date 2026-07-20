@@ -1,0 +1,236 @@
+what we do next...
+NOc Portal
+finance Portal
+Commercial Portal
+Product......
+
+Given everything you've completed, I would not jump into building more portals yet.
+
+The biggest risk now is creating multiple UIs while the platform governance is still evolving. Instead, I would complete the platform foundation, then roll out each portal as a view over that foundation.
+
+Recommended Priority
+Phase 1 — Platform Foundation (Highest Priority)
+
+This benefits every portal.
+
+✅ Login (finish completely)
+✅ IAM / Native Authentication
+✅ Portal Assignment
+✅ RBAC (feature-level permissions)
+✅ Portal Router
+✅ Portal Configuration Service
+✅ Shared Layout & Navigation
+
+At the end of this phase, users should experience:
+
+login
+
+↓
+
+identify user
+
+↓
+
+determine portal
+
+↓
+
+load portal configuration
+
+↓
+
+show only authorized modules
+
+This becomes the foundation for all portals.
+
+Phase 2 — NOC Portal
+
+This should be first because it's the most operationally mature.
+
+Already completed or largely available:
+
+Live Calls
+Live Traffic
+Traffic Map
+NOC Dashboard
+NOC Command
+OPS Console
+Server Health
+SIP Monitoring
+Alerts
+Telemetry
+
+Goal:
+
+Make the NOC Portal production-ready for operators.
+
+Phase 3 — Finance Portal
+
+Finance logic is already certified.
+
+Now expose it cleanly.
+
+Sections:
+
+Finance Dashboard
+
+Financial Snapshot
+
+Reconciliation
+
+Billing
+
+Invoices
+
+Treasury
+
+Reports
+
+Audit
+
+Almost all backend work is already complete.
+
+This phase is primarily UI, workflows, and permissions.
+
+Phase 4 — Commercial Portal
+
+This is the largest business value area after NOC.
+
+Modules:
+
+Clients
+Vendors
+Contracts
+Rate Cards
+Routing Requests
+Quotations
+Margin Analysis
+Customer Profitability
+Account Managers
+Opportunities
+
+This portal drives revenue.
+
+Phase 5 — Product Portal
+
+This should come after Commercial.
+
+Purpose:
+
+Products
+Destination Catalog
+Rate Plans
+Prefix Management
+Routing Products
+Pricing Templates
+Product Lifecycle
+Product Governance
+
+It depends on commercial rules and finance.
+
+Suggested Roadmap
+Platform Foundation
+        │
+        ▼
+NOC Portal
+        │
+        ▼
+Finance Portal
+        │
+        ▼
+Commercial Portal
+        │
+        ▼
+Product Portal
+        │
+        ▼
+Partner Portal
+        │
+        ▼
+Client Portal
+Why this order?
+Portal	Backend Readiness	Business Value	Priority
+Platform Foundation	⭐⭐⭐⭐⭐	⭐⭐⭐⭐⭐	1
+NOC	⭐⭐⭐⭐⭐	⭐⭐⭐⭐⭐	2
+Finance	⭐⭐⭐⭐⭐	⭐⭐⭐⭐	3
+Commercial	⭐⭐⭐⭐	⭐⭐⭐⭐⭐	4
+Product	⭐⭐⭐	⭐⭐⭐⭐	5
+Partner	⭐⭐	⭐⭐⭐	Later
+Client	⭐⭐	⭐⭐⭐	Later
+My recommendation
+
+I would not start Treasury immediately.
+
+Instead, I would use the certified Finance backend to complete the Platform Foundation and Portal Framework. Once authentication, portal assignment, RBAC, and routing are stable, you can expose the already-built Finance capabilities through the Finance Portal while simultaneously making the NOC Portal production-ready.
+
+That sequence minimizes rework because every subsequent portal will inherit the same authentication, authorization, navigation, and configuration framework rather than implementing those concerns independently.
+
+portal are already build just need to shift portal realted features
+
+In that case, don't build anything new. Migrate and certify.
+
+From our earlier discussions, your portal framework already exists. The remaining work is to move the existing features into their correct portal, remove duplicates, and verify permissions.
+
+I would approach it in this order:
+
+Phase	Portal	What to do	Status Goal
+1	NOC Portal	Move all operational features (Live Calls, Live Traffic, Traffic Map, OPS Console, Server Health, Alerts, SIP tools, etc.)	First production portal
+2	Finance Portal	Move all Finance features (Dashboard, Snapshot, Reconciliation, Billing, Treasury, Reports, Audit)	Finance v1.0 portal
+3	Commercial Portal	Move CRM, Clients, Vendors, Contracts, Rate Cards, Routing Requests, Margin Analysis, Account Managers	Commercial operations
+4	Product Portal	Move Destination Catalog, Products, Rate Plans, Prefix Management, Routing Products, Pricing Templates	Product governance
+5	Partner / Client Portals	Expose only the approved self-service features	External users
+Migration rules
+
+For every feature you move:
+
+✅ One module = one owner portal.
+✅ No duplicate pages across portals.
+✅ Shared backend/API remains the same.
+✅ Shared React component remains the same where possible.
+✅ Only routing, navigation, and permissions change.
+
+For example:
+
+Live Calls
+
+Before:
+
+/live-calls
+
+After:
+
+/noc/live-calls
+
+The page itself shouldn't be rewritten—only its location and access control change.
+
+Likewise:
+
+Financial Snapshot
+
+Moves from the generic application to:
+
+/finance/financial-snapshot
+
+without changing the underlying service.
+
+Recommended migration sequence
+
+I would migrate by business impact, not alphabetically:
+
+NOC Portal – highest operational value.
+Finance Portal – backend already certified.
+Commercial Portal – daily business users.
+Product Portal – governance and catalog.
+Remaining portals.
+Definition of Done
+
+A portal is complete only when:
+
+All assigned features are accessible from that portal.
+No feature appears in the wrong portal.
+RBAC works correctly.
+URLs use the portal prefix.
+Cross-portal navigation is removed unless explicitly intended.
+The original application menu no longer exposes those migrated features.
+
+At this point, I wouldn't allocate time to new modules. I'd focus on portal migration, certification, and cleanup until each portal is complete. Once all portals are certified, you'll have a clean, role-based platform instead of a single application with mixed responsibilities.
