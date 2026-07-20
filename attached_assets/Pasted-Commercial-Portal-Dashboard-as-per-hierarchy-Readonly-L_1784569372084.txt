@@ -1,0 +1,353 @@
+Commercial Portal
+
+Dashboard, as per hierarchy Readonly
+
+Live Calls,as per hierarchy Readonly 
+
+BitsEye, as per hierarchy Readonly
+
+Clients, as per hierarchy Readonly
+
+balance, as per hierarchy Readonly 
+
+Product (Rate Manager) as per hierarchy to send rates to clients, rate anaylasis, rate send, hisdtory 
+
+as per hierarchy Readonly
+
+Commercial Port
+
+BitsEye 2
+
+Live Traffic Visibility
+
+
+
+I like this model better because it mirrors how commercial organizations actually operate. I'd define the hierarchy like this:
+
+
+
+Role	Own Accounts	Team Accounts	Other Teams	Write Access
+
+CEO	✅	✅	✅	Full
+
+VP Commercial	✅	✅ (all under VP)	❌	According to permissions
+
+Commercial Manager	✅	✅ (direct team only)	❌	According to permissions
+
+Team Lead	✅	✅ (assigned AEs only)	❌	According to permissions
+
+Account Executive	✅	❌	❌	According to permissions
+
+Hierarchy Scope
+
+CEO
+
+Complete organization
+
+All clients
+
+All traffic
+
+All revenue
+
+All rate cards
+
+All teams
+
+VP Commercial
+
+
+
+Scope = Own + Entire Commercial Organization under the VP
+
+
+
+Can view:
+
+
+
+Own accounts
+
+All managers under the VP
+
+All Team Leads
+
+All Account Executives
+
+All customers within that VP's organization
+
+
+
+Cannot view:
+
+
+
+Another VP's organization (if applicable)
+
+Commercial Manager
+
+
+
+Scope = Own + Direct Team
+
+
+
+Can view:
+
+
+
+Own customers
+
+Team Leads reporting to the manager
+
+All AEs under those Team Leads
+
+Team performance
+
+Team revenue
+
+Team traffic
+
+
+
+Cannot view:
+
+
+
+Other managers' teams
+
+Team Lead
+
+
+
+Scope = Own + Assigned Account Executives
+
+
+
+Can view:
+
+
+
+Own customers
+
+Customers of assigned AEs
+
+Team KPIs
+
+Team traffic
+
+Team revenue
+
+
+
+Cannot view:
+
+
+
+Other Team Leads' customers
+
+Account Executive
+
+
+
+Scope = Own Customers Only
+
+
+
+Can view:
+
+
+
+Assigned customers
+
+Assigned routes
+
+Assigned traffic
+
+Assigned balances
+
+Assigned rate cards
+
+Assigned tickets
+
+
+
+Cannot view:
+
+
+
+Other AEs' customers
+
+Data Scope Examples
+
+
+
+Suppose the organization is:
+
+
+
+CEO
+
+│
+
+└── VP Commercial
+
+    │
+
+    ├── Manager A
+
+    │   │
+
+    │   ├── Team Lead A
+
+    │   │   ├── AE-01
+
+    │   │   ├── AE-02
+
+    │   │   └── AE-03
+
+    │   │
+
+    │   └── Team Lead B
+
+    │       ├── AE-04
+
+    │       └── AE-05
+
+    │
+
+    └── Manager B
+
+        │
+
+        ├── Team Lead C
+
+        │   ├── AE-06
+
+        │   └── AE-07
+
+        │
+
+        └── Team Lead D
+
+            └── AE-08
+
+
+
+If AE-02 logs in:
+
+
+
+Clients           → only AE-02 customers
+
+Live Calls        → only AE-02 traffic
+
+BitsEye           → only AE-02 statistics
+
+Balance           → only AE-02 customers
+
+Rate Manager      → only AE-02 client rate cards
+
+
+
+If Team Lead A logs in:
+
+
+
+AE-01
+
+AE-02
+
+AE-03
+
+Own Customers
+
+
+
+If Manager A logs in:
+
+
+
+Team Lead A
+
+AE-01
+
+AE-02
+
+AE-03
+
+
+
+Team Lead B
+
+AE-04
+
+AE-05
+
+
+
+Own Customers
+
+
+
+If VP Commercial logs in:
+
+
+
+Everything under Manager A
+
+Everything under Manager B
+
+Own Customers
+
+This Becomes a Platform-Wide Rule
+
+
+
+Instead of implementing hierarchy separately for each module, every data query should respect a common access scope:
+
+
+
+Portal
+
+      ↓
+
+Role
+
+      ↓
+
+Hierarchy Scope
+
+      ↓
+
+Data Filter
+
+      ↓
+
+Module
+
+
+
+So whether the user opens:
+
+
+
+Live Calls
+
+BitsEye
+
+Client Balance
+
+Rate Manager
+
+Reports
+
+CDRs
+
+
+
+the same hierarchy filter is automatically applied before any data is returned.
+
+
+
+This gives you a single, consistent authorization model that every Commercial Portal module can rely on, making the platform easier to maintain and much harder to bypass.

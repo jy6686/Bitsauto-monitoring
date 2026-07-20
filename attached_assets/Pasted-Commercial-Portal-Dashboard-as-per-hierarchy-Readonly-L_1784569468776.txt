@@ -1,0 +1,332 @@
+Commercial Portal
+Dashboard, as per hierarchy Readonly
+Live Calls,as per hierarchy Readonly 
+BitsEye, as per hierarchy Readonly
+Clients, as per hierarchy Readonly
+balance, as per hierarchy Readonly 
+Product (Rate Manager) as per hierarchy to send rates to clients, rate anaylasis, rate send, hisdtory 
+as per hierarchy Readonly
+Commercial Port
+BitsEye 2
+Live Traffic Visibility
+
+I like this model better because it mirrors how commercial organizations actually operate. I'd define the hierarchy like this:
+
+Role	Own Accounts	Team Accounts	Other Teams	Write Access
+CEO	✅	✅	✅	Full
+VP Commercial	✅	✅ (all under VP)	❌	According to permissions
+Commercial Manager	✅	✅ (direct team only)	❌	According to permissions
+Team Lead	✅	✅ (assigned AEs only)	❌	According to permissions
+Account Executive	✅	❌	❌	According to permissions
+Hierarchy Scope
+CEO
+Complete organization
+All clients
+All traffic
+All revenue
+All rate cards
+All teams
+VP Commercial
+
+Scope = Own + Entire Commercial Organization under the VP
+
+Can view:
+
+Own accounts
+All managers under the VP
+All Team Leads
+All Account Executives
+All customers within that VP's organization
+
+Cannot view:
+
+Another VP's organization (if applicable)
+Commercial Manager
+
+Scope = Own + Direct Team
+
+Can view:
+
+Own customers
+Team Leads reporting to the manager
+All AEs under those Team Leads
+Team performance
+Team revenue
+Team traffic
+
+Cannot view:
+
+Other managers' teams
+Team Lead
+
+Scope = Own + Assigned Account Executives
+
+Can view:
+
+Own customers
+Customers of assigned AEs
+Team KPIs
+Team traffic
+Team revenue
+
+Cannot view:
+
+Other Team Leads' customers
+Account Executive
+
+Scope = Own Customers Only
+
+Can view:
+
+Assigned customers
+Assigned routes
+Assigned traffic
+Assigned balances
+Assigned rate cards
+Assigned tickets
+
+Cannot view:
+
+Other AEs' customers
+Data Scope Examples
+
+Suppose the organization is:
+
+CEO
+│
+└── VP Commercial
+    │
+    ├── Manager A
+    │   │
+    │   ├── Team Lead A
+    │   │   ├── AE-01
+    │   │   ├── AE-02
+    │   │   └── AE-03
+    │   │
+    │   └── Team Lead B
+    │       ├── AE-04
+    │       └── AE-05
+    │
+    └── Manager B
+        │
+        ├── Team Lead C
+        │   ├── AE-06
+        │   └── AE-07
+        │
+        └── Team Lead D
+            └── AE-08
+
+If AE-02 logs in:
+
+Clients           → only AE-02 customers
+Live Calls        → only AE-02 traffic
+BitsEye           → only AE-02 statistics
+Balance           → only AE-02 customers
+Rate Manager      → only AE-02 client rate cards
+
+If Team Lead A logs in:
+
+AE-01
+AE-02
+AE-03
+Own Customers
+
+If Manager A logs in:
+
+Team Lead A
+AE-01
+AE-02
+AE-03
+
+Team Lead B
+AE-04
+AE-05
+
+Own Customers
+
+If VP Commercial logs in:
+
+Everything under Manager A
+Everything under Manager B
+Own Customers
+This Becomes a Platform-Wide Rule
+
+Instead of implementing hierarchy separately for each module, every data query should respect a common access scope:
+
+Portal
+      ↓
+Role
+      ↓
+Hierarchy Scope
+      ↓
+Data Filter
+      ↓
+Module
+
+So whether the user opens:
+
+Live Calls
+BitsEye
+Client Balance
+Rate Manager
+Reports
+CDRs
+
+the same hierarchy filter is automatically applied before any data is returned.
+
+This gives you a single, consistent authorization model that every Commercial Portal module can rely on, making the platform easier to maintain and much harder to bypass.
+
+I think this is a very strong direction, and it's actually broader than just the Commercial Portal. What you're describing is a platform-wide data access model rather than a portal feature.
+
+The only thing I'd change is to separate portal access from data scope, because they solve different problems.
+
+Layer 1 – Portal Access (Already Built)
+
+This determines where a user can go.
+
+Authentication
+        ↓
+Authorization
+        ↓
+Portal Assignment
+        ↓
+Commercial Portal
+
+You've already implemented this foundation in Sprints #364–#369.
+
+Layer 2 – Hierarchy Scope (New)
+
+This determines what data the user can see once inside the portal.
+
+Commercial Portal
+        ↓
+Commercial Role
+        ↓
+Hierarchy Scope
+        ↓
+Data Filter
+        ↓
+Module
+
+This is independent of the portal itself.
+
+Commercial Portal Top Menu
+
+I like your proposal. I'd define it like this:
+
+Top Menu	Access
+Dashboard	Read-only (hierarchy filtered)
+Live Calls	Read-only (hierarchy filtered)
+Live Traffic	Read-only (hierarchy filtered)
+BitsEye	Read-only (hierarchy filtered)
+Clients	Read-only (hierarchy filtered)
+Balance	Read-only (hierarchy filtered)
+Products (Rate Manager)	Read/Write (according to permissions)
+Commercial Reports	Read-only (hierarchy filtered)
+
+The important distinction is that Products (Rate Manager) is the Commercial team's operational workspace, while the others are visibility into customer activity.
+
+Hierarchy Model
+
+Your organizational hierarchy is well structured:
+
+CEO
+ └── VP Commercial
+      ├── Commercial Manager
+      │      ├── Team Lead
+      │      │      ├── AE
+      │      │      └── AE
+      │      └── Team Lead
+      └── Commercial Manager
+
+The inheritance rules are intuitive:
+
+Role	Scope
+CEO	Entire organization
+VP	Entire VP organization
+Manager	Direct reporting organization
+Team Lead	Assigned AEs
+AE	Own accounts only
+The key architectural improvement
+
+I would avoid making every module implement hierarchy independently.
+
+Instead, introduce a shared service.
+
+Commercial Module
+        │
+        ▼
+Hierarchy Scope Service
+        │
+        ▼
+Visible Client IDs
+        │
+        ▼
+Database Query
+
+Every module asks the same question:
+
+"Which customer IDs is this user allowed to see?"
+
+Then:
+
+Live Calls filters by those customer IDs.
+BitsEye filters by those customer IDs.
+Client Balance filters by those customer IDs.
+Rate Manager filters by those customer IDs.
+Reports filter by those customer IDs.
+
+One service, many consumers.
+
+Platform-wide authorization
+
+I especially like your final abstraction:
+
+Portal
+      ↓
+Role
+      ↓
+Hierarchy Scope
+      ↓
+Data Filter
+      ↓
+Module
+
+I would make one small refinement:
+
+Portal
+      ↓
+Role
+      ↓
+Hierarchy Scope
+      ↓
+Permission Check
+      ↓
+Data Filter
+      ↓
+Module
+
+This separates what actions the user may perform (permissions such as "send rates" or "edit products") from which records they may access (hierarchy scope).
+
+For example:
+
+An AE may have permission to send rates, but only for their own customers.
+A Team Lead may have the same permission for their team's customers.
+A Manager may approve rate changes for their organization's customers.
+
+The permission is identical; the visible dataset differs.
+
+My recommendation
+
+I would not treat this as a Commercial Portal sprint. I would define it as a Platform Hierarchical Data Access Framework because NOC, Finance, Commercial, and even Admin can all reuse it with different hierarchy definitions.
+
+Then the Commercial Portal simply becomes the first consumer of that framework.
+
+That keeps the architecture layered:
+
+Portal → controls where users can go.
+Permissions → controls what they can do.
+Hierarchy Scope → controls which data they can access.
+Modules → consume the filtered data.
+
+That approach scales well and avoids every module reinventing access control.
