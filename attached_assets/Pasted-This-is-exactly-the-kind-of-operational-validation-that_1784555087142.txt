@@ -1,0 +1,175 @@
+This is exactly the kind of operational validation that distinguishes a production-ready billing engine from one that simply generates invoices.
+
+Assessment
+
+The duplicate-batch policy you've implemented is well aligned with the period-first architecture.
+
+Policy
+
+One active billing batch per billing period.
+
+Allowed states:
+
+✅ Create a new batch if none exists.
+🚫 Block creation if an active batch already exists with work.
+✅ Allow regeneration after cancellation.
+✅ Ignore historical empty batches (0 jobs).
+
+That's deterministic and operationally clear.
+
+The runtime issues you uncovered are valuable
+
+These are the kinds of issues that only appear under operational testing.
+
+1. Empty batch shouldn't block
+
+You discovered that an old batch with:
+
+0 jobs
+
+was still considered active.
+
+Treating empty batches as non-blocking is the correct behavior.
+
+2. FK fallback bug
+
+This is a genuine implementation defect that would have been difficult to spot in static review.
+
+Changing:
+
+0
+
+to
+
+NULL
+
+for optional foreign keys is the correct fix because:
+
+0 is not a valid parent row.
+NULL correctly represents "no reconciliation reference."
+3. Re-run job lifecycle
+
+This is probably the most important operational discovery.
+
+You found:
+
+Cancelled batch
+
+↓
+
+Jobs remained PENDING
+
+↓
+
+Unique index prevented regeneration
+
+The fix:
+
+cancel (or otherwise retire) the old pending jobs before creating replacements,
+
+is consistent with your business rule that a cancelled batch should no longer block a new billing run.
+
+Five-path validation
+
+Assuming your certification documents capture the evidence, validating all five operational paths is stronger than a single "happy path" test.
+
+The important thing is that the behaviors are deterministic and documented.
+
+One recommendation
+
+Before freezing F2, I'd explicitly document the billing batch state machine.
+
+For example:
+
+DRAFT
+
+↓
+
+REVIEW
+
+↓
+
+APPROVED
+
+↓
+
+GENERATING
+
+↓
+
+SENT
+
+Exceptional paths:
+
+DRAFT
+
+↓
+
+CANCELLED
+
+↓
+
+NEW BATCH MAY BE CREATED
+
+and
+
+FAILED
+
+↓
+
+RETRY
+
+↓
+
+GENERATING
+
+Having this documented makes future maintenance much easier and removes ambiguity about which transitions are permitted.
+
+Finance roadmap
+
+Based on your testing, I'd consider the roadmap to be:
+
+F0  ✅ Certified
+
+↓
+
+F1  ✅ Certified
+
+↓
+
+F3  ✅ Certified
+(Happy + Negative paths)
+
+↓
+
+F2  ✅ Certified
+(Operational paths validated)
+
+↓
+
+Treasury
+
+The Billing Engine is no longer just implemented—it has been exercised through the kinds of operational scenarios that finance teams encounter:
+
+duplicate billing attempts,
+regeneration,
+cancellation,
+foreign-key edge cases,
+stale work items.
+
+Those validations give much stronger confidence than feature completion alone.
+
+Before Treasury
+
+I would make one final recommendation before moving into Treasury:
+
+Perform a full billing-cycle integration test using a representative billing period:
+
+Materialize a Financial Snapshot (F1).
+Reconcile and generate AI evidence (F3).
+Generate a billing batch (F2).
+Approve and send invoices.
+Verify that every invoice can be traced back through:
+Invoice → Batch → Reconciliation Run → Snapshot Run → Materialization Run.
+
+If that end-to-end lineage holds for a complete billing cycle, you'll have validated not just each sprint individually, but the entire Finance pipeline as an integrated system. That would be an excellent final acceptance test before beginning Treasury.
