@@ -47,15 +47,30 @@ export interface SnapshotRow {
 }
 
 export interface ConsistencyCheck {
-  passed:          boolean;
-  sigmaClientSell: number;
-  sigmaVendorBuy:  number;
-  aggSell:         number;
-  aggBuy:          number;
+  // Financial totals
+  totalSell:         number;
+  totalBuy:          number;
+  totalMargin:       number;
+  sigmaClientSell:   number;
+  sigmaVendorBuy:    number;
+  aggSell:           number;
+  aggBuy:            number;
   sellDivergencePct: number;
   buyDivergencePct:  number;
-  tolerance:       number;
-  note?:           string;
+  tolerance:         number;
+  // Telecom operational metrics
+  totalCalls:        number;
+  totalBilledSeconds:number;
+  totalMinutes:      number;
+  uniqueClients:     number;
+  uniqueVendors:     number;
+  destinationsProcessed: number;
+  billingCurrency:   string;
+  // Outcome
+  status:            'PASS' | 'WARN' | 'FAIL';
+  note?:             string;
+  // Legacy compatibility
+  passed:            boolean;
 }
 
 export interface MaterializationResult {
@@ -272,35 +287,70 @@ export async function runMaterialization(
       const dateArr = dates.map(d => `'${d}'`).join(',');
       const ccResult = await db.execute(sql.raw(`
         SELECT
-          SUM(CASE WHEN row_type = 'client'    THEN sell_amount ELSE 0 END)::numeric AS sigma_sell,
-          SUM(CASE WHEN row_type = 'vendor'    THEN buy_amount  ELSE 0 END)::numeric AS sigma_buy,
-          SUM(CASE WHEN row_type = 'aggregate' THEN sell_amount ELSE 0 END)::numeric AS agg_sell,
-          SUM(CASE WHEN row_type = 'aggregate' THEN buy_amount  ELSE 0 END)::numeric AS agg_buy
+          -- Financial aggregate reconciliation
+          SUM(CASE WHEN row_type = 'client'    THEN sell_amount   ELSE 0 END)::numeric AS sigma_sell,
+          SUM(CASE WHEN row_type = 'vendor'    THEN buy_amount    ELSE 0 END)::numeric AS sigma_buy,
+          SUM(CASE WHEN row_type = 'aggregate' THEN sell_amount   ELSE 0 END)::numeric AS agg_sell,
+          SUM(CASE WHEN row_type = 'aggregate' THEN buy_amount    ELSE 0 END)::numeric AS agg_buy,
+          SUM(CASE WHEN row_type = 'aggregate' THEN margin_amount ELSE 0 END)::numeric AS agg_margin,
+          -- Telecom operational metrics
+          SUM(CASE WHEN row_type = 'aggregate' THEN calls          ELSE 0 END)::bigint  AS total_calls,
+          SUM(CASE WHEN row_type = 'aggregate' THEN billed_seconds ELSE 0 END)::bigint  AS total_billed_seconds,
+          COUNT(DISTINCT CASE WHEN row_type = 'client' THEN account_id END)             AS unique_clients,
+          COUNT(DISTINCT CASE WHEN row_type = 'vendor' THEN vendor_id  END)             AS unique_vendors,
+          COUNT(DISTINCT CASE WHEN row_type IN ('client','vendor') THEN destination END) AS destinations_processed,
+          MAX(currency)                                                                  AS billing_currency
         FROM financial_snapshot
         WHERE snapshot_run_id = ${runId}
           AND report_date = ANY(ARRAY[${dateArr}]::date[])
       `));
       const cc = (ccResult as any).rows[0] ?? {};
-      const sigmaClientSell = parseFloat(cc.sigma_sell ?? '0');
-      const sigmaVendorBuy  = parseFloat(cc.sigma_buy  ?? '0');
-      const aggSell         = parseFloat(cc.agg_sell   ?? '0');
-      const aggBuy          = parseFloat(cc.agg_buy    ?? '0');
+      const sigmaClientSell    = parseFloat(cc.sigma_sell          ?? '0');
+      const sigmaVendorBuy     = parseFloat(cc.sigma_buy           ?? '0');
+      const aggSell            = parseFloat(cc.agg_sell            ?? '0');
+      const aggBuy             = parseFloat(cc.agg_buy             ?? '0');
+      const aggMargin          = parseFloat(cc.agg_margin          ?? '0');
+      const totalCalls         = parseInt  (cc.total_calls         ?? '0', 10);
+      const totalBilledSeconds = parseInt  (cc.total_billed_seconds?? '0', 10);
+      const uniqueClients      = parseInt  (cc.unique_clients      ?? '0', 10);
+      const uniqueVendors      = parseInt  (cc.unique_vendors      ?? '0', 10);
+      const destinationsProcessed = parseInt(cc.destinations_processed ?? '0', 10);
+      const billingCurrency    = cc.billing_currency ?? 'USD';
+      const totalMinutes       = +(totalBilledSeconds / 60).toFixed(2);
 
       const sellDiv = aggSell > 0 ? Math.abs(sigmaClientSell - aggSell) / aggSell : 0;
       const buyDiv  = aggBuy  > 0 ? Math.abs(sigmaVendorBuy  - aggBuy)  / aggBuy  : 0;
       const passed  = sellDiv <= TOLERANCE && buyDiv <= TOLERANCE;
+      const ccStatus: 'PASS' | 'WARN' | 'FAIL' =
+        passed ? 'PASS'
+        : (sellDiv <= TOLERANCE * 2 && buyDiv <= TOLERANCE * 2) ? 'WARN'
+        : 'FAIL';
 
       consistencyCheck = {
+        // Financial totals
+        totalSell:            +aggSell.toFixed(4),
+        totalBuy:             +aggBuy.toFixed(4),
+        totalMargin:          +aggMargin.toFixed(4),
+        sigmaClientSell:      +sigmaClientSell.toFixed(4),
+        sigmaVendorBuy:       +sigmaVendorBuy.toFixed(4),
+        aggSell:              +aggSell.toFixed(4),
+        aggBuy:               +aggBuy.toFixed(4),
+        sellDivergencePct:    +(sellDiv * 100).toFixed(4),
+        buyDivergencePct:     +(buyDiv  * 100).toFixed(4),
+        tolerance:            TOLERANCE * 100,
+        // Telecom operational metrics
+        totalCalls,
+        totalBilledSeconds,
+        totalMinutes,
+        uniqueClients,
+        uniqueVendors,
+        destinationsProcessed,
+        billingCurrency,
+        // Outcome
+        status: ccStatus,
         passed,
-        sigmaClientSell,
-        sigmaVendorBuy,
-        aggSell,
-        aggBuy,
-        sellDivergencePct: +( sellDiv * 100).toFixed(4),
-        buyDivergencePct:  +( buyDiv  * 100).toFixed(4),
-        tolerance:         TOLERANCE * 100,
-        note: !passed
-          ? `Sell divergence ${(sellDiv*100).toFixed(2)}%, buy divergence ${(buyDiv*100).toFixed(2)}% — exceeds ${TOLERANCE*100}% tolerance`
+        note: ccStatus !== 'PASS'
+          ? `[${ccStatus}] Sell divergence ${(sellDiv*100).toFixed(2)}%, buy divergence ${(buyDiv*100).toFixed(2)}% — tolerance ${TOLERANCE*100}%`
           : undefined,
       };
 
