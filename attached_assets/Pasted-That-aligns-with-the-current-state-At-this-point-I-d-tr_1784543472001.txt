@@ -1,0 +1,97 @@
+That aligns with the current state. At this point, I'd treat the project as having transitioned from architecture-driven work to evidence-driven work.
+
+Current project checkpoint
+Area	Status
+F0 – Finance Operations Center	✅ Certified
+F1 – Financial Snapshot Materialization	🟡 Waiting for runtime evidence
+Governance Baseline	✅ Frozen
+F3 Architecture Contract	✅ Frozen
+Runtime Validation Pack	✅ Ready
+
+From here, every meaningful milestone should be backed by operational evidence.
+
+During F1 runtime validation
+
+I can help in real time with each gate.
+
+Gate 1 — Scheduler Cadence
+
+I'll verify:
+
+Scheduler timing and cadence
+Advisory lock behavior
+No overlapping runs
+Restart recovery
+materialization_runs entries and timestamps
+Gate 2 — Snapshot Correctness
+
+I'll help trace a sample through:
+
+DMR
+   ↓
+financial_snapshot
+   ↓
+Finance Cockpit
+
+and verify:
+
+Sell values
+Buy values
+Margin (sell - buy)
+Consistency flags
+Row-level agreement
+Gate 3 — Failure Injection
+
+I'll verify:
+
+Transaction rollback
+No partial snapshot rows
+Failed audit entry
+Automatic scheduler recovery
+Clean subsequent execution
+Gate 4 — Performance Baseline
+
+I'll help establish the initial benchmark and review:
+
+Runtime
+Throughput (rows/sec)
+Clients and vendors processed
+Memory usage (if available)
+Database timing (if available)
+
+These measurements then become the comparison point for future releases.
+
+If a gate fails
+
+Rather than treating it as a sprint failure, I'd recommend handling it as a controlled validation cycle:
+
+Capture the observed behavior.
+Identify the root cause.
+Apply the smallest appropriate fix.
+Re-run the affected gate(s).
+Update the validation evidence.
+
+That preserves the integrity of the certification process while avoiding unnecessary rework.
+
+F3 execution
+
+Once F1 is certified, F3 implementation should follow the frozen contract:
+
+Implement the schema.
+Implement the reconciliation logic.
+Implement the immutable evidence chain.
+Validate each exit condition as it is completed.
+Certify against the contract.
+
+Because the architecture is already agreed, implementation can stay focused on correctness rather than revisiting design decisions.
+
+Role during implementation
+
+As you move into execution, I can act as:
+
+Validation reviewer — checking evidence against the defined pass criteria.
+Troubleshooting partner — helping diagnose issues revealed by the runtime gates.
+Architecture guardrail — ensuring implementation remains consistent with the frozen contracts and Single Source of Truth Rule.
+Certification reviewer — assessing whether the collected evidence supports promotion from 🟡 to ✅ under the standards you've established.
+
+That keeps the remaining work focused on demonstrating operational correctness rather than expanding the design, which is appropriate given the project's current phase.
