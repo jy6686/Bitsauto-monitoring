@@ -37428,7 +37428,7 @@ ${footer}
   // GET  /api/finance/health            — Finance Operations Center health data
   // POST /api/finance/health/materialize-now — async trigger (returns jobId immediately)
 
-  app.get('/api/finance/health', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+  app.get('/api/finance/health', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
     try {
       const now = Date.now();
       const slaDefaults: Record<string, number> = { dmr: 15, snapshot: 30, margin: 30, cockpit: 30, invoice_queue: 5 };
@@ -37467,7 +37467,7 @@ ${footer}
 
       const runs = runsR.rows;
       const lastRun = runs[0] ?? null;
-      const schedulerStatus = runsR.missing ? 'never' : !lastRun ? 'idle' : lastRun.status === 'failed' ? 'failed' : 'running';
+      const schedulerStatus = runsR.missing ? 'never' : !lastRun ? 'idle' : lastRun.status === 'failed' ? 'failed' : 'healthy';
 
       const invoiceByStatus: Record<string, number> = {};
       for (const row of invoiceStatusR.rows) invoiceByStatus[row.status] = parseInt(row.cnt ?? '0');

@@ -7,7 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   HeartPulse, AlertTriangle, CheckCircle2, XCircle, Clock,
-  RefreshCw, Play, RotateCcw, Download, ChevronRight,
+  RefreshCw, Play, RotateCcw, Download,
   Database, Activity, FileText, Layers, TrendingUp,
   AlertCircle, Info, Server, Gauge, ArrowDown,
 } from "lucide-react";
@@ -38,7 +38,7 @@ function fmtNum(n: number | null | undefined): string {
 }
 
 // ── Status badge ──────────────────────────────────────────────────────────────
-type NodeStatus = "healthy" | "stale" | "never" | "error" | "idle" | "failed" | "running";
+type NodeStatus = "healthy" | "stale" | "never" | "error" | "idle" | "failed";
 function StatusBadge({ status }: { status: NodeStatus }) {
   const map: Record<NodeStatus, { label: string; cls: string; icon: React.ElementType }> = {
     healthy: { label: "Healthy",    cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30", icon: CheckCircle2 },
@@ -47,7 +47,6 @@ function StatusBadge({ status }: { status: NodeStatus }) {
     error:   { label: "Error",      cls: "bg-red-500/10    text-red-400    border-red-500/30",    icon: XCircle },
     idle:    { label: "Idle",       cls: "bg-blue-500/10   text-blue-400   border-blue-500/30",   icon: Clock },
     failed:  { label: "Failed",     cls: "bg-red-500/10    text-red-400    border-red-500/30",    icon: XCircle },
-    running: { label: "Running",    cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30", icon: Activity },
   };
   const { label, cls, icon: Icon } = map[status] ?? map.never;
   return (
@@ -241,34 +240,63 @@ export default function FinanceHealthPage() {
   return (
     <div className="p-4 md:p-6 space-y-5 max-w-7xl mx-auto" data-testid="finance-health-page">
 
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <HeartPulse className="w-5 h-5 text-emerald-400" />
-          <h1 className="text-xl font-bold">Finance Operations Center</h1>
-          <Badge variant="outline" className="text-xs text-muted-foreground ml-1">Data Platform</Badge>
-        </div>
-        <div className="flex items-center gap-2">
-          {jobStatus && (
-            <Badge variant="outline" className="text-xs gap-1 bg-blue-500/10 text-blue-400 border-blue-500/30">
-              <Activity className="w-2.5 h-2.5 animate-pulse" />
-              {jobStatus === "queued" ? "Queued…" : "Running…"}
-            </Badge>
-          )}
-          <Button variant="ghost" size="sm" onClick={() => refetch()} disabled={isFetching} data-testid="btn-refresh-health">
-            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => materializeMut.mutate()}
-            disabled={materializeMut.isPending || !!jobStatus} data-testid="btn-materialize-now">
-            <Play className="w-3.5 h-3.5 mr-1.5" />
-            Run Now
-          </Button>
-          <Button variant="ghost" size="sm" onClick={downloadReport}
-            disabled={!runs.length} data-testid="btn-download-report">
-            <Download className="w-3.5 h-3.5 mr-1.5" />
-            Report
-          </Button>
+      {/* ── Status header bar ── */}
+      <div className="rounded-lg border border-border/60 bg-card/60 backdrop-blur-sm px-4 py-3">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          {/* Left: identity */}
+          <div className="flex items-center gap-3">
+            <HeartPulse className="w-5 h-5 text-emerald-400 shrink-0" />
+            <div>
+              <h1 className="text-base font-semibold leading-tight">Finance Operations Center</h1>
+              <p className="text-xs text-muted-foreground">Finance Data Platform — F0</p>
+            </div>
+          </div>
+          {/* Center: context pills */}
+          <div className="flex items-center gap-3 flex-wrap text-xs">
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <Server className="w-3 h-3" />
+              <span>Build</span>
+              <span className="font-mono font-medium text-foreground">{build.version ?? "—"}</span>
+            </div>
+            <div className="w-px h-3 bg-border/60" />
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <span>Environment</span>
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-500/10 text-blue-400 border-blue-500/30">Production</Badge>
+            </div>
+            <div className="w-px h-3 bg-border/60" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted-foreground">Health</span>
+              <span className={`font-bold ${overallColor}`}>{h.overall ?? 0}%</span>
+            </div>
+            <div className="w-px h-3 bg-border/60" />
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <Clock className="w-3 h-3" />
+              <span>Updated {fmtAge(data?.generated_at)}</span>
+            </div>
+          </div>
+          {/* Right: actions */}
+          <div className="flex items-center gap-1.5 ml-auto">
+            {jobStatus && (
+              <Badge variant="outline" className="text-xs gap-1 bg-blue-500/10 text-blue-400 border-blue-500/30">
+                <Activity className="w-2.5 h-2.5 animate-pulse" />
+                {jobStatus === "queued" ? "Queued…" : "Running…"}
+              </Badge>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => refetch()} disabled={isFetching} data-testid="btn-refresh-health">
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isFetching ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => materializeMut.mutate()}
+              disabled={materializeMut.isPending || !!jobStatus} data-testid="btn-materialize-now">
+              <Play className="w-3.5 h-3.5 mr-1.5" />
+              Run Now
+            </Button>
+            <Button variant="ghost" size="sm" onClick={downloadReport}
+              disabled={!runs.length} data-testid="btn-download-report">
+              <Download className="w-3.5 h-3.5 mr-1.5" />
+              Report
+            </Button>
+          </div>
         </div>
       </div>
 
