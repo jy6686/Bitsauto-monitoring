@@ -1,0 +1,48 @@
+This is exactly the kind of refinement that distinguishes a production-grade telecom platform from a prototype.
+
+The two changes you've described strengthen both the technical integrity and the governance of the platform:
+
+1. Extended Financial Consistency Check
+
+Expanding the audit to include telecom operational metrics is the right approach. For every materialization run, I'd expect the audit record to capture both financial and operational reconciliation, for example:
+
+Category	Metrics
+Financial	Total Sell Amount, Total Buy Amount, Total Margin, Margin %
+Traffic	Total Calls, Billable Seconds, Billable Minutes
+Business	Client Count, Vendor Count, Destinations Processed
+Audit	Snapshot Version, Run ID, Duration, Status, Error (if any)
+
+This makes each materialization run self-describing and provides Finance and NOC with the information needed to investigate discrepancies without querying multiple tables.
+
+2. Certification Governance Rule
+
+Adding the permanent rule is an excellent governance improvement:
+
+No sprint may be certified solely on successful compilation, application startup, or code inspection. Certification requires functional evidence demonstrating that the implemented capability satisfies its acceptance criteria under representative operational conditions.
+
+That rule should apply uniformly across every domain—Finance, NOC, Routing, IAM, Treasury, Commercial, and future modules.
+
+One additional recommendation
+
+Since you're formalizing governance under .local/governance, I'd add one more permanent document:
+
+.local/governance/telecom-first-design-standard.md
+
+This document would become the architectural reference for the entire platform and capture principles such as:
+
+Telecom entities take precedence over generic ERP concepts.
+Finance is driven by CDRs, DMRs, and Financial Snapshots.
+Routing is prefix- and carrier-aware.
+AI analyzes telecom KPIs (ASR, ACD, PDD, CPS, margin, fraud), not generic business metrics.
+Every financial figure must be traceable back to operational traffic.
+Every API and database schema should model real telecom workflows.
+
+That separates how features are certified (Sprint Certification Template) from how features must be designed (Telecom-First Design Standard).
+
+With those governance documents in place, you'll have three complementary layers:
+
+Telecom-First Design Standard — architectural principles.
+Finance API Contract — stable interfaces and canonical data flow.
+Sprint Certification Template — implementation and validation standard.
+
+Together, they provide a strong foundation for implementing future features consistently and with the operational rigor expected in a carrier-grade VoIP platform.
