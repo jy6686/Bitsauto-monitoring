@@ -119,7 +119,7 @@ export async function getVisibleAccountIds(userId: string): Promise<CommercialSc
        SELECT id
        FROM   kams
        WHERE  id = $1
-     UNION ALL
+     UNION
        SELECT k.id
        FROM   kams       k
        JOIN   subtree    s ON k.reports_to = s.id
@@ -131,17 +131,9 @@ export async function getVisibleAccountIds(userId: string): Promise<CommercialSc
 
   const kamIds = subtreeResult.rows.map(r => r.id);
 
-  if (kamIds.length === 0) {
-    return _cache(userId, {
-      kamId,
-      orgRole,
-      accountIds: [],
-      kamIds:     [],
-      scopeError: 'no_accounts',
-    });
-  }
-
   // ── 4. Collect all Sippy accountIds for the subtree ──────────────────────
+  // The subtree always contains at least the user's own node (the anchor row),
+  // so kamIds.length will always be >= 1 here — no early-exit needed.
   const placeholders = kamIds.map((_, i) => `$${i + 1}`).join(', ');
   const acctResult = await pool.query<{ account_id: string }>(
     `SELECT DISTINCT account_id
@@ -152,7 +144,13 @@ export async function getVisibleAccountIds(userId: string): Promise<CommercialSc
 
   const accountIds = acctResult.rows.map(r => r.account_id);
 
-  return _cache(userId, { kamId, orgRole, accountIds, kamIds });
+  return _cache(userId, {
+    kamId,
+    orgRole,
+    accountIds,
+    kamIds,
+    ...(accountIds.length === 0 ? { scopeError: 'no_accounts' as const } : {}),
+  });
 }
 
 /**

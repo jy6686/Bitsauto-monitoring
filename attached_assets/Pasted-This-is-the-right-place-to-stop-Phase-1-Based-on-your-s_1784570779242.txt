@@ -1,0 +1,90 @@
+This is the right place to stop Phase 1. Based on your summary, you've kept the scope disciplined and aligned with the architecture.
+
+Commercial Hierarchy Framework – Phase 1
+
+The key outcome is that you've introduced the Hierarchy Scope Service without coupling it to any UI or API endpoint.
+
+That keeps the dependency chain clean:
+
+Authentication
+        ↓
+Authorization
+        ↓
+Portal Assignment
+        ↓
+Hierarchy Scope Service
+        ↓
+Commercial APIs (future)
+        ↓
+Commercial UI (future)
+
+At this stage, nothing above the service layer needs to know how the hierarchy is resolved.
+
+What Phase 1 should now guarantee
+
+The service should become the only supported entry point for Commercial visibility.
+
+Rather than modules implementing their own hierarchy logic, they should all depend on something equivalent to:
+
+Resolve the user's Commercial scope.
+Return the visible account IDs.
+Return any supporting hierarchy metadata if needed.
+
+That makes the service the single source of truth for Commercial data visibility.
+
+Before Phase 2
+
+I would add a focused test matrix for the service itself before wiring it into endpoints.
+
+Scenario	Expected Result
+KAM	Own assigned accounts only
+Team Lead	Own + assigned AEs
+Manager	Entire reporting team
+VP	Entire VP organization
+HOD/CEO	Entire hierarchy beneath their node
+User without KAM mapping	Controlled failure (or override if explicitly permitted)
+Circular reporting relationship	Graceful detection/error
+Inactive KAM node	No unauthorized expansion of scope
+Duplicate account assignments	Deduplicated results
+
+This validates the hierarchy independently of any API.
+
+Phase 2
+
+Only after the service passes those tests would I begin replacing Commercial endpoint queries.
+
+The rollout can be incremental:
+
+Clients
+Live Calls
+Balance
+BitsEye
+Dashboard KPIs
+Rate Manager
+Reports
+
+Each endpoint should simply consume the scope service rather than reimplement hierarchy logic.
+
+One implementation guideline
+
+As Commercial evolves, avoid exposing the database structure directly to modules. Keep the hierarchy service as the abstraction boundary.
+
+For example, modules should not need to know about:
+
+kams
+kamAccounts
+reportsTo
+ORG_ROLE_RANK
+
+Those remain internal implementation details. If the hierarchy model changes in the future (for example, supporting matrix organizations or temporary delegations), only the service changes; every consuming endpoint remains untouched.
+
+Overall, the progression remains consistent:
+
+✅ Platform foundation (#363–#369)
+✅ Commercial feature inventory and configuration
+✅ Commercial configuration certification
+✅ Hierarchy Scope Framework – Phase 1
+⏳ Hierarchy-integrated Commercial APIs (next)
+⏳ Hierarchy-integrated Commercial UI (after API adoption)
+
+That preserves the layered architecture you've been building and keeps each phase independently testable.
