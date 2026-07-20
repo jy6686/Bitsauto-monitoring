@@ -182,9 +182,10 @@ function buildSummary(calls: LiveCall[]): SummaryRow[] {
 }
 
 function formatDuration(seconds: number): string {
-  if (!seconds) return '0s';
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
+  const n = isNaN(seconds) || !isFinite(seconds) ? 0 : Math.max(0, Math.floor(seconds));
+  if (n === 0) return '0s';
+  const m = Math.floor(n / 60);
+  const s = n % 60;
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
@@ -199,6 +200,7 @@ function parseSippyTime(setupTime: string): number | null {
 // Real-time ticking duration — uses setupTime to compute elapsed locally so
 // the counter never freezes between API polls.
 function LiveDuration({ setupTime, durationSecs }: { setupTime?: string; durationSecs: number }) {
+  const safeSecs = isNaN(durationSecs) || !isFinite(durationSecs) ? 0 : Math.max(0, Math.floor(durationSecs));
   const startRef = useRef<number | null>(null);
   if (setupTime && startRef.current === null) {
     startRef.current = parseSippyTime(setupTime);
@@ -209,7 +211,7 @@ function LiveDuration({ setupTime, durationSecs }: { setupTime?: string; duratio
       const start = parseSippyTime(setupTime);
       if (start !== null) return Math.max(0, Math.floor((Date.now() - start) / 1000));
     }
-    return durationSecs;
+    return safeSecs;
   });
 
   useEffect(() => {
@@ -221,11 +223,11 @@ function LiveDuration({ setupTime, durationSecs }: { setupTime?: string; duratio
       return () => clearInterval(id);
     } else {
       // No setupTime — count up from last-known duration
-      setElapsed(durationSecs);
+      setElapsed(safeSecs);
       const id = setInterval(() => setElapsed(v => v + 1), 1000);
       return () => clearInterval(id);
     }
-  }, [setupTime]);
+  }, [setupTime, safeSecs]);
 
   return <>{formatDuration(elapsed)}</>;
 }

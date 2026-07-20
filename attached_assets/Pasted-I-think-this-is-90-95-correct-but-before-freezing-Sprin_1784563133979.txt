@@ -1,0 +1,138 @@
+I think this is 90–95% correct, but before freezing Sprint #368 I'd make a few changes so it matches the architecture we've agreed on.
+
+1. Top Menu
+
+I agree with:
+
+Dashboard
+Chat
+Live Network
+Clients
+Vendors
+Operations
+BitsEye
+Analytics
+Intelligence
+Security
+
+This should be frozen.
+
+2. Vendors
+
+I strongly agree with adding a dedicated Vendors menu.
+
+Earlier we were putting vendor features under Operations, but that's not ideal.
+
+Vendors deserve their own top-level menu because NOC spends significant time managing vendor technical configuration.
+
+3. Clients
+
+I would not hardcode the feature list in the sprint.
+
+Instead of writing:
+
+Clients section includes...
+
+I would write:
+
+Assign all features marked "NOC" under the Clients domain from the NOC Feature Assignment Matrix.
+
+The matrix should remain the source of truth.
+
+4. Vendors
+
+Same recommendation.
+
+Instead of listing features, state:
+
+Assign all features marked "NOC" under the Vendors domain from the Feature Assignment Matrix.
+
+That keeps the sprint valid even if the matrix evolves.
+
+5. Operations
+
+I agree with adding:
+
+Routing Manager
+Email Centre
+WhatsApp Alerts
+
+Based on your governance decision, these are operational tools.
+
+6. Analytics
+
+I would avoid hardcoding exclusions like:
+
+no Revenue Heatmap
+
+Instead:
+
+Assign only operational analytics. Exclude financial, executive, and commercial analytics.
+
+That's a rule instead of a list of exceptions.
+
+7. BitsEye
+
+Perfect.
+
+Keep it unchanged.
+
+BitsEye architecture is frozen.
+
+8. Intelligence
+
+Perfect.
+
+Keep it unchanged.
+
+9. Security
+
+Perfect.
+
+Keep it unchanged.
+
+10. Navigation Governance
+
+This is the most important sentence in the sprint.
+
+I would strengthen it.
+
+Instead of:
+
+driven by Navigation Governance
+
+I'd write:
+
+The NOC Portal navigation is generated entirely from Navigation Governance assignments. No menu items or features are hardcoded in the portal implementation.
+
+That reinforces the architecture you've already built.
+
+11. Smoke Test
+
+I would add one more check.
+
+Besides:
+
+Login as NOC
+Redirect to /noc
+Remove /noc
+
+also verify:
+
+No features from Finance, Commercial, or Admin are visible anywhere in the NOC Portal, including navigation, breadcrumbs, quick actions, search results, and dashboard widgets.
+
+This prevents accidental leakage through secondary UI elements.
+
+Final Governance Rule
+
+I would add this at the top of the sprint because I think it captures everything we've decided:
+
+A portal is assembled by assigning existing features through Navigation Governance. Portals do not own menus—they own features. Menu labels are organizational only. Feature ownership is determined by business responsibility as defined in the Feature Assignment Matrix.
+
+That one paragraph becomes the guiding principle not just for NOC, but for Commercial, Finance, and every future portal.
+
+Overall
+
+I would approve Sprint #368 after these wording refinements.
+
+I also recommend not starting Commercial or Finance portal work until #368 is completed and the NOC Portal is certified, because it becomes the reference implementation for the entire portal architecture.

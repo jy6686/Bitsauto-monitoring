@@ -9,7 +9,8 @@ import { useAuth } from "@/hooks/use-auth";
 // deep link always restores the exact portal + module. No hidden state.
 export type PortalSlug = "kam" | "noc" | "finance" | "partner" | "admin" | "commercial";
 
-const KNOWN_PORTALS: PortalSlug[] = ["noc", "commercial", "finance", "admin", "kam", "partner"];
+// Extended set: VALID_PORTAL_KEYS (canonical) + legacy slugs used in routing
+const KNOWN_PORTALS: string[] = ["noc", "commercial", "finance", "admin", "kam", "partner", "product"];
 
 interface PortalCtx {
   activePortal:    PortalSlug | null;

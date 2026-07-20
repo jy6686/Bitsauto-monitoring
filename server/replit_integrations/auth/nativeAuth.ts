@@ -68,12 +68,25 @@ function buildNativeSessionUser(user: {
   };
 }
 
+/** Derive a human-readable display name from available user fields. */
+export function deriveDisplayName(user: {
+  firstName?: string | null;
+  lastName?: string | null;
+  username?: string | null;
+  email?: string | null;
+}): string {
+  const full = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
+  return full || user.username || user.email?.split("@")[0] || "User";
+}
+
 export function registerNativeAuthRoutes(app: Express): void {
   /**
    * POST /api/auth/login
    * Body: { identifier: string (email or username), password: string }
-   * Response: { user: { id, email, firstName, lastName, username, jobTitle,
-   *                      platformAccessType, defaultPortal, role } }
+   * Response (200): { user: { id, email, username, role, accessScope, defaultPortal,
+   *                           assignedPortals, displayName, avatar } }
+   * Response (400): missing fields
+   * Response (401): account-not-found | wrong-password | account-disabled
    *
    * Already covered by the authLimiter applied to '/api/auth' in server/index.ts.
    */
@@ -81,10 +94,18 @@ export function registerNativeAuthRoutes(app: Express): void {
     try {
       const { identifier, password } = req.body ?? {};
 
-      if (!identifier || !password) {
-        return res
-          .status(400)
-          .json({ message: "Email/username and password are required." });
+      // Server-side guard — client validation runs first but we always validate here
+      if (!identifier || typeof identifier !== "string" || !identifier.trim()) {
+        return res.status(400).json({
+          code: "missing_identifier",
+          message: "Email or username is required.",
+        });
+      }
+      if (!password || typeof password !== "string") {
+        return res.status(400).json({
+          code: "missing_password",
+          message: "Password is required.",
+        });
       }
 
       // Look up by email (lowercased) OR exact username
@@ -93,28 +114,35 @@ export function registerNativeAuthRoutes(app: Express): void {
         .from(users)
         .where(
           or(
-            eq(users.email, identifier.toLowerCase()),
-            eq(users.username, identifier)
+            eq(users.email, identifier.toLowerCase().trim()),
+            eq(users.username, identifier.trim())
           )
         )
         .limit(1);
 
       if (!user) {
-        // Consume scrypt time to resist user-enumeration via timing attack
+        // Consume scrypt time to resist user-enumeration via timing attack,
+        // then return a distinct (non-misleading) error code for UX.
         await scryptAsync("dummy-password", "00000000000000000000000000000000", 64);
-        return res.status(401).json({ message: "Invalid credentials." });
+        return res.status(401).json({
+          code: "account_not_found",
+          message: "No account found with that email or username.",
+        });
       }
 
       if (!user.passwordHash) {
         return res.status(401).json({
-          message:
-            'This account does not have a password set. Please use "Sign in with Replit".',
+          code: "no_password",
+          message: 'This account does not have a password set. Please use "Sign in with Replit".',
         });
       }
 
       const valid = await verifyPassword(password, user.passwordHash);
       if (!valid) {
-        return res.status(401).json({ message: "Invalid credentials." });
+        return res.status(401).json({
+          code: "wrong_password",
+          message: "Incorrect password. Please try again.",
+        });
       }
 
       // Auto-assign role if first login
@@ -131,16 +159,21 @@ export function registerNativeAuthRoutes(app: Express): void {
         req.login(sessionUser, (err: any) => (err ? reject(err) : resolve()));
       });
 
+      const displayName = deriveDisplayName(user);
+
       return res.json({
         user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          username: user.username,
-          jobTitle: user.jobTitle,
-          platformAccessType: user.platformAccessType,
-          defaultPortal: user.defaultPortal,
+          id:              user.id,
+          email:           user.email,
+          username:        user.username,
+          displayName,
+          avatar:          user.profileImageUrl ?? null,
+          firstName:       user.firstName,
+          lastName:        user.lastName,
+          jobTitle:        user.jobTitle,
+          accessScope:     user.platformAccessType,
+          defaultPortal:   user.defaultPortal,
+          assignedPortals: [],   // populated by /api/auth/user — empty here for speed
           role,
         },
       });

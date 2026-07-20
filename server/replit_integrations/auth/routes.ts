@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { authStorage } from "./storage";
 import { isAuthenticated } from "./replitAuth";
 import { storage } from "../../storage";
-import { registerNativeAuthRoutes } from "./nativeAuth";
+import { registerNativeAuthRoutes, deriveDisplayName } from "./nativeAuth";
 import { db } from "../../db";
 import { userPortalAssignments } from "@shared/models/auth";
 import { eq } from "drizzle-orm";
@@ -22,8 +22,16 @@ export function registerAuthRoutes(app: Express): void {
     });
   });
 
-  // Get current authenticated user — includes auto role-assignment on first login
-  // and portal assignments for the welcome gateway / workspace selector.
+  /**
+   * GET /api/auth/user — canonical session profile.
+   *
+   * Returns: { id, username, email, role, accessScope, defaultPortal,
+   *            assignedPortals, displayName, avatar, firstName, lastName,
+   *            jobTitle, portals (alias for assignedPortals) }
+   *
+   * This is the single source of truth consumed by AuthorizationProvider (Sprint #365).
+   * Shape is additive — existing callers that read `portals` still work.
+   */
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -44,10 +52,27 @@ export function registerAuthRoutes(app: Express): void {
         .from(userPortalAssignments)
         .where(eq(userPortalAssignments.userId, userId));
 
+      const assignedPortals = assignments.map((a) => a.portalSlug);
+      const displayName     = deriveDisplayName(user);
+
       res.json({
-        ...user,
+        // Core identity
+        id:              user.id,
+        email:           user.email,
+        username:        user.username,
+        firstName:       user.firstName,
+        lastName:        user.lastName,
+        displayName,
+        avatar:          user.profileImageUrl ?? null,
+        jobTitle:        user.jobTitle,
+        // Authorization fields
         role,
-        portals: assignments.map((a) => a.portalSlug),
+        accessScope:     user.platformAccessType,   // 'full_platform' | 'portal_only' | 'hybrid'
+        defaultPortal:   user.defaultPortal,
+        assignedPortals,
+        portals:         assignedPortals,            // backward-compat alias
+        // Full user spread for any existing callers relying on other fields
+        ...user,
       });
     } catch (error) {
       console.error("Error fetching user:", error);

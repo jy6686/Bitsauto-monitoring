@@ -19,6 +19,8 @@ import { Switch } from "@/components/ui/switch";
 import { useState, useMemo } from "react";
 import type { Role, OrgRole } from "@shared/schema";
 import { MONITORING_ITEMS, type MonitoringItemId, MGMT_CONFIGURABLE_FEATURES, ORG_ROLES, ORG_ROLE_RANK } from "@shared/schema";
+import { VALID_PORTAL_KEYS, type PortalKey } from "@shared/lib/portal-constants";
+import { resolvePortalDestination } from "@/lib/portal-resolver";
 
 type TeamMember = AuthUser;
 
@@ -1478,6 +1480,339 @@ function OrgHierarchySection({ onEdit }: { onEdit: (k: Kam) => void }) {
   );
 }
 
+// ─── Portal Assignment Types ──────────────────────────────────────────────────
+type PlatformAccessType = 'full_platform' | 'portal_only' | 'hybrid';
+
+const ACCESS_SCOPE_OPTIONS: { value: PlatformAccessType; label: string; desc: string }[] = [
+  { value: 'full_platform', label: 'Full Platform',  desc: 'Unrestricted access to all platform areas' },
+  { value: 'portal_only',   label: 'Portal Only',    desc: 'Restricted to assigned portals; cannot access main app' },
+  { value: 'hybrid',        label: 'Multi-Portal',   desc: 'Main platform + portal access' },
+];
+
+const PORTAL_LABELS: Record<PortalKey, string> = {
+  noc:        'NOC',
+  finance:    'Finance',
+  commercial: 'Commercial',
+  product:    'Product',
+  admin:      'Admin',
+};
+
+
+interface PlatformUser {
+  id: string;
+  email?: string | null;
+  username?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  jobTitle?: string | null;
+  platformAccessType: PlatformAccessType;
+  defaultPortal?: string | null;
+  assignedPortals: string[];
+}
+
+function displayName(u: PlatformUser): string {
+  const full = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+  return full || u.username || u.email?.split('@')[0] || 'Unknown';
+}
+
+// ── Portal Assignment Modal ───────────────────────────────────────────────────
+function PortalAssignmentModal({
+  user,
+  onClose,
+  onSaved,
+}: {
+  user: PlatformUser;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [accessScope, setAccessScope] = useState<PlatformAccessType>(user.platformAccessType);
+  const [assignedPortals, setAssignedPortals] = useState<string[]>(user.assignedPortals);
+  const [landingPortal, setLandingPortal]     = useState<string>(user.defaultPortal ?? '');
+  const [serverError, setServerError]         = useState<string | null>(null);
+
+  const isFullPlatform = accessScope === 'full_platform';
+
+  // Keep landingPortal valid when assigned portals change
+  const portalOptions = assignedPortals.filter(p => (VALID_PORTAL_KEYS as readonly string[]).includes(p));
+
+  const togglePortal = (slug: string) => {
+    setAssignedPortals(prev =>
+      prev.includes(slug) ? prev.filter(p => p !== slug) : [...prev, slug]
+    );
+    if (landingPortal === slug) setLandingPortal('');
+  };
+
+  // Live effective landing route
+  const effectiveLanding = resolvePortalDestination({
+    platformAccessType: accessScope,
+    portals:            portalOptions,
+    defaultPortal:      landingPortal || null,
+  }).destination;
+
+  const savePortalMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('PATCH', `/api/users/${user.id}/portal-assignment`, {
+        accessScope,
+        assignedPortals: isFullPlatform ? [] : assignedPortals,
+        defaultPortal:   isFullPlatform ? null : (landingPortal || null),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message ?? 'Save failed');
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/users'] });
+      onSaved();
+    },
+    onError: (err: any) => setServerError(err.message),
+  });
+
+  // Client-side validation mirrors server rules
+  const canSave = (() => {
+    if (isFullPlatform) return true;
+    if (portalOptions.length === 0) return false;
+    if (accessScope === 'portal_only' && !landingPortal) return false;
+    if (landingPortal && !portalOptions.includes(landingPortal)) return false;
+    return true;
+  })();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" data-testid="portal-assignment-modal">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-border/50 flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold text-base">Edit Access & Portal Assignment</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">{displayName(user)} · {user.email}</p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors" data-testid="modal-close">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-5 overflow-y-auto max-h-[70vh]">
+          {/* Access Scope */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Access Scope</label>
+            <div className="space-y-2">
+              {ACCESS_SCOPE_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  data-testid={`scope-${opt.value}`}
+                  onClick={() => { setAccessScope(opt.value); setAssignedPortals([]); setLandingPortal(''); }}
+                  className={`w-full flex items-start gap-3 p-3 rounded-lg border text-left transition-all ${
+                    accessScope === opt.value
+                      ? 'border-primary bg-primary/5 text-foreground'
+                      : 'border-border text-muted-foreground hover:border-primary/40 hover:bg-muted/20'
+                  }`}
+                >
+                  <span className={`w-4 h-4 rounded-full border-2 mt-0.5 flex-shrink-0 flex items-center justify-center ${
+                    accessScope === opt.value ? 'border-primary' : 'border-muted-foreground/40'
+                  }`}>
+                    {accessScope === opt.value && <span className="w-2 h-2 rounded-full bg-primary" />}
+                  </span>
+                  <span>
+                    <span className="font-medium text-sm block">{opt.label}</span>
+                    <span className="text-xs">{opt.desc}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Assigned Portals — hidden for Full Platform */}
+          {!isFullPlatform && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Assigned Portals</label>
+              <div className="grid grid-cols-2 gap-2">
+                {VALID_PORTAL_KEYS.map(slug => (
+                  <button
+                    key={slug}
+                    type="button"
+                    data-testid={`portal-toggle-${slug}`}
+                    onClick={() => togglePortal(slug)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm transition-all ${
+                      assignedPortals.includes(slug)
+                        ? 'border-primary/60 bg-primary/5 text-foreground'
+                        : 'border-border text-muted-foreground hover:border-primary/30 hover:bg-muted/20'
+                    }`}
+                  >
+                    <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
+                      assignedPortals.includes(slug) ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40'
+                    }`}>
+                      {assignedPortals.includes(slug) && <Check className="w-2.5 h-2.5" />}
+                    </span>
+                    {PORTAL_LABELS[slug]}
+                  </button>
+                ))}
+              </div>
+              {!isFullPlatform && portalOptions.length === 0 && (
+                <p className="text-xs text-amber-400">At least one portal must be assigned.</p>
+              )}
+            </div>
+          )}
+
+          {/* Landing Portal — hidden for Full Platform */}
+          {!isFullPlatform && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Landing Portal
+                {accessScope === 'portal_only' && <span className="text-rose-400 ml-1">*</span>}
+              </label>
+              <select
+                data-testid="landing-portal-select"
+                value={landingPortal}
+                onChange={e => setLandingPortal(e.target.value)}
+                disabled={portalOptions.length === 0}
+                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:opacity-40"
+              >
+                <option value="">None</option>
+                {portalOptions.map(slug => (
+                  <option key={slug} value={slug}>{PORTAL_LABELS[slug as PortalKey] ?? slug}</option>
+                ))}
+              </select>
+              {accessScope === 'portal_only' && !landingPortal && portalOptions.length > 0 && (
+                <p className="text-xs text-amber-400">Portal-only users must have a landing portal.</p>
+              )}
+            </div>
+          )}
+
+          {/* Effective Summary */}
+          <div className="rounded-xl bg-muted/30 border border-border/60 p-4 space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Effective Summary</p>
+            <div className="text-sm space-y-1">
+              <div className="flex gap-2"><span className="text-muted-foreground w-32 flex-shrink-0">User</span><span className="font-medium">{displayName(user)}</span></div>
+              <div className="flex gap-2"><span className="text-muted-foreground w-32 flex-shrink-0">Access Scope</span><span className="font-medium">{ACCESS_SCOPE_OPTIONS.find(o => o.value === accessScope)?.label}</span></div>
+              <div className="flex gap-2">
+                <span className="text-muted-foreground w-32 flex-shrink-0">Portals</span>
+                <span className="font-medium">
+                  {isFullPlatform ? '— (full access)' : portalOptions.length === 0 ? '⚠ None assigned' : portalOptions.map(s => (PORTAL_LABELS[s as PortalKey] ?? s)).join(', ')}
+                </span>
+              </div>
+              {!isFullPlatform && (
+                <div className="flex gap-2"><span className="text-muted-foreground w-32 flex-shrink-0">Landing Portal</span><span className="font-medium">{landingPortal ? (PORTAL_LABELS[landingPortal as PortalKey] ?? landingPortal) : '—'}</span></div>
+              )}
+              <div className="flex gap-2"><span className="text-muted-foreground w-32 flex-shrink-0">Effective Landing</span><span className="font-medium font-mono text-primary">{effectiveLanding}</span></div>
+            </div>
+          </div>
+
+          {serverError && (
+            <div className="flex items-start gap-2 text-sm text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2.5" data-testid="modal-error">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              {serverError}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-border/50 flex items-center justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all" data-testid="modal-cancel">Cancel</button>
+          <button
+            onClick={() => savePortalMutation.mutate()}
+            disabled={!canSave || savePortalMutation.isPending}
+            className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-all disabled:opacity-40 disabled:pointer-events-none flex items-center gap-2"
+            data-testid="modal-save"
+          >
+            {savePortalMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            Save Assignment
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Access & Portals Section ──────────────────────────────────────────────────
+function AccessPortalsSection() {
+  const [editUser, setEditUser] = useState<PlatformUser | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const { data: platformUsers = [], isLoading } = useQuery<PlatformUser[]>({
+    queryKey: ['/api/users'],
+    staleTime: 60_000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading users…
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-card border border-border rounded-xl overflow-hidden" data-testid="access-portals-section">
+      <div className="px-5 py-4 border-b border-border/50 bg-primary/5 flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-primary" />
+            <h3 className="font-semibold text-sm">Portal Assignments</h3>
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Set each user's access scope and assign them to portals. Changes take effect on the user's next login.
+          </p>
+        </div>
+        {saved && (
+          <span className="text-xs text-emerald-400 flex items-center gap-1">
+            <CheckCircle2 className="w-3.5 h-3.5" /> Saved
+          </span>
+        )}
+      </div>
+
+      <div className="divide-y divide-border/30">
+        {platformUsers.length === 0 ? (
+          <div className="px-5 py-8 text-sm text-center text-muted-foreground">No users found.</div>
+        ) : (
+          platformUsers.map(u => {
+            const scope = ACCESS_SCOPE_OPTIONS.find(o => o.value === u.platformAccessType);
+            const landing = resolvePortalDestination({
+              platformAccessType: u.platformAccessType,
+              portals: u.assignedPortals,
+              defaultPortal: u.defaultPortal ?? null,
+            }).destination;
+            return (
+              <div key={u.id} className="flex items-center gap-4 px-5 py-3 hover:bg-muted/10 transition-colors" data-testid={`portal-user-row-${u.id}`}>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-sm">{displayName(u)}</div>
+                  <div className="text-xs text-muted-foreground truncate">{u.email}</div>
+                </div>
+                <div className="text-xs px-2 py-0.5 rounded-full border bg-muted/20 flex-shrink-0">
+                  {scope?.label ?? u.platformAccessType}
+                </div>
+                {u.platformAccessType !== 'full_platform' && (
+                  <div className="text-xs text-muted-foreground flex-shrink-0">
+                    {u.assignedPortals.length > 0 ? u.assignedPortals.map(s => PORTAL_LABELS[s as PortalKey] ?? s).join(', ') : '⚠ None'}
+                  </div>
+                )}
+                <div className="text-xs font-mono text-primary flex-shrink-0">{landing}</div>
+                <button
+                  data-testid={`edit-portal-${u.id}`}
+                  onClick={() => { setSaved(false); setEditUser(u); }}
+                  className="flex-shrink-0 p-1.5 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {editUser && (
+        <PortalAssignmentModal
+          user={editUser}
+          onClose={() => setEditUser(null)}
+          onSaved={() => { setEditUser(null); setSaved(true); }}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TeamPage() {
@@ -2571,6 +2906,9 @@ export default function TeamPage() {
       {/* ══ Access Control Tab ══════════════════════════════════════════════════ */}
       {activeTab === 'access' && (
       <div className="space-y-6">
+
+      {/* Portal Assignments */}
+      {isAdmin && <AccessPortalsSection />}
 
       {/* Management Feature Access Controls */}
       {isAdmin && (

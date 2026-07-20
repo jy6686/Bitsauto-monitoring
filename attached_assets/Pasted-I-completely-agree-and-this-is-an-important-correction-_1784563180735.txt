@@ -1,0 +1,98 @@
+I completely agree, and this is an important correction.
+
+There are two separate concepts:
+
+Top Menu (what the user sees across the top)
+Feature assignment (which pages/modules belong under that menu)
+
+They should not be mixed.
+
+NOC Portal Top Menu (Frozen)
+
+We should only work with these top menus:
+
+Dashboard
+Chat
+Live Network
+Clients
+Vendors
+Operations
+BitsEye
+Analytics
+Intelligence
+Security
+
+That's it.
+
+There is no:
+
+Finance
+Products
+Voice Trading
+Platform
+Governance
+Portals
+
+inside the NOC Portal.
+
+Governance is NOT part of NOC
+
+You're absolutely right.
+
+Earlier I suggested using Navigation Governance to configure the portal, but that's an Admin function, not a NOC feature.
+
+The NOC user should never see:
+
+Governance
+Navigation Manager
+Workspace Configuration
+Portal Assignment
+Platform Settings
+
+Those remain in the Admin/Main Platform.
+
+Governance is only the backend mechanism that determines what appears in the NOC Portal. It is not a menu item or feature within the portal itself.
+
+We are moving features by Top Menu, not by Sidebar
+
+This is the most important rule going forward.
+
+For example:
+
+Clients (Top Menu)
+
+We review every existing client-related feature in the platform and decide:
+
+✅ Move to NOC
+❌ Leave for Commercial
+❌ Leave for Finance
+❌ Leave for Admin
+
+We are not reviewing the sidebar.
+
+The sidebar will simply display whatever features have been assigned under the Clients top menu for the NOC Portal.
+
+The same process applies to:
+
+Vendors
+Operations
+BitsEye
+Analytics
+Intelligence
+Security
+
+One top menu at a time.
+
+Working Method (Frozen)
+
+For each top menu:
+
+Keep the menu name exactly as agreed.
+Review all existing features under that business domain.
+Assign only the NOC-owned features.
+Do not create new features.
+Do not redesign the menu.
+Do not discuss the sidebar.
+Let Navigation Governance build the sidebar automatically from the assigned features.
+
+I think this is the cleanest implementation approach and it's consistent with the governance model you've established. After Clients is finalized, we'll repeat the same process for Vendors, then Operations, BitsEye, Analytics, Intelligence, and Security.

@@ -1,0 +1,84 @@
+I would approve this as Sprint #368 — FROZEN.
+
+Compared to the earlier drafts, this version has a consistent governance model with a clear separation between architecture, governance, implementation, and certification.
+
+What is now well defined
+Architecture
+
+The dependency chain is clear and logical:
+
+Authentication & Authorization
+        ↓
+Portal Assignment
+        ↓
+Feature Assignment Matrix
+        ↓
+Navigation Governance
+        ↓
+Portal UI
+        ↓
+Certification
+
+Each layer has a single responsibility.
+
+Governance
+
+The document now clearly establishes that:
+
+Top Menus define business domains.
+Features are assigned by business ownership.
+The Feature Assignment Matrix is the authoritative source.
+Navigation Governance is responsible for assigning features.
+The Portal UI only renders those assignments.
+
+That avoids mixing implementation with governance.
+
+Implementation
+
+The implementation scope is appropriately constrained:
+
+No new features.
+No menu redesign.
+No sidebar redesign.
+No hardcoded navigation.
+Existing features are reassigned according to the matrix.
+
+That keeps Sprint #368 focused.
+
+Certification
+
+The certification checklist is objective and testable:
+
+Required features are present.
+Forbidden features are absent.
+Navigation is governance-driven.
+Top menu matches the approved design.
+Portal boundary enforcement works.
+
+Those are measurable completion criteria.
+
+One optional refinement
+
+The only thing I would consider adding in a future governance document—not necessarily this sprint—is a brief definition of portal workspace.
+
+For example:
+
+Portal Workspace: The logical Navigation Governance container that groups all features assigned to a portal. A workspace contains feature assignments only and does not define authentication, authorization, or business ownership.
+
+That would help distinguish the workspace concept from the portal itself, especially as Commercial, Finance, and Admin portals are implemented. It's an enhancement rather than a gap.
+
+Final assessment
+
+I would consider this document release-ready and freeze it without further changes.
+
+It establishes a repeatable methodology that can be reused consistently:
+
+Freeze the Top Menu.
+Define ownership in the Feature Assignment Matrix.
+Assign features through Navigation Governance.
+Render the portal automatically.
+Certify against the checklist.
+Freeze the portal.
+Repeat for the next portal.
+
+That gives you a scalable governance process for NOC first, then Commercial, Finance, and Admin.

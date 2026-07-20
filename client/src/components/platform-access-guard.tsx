@@ -1,48 +1,46 @@
 /**
- * platform-access-guard.tsx — Sprint 1 frontend access enforcement.
+ * platform-access-guard.tsx — Sprint #365 PortalBoundaryGuard.
  *
  * Headless component (renders null). Sits once inside Router, above the Switch.
- * On every navigation, silently redirects portal_only users away from
- * main-platform routes toward their assigned portal(s).
- *
- * Responsibility: "Can this authenticated user access the current route?"
- *
- * Chain:
- *   Route (App.tsx)
- *     └─ ProtectedRoute         → Is the user authenticated?
- *          └─ PlatformAccessGuard → Can the user access the main platform?
- *               └─ PortalResolver  → Which portal should they enter?
- *                    └─ WorkspaceSelector → Let the user choose (if multiple)
- *
- * Rules:
- *   full_platform  → always allowed
- *   hybrid         → always allowed (has platform + portal access)
- *   portal_only    → redirect via PortalResolver; never see main platform
+ * On every navigation, enforces access-scope boundaries:
+ *   FULL_PLATFORM  → always allowed; no redirect
+ *   MULTI_PORTAL   → always allowed on main platform (hybrid); no redirect
+ *   PORTAL_ONLY    → redirect to landingRoute(); never see the main platform
  *
  * Skips:
- *   • Portal routes      — activePortal is set; guard does not apply
- *   • Auth pages         — /login, /welcome, /workspace-selector are exempt
+ *   • Portal routes      — /{noc,finance,commercial,…}/* are portal territory
+ *   • Auth/gateway pages — /login, /welcome, /workspace-selector, /portal-select
+ *
+ * Uses AuthorizationProvider (Sprint #365) rather than reading `platformAccessType`
+ * directly from the user object. This is the single enforcement point for
+ * scope-based URL escape prevention.
  */
 import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { usePortal } from "@/context/portal-context";
-import { resolvePortalDestination } from "@/lib/portal-resolver";
+import { useAuthorization } from "@/context/authorization-context";
 
-// Pages that are part of the auth flow — never redirect away from these
-const AUTH_ROUTES = new Set(["/login", "/welcome", "/workspace-selector"]);
+// Pages that are part of the auth/gateway flow — never redirect away from these
+const AUTH_ROUTES = new Set([
+  "/login",
+  "/welcome",
+  "/workspace-selector",
+  "/portal-select",
+]);
 
 export function PlatformAccessGuard() {
-  const { user, isLoading } = useAuth();
-  const { activePortal } = usePortal();
-  const [location, setLocation] = useLocation();
+  const { isLoading }             = useAuth();
+  const { activePortal }          = usePortal();
+  const { isPortalOnly, landingRoute, isLoading: authzLoading } = useAuthorization();
+  const [location, setLocation]   = useLocation();
 
   // Track last redirect to prevent redirect loops
   const lastRedirect = useRef<string | null>(null);
 
   useEffect(() => {
-    // Wait for auth to resolve
-    if (isLoading || !user) return;
+    // Wait for both auth and authorization context to resolve
+    if (isLoading || authzLoading) return;
 
     // On a portal route — guard does not apply
     if (activePortal) return;
@@ -50,28 +48,20 @@ export function PlatformAccessGuard() {
     // On an auth/gateway page — exempt
     if (AUTH_ROUTES.has(location)) return;
 
-    const u = user as any;
-    const type: string = u?.platformAccessType ?? "full_platform";
+    // FULL_PLATFORM and MULTI_PORTAL (hybrid) users are always allowed
+    if (!isPortalOnly) return;
 
-    // full_platform and hybrid users are always allowed on main platform
-    if (type !== "portal_only") return;
+    // PORTAL_ONLY user on a main-platform route — redirect to their landing
+    const destination = landingRoute();
 
-    // portal_only user on a main-platform route — redirect
-    const resolution = resolvePortalDestination({
-      platformAccessType: type,
-      portals:       u?.portals      ?? [],
-      defaultPortal: u?.defaultPortal ?? null,
-    });
-
-    // Guard against redirect loops
-    if (
-      resolution.destination !== location &&
-      resolution.destination !== lastRedirect.current
-    ) {
-      lastRedirect.current = resolution.destination;
-      setLocation(resolution.destination);
+    if (destination !== location && destination !== lastRedirect.current) {
+      lastRedirect.current = destination;
+      setLocation(destination);
     }
-  }, [user, isLoading, activePortal, location, setLocation]);
+  }, [isLoading, authzLoading, activePortal, location, isPortalOnly, landingRoute, setLocation]);
 
   return null; // no UI — side-effects only
 }
+
+/** Alias export for Sprint #365 spec compliance. */
+export const PortalBoundaryGuard = PlatformAccessGuard;

@@ -1,0 +1,69 @@
+I think this is now very close to the architecture we've been converging on. I would approve it with three final refinements so it becomes the template for every future portal.
+
+1. Remove Sidebar from the implementation steps
+
+You and I agreed on an important principle:
+
+We are implementing by Top Menu, not by Sidebar.
+
+So I'd change this:
+
+"Audit current NOC Portal nav — List every item currently rendered in the NOC Portal top menu and sidebar."
+
+to:
+
+Audit current NOC Portal Top Menu. For each Top Menu section, compare the assigned features with the NOC Feature Assignment Matrix. The sidebar is an implementation detail generated automatically by Navigation Governance and is not part of this sprint.
+
+This keeps the team focused on the correct abstraction.
+
+2. Strengthen the feature assignment rule
+
+I would add this immediately after the governing principle:
+
+Feature assignment is performed at the feature level, grouped by the Top Menu business domain. Existing menu structures are not redesigned or renamed. Existing features are only reassigned to the appropriate portal based on business ownership.
+
+This captures exactly what we've been discussing over the last few messages.
+
+3. Add a certification rule
+
+Since the NOC Portal becomes the reference implementation, I'd add a final certification requirement:
+
+NOC Portal Certification
+
+The portal is certified only if:
+
+✅ Every feature assigned to NOC in the matrix is accessible.
+✅ Every feature not assigned to NOC is absent.
+✅ No Finance features exist.
+✅ No Commercial features exist.
+✅ No Admin features exist.
+✅ Navigation is generated from Navigation Governance only.
+✅ Top Menu matches the approved design exactly.
+
+That gives you an objective definition of "done."
+
+I also agree with these corrections
+
+These are now correctly aligned with our decisions:
+
+✅ Call Governance removed.
+✅ Governance not part of the NOC Portal.
+✅ No hardcoded feature lists in the implementation.
+✅ Matrix is the source of truth.
+✅ Navigation Governance generates navigation.
+✅ Top Menu is fixed.
+✅ Sidebar is derived.
+✅ Feature assignment is by business ownership.
+I would freeze #368 after these three edits.
+
+Then our implementation order becomes:
+
+#363–#367 — Identity, authorization, and portal assignment.
+#368 — NOC Portal feature assignment (Top Menu → Feature Assignment → Auto-generated Navigation).
+NOC Portal certification.
+Use the exact same methodology for:
+Commercial Portal
+Finance Portal
+Admin Portal
+
+At that point, you'll have one consistent portal architecture across the platform, where the Top Menu defines business domains, the Feature Assignment Matrix defines ownership, and Navigation Governance renders the UI automatically. That's a clean, scalable foundation for the rest of the platform.

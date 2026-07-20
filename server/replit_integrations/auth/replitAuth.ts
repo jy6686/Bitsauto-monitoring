@@ -157,7 +157,7 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
   const user = req.user as any;
 
   if (!req.isAuthenticated() || !user.expires_at) {
-    return res.status(401).json({ message: "Unauthorized" });
+    return res.status(401).json({ message: "Unauthenticated" });
   }
 
   // Native sessions: slide the 7-day window on every authenticated request.
@@ -175,7 +175,7 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
 
   const refreshToken = user.refresh_token;
   if (!refreshToken) {
-    res.status(401).json({ message: "Unauthorized" });
+    res.status(401).json({ message: "Unauthenticated" });
     return;
   }
 
@@ -190,7 +190,7 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
   } catch (error) {
     console.warn('[auth] token refresh failed — clearing session:', (error as any)?.message);
     req.session.destroy(() => {});
-    res.status(401).json({ message: "Unauthorized" });
+    res.status(401).json({ message: "Unauthenticated" });
     return;
   }
 };

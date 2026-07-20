@@ -44,6 +44,7 @@ import { ThemeProvider } from "@/hooks/use-theme";
 import { TimezoneProvider } from "@/context/timezone-context";
 import { OrgScopeProvider } from "@/context/org-scope-context";
 import { PortalProvider } from "@/context/portal-context";
+import { AuthorizationProvider } from "@/context/authorization-context";
 import KamDashboardPage from "@/pages/kam-dashboard";
 import ApiKeysPage from "@/pages/api-keys";
 import TestCallPage from "@/pages/test-call";
@@ -440,6 +441,7 @@ function Router() {
       <Route path="/login" component={LoginPage} />
       <Route path="/welcome" component={WelcomePage} />
       <Route path="/workspace-selector" component={WorkspaceSelectorPage} />
+      <Route path="/portal-select" component={WorkspaceSelectorPage} />
 
       <Route path="/">
         {() => <ProtectedRoute component={DashboardPage} requiredRoles={['admin','management','viewer']} />}
@@ -1026,11 +1028,13 @@ function App() {
         <TimezoneProvider>
           <QueryClientProvider client={queryClient}>
             <OrgScopeProvider>
-              <PortalProvider>
-                <TooltipProvider>
-                  <AppCore />
-                </TooltipProvider>
-              </PortalProvider>
+              <AuthorizationProvider>
+                <PortalProvider>
+                  <TooltipProvider>
+                    <AppCore />
+                  </TooltipProvider>
+                </PortalProvider>
+              </AuthorizationProvider>
             </OrgScopeProvider>
           </QueryClientProvider>
         </TimezoneProvider>

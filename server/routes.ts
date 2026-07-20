@@ -1,7 +1,9 @@
 
 import type { Express } from "express";
+import { parseQueryInt } from './lib/query-utils';
 import { createAlias } from './services/destination/destination-alias.service';
 import { registerBhaooRoutes } from './routes-bhaoo';
+import { registerPortalAssignmentRoutes } from './routes-portal-assignment';
 import { registerConfigurationValueRoutes } from './routes-configuration-values';
 import { registerValidationRuleRoutes }     from './routes-validation-rules';
 import { registerGovernanceReviewRoutes }   from './routes-governance-review';
@@ -1989,8 +1991,8 @@ export async function registerRoutes(
         search:   q.search   || undefined,
         from:     q.from     || undefined,
         to:       q.to       || undefined,
-        limit:    q.limit    ? parseInt(q.limit,  10) : 100,
-        offset:   q.offset   ? parseInt(q.offset, 10) : 0,
+        limit:    parseQueryInt(q.limit,  100, { min: 1, max: 10000 }),
+        offset:   parseQueryInt(q.offset, 0,   { min: 0 }),
       });
       res.json(result);
     } catch (e: any) { res.status(500).json({ message: e.message }); }
@@ -3053,7 +3055,7 @@ export async function registerRoutes(
       if (!perms.includes('usage')) return res.status(403).json({ error: 'Permission denied: usage not enabled for this token' });
 
       const accountIdStr = String(tok.accountId);
-      const days = Math.min(90, parseInt(req.query.days as string || '30'));
+      const days = Math.min(90, parseQueryInt(req.query.days, 30, { min: 1 }));
       const cutoff = Date.now() - days * 86_400_000;
 
       // Pull from CDR cache
@@ -3184,7 +3186,7 @@ export async function registerRoutes(
       }
 
       const accountIdStr = String(tok.accountId);
-      const days = Math.min(90, parseInt(req.query.days as string || '30'));
+      const days = Math.min(90, parseQueryInt(req.query.days, 30, { min: 1 }));
       const cutoff = Date.now() - days * 86_400_000;
 
       const accountCdrs = [...cdrCache.values()].filter((c: any) => {
@@ -35129,6 +35131,7 @@ ${footer}
 
   // ── BhaooSMS / REVE SMS integration routes ────────────────────────────────
   registerBhaooRoutes(app);
+  registerPortalAssignmentRoutes(app);
   registerConfigurationValueRoutes(app);
   registerValidationRuleRoutes(app);
   registerGovernanceReviewRoutes(app);

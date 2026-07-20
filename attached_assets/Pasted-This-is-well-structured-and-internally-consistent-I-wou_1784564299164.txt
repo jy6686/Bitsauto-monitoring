@@ -1,0 +1,58 @@
+This is well structured and internally consistent. I would consider #368 ready to freeze with only a few wording refinements for precision.
+
+1. Clarify Navigation Governance vs. Portal UI
+
+The sentence:
+
+"The NOC Portal navigation is generated entirely from Navigation Governance assignments..."
+
+is correct, but I'd make it slightly more precise:
+
+The NOC Portal renders only the features assigned to the NOC workspace through Navigation Governance. No portal-specific feature list or menu structure is hardcoded in the application.
+
+That clearly separates governance (assignment) from rendering (UI).
+
+2. Align the Operations step with the matrix
+
+Currently it says:
+
+"Confirm existing operational features remain; add Routing Manager, Email Centre, WhatsApp Alerts."
+
+To stay consistent with the "matrix is the source of truth" principle, I'd phrase it as:
+
+Assign all Operations features marked ✅ NOC in the Feature Assignment Matrix. Confirm Call Governance and all non-NOC operational features remain excluded.
+
+This avoids having one section driven by a hardcoded list while the rest use the matrix.
+
+3. Make the certification rule objective
+
+Instead of:
+
+"Every feature assigned to NOC in the matrix is accessible"
+
+I'd use:
+
+Every feature marked ✅ NOC in the Feature Assignment Matrix is visible and accessible according to the assigned permissions.
+
+That accounts for role-based visibility while keeping the requirement testable.
+
+4. Add one implementation constraint
+
+Since you've frozen the methodology, I'd add one final rule under Out of scope:
+
+Changes to feature ownership. If a feature appears to be assigned incorrectly, update the Feature Assignment Matrix first; do not modify the implementation independently of the matrix.
+
+This ensures the matrix remains the single source of truth.
+
+Overall assessment
+
+At this point, Sprint #368 clearly establishes:
+
+Business domains are represented by the fixed Top Menu.
+Feature ownership is defined by the NOC Feature Assignment Matrix.
+Navigation Governance determines which features belong to the NOC workspace.
+The portal UI renders those assignments automatically.
+The sidebar is derived, not designed.
+The NOC Portal becomes the reference implementation for Commercial, Finance, and Admin portals.
+
+That provides a solid governance model for the portal architecture and is ready to serve as the template for subsequent portal implementations.
