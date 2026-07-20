@@ -1,0 +1,132 @@
+That's the right sequencing.
+
+The Finance project stayed coherent because every feature had a contract before implementation. Applying the same discipline to Treasury should reduce rework and keep module ownership clear.
+
+I'd recommend the Treasury Data Contract include these sections before any T1 UI or APIs are built:
+
+Treasury Data Contract v1.0
+1. Module Scope
+
+Treasury owns:
+
+Settlement lifecycle
+Payment lifecycle
+Cash position
+Cash ledger
+Cash forecasting
+Credit exposure
+Collections workflow
+
+Treasury does not own:
+
+Rating
+Margin calculation
+Revenue calculation
+Financial Snapshot
+Reconciliation
+Invoice generation
+2. Certified Inputs
+Source	Owner	Immutable
+materialization_runs	Finance	✅
+financial_snapshot	Finance	✅
+reconciliation_runs	Finance	✅
+invoice_batches	Finance	✅
+invoice_jobs	Finance	✅
+client_identity_map	Identity	✅
+client_payment_terms	Treasury	Versioned
+
+Rule:
+
+Treasury consumes Finance outputs but never modifies them.
+
+3. Treasury-Owned Tables
+Table	Purpose
+client_payment_terms	Commercial payment policy
+settlements	Financial obligations
+payments	Money received/paid
+cash_ledger_entries	Treasury cash movements
+cash_forecasts	Forecast snapshots
+
+These tables should be append-oriented, with updates only where operationally necessary (for example, settlement status transitions).
+
+4. KPI Contract
+
+Every dashboard KPI should define:
+
+KPI	Source	Formula	Refresh
+Outstanding Receivables	Settlements + Payments	Open Balance	Live
+Due Today	Settlements	Due Date = Today	Live
+Due This Week	Settlements	Next 7 Days	Live
+Overdue	Settlements	Due < Today	Live
+Cash Position	Cash Ledger	Running Balance	Live
+Forecast Cash In	Forecast Engine	Predicted Collections	Scheduled
+Forecast Cash Out	Forecast Engine	Predicted Payments	Scheduled
+
+Each KPI should have exactly one authoritative calculation.
+
+5. Lineage Contract
+
+Every Treasury record should reference the Finance obligation that created it.
+
+For example:
+
+Settlement
+        │
+        ├── invoice_batch_id
+        ├── invoice_job_id
+        ├── snapshot_run_id
+        └── recon_run_id
+
+Treasury should copy these identifiers when creating a settlement, not look them up dynamically later.
+
+6. State Machines
+
+Define lifecycle transitions up front.
+
+Settlement
+
+PENDING
+    ↓
+SCHEDULED
+    ↓
+PARTIALLY_PAID
+    ↓
+PAID
+    ↓
+CLOSED
+
+Exceptional transitions:
+
+PENDING
+    ↓
+DISPUTED
+SCHEDULED
+    ↓
+CANCELLED
+
+Payment
+
+CREATED
+    ↓
+POSTED
+    ↓
+RECONCILED
+7. Ownership Rules
+Finance certifies obligations.
+Treasury settles obligations.
+Treasury never edits Finance history.
+Finance never edits Treasury settlements.
+
+This keeps the domain boundaries explicit.
+
+8. Certification Gates
+
+Before certifying T1, require evidence that:
+
+Every KPI traces to a documented source.
+No Treasury query recalculates Finance metrics.
+Settlement creation preserves Finance lineage.
+Payment terms are resolved and stored at settlement creation.
+Dashboard totals reconcile with settlement data.
+
+With this contract in place, T1 becomes an implementation exercise rather than an architectural one. It also preserves the design principle that served Finance well: define the data model, ownership, lineage, and invariants first, then build the UI and services against those contracts.
