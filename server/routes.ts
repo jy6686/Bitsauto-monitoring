@@ -32721,7 +32721,7 @@ ${footer}
             drifted,
             critical,
             pending,
-            totalAmount:  agg?.sippyAmount ?? nonAgg.reduce((s, r) => s + (r.sippyAmount ?? 0), 0),
+            totalAmount:  agg?.sellAmount  ?? nonAgg.reduce((s, r) => s + (r.sellAmount  ?? 0), 0),
             maxVersion:   Math.max(...dateRows.map(r => r.dmrVersion ?? 1)),
             generatedAt:  dateRows[0]?.generatedAt ?? null,
           };
@@ -37495,7 +37495,7 @@ ${footer}
         safeQuery(`SELECT COUNT(*) as cnt, MAX(generated_at) as latest FROM daily_minutes_reports`),
         safeQuery(`SELECT COUNT(*) as cnt, MAX(date) as latest FROM margin_analytics_daily`),
         safeQuery(`SELECT COUNT(*) as cnt, MAX(updated_at) as latest FROM financial_snapshot`),
-        safeQuery(`SELECT id, started_at, completed_at, status, rows_processed, clients_processed, vendors_processed, duration_ms, error, snapshot_version FROM materialization_runs ORDER BY started_at DESC LIMIT 20`),
+        safeQuery(`SELECT id, started_at, completed_at, status, rows_written, clients_processed, vendors_processed, duration_ms, error, snapshot_version FROM materialization_runs ORDER BY started_at DESC LIMIT 20`),
         safeQuery(`SELECT status, COUNT(*) as cnt FROM invoices GROUP BY status`),
         safeQuery(`SELECT MAX(created_at) as latest FROM invoices`),
       ]);
@@ -37539,9 +37539,9 @@ ${footer}
       const warnings: { level: 'warn' | 'error'; message: string }[] = [];
       if (dmrStatus === 'stale') warnings.push({ level: 'warn', message: `DMR data stale — last update over ${slaDefaults.dmr}min ago` });
       if (dmrStatus === 'never') warnings.push({ level: 'warn', message: 'DMR has no rows — ensure DMR generation is running' });
-      if (snapStatus === 'never') warnings.push({ level: 'warn', message: 'Financial Snapshot not yet built — pending Sprint F1 materialization' });
+      if (snapStatus === 'never') warnings.push({ level: 'warn', message: 'Financial Snapshot not yet materialized — click Run Now or wait for the next scheduled run' });
       if (snapStatus === 'stale') warnings.push({ level: 'warn', message: `Financial Snapshot stale — last update over ${slaDefaults.snapshot}min ago` });
-      if (runsR.missing) warnings.push({ level: 'warn', message: 'Materialization scheduler not yet configured — pending Sprint F1' });
+      if (runsR.missing) warnings.push({ level: 'warn', message: 'No materialization runs recorded yet — scheduler is active and will run within 30 minutes' });
       if (schedulerStatus === 'failed' && lastRun?.error) warnings.push({ level: 'error', message: `Last materialization run failed: ${lastRun.error}` });
       if (dmrAccounts > 0 && snapAccounts > 0 && dmrAccounts !== snapAccounts) warnings.push({ level: 'warn', message: `Snapshot inconsistency — DMR has ${dmrAccounts} accounts, Snapshot has ${snapAccounts}` });
       if ((invoiceByStatus.draft ?? 0) > 0) warnings.push({ level: 'warn', message: `${invoiceByStatus.draft} invoices still in draft — review invoice queue` });
@@ -37625,7 +37625,24 @@ ${footer}
       schedulerBusy = true;
       try {
         const { runMaterialization } = await import('./services/sippy/index');
-        const result = await runMaterialization('scheduler');
+        // Determine target dates: prefer today, fall back to most recent date with DMR data
+        const today = new Date().toISOString().slice(0, 10);
+        const todayCheck = await db.execute(sql.raw(
+          `SELECT COUNT(*) AS cnt FROM daily_minutes_reports WHERE report_date = '${today}'`
+        ));
+        const hasTodayData = parseInt((todayCheck as any).rows?.[0]?.cnt ?? '0') > 0;
+        let targetDates: string[] | undefined;
+        if (!hasTodayData) {
+          const latestCheck = await db.execute(sql.raw(
+            `SELECT MAX(report_date::text) AS latest FROM daily_minutes_reports`
+          ));
+          const latestDate: string | null = (latestCheck as any).rows?.[0]?.latest ?? null;
+          if (latestDate) {
+            targetDates = [latestDate];
+            console.log(`[snapshot-scheduler] no DMR for today — using most recent date: ${latestDate}`);
+          }
+        }
+        const result = await runMaterialization('scheduler', targetDates);
         if (result.status === 'success') {
           console.log(`[snapshot-scheduler] ✓ run ${result.runId}: ${result.rowsWritten} rows, ${result.durationMs}ms`);
         } else {

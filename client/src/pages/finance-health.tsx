@@ -161,7 +161,7 @@ function RunRow({ run, idx }: { run: any; idx: number }) {
       </span>
       <span className="text-right text-muted-foreground">{fmtTs(run.completed_at)}</span>
       <span className="text-right">{fmtDur(run.duration_ms)}</span>
-      <span className="text-right text-muted-foreground">{fmtNum(run.rows_processed)}</span>
+      <span className="text-right text-muted-foreground">{fmtNum(run.rows_written)}</span>
       <span className="text-right text-muted-foreground">{fmtNum(run.clients_processed)}</span>
       <div className="flex justify-end">
         <StatusBadge status={isOk ? "healthy" : "failed"} />
@@ -200,9 +200,9 @@ export default function FinanceHealthPage() {
   const downloadReport = () => {
     if (!data?.materialization?.runs?.length) return;
     const rows = data.materialization.runs;
-    const header = ["run","started_at","completed_at","duration_ms","rows_processed","clients_processed","vendors_processed","status","error","snapshot_version"];
+    const header = ["run","started_at","completed_at","duration_ms","rows_written","clients_processed","vendors_processed","status","error","snapshot_version"];
     const csv = [header.join(","), ...rows.map((r: any, i: number) =>
-      [i+1, r.started_at ?? "", r.completed_at ?? "", r.duration_ms ?? "", r.rows_processed ?? "", r.clients_processed ?? "", r.vendors_processed ?? "", r.status ?? "", (r.error ?? "").replace(/,/g, ";"), r.snapshot_version ?? ""].join(",")
+      [i+1, r.started_at ?? "", r.completed_at ?? "", r.duration_ms ?? "", r.rows_written ?? "", r.clients_processed ?? "", r.vendors_processed ?? "", r.status ?? "", (r.error ?? "").replace(/,/g, ";"), r.snapshot_version ?? ""].join(",")
     )].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -464,8 +464,8 @@ export default function FinanceHealthPage() {
                       <span>{fmtDur(data.materialization.lastRun.duration_ms)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Rows processed</span>
-                      <span>{fmtNum(data.materialization.lastRun.rows_processed)}</span>
+                      <span>Rows written</span>
+                      <span>{fmtNum(data.materialization.lastRun.rows_written)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Clients</span>

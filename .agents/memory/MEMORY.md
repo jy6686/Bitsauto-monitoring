@@ -46,3 +46,4 @@
 - [Sippy ExtJS upload page](sippy-extjs-upload.md) — /c1/rates_tariff.php uses ExtJS; file input never in static HTML; must POST directly with known field names.
 - [Server Health Poller](server-health-poller.md) — SSH 60s poller → asterisk_server_snapshots; MemoryStick icon absent from lucide-react 0.453.0 (use Gauge); cleanup is preview-first.
 - [Production startup blocking awaits](production-startup-blocking.md) — top-level awaits in routes.ts at lines ~34184-34185 blocked all route registration after them under DB pool pressure; fix: Promise.race + 10s timeout.
+- [Finance Health safeQuery column mismatch](finance-health-safequery.md) — materialization_runs column is rows_written not rows_processed; wrong name causes safeQuery to throw → {missing:true} → all health warnings fire as if F1 never built.

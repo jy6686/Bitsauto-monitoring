@@ -1,0 +1,478 @@
+finance health page is implemented in Finance portal not in main Platform>>
+not feting correct data from sippy 
+attache is the sippy yesterday loss&profit report  for reference to check daly minutes and reveine 
+
+This is actually a very useful finding. Based on the screenshots, I don't think the problem is in the Finance Health UI—I think it's in the data acquisition/materialization pipeline.
+
+What I observed
+1. Sippy Profit & Loss Report (Source of Truth)
+
+From your Sippy screenshot for 19 Jul 2026:
+
+Revenue: USD 295.9388
+Cost: USD 291.5437
+Margin: USD 4.3951
+Total Rows: 41,931 CDRs
+
+This is your authoritative source.
+
+2. Daily Minutes Report (BitsAuto)
+
+Your DMR shows:
+
+Revenue $295.65
+Cost $291.21
+Margin $4.44 (1.50%)
+25 matched
+0 drift
+0 critical
+
+These numbers are very close to Sippy:
+
+Metric	Sippy	BitsAuto	Difference
+Revenue	295.9388	295.65	-0.2888
+Cost	291.5437	291.21	-0.3337
+Margin	4.3951	4.44	+0.0449
+
+Those differences are only a few cents and could be explained by rounding or aggregation logic. That is something to investigate, but it's not the primary issue.
+
+Conclusion: The DMR appears to be receiving data.
+
+3. Finance Health
+
+This is where the issue is obvious.
+
+It still reports:
+
+Sippy CDRs = 0 cached
+Financial Snapshot = Never Built
+Scheduler = Not Configured
+Snapshot Accounts = 0
+
+That contradicts what we already know:
+
+DMR has data.
+DMR has revenue.
+DMR has cost.
+DMR has margin.
+
+So Finance Health is reporting a pipeline state that doesn't match reality.
+
+Likely root cause
+
+I suspect one of these:
+
+Possibility 1 (Most likely)
+
+The Finance Health page is still reading placeholder/mock status instead of the live services.
+
+For example:
+
+{
+  schedulerConfigured: false,
+  snapshotBuilt: false,
+  cachedCdrs: 0
+}
+
+instead of querying the actual backend.
+
+Possibility 2
+
+The DMR generator and Finance Health are using different services.
+
+For example:
+
+Sippy
+
+↓
+
+DMR Generator
+      ✅
+
+↓
+
+dmr_reports
+
+
+Finance Health
+
+↓
+
+materialization_service
+
+↓
+
+financial_snapshot
+
+The DMR works, but Finance Health is looking at a materialization service that has never been executed.
+
+Possibility 3
+
+The materialization scheduler is not registered.
+
+The UI therefore always says:
+
+Scheduler not configured
+
+even though DMR generation is functioning.
+
+First thing I'd verify
+
+I would not start changing code yet.
+
+Instead, verify these backend objects:
+
+1. materialization_runs
+SELECT *
+FROM materialization_runs
+ORDER BY started_at DESC
+LIMIT 10;
+2. Snapshot table
+SELECT COUNT(*)
+FROM financial_snapshot;
+3. Latest snapshot
+SELECT snapshot_run_id,
+       COUNT(*) AS rows,
+       SUM(sell_amount) AS revenue,
+       SUM(buy_amount) AS cost,
+       SUM(margin_amount) AS margin
+FROM financial_snapshot
+GROUP BY snapshot_run_id
+ORDER BY snapshot_run_id DESC
+LIMIT 5;
+4. Scheduler
+
+Check whether the Finance materialization scheduler is actually registered at application startup.
+
+About the DMR totals
+
+The DMR should eventually reconcile exactly (or explain any differences) against the Sippy report.
+
+Your screenshots show:
+
+Sippy:
+
+Revenue 295.9388
+Cost    291.5437
+Margin    4.3951
+
+BitsAuto:
+
+Revenue 295.65
+Cost    291.21
+Margin    4.44
+
+I would investigate:
+
+Are values rounded before aggregation?
+Are all 41,931 CDRs included?
+Is there any filtering (failed calls, zero-duration calls, excluded vendors, etc.)?
+Is the DMR using the same date/time boundaries and timezone as the Sippy report?
+
+Those small differences should be understood and documented before F1 certification.
+
+My recommendation
+
+I would pause F1 certification until these two issues are resolved:
+
+Finance Health must report the actual backend state, not placeholder or stale values.
+DMR totals should be reconciled against the Sippy report, with any remaining differences either eliminated or explained (for example, by documented rounding or filtering rules).
+
+Once those are addressed, rerun the runtime validation pack. The Finance Health page should then reflect reality—for example, showing a configured scheduler, completed materialization runs, populated snapshot data, and snapshot account counts that align with the DMR. That will put you in a much stronger position to certify F1.
+
+This screenshot actually confirms the issue more clearly.
+
+What is working ✅
+
+The DMR engine has successfully generated summary statistics:
+
+Date: 2026-07-19
+Version: v1
+Accounts: 25
+Revenue: $295.65
+Cost: $291.21
+Margin: $4.44
+Drifted: 0
+Critical: 0
+
+The download history also exists, which means the DMR generation process itself completed.
+
+What is NOT working ❌
+
+The reconciliation table is empty.
+
+It says:
+
+25 account row(s) • 0 discrepancies
+
+but immediately below:
+
+No records. Generate DMR for this date to see data.
+
+These two statements contradict each other.
+
+You cannot simultaneously have:
+
+25 account rows
+
+and
+
+no rows.
+
+This indicates a bug.
+
+I believe the bug is here
+
+The page header is populated from a summary table.
+
+The grid is trying to read from a detail table.
+
+Something like:
+
+DMR Summary
+──────────────
+date
+accounts = 25
+revenue
+cost
+margin
+
+        ↓
+
+DMR Detail
+──────────────
+account rows
+
+The summary exists.
+
+The detail rows either:
+
+weren't written,
+weren't loaded,
+or the UI is querying the wrong dataset.
+This is more important than the Finance Health page
+
+The Finance Health page can be fixed later.
+
+This DMR page exposes a functional issue.
+
+Because F1 validation requires:
+
+DMR
+↓
+
+Financial Snapshot
+
+↓
+
+Finance Cockpit
+
+you must first have a complete DMR.
+
+Right now the detail layer isn't available.
+
+What I'd investigate first
+1. Does the DMR detail table contain rows?
+
+Example query:
+
+SELECT COUNT(*)
+FROM dmr_account_rows
+WHERE report_date = '2026-07-19';
+
+(or whatever your detail table is called.)
+
+2. Does the API return rows?
+
+Open DevTools → Network.
+
+Look for something like:
+
+GET /api/dmr/2026-07-19/details
+
+or
+
+GET /api/dmr/details
+
+Check whether it returns:
+
+25 rows
+
+or
+
+[]
+3. If API returns rows
+
+Then the bug is frontend.
+
+4. If API returns zero rows
+
+Then the DMR generator isn't inserting detail records.
+
+One thing I also noticed
+
+Your Sippy report contains 41,931 CDRs.
+
+The DMR says 25 account rows.
+
+That is perfectly reasonable if:
+
+41931 CDRs
+
+↓
+
+Grouped by Account
+
+↓
+
+25 account summaries
+
+So I don't think 25 is wrong.
+
+The missing piece is the account detail rows.
+
+My priority list
+
+I would fix things in this order:
+
+Priority 1
+
+✅ DMR detail rows populate correctly.
+
+Priority 2
+
+Make Finance Health consume the real materialization status instead of showing "Never Built."
+
+Priority 3
+
+Generate Financial Snapshot.
+
+Priority 4
+
+Verify Finance Cockpit displays snapshot values instead of zeros.
+
+I would not start F3 yet
+
+At this stage, I wouldn't move to F3. The current evidence suggests there are still unresolved issues in the F1 data flow:
+
+The DMR summary is generated, but the detail view is inconsistent.
+The Finance Health page is not reflecting the actual pipeline state.
+The Financial Snapshot has not been built or is not being surfaced.
+
+Once those are resolved and the runtime validation gates pass, you'll be in a much stronger position to certify F1 and then begin F3.
+
+in last you can see 
+Download History
+Last 60 days of DMR reports — download as PDF or CSV
+Date	Accounts	Matched	Drifted	Critical	Total Amount	Ver.	Downloads
+2026-07-19	25	25	—	—	$0.68	v1	
+PDF
+CSV
+
+Good catch—and this actually strengthens the diagnosis.
+
+The Download History confirms that the DMR summary does exist:
+
+Field	Value
+Date	2026-07-19
+Accounts	25
+Matched	25
+Drifted	0
+Critical	0
+Version	v1
+PDF	✅
+CSV	✅
+
+So the DMR generation is not failing.
+
+However, there are still inconsistencies that should be addressed before F1 certification.
+
+Issue 1: Total Amount is incorrect
+
+The P&L Aggregate shows:
+
+Revenue = $295.65
+Cost = $291.21
+Margin = $4.44
+
+But the Download History shows:
+
+Total Amount = $0.68
+
+That doesn't align with any of the key financial metrics.
+
+It should represent one clearly defined value, for example:
+
+Total Revenue ($295.65)
+Total Cost ($291.21)
+Total Margin ($4.44)
+
+or be renamed if it represents something else (e.g. "Average Difference" or "Net Adjustment").
+
+Action: Verify what Total Amount is intended to represent and ensure the UI label matches the underlying calculation.
+
+Issue 2: Summary and detail are inconsistent
+
+The page says:
+
+25 account rows
+25 matched
+
+But the grid displays:
+
+No records. Generate DMR for this date to see data.
+
+This usually indicates one of these:
+
+The API returns the summary but not the detail rows.
+The UI is calling the wrong endpoint for the detail table.
+The detail query is using a different filter (date, version, report ID, etc.).
+
+This is a functional bug that should be fixed.
+
+Issue 3: Finance Health doesn't reflect reality
+
+Your DMR is clearly generated, yet Finance Health still shows:
+
+Financial Snapshot = Never Built
+Scheduler = Not Configured
+Snapshot Accounts = 0
+
+That page appears disconnected from the actual backend state.
+
+My recommendation
+
+I would treat the work in this order:
+
+Priority 1 — Fix DMR detail view
+
+The summary and detail must come from the same report/version.
+
+Priority 2 — Fix "Total Amount"
+
+Ensure the displayed metric matches the Finance Data Dictionary.
+
+Priority 3 — Connect Finance Health to live services
+
+It should report the actual scheduler/materialization status rather than placeholder values.
+
+Priority 4 — Enable Financial Snapshot
+
+Once the snapshot is built successfully, the Finance Cockpit should populate with real values instead of zeros.
+
+Before certifying F1
+
+I would also compare the generated CSV against the Sippy report.
+
+Since the CSV is available, verify:
+
+Number of account rows (25)
+Revenue total
+Cost total
+Margin total
+
+against the Sippy Profit & Loss report.
+
+If those reconcile (allowing only documented rounding differences), you'll have much stronger evidence for the Snapshot Correctness gate.
+
+Overall, the DMR engine looks partially successful—it is generating summaries and downloadable reports. The remaining work is making the detail view, Finance Health, and Financial Snapshot consume the same canonical data so the entire Finance pipeline is consistent end to end.

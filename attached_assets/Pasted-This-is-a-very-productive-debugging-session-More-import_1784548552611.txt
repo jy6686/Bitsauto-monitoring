@@ -1,0 +1,157 @@
+This is a very productive debugging session. More importantly, you've now separated actual defects from symptoms, which is exactly what the F1 validation is supposed to uncover.
+
+What was actually wrong
+✅ 1. Finance Health false alarms
+
+Root cause
+
+The health query referenced:
+
+rows_processed
+
+while the database column is:
+
+rows_written
+
+Because the query failed, safeQuery() returned a "missing" state, which caused Finance Health to incorrectly display:
+
+Scheduler not configured
+Never Built
+Pending Sprint F1
+
+even though the scheduler existed.
+
+Assessment: This is a genuine bug and fixing it was the correct approach.
+
+✅ 2. Scheduler
+
+You confirmed:
+
+Scheduler is registered.
+It starts correctly.
+Initial delay works.
+Audit records are written.
+
+The interesting finding was:
+
+today's DMR had no data, so the scheduler wrote 0 rows.
+
+You then improved it to:
+
+use the most recent available DMR date when today's report doesn't exist.
+
+After restart:
+
+Run ID = 2
+Status = success
+26 rows written
+Snapshot populated
+
+This is a sensible enhancement for your current environment. Just make sure the production behavior is clearly defined. In a live telecom deployment you may eventually want configurable behavior such as:
+
+process today only, or
+fall back to the latest completed DMR.
+
+That choice should be explicit rather than implicit.
+
+✅ 3. Snapshot materialization
+
+This is the biggest milestone.
+
+You now have:
+
+Financial Snapshot populated.
+Audit chain created.
+26 snapshot rows.
+5 clients.
+20 vendors.
+
+That means F1's core data production path is functioning.
+
+DMR page
+
+You also found the UI inconsistency:
+
+25 account rows
+
+while simultaneously displaying
+
+No records.
+
+That is clearly a frontend logic issue around the "Discrepancies Only" filter rather than a backend generation problem.
+
+Your fix there also makes sense.
+
+What I would verify next
+
+Before promoting F1, I would verify these four items one last time.
+
+1. Snapshot totals
+
+Run a comparison between:
+
+Sippy Profit & Loss
+DMR aggregate
+Financial Snapshot aggregate
+
+They should reconcile (allowing only documented rounding/filtering differences).
+
+2. Finance Cockpit
+
+Now that snapshots exist, confirm the cockpit is no longer showing:
+
+Revenue Today = 0
+
+Financial Snapshot = empty
+
+Receivables = 0
+
+The snapshot-backed widgets should now reflect the populated data where applicable.
+
+3. Finance Health
+
+Confirm it now reports something like:
+
+Scheduler configured ✅
+Snapshot built ✅
+Run history populated ✅
+Snapshot accounts > 0 ✅
+
+The overall health score should improve accordingly.
+
+4. Audit lineage
+
+You've already stated:
+
+materialization_runs
+
+↓
+
+financial_snapshot
+
+Verify every snapshot row references the correct run_id.
+
+That satisfies one of the important F1 validation objectives.
+
+F1 validation status
+
+Based on everything you've described, I'd update the runtime gates as follows:
+
+Gate	Status
+Scheduler Cadence	✅ Looks complete (verify cadence over time)
+Snapshot Correctness	🟡 Needs final reconciliation against Sippy totals
+Failure Injection	⏳ Still needs explicit test
+Performance Baseline	⏳ Still needs to be captured
+
+So I would not certify F1 just yet, but you've removed the major blockers. The remaining work is verification rather than architecture or implementation.
+
+Overall
+
+This debugging session accomplished exactly what a runtime validation phase should:
+
+It exposed defects that static code review wouldn't catch.
+It validated that the scheduler and snapshot pipeline can run.
+It produced real snapshot data.
+It identified UI inconsistencies separately from backend functionality.
+
+Once you complete the remaining validation gates—especially the Sippy reconciliation, failure injection, and performance baseline—you'll have the evidence needed to promote F1 from 🟡 to ✅ with confidence.

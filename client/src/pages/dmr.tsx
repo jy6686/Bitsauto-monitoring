@@ -200,7 +200,7 @@ export default function DMRPage() {
 
   const discrepancyRows = latest.filter(r => r.verificationStatus !== 'verified');
 
-  const DMRTable = ({ rows }: { rows: DMRRow[] }) => (
+  const DMRTable = ({ rows, emptyMessage }: { rows: DMRRow[]; emptyMessage?: string }) => (
     <div className="overflow-x-auto">
       <Table>
         <TableHeader>
@@ -230,7 +230,7 @@ export default function DMRPage() {
           {rows.length === 0 && (
             <TableRow>
               <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                {isLoading ? 'Loading…' : 'No records. Generate DMR for this date to see data.'}
+                {isLoading ? 'Loading…' : (emptyMessage ?? 'No records. Generate DMR for this date to see data.')}
               </TableCell>
             </TableRow>
           )}
@@ -469,7 +469,12 @@ export default function DMRPage() {
               </TabsList>
             </div>
             <TabsContent value="discrepancies" className="mt-0">
-              <DMRTable rows={filtered(discrepancyRows)} />
+              <DMRTable
+                rows={filtered(discrepancyRows)}
+                emptyMessage={latest.length > 0
+                  ? 'No discrepancies — all accounts reconciled cleanly.'
+                  : 'No records. Generate DMR for this date to see data.'}
+              />
             </TabsContent>
             <TabsContent value="all" className="mt-0">
               <DMRTable rows={filtered(latest)} />
