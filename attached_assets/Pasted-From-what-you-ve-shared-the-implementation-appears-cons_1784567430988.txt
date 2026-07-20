@@ -1,0 +1,72 @@
+From what you've shared, the implementation appears consistent with the governance you froze. One thing stood out, though, that I'd recommend treating as a follow-up item rather than considering #368 fully complete.
+
+What looks complete
+
+The reported work aligns with the sprint:
+
+✅ Audit performed before changes.
+✅ Governance document used as the source of truth.
+✅ Existing routes verified before assignment.
+✅ noc.config.ts expanded to the full top-menu model.
+✅ Supporting UI pieces (icons/workflow cards) updated.
+✅ Application starts successfully.
+
+Those are all expected deliverables.
+
+One architectural observation
+
+This statement is important:
+
+"navigation.entries is not yet consumed by any renderer — it's declarative governance config."
+
+That tells me there is still a gap between the governance model and the runtime.
+
+Your frozen architecture says:
+
+Feature Assignment Matrix
+        ↓
+Navigation Governance
+        ↓
+Portal UI renders automatically
+
+If navigation.entries is currently only configuration and the active portal navigation is still being rendered from another source, then the architecture is partially transitioned.
+
+That isn't necessarily wrong—it may simply reflect an incremental migration—but it's worth documenting explicitly.
+
+I would classify #368 as follows
+Completed
+Feature assignment governance
+NOC configuration
+Matrix alignment
+Top-menu definition
+Audit artifact
+Supporting workflow metadata
+Follow-up (future sprint)
+
+Portal Navigation Rendering Consolidation
+
+Objective:
+
+Make the runtime navigation consume the Navigation Governance configuration directly, so there is a single rendering path.
+
+Acceptance criteria:
+
+Portal navigation is generated from Navigation Governance.
+No duplicate navigation definitions exist.
+navigation.entries (or its successor) is the runtime source for rendering.
+The audit artifact and runtime navigation always match.
+
+That isn't a blocker for #368 if your portal is intentionally in transition, but it should be tracked so the implementation ultimately matches the architecture you've frozen.
+
+Final assessment
+
+If the NOC Portal now:
+
+exposes the approved 10 top-menu domains,
+contains only features assigned to NOC in the matrix,
+excludes Finance, Commercial, and Admin features,
+and portal access is enforced by the authorization layer,
+
+then I'd consider Sprint #368 functionally complete.
+
+The remaining work I'd record as an architectural cleanup item rather than reopening #368. That keeps the governance sprint focused while acknowledging that the rendering layer can still be consolidated in a future refactoring.
