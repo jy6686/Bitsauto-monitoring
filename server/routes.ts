@@ -33440,6 +33440,57 @@ ${footer}
   // PATCH /api/invoice-jobs/:id/approve    — approve + trigger SMTP dispatch
   // PATCH /api/invoice-jobs/:id/reject     — reject back to REVIEW with reason
   // PATCH /api/invoice-jobs/:id/retry      — retry FAILED job
+  // ── Invoice Batches (F2 — Period-first billing) ────────────────────────────
+  // GET  /api/invoice-batches             — list batches
+  // GET  /api/invoice-batches/:id         — batch detail + jobs
+  // POST /api/invoice-batches/preview     — preview batch (no DB writes)
+  // POST /api/invoice-batches             — generate batch + invoice_jobs
+
+  app.get('/api/invoice-batches', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { listInvoiceBatches } = await import('./services/finance/invoice-batch.service.ts');
+      const batches = await listInvoiceBatches();
+      res.json({ batches });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/invoice-batches/:id', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { getInvoiceBatch } = await import('./services/finance/invoice-batch.service.ts');
+      const batch = await getInvoiceBatch(parseInt(req.params.id));
+      if (!batch) return res.status(404).json({ error: 'Batch not found' });
+      res.json(batch);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/invoice-batches/preview', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { previewBatch, calculatePeriod } = await import('./services/finance/invoice-batch.service.ts');
+      const { cycle = 'monthly', scope = { type: 'all' }, customStart, customEnd } = req.body ?? {};
+      const preview = await previewBatch(cycle, scope, customStart, customEnd);
+      res.json(preview);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/invoice-batches', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { generateInvoiceBatch } = await import('./services/finance/invoice-batch.service.ts');
+      const { cycle = 'monthly', scope = { type: 'all' }, notes, customStart, customEnd } = req.body ?? {};
+      const user = (req as any).user?.name ?? (req as any).user?.username ?? 'api';
+      const result = await generateInvoiceBatch(cycle, scope, user, notes, customStart, customEnd);
+      if (result.status === 'failed') return res.status(500).json({ error: result.error });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // PATCH /api/invoice-jobs/:id/cancel     — cancel job
   // POST /api/invoice-jobs/detect-cycles   — auto-detect closed billing periods
 

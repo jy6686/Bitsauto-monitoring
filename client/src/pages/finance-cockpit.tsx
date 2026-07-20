@@ -262,13 +262,12 @@ export default function FinanceCockpitPage() {
   const overdueCount  = overdueInvoices.length;
   const overdueAmount = overdueInvoices.reduce((s: number, i: any) => s + (i.totalAmount ?? 0), 0);
 
-  // Revenue Today: invoices created / issued today (proxy for daily revenue)
-  const revenueToday = invoices
-    .filter((i: any) => {
-      const d = i.createdAt ?? i.generatedAt ?? i.issueDate;
-      return d && new Date(d) >= todayStart;
-    })
-    .reduce((s: number, i: any) => s + (i.totalAmount ?? 0), 0);
+  // Current Billing Period: revenue from latest financial snapshot (period-first)
+  const currentPeriodRevenue = snapSummary?.totalRevenue ?? snapSummary?.revenue ?? 0;
+  const currentPeriodLabel   = snapSummary?.reportDate
+    ? new Date(snapSummary.reportDate).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    : 'Current Period';
+  const invoicesReady = invoices.filter((i: any) => ['draft','generated','review','approved'].includes(i.status)).length;
 
   // Margin Alerts: unresolved
   const activeMarginAlerts = marginAl.filter((a: any) => !a.resolvedAt);
@@ -369,13 +368,13 @@ export default function FinanceCockpitPage() {
             testId="kpi-overdue-receivables"
           />
           <KpiCard
-            label="Revenue Today"
-            value={fmt(revenueToday)}
-            sub="invoices issued today"
+            label="Current Billing Period"
+            value={fmt(currentPeriodRevenue)}
+            sub={invoicesReady > 0 ? `${invoicesReady} invoices ready` : currentPeriodLabel}
             icon={TrendingUp}
-            accent={revenueToday > 0 ? "ok" : "default"}
-            href="/invoices"
-            testId="kpi-revenue-today"
+            accent={currentPeriodRevenue > 0 ? "ok" : "default"}
+            href="/invoice-jobs"
+            testId="kpi-current-period"
           />
           <KpiCard
             label="Margin Alerts"

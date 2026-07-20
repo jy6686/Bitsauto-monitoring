@@ -2319,6 +2319,31 @@ export type AdjustmentLedgerEntry       = typeof adjustmentLedger.$inferSelect;
 export type InsertAdjustmentLedgerEntry = typeof adjustmentLedger.$inferInsert;
 
 // ── Invoice Delivery Automation — finance workflow governance ─────────────────
+// invoice_batches: one batch per billing period run (period-first workflow)
+// billing_cycle: monthly | weekly | biweekly | custom
+export const invoiceBatches = pgTable("invoice_batches", {
+  id:               serial("id").primaryKey(),
+  batchRef:         varchar("batch_ref",      { length: 32  }).notNull().unique(),  // JUL-2026-001
+  billingCycle:     varchar("billing_cycle",  { length: 16  }).notNull(),
+  periodStart:      varchar("period_start",   { length: 10  }).notNull(),            // YYYY-MM-DD
+  periodEnd:        varchar("period_end",     { length: 10  }).notNull(),
+  periodLabel:      varchar("period_label",   { length: 64  }),
+  scope:            varchar("scope",          { length: 16  }).notNull().default('all'),
+  snapshotRunId:    integer("snapshot_run_id"),
+  reconRunId:       integer("recon_run_id"),
+  status:           varchar("status",         { length: 16  }).notNull().default('pending'),
+  clientsFound:     integer("clients_found").notNull().default(0),
+  clientsApproved:  integer("clients_approved").notNull().default(0),
+  clientsBlocked:   integer("clients_blocked").notNull().default(0),
+  estimatedRevenue: numeric("estimated_revenue", { precision: 14, scale: 4 }),
+  notes:            text("notes"),
+  createdBy:        varchar("created_by",     { length: 64  }),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+});
+export type InvoiceBatch       = typeof invoiceBatches.$inferSelect;
+export type InsertInvoiceBatch = typeof invoiceBatches.$inferInsert;
+export const insertInvoiceBatchSchema = createInsertSchema(invoiceBatches).omit({ id: true, createdAt: true });
+
 // invoice_jobs orchestrates the full lifecycle: draft → review → approve → send
 // status: PENDING | GENERATED | REVIEW | APPROVED | SENT | FAILED | RETRYING | CANCELLED
 export const invoiceJobs = pgTable("invoice_jobs", {
