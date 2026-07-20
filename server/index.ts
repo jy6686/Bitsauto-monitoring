@@ -231,14 +231,6 @@ app.use((req, res, next) => {
     return res.status(200).send(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="4"><title>Starting up…</title><style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0f172a;color:#94a3b8;font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:12px}h2{color:#f8fafc;font-size:1.25rem}p{font-size:.875rem}</style></head><body><h2>Bitsauto is starting up…</h2><p>This page will refresh automatically in 4 seconds.</p></body></html>`);
   });
 
-  // ── 3. DB migrations (required before routes so all tables exist) ───────────
-  boot("5 runSafeMigrations() starting");
-  await runSafeMigrations();
-  boot("6 runSafeMigrations() done");
-  console.log("[db] connected:", (process.env.DATABASE_URL ?? "").replace(/:\/\/[^:]+:[^@]+@/, "://<user>:***@"));
-  // Schema check is diagnostic-only — run async so it doesn't delay routes
-  runSchemaCheck().catch(() => {});
-
   // Guard: ensures serveStatic is registered exactly once (called from either
   // the safety timeout OR the finally block, whichever fires first).
   let _staticRegistered = false;
@@ -253,20 +245,37 @@ app.use((req, res, next) => {
     }
   };
 
-  // Safety net: if routes haven't finished loading within 60 s (e.g. OIDC or
-  // Sippy network hangs in Cloud Run), register static serving and open the gate
-  // so GET / returns 200 and the Cloud Run startup probe stays healthy.
+  // Safety net: registered HERE — before any awaits — so it always fires
+  // even if runSafeMigrations() or registerRoutes() hangs indefinitely on
+  // a DB connection timeout. Previously this timer was set up after the
+  // migrations await, meaning a hanging DB connection prevented it from
+  // ever being registered (root cause of the 16-minute 503 incident).
   const _startupSafetyTimer = setTimeout(() => {
     if (!_serverReady) {
-      console.warn('[startup] 60 s safety timeout — opening gate before routes finish loading');
-      _registerStatic();  // ensure static is served even if routes haven't completed
+      console.warn('[startup] 90 s safety timeout — opening gate before routes finish loading');
+      _registerStatic();
       _serverReady = true;
     }
-  }, 60_000);
+  }, 90_000);
+
+  // ── 3. DB migrations (required before routes so all tables exist) ───────────
+  // Wrapped in Promise.race so a DB connection timeout can't block startup
+  // indefinitely — migrations get 45 s then we proceed without them.
+  boot("5 runSafeMigrations() starting");
+  await Promise.race([
+    runSafeMigrations().catch((e: any) => {
+      console.warn('[startup] runSafeMigrations failed (non-fatal):', e?.message);
+    }),
+    new Promise<void>(r => setTimeout(r, 45_000)),
+  ]);
+  boot("6 runSafeMigrations() done");
+  console.log("[db] connected:", (process.env.DATABASE_URL ?? "").replace(/:\/\/[^:]+:[^@]+@/, "://<user>:***@"));
+  // Schema check is diagnostic-only — run async so it doesn't delay routes
+  runSchemaCheck().catch(() => {});
 
   try {
     boot("9 registerRoutes() starting");
-    console.log("[BUILD-FINGERPRINT] 2026-07-07-C routes-instrumentation");
+    console.log("[BUILD-FINGERPRINT] 2026-07-20-A startup-gate-fix");
     await registerRoutes(httpServer, app);
     boot("10 registerRoutes() done");
   } catch (e: any) {
