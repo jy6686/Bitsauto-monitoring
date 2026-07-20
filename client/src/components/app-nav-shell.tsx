@@ -23,7 +23,7 @@ import { useQuery } from "@tanstack/react-query";
 import { inferWorkspace } from "@/lib/workspace";
 import type { WorkspaceDefinition } from "@shared/schema";
 import { useChatDrawer } from "@/context/chat-drawer-context";
-import { PortalTopNav } from "@/components/portal-sidebar";
+import { PortalNavBar } from "@/portals/PortalNavBar";
 import { usePortal } from "@/context/portal-context";
 import { FavoritesStrip } from "@/components/favorites-strip";
 
@@ -799,9 +799,9 @@ export function AppNavShell() {
         {/* ── Divider ── */}
         <div className="w-px h-5 bg-white/[0.08] mx-1 flex-shrink-0" />
 
-        {/* ── Centre nav: portal sections (Model A View Model) in portal mode,
+        {/* ── Centre nav: Navigation Governance config in portal mode,
              else the main-platform domain tabs ── */}
-        {isPortalMode ? <PortalTopNav /> : (
+        {isPortalMode ? <PortalNavBar /> : (
         <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" role="menubar">
             {visibleDomains.map(domain => {
               const isActive = meta.domain === domain.id;
@@ -1080,8 +1080,8 @@ export function AppNavShell() {
         </div>
       </div>
 
-      {/* ── ROW 2 (retired): the portal top-nav is now the Model-A PortalTopNav in row 1.
-           Legacy Model-B workspace row disabled to keep a single nav source. ── */}
+      {/* ── ROW 2 (retired): the portal top-nav is now PortalNavBar (Navigation Governance)
+           in row 1. Legacy Model-B workspace row disabled to keep a single nav source. ── */}
       {false && isPortalMode && portalWorkspaces.length > 0 && (
         <div
           className="flex items-center h-[36px] px-6 gap-0.5 border-b"
