@@ -1345,7 +1345,7 @@ export default function DashboardPage() {
       value: fasAll.length > 0 ? String(fasAll.length) : 'Clean',
       detail: fasAll.length > 0 ? `${fasAll.length} FAS events` : 'No events',
       icon: ShieldAlert,
-      href: '/fraud-engine',
+      href: '/fraud',
     },
   ] as const;
 
@@ -1374,7 +1374,7 @@ export default function DashboardPage() {
       label: `FAS alert: ${ev.clientName || 'Unknown'} — suspicious traffic`,
       detail: `CLI: ${ev.caller || '—'} · Duration: ${ev.duration || '—'}s`,
       module: 'Fraud Engine',
-      href: '/fraud-engine',
+      href: '/fraud',
     })),
   ].sort((a, b) => b.ts - a.ts).slice(0, 6);
 
@@ -1468,8 +1468,8 @@ export default function DashboardPage() {
       stat: { value: '—', label: 'Active Models' },
     },
     {
-      id: 'fraud-engine',
-      href: '/fraud-engine',
+      id: 'fraud',
+      href: '/fraud',
       label: 'Fraud Engine',
       desc: 'Fraud detection & prevention',
       icon: ShieldAlert,

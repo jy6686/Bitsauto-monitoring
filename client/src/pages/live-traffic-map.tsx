@@ -572,7 +572,7 @@ export default function LiveTrafficMapPage() {
                       <Activity className="w-3 h-3" /> Routing Intelligence
                     </button>
                   </Link>
-                  <Link href="/fraud-engine" onClick={() => setShowDrawer(false)}>
+                  <Link href="/fraud" onClick={() => setShowDrawer(false)}>
                     <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/25 text-xs font-medium hover:bg-rose-500/20 transition-colors" data-testid="btn-drawer-fraud">
                       <ShieldAlert className="w-3 h-3" /> FAS Analysis
                     </button>
