@@ -3,6 +3,7 @@ import type { Express } from "express";
 import { parseQueryInt } from './lib/query-utils';
 import { createAlias } from './services/destination/destination-alias.service';
 import { registerBhaooRoutes } from './routes-bhaoo';
+import { registerCommercialDebugRoutes } from './routes-commercial-debug';
 import { registerPortalAssignmentRoutes } from './routes-portal-assignment';
 import { registerConfigurationValueRoutes } from './routes-configuration-values';
 import { registerValidationRuleRoutes }     from './routes-validation-rules';
@@ -35131,6 +35132,7 @@ ${footer}
 
   // ── BhaooSMS / REVE SMS integration routes ────────────────────────────────
   registerBhaooRoutes(app);
+  registerCommercialDebugRoutes(app);
   registerPortalAssignmentRoutes(app);
   registerConfigurationValueRoutes(app);
   registerValidationRuleRoutes(app);

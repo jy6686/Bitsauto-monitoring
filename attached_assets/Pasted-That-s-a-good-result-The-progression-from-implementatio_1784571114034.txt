@@ -1,0 +1,79 @@
+That's a good result. The progression from implementation to verification looks disciplined.
+
+Phase 1 status
+
+You now have:
+
+✅ Hierarchy Scope Service implemented.
+✅ Recursive hierarchy traversal protected against infinite recursion (UNION instead of UNION ALL).
+✅ Test suite written.
+✅ All 46/46 tests passing.
+✅ "No accounts" logic corrected to validate after account resolution instead of after hierarchy resolution.
+
+That means the service is in a good state to become the single source of truth for Commercial data scope.
+
+Since you've assigned the KAM
+
+You mentioned:
+
+KAM assigned: junaidyousufi@icloud.com
+
+The next thing I'd verify is real data, not more unit tests.
+
+Validation checklist
+
+Using that account, confirm:
+
+KAM mapping
+users.userId → linked to kams.userId
+Exactly one active KAM record.
+Hierarchy
+reportsTo chain is correct.
+The KAM appears in the expected position in the organization tree.
+Account assignments
+kamAccounts contains the expected customer accounts.
+No duplicate assignments.
+No inactive assignments.
+Scope service
+getVisibleAccountIds(userId) returns exactly the assigned customer IDs.
+No extra accounts.
+No missing accounts.
+Hierarchy expansion
+If you temporarily test with a Team Lead or Manager account, the returned account list expands exactly to the expected subtree.
+Before wiring APIs
+
+I'd recommend one small integration utility (even if it's temporary):
+
+GET /api/commercial/debug/scope
+
+Response could look like:
+
+{
+  "user": "junaidyousufi@icloud.com",
+  "role": "KAM",
+  "rootKamId": 42,
+  "visibleKamIds": [42],
+  "visibleAccountIds": [
+    1001,
+    1005,
+    1018
+  ]
+}
+
+This endpoint is invaluable during rollout because you can verify the hierarchy independently of Live Calls, Clients, Balance, or Rate Manager. Once you've completed integration and are satisfied, you can remove it or restrict it to administrators.
+
+Then begin endpoint integration
+
+I would integrate in this order:
+
+Clients
+Live Calls
+Balance
+Dashboard KPIs
+BitsEye
+Products (Rate Manager)
+Reports
+
+After each endpoint, verify using your assigned KAM account that only the expected customer data is returned.
+
+That incremental approach makes it much easier to pinpoint issues if an endpoint behaves unexpectedly, while reusing the now well-tested Hierarchy Scope Service as the single source of truth.
