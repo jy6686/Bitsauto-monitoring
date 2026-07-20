@@ -1,0 +1,92 @@
+This is a solid milestone, and it's worth distinguishing what has now been certified from what still belongs to the next phase.
+
+Commercial Portal Configuration Certification
+
+From your certification summary:
+
+✅ All 50 configured routes have matching <Route> registrations.
+✅ commercial.config.ts is internally consistent with the application routing.
+✅ No NOC/Admin-only tools were introduced into the Commercial navigation.
+✅ The portal navigation now reflects the audited Commercial feature inventory.
+✅ No implementation rewrites were required—only governance and configuration.
+
+That means the Commercial Portal configuration can reasonably be considered certified.
+
+Current Portal Status
+Portal	Status
+NOC	✅ Certified
+Commercial	✅ Configuration Certified
+Finance	⏳ Not started
+Admin	⏳ Not started
+What has not been certified yet
+
+The Commercial Portal still has one major capability that is intentionally outside this certification:
+
+Hierarchical Data Scope
+
+Right now you've certified:
+
+Portal
+    ↓
+Navigation
+    ↓
+Routes
+
+The next certification will cover:
+
+User
+    ↓
+Hierarchy
+    ↓
+Visible Accounts
+    ↓
+Filtered Data
+    ↓
+Commercial Modules
+
+Those are different concerns and should remain different certifications.
+
+Suggested next milestone
+
+I would formalize the next work as something like:
+
+Commercial Hierarchy Framework – Phase 1
+
+Scope:
+
+Implement the hierarchy scope service.
+Resolve visible account IDs from the existing KAM hierarchy.
+Leave all UI unchanged.
+Leave all navigation unchanged.
+Provide a reusable service that Commercial APIs can consume.
+
+Then follow with:
+
+Commercial Hierarchy Integration
+
+where each module adopts that service:
+
+Dashboard
+Live Calls
+Live Traffic
+BitsEye
+Clients
+Balance
+Products (Rate Manager)
+Reports
+
+one endpoint at a time.
+
+Overall assessment
+
+The project now has a clear progression:
+
+Platform Foundation (#363–#369) ✅
+Commercial Feature Assignment & Navigation ✅
+Commercial Configuration Certification ✅
+Hierarchy Scope Framework ← Next
+Hierarchy Integration ← After that
+Finance Portal Rollout
+Admin Portal Rollout
+
+That sequencing keeps governance, navigation, and data authorization as separate, testable layers, which is consistent with the architecture you've been building throughout the portal program.
