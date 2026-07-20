@@ -45,7 +45,7 @@ interface PortfolioResponse {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const QUICK_ACTIONS = [
-  { label: "Send Rate",         desc: "Deliver rate sheet",      icon: SendHorizonal, href: "/clients?tab=send-rate",    color: "text-purple-400", bg: "bg-purple-500/10" },
+  { label: "Send Rate",         desc: "Deliver rate sheet",      icon: SendHorizonal, href: "/rate-manager",             color: "text-purple-400", bg: "bg-purple-500/10" },
   { label: "Commercial Notice", desc: "Broadcast announcement",  icon: Megaphone,     href: "/commercial-notifications", color: "text-amber-400",  bg: "bg-amber-500/10"  },
   { label: "WhatsApp Alert",    desc: "Send WhatsApp message",   icon: MessageSquare, href: "/whatsapp-alerts",          color: "text-green-400",  bg: "bg-green-500/10"  },
   { label: "View Invoices",     desc: "Review client billing",   icon: FileText,      href: "/invoices",                 color: "text-blue-400",   bg: "bg-blue-500/10"   },

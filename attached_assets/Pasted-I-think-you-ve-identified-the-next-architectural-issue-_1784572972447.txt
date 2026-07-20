@@ -1,0 +1,280 @@
+I think you've identified the next architectural issue correctly. Right now the Commercial Portal is acting as a launcher into the Main Platform, instead of being a self-contained workspace.
+
+From your screenshots, I can see:
+
+Commercial Portal Home has workflow cards (Rate Manager, KAM Dashboard, etc.).
+Clicking many of those cards navigates to existing main-platform pages like /clients, /products, etc.
+The KAM Dashboard quick actions (e.g. Send Rate) also navigate to the legacy Clients page (/clients?tab=send-rate), not a Commercial Portal page.
+Your target Commercial Portal is intentionally much smaller than the current inventory.
+I agree with reducing the scope
+
+The Commercial Portal should only expose these modules:
+
+Top Menu	Access
+Dashboard	Read-only (hierarchy filtered)
+Live Calls	Read-only (hierarchy filtered)
+Live Traffic	Read-only (hierarchy filtered)
+BitsEye	Read-only (hierarchy filtered)
+Clients	Read-only (hierarchy filtered)
+Balance	Read-only (hierarchy filtered)
+Products (Rate Manager)	Read/Write (according to permissions)
+Commercial Reports	Read-only (hierarchy filtered)
+
+Everything else can remain implemented in the platform but should not appear in the Commercial Portal.
+
+Features to remove from the Commercial Portal
+
+I agree with removing these from the Commercial navigation and home page:
+
+❌ Destination Catalog
+❌ Revenue Heatmap
+❌ Carrier Intelligence
+❌ Executive Reports
+❌ Cost Optimisation
+❌ Dispute Defense
+❌ Product Registry
+❌ LCR Analyser
+
+Those can remain in the codebase and even the main platform if they have other consumers, but they should not be surfaced to Commercial users through this portal.
+
+The bigger problem: navigation
+
+The issue is not just the home page cards.
+
+Today the flow is effectively:
+
+Commercial Portal
+        ↓
+Click Clients
+        ↓
+Main Platform (/clients)
+
+It should become:
+
+Commercial Portal
+        ↓
+Click Clients
+        ↓
+Commercial Clients
+
+The same applies to:
+
+Dashboard
+Live Calls
+Live Traffic
+BitsEye
+Balance
+Products
+Commercial Reports
+
+Each top menu should stay inside the Commercial Portal shell.
+
+Recommended implementation order
+
+I would treat this as a dedicated sprint with four steps:
+
+Trim the Commercial Portal
+Remove the workflow cards and menu items you listed.
+Keep only the eight approved top menus.
+Portal-local routing
+Change navigation so menu clicks stay under /commercial/... rather than jumping to /clients, /products, etc.
+Hierarchy integration
+Wire each Commercial page to the Hierarchy Scope Service.
+Apply the data filter before rendering.
+Retire legacy links
+Update KAM Dashboard quick actions (like Send Rate) to point to the Commercial Products/Rate Manager page instead of /clients?tab=send-rate.
+
+This gives you a true portal experience where users remain in the Commercial workspace instead of being dropped back into the main platform.
+
+I would make portal-local routing the next priority, because until the navigation stays within /commercial, the Commercial Portal will continue to feel like a collection of shortcuts rather than its own application.
+
+i want you show this dashboard on comercial and 
+NOC portal
+
+I think that's the right direction, but I would reuse the dashboard with different data scopes, not build two different dashboards.
+
+The screen you shared is an excellent base operational dashboard.
+
+One dashboard component, multiple portal views
+
+Instead of:
+
+NOC Dashboard
+Commercial Dashboard
+
+build:
+
+Live Operations Dashboard
+        │
+        ├── NOC Portal
+        │      └── Full operational scope
+        │
+        └── Commercial Portal
+               └── Hierarchy-filtered scope
+
+The UI stays almost identical. Only the data changes.
+
+NOC Portal
+
+The NOC team needs the complete network.
+
+Cards
+
+Active Calls (Global)
+Active Alerts (Global)
+Degraded Carriers
+Pending Approvals
+
+Charts
+
+Global Traffic
+Global Live Calls
+Global Geography
+
+Tables
+
+All live calls
+Top clients
+Top vendors
+Top routes
+
+Everything is global.
+
+Commercial Portal
+
+Use the same layout, but every query goes through:
+
+Commercial User
+        ↓
+Hierarchy Scope Service
+        ↓
+Visible Accounts
+        ↓
+Dashboard
+
+For example, if Junaid owns 20 accounts:
+
+Instead of
+
+Active Calls = 2 (system)
+
+show
+
+Active Calls = 2 (Junaid's portfolio)
+
+Instead of
+
+Top Clients
+
+show
+
+Top Clients
+(only Junaid's assigned clients)
+
+Instead of
+
+Traffic Geography
+
+show
+
+Traffic Geography
+(only Junaid's customers)
+What should change for Commercial
+
+I'd slightly rename the cards.
+
+NOC	Commercial
+Active Calls	Portfolio Calls
+Active Alerts	Client Alerts
+Degraded Carriers	Portfolio Health
+Pending Approvals	Pending Rate Approvals
+Live Calls
+
+NOC:
+
+Every live call
+
+Commercial:
+
+Only calls belonging to visibleAccountIds
+
+Exactly the same component.
+
+Different query.
+
+Traffic Graph
+
+NOC:
+
+Entire switch
+
+Commercial:
+
+Only portfolio traffic
+Top Clients
+
+NOC:
+
+All clients
+
+Commercial:
+
+My clients
+
+or
+
+My Team's clients
+
+depending on hierarchy.
+
+Geography
+
+NOC:
+
+Entire switch
+
+Commercial:
+
+Only destinations used by portfolio
+Smart Priorities
+
+NOC examples
+
+Gateway Down
+SIP Errors
+Packet Loss
+
+Commercial examples
+
+Low Balance
+Rate Expiring
+Client Quality Drop
+Pending First Rate
+Client No Traffic
+Margin Drop
+The biggest architectural improvement
+
+Don't create:
+
+NOCDashboard.tsx
+
+CommercialDashboard.tsx
+
+Create one reusable dashboard.
+
+Dashboard Component
+        │
+        ├── Data Provider (NOC)
+        │
+        └── Data Provider (Commercial)
+
+The cards, charts, tables, and layout stay identical.
+
+Only the data provider changes.
+
+That matches the architecture you've been building:
+
+NOC Portal = global operational visibility.
+Commercial Portal = hierarchy-filtered operational visibility.
+
+This gives users a consistent experience while ensuring each portal sees only the data appropriate to its role.
