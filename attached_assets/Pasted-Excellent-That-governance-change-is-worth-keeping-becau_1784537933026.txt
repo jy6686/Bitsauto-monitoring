@@ -1,0 +1,98 @@
+Excellent. That governance change is worth keeping because it raises the quality bar for every implementation that follows.
+
+With F0 certified and the certification template frozen, I would treat F1 as the first sprint governed by that standard, not just the next feature.
+
+Before writing code for F1
+
+I would freeze one architectural artifact that every subsequent sprint (F3, F2, Treasury) depends on:
+
+Financial Snapshot Contract
+
+Rather than letting the materialization job evolve organically, define the snapshot schema as a stable contract.
+
+For example:
+
+Field	Purpose
+snapshot_id	Snapshot version identifier
+snapshot_time	Materialization timestamp
+account_id	Client account
+vendor_id	Vendor/carrier
+destination	Destination/prefix
+sell_amount	Rated sell amount
+buy_amount	Rated buy amount
+margin_amount	sell_amount - buy_amount
+margin_percent	Derived margin %
+calls	Total calls
+billed_seconds	Billable duration
+currency	Reporting currency
+source_run_id	FK to materialization_runs
+
+This becomes the canonical dataset consumed by:
+
+Margin Intelligence
+Revenue Drift
+Finance Cockpit
+Client Reconciliation
+AI Revenue Assurance
+Billing Engine
+Treasury
+
+No downstream module should calculate its own margin independently.
+
+Materialization strategy
+
+I'd also define the scheduler behavior before implementation.
+
+Every 30 minutes
+
+Acquire advisory lock
+        │
+        ▼
+Read latest DMR
+        │
+        ▼
+Build financial_snapshot
+        │
+        ▼
+Validate row counts
+        │
+        ▼
+Commit transaction
+        │
+        ▼
+Insert materialization_runs
+        │
+        ▼
+Release lock
+
+Important characteristics:
+
+single transaction
+advisory lock (prevents overlapping runs)
+rollback on failure
+audit entry regardless of outcome
+Certification criteria for F1
+
+Using your new template, I'd define the acceptance criteria up front:
+
+Criterion	Expected
+Snapshot built automatically	✅
+Revenue Drift formula corrected	✅
+Margin Intelligence reads snapshot	✅
+Finance Cockpit reads snapshot	✅
+Materialization history populated	✅
+Scheduler overlap prevented	✅
+Rollback on failure	✅
+Audit row written	✅
+
+That makes certification objective rather than interpretive.
+
+Exit condition for F1
+
+I would consider F1 complete only when the following invariant is true:
+
+Every Finance analytical module (Margin, Revenue Drift, Finance Cockpit) reads exclusively from financial_snapshot, and no production Finance UI reads DMR directly.
+
+That is a stronger and more durable completion criterion than "the scheduler runs," because it guarantees you've established the single source of truth that the rest of the Finance platform will build upon.
+
+At that point, F3 (Reconciliation & AI Evidence) becomes a validation sprint over the same canonical dataset, and F2 (Billing Engine Integration) becomes a publishing sprint from that validated dataset, which is exactly the dependency chain you've established.
