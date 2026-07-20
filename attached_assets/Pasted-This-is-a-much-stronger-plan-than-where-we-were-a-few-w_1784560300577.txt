@@ -1,0 +1,556 @@
+This is a much stronger plan than where we were a few weeks ago. It also aligns well with the architecture we've been freezing. I would approve it with a few refinements.
+
+Sprint #363 — Fix /api/sippy/live-calls NaN 500
+
+Status: ✅ Approve
+
+No changes.
+
+This is an independent production bug and should be fixed immediately.
+
+One addition:
+
+Don't only fix:
+
+/api/sippy/live-calls
+
+Audit every route in server/routes.ts that does:
+
+parseInt(req.query...)
+
+and create a reusable helper instead of repeating the pattern.
+
+Example:
+
+parseQueryInt(value: unknown, defaultValue: number)
+
+Then use it everywhere.
+
+That prevents this class of bug from reappearing.
+
+Sprint #364 — Login & Authentication Foundation
+
+Status: ✅ Approve with one change
+
+This sprint should only establish authentication.
+
+I agree with:
+
+Login validation
+Better error messages
+/api/auth/me
+Logout
+Session validation
+I would slightly expand /api/auth/me
+
+Instead of:
+
+{
+  id,
+  username,
+  email,
+  role,
+  accessScope,
+  defaultPortal,
+  assignedPortals
+}
+
+Return the complete session profile needed by the client.
+
+Example:
+
+{
+    id,
+    username,
+    email,
+
+    role,
+
+    accessScope,
+
+    defaultPortal,
+
+    assignedPortals,
+
+    displayName,
+
+    avatar
+}
+
+Not because we need avatar today—but because this becomes the canonical session object used across the application.
+
+Sprint #365 — Authorization Layer & Portal Routing
+
+Status: ✅ Strongly approve
+
+This is exactly the right place to introduce portal awareness.
+
+Two refinements:
+
+1. Use an enum, not free-form strings
+
+Instead of allowing arbitrary values:
+
+FULL_PLATFORM
+PORTAL_ONLY
+MULTI_PORTAL
+
+Make it a database enum (or constrained type), so the values can't drift over time.
+
+2. Keep ProtectedRoute simple
+
+I completely agree with your decision:
+
+ProtectedRoute only checks authentication.
+
+Authorization belongs in:
+
+AuthorizationProvider
+
+This separation is clean and matches the architecture we've been discussing.
+
+PortalBoundaryGuard
+
+I like this addition.
+
+Example:
+
+Portal User
+
+↓
+
+/
+
+↓
+
+PortalBoundaryGuard
+
+↓
+
+Redirect
+
+↓
+
+/noc
+
+That solves the current escape issue without complicating every route.
+
+/portal-select
+
+Excellent idea.
+
+Future example:
+
+Junaid
+
+↓
+
+Commercial
+
+Finance
+
+NOC
+
+Click one.
+
+Go there.
+
+No custom logic in login.
+
+Sprint #366 — Portal Assignment Manager
+
+Status: ✅ Approve
+
+This is the right time to build it.
+
+One addition:
+
+Instead of:
+
+Portal Access
+
+I would call the tab:
+
+Access & Portals
+
+because it covers both concepts.
+
+Add one field
+
+I would include:
+
+Landing Portal
+
+instead of:
+
+Default Portal
+
+Reason:
+
+"Landing Portal" more clearly communicates its purpose to administrators—it is the portal the user lands in after login.
+
+Internally, the database column can remain default_portal for compatibility.
+
+I would add one more sprint
+
+Between 365 and 366.
+
+Sprint 365.5 — Identity Validation
+
+Before exposing an admin UI, verify the underlying rules.
+
+Examples:
+
+FULL_PLATFORM ignores portal assignments.
+PORTAL_ONLY must have exactly one landing portal.
+MULTI_PORTAL must have at least one assigned portal.
+Landing portal must be included in assigned portals.
+Prevent impossible configurations.
+
+This keeps the business rules centralized instead of relying on the UI to enforce them.
+
+Final implementation order
+Sprint 363
+Live Calls NaN fix
+Sprint 364
+
+Authentication
+
+Login
+Logout
+Session
+/me
+Sprint 365
+
+Authorization
+
+AuthorizationProvider
+PortalBoundaryGuard
+Portal routing
+Landing logic
+Sprint 365.5
+
+Validation
+
+Access rules
+Assignment rules
+Landing rules
+Sprint 366
+
+Administration
+
+Access & Portals management UI
+User assignment
+Then
+
+Resume the NOC Portal:
+
+Curated top menu
+Dashboard improvements
+Live Network
+Operations
+BitsEye
+Analytics
+Intelligence
+Security
+Overall assessment
+
+I would consider this the correct sequence for the platform.
+
+The portal framework is mature enough to pause. Completing authentication, authorization, and portal assignment first gives you the foundation needed for every future portal and eliminates the current issue where portal-only users can escape to the main application by changing the URL.
+
+if remove/noc, /finance from main link it will not take portal to main platform 
+
+Exactly. That should be one of the core rules of the platform.
+
+Desired behavior
+
+Assume a user is assigned:
+
+Access Scope: PORTAL_ONLY
+Default Portal: noc
+
+They log in and are sent to:
+
+https://app.example.com/noc
+
+If they manually change the URL to:
+
+https://app.example.com/
+
+or
+
+https://app.example.com/calls
+
+or
+
+https://app.example.com/team
+
+they must not enter the main platform.
+
+Instead, the authorization layer should intercept the request and redirect them back to their landing portal:
+
+https://app.example.com/noc
+
+or to the corresponding page inside their portal if one exists.
+
+Likewise, a Finance-only user:
+
+Access Scope: PORTAL_ONLY
+Default Portal: finance
+
+logs in to:
+
+/finance
+
+If they remove /finance from the URL:
+
+/
+
+they are immediately redirected back to:
+
+/finance
+
+They never see the main platform.
+
+Full Platform users
+
+A user with:
+
+Access Scope: FULL_PLATFORM
+
+can navigate freely:
+
+/
+/clients
+/team
+/finance
+/noc
+
+because they are explicitly allowed full-platform access.
+
+Multi-Portal users
+
+For:
+
+Access Scope: MULTI_PORTAL
+Assigned Portals:
+- noc
+- finance
+- commercial
+
+they can access:
+
+/noc
+/finance
+/commercial
+
+but not:
+
+/admin
+
+unless Admin is one of their assigned portals or they have full-platform access.
+
+This should be enforced centrally
+
+The enforcement should not rely on every page checking permissions.
+
+Instead, use a centralized guard:
+
+Request
+    ↓
+Authentication
+    ↓
+Authorization
+    ↓
+Route Check
+
+The route check should evaluate:
+
+Is the user authenticated?
+What is their accessScope?
+Is this route part of the main platform or a portal?
+Is the requested portal one of the user's assigned portals?
+
+If the answer is no, redirect to the user's landing route.
+
+I would also refine Sprint #365 slightly
+
+Instead of saying:
+
+"Portal-only users who manually navigate to a main-app route are redirected back to /{defaultPortal}"
+
+I'd make the rule more general:
+
+Any request for a route outside the user's authorized scope is intercepted before rendering. The user is redirected to their landing route (or shown an Access Denied page if appropriate).
+
+That single rule covers:
+
+Removing /noc
+Removing /finance
+Typing /team
+Typing /admin
+Deep-linking into another portal
+Bookmarking unauthorized pages
+
+It's a cleaner, centralized authorization policy and scales naturally as you add more portals.
+
+These screenshots actually reinforce why login and authorization should become the next milestone instead of continuing portal development.
+
+Here's what I observe.
+
+1. Workspace Configuration
+
+This page is configuring platform workspaces, not user access.
+
+It answers:
+
+Is the NOC workspace enabled?
+Is Finance enabled?
+Is Commercial enabled?
+
+It does not answer:
+
+Which user can enter which workspace?
+
+Those are two different concerns.
+
+2. Navigation Governance
+
+This is also platform configuration.
+
+It controls:
+
+portal definitions
+sections
+module assignments
+
+Again, it is not user authorization.
+
+3. Navigation Manager
+
+This controls feature visibility.
+
+It answers:
+
+Should Live Calls appear?
+Should Traffic Map appear?
+
+It does not answer:
+
+Can Junaid enter NOC Portal?
+
+4. Team Management
+
+This is where I think the new work belongs.
+
+Today it manages:
+
+Roles
+KAM
+Monitoring
+Hierarchy
+Alerts
+
+This is the natural place to add another tab.
+
+For example:
+
+Team Members
+
+Role Assignment
+
+Monitoring
+
+KAM
+
+Hierarchy
+
+Traffic Alerts
+
+Portal Access   ← NEW
+
+That tab becomes the administration UI for assigning users to portals.
+
+5. KAM Dashboard
+
+This is a perfect example of why authorization matters.
+
+A KAM should never reach:
+
+/ops-console
+
+or
+
+/noc-command
+
+simply by typing the URL.
+
+Likewise, a NOC user should not be able to access KAM pages unless explicitly assigned.
+
+6. Email Centre
+
+This is another good example.
+
+It's a platform capability, but whether it belongs in the Platform, Commercial Portal, or another portal depends on your final governance. Regardless of where it lives, access should be determined by the user's assigned portals and permissions, not just by whether the page exists.
+
+What I think is missing
+
+You already have three important administration areas:
+
+Workspace Configuration
+Navigation Governance
+Navigation Manager
+
+The missing piece is User Portal Access.
+
+I would add it to Team Management, not as a separate administration page.
+
+For each user, an administrator should be able to configure:
+
+Field	Example
+Access Scope	Full Platform / Portal Only / Multi-Portal
+Landing Portal	NOC
+Assigned Portals	NOC, Commercial
+Role	Existing role
+Status	Active / Disabled
+Responsibility separation
+
+The architecture then becomes:
+
+Workspace Configuration
+
+Defines which workspaces exist.
+
+Navigation Governance
+
+Defines which modules belong to which workspace.
+
+Navigation Manager
+
+Defines what appears in navigation.
+
+Team → Portal Access
+
+Defines who can enter which portal.
+
+Login
+
+Reads those assignments and sends the user to the correct landing page.
+
+Authorization
+
+Prevents users from leaving their permitted scope by changing the URL.
+
+I think this sequence is now clear
+
+From what you've shown, I would pause portal feature work and implement:
+
+Fix the live-calls NaN bug.
+Complete the login/authentication foundation.
+Build the authorization layer.
+Add the Portal Access tab to Team Management.
+Enforce portal boundaries.
+Resume NOC Portal development.
+
+That order builds on the administration tools you've already created instead of introducing another separate management interface, and it addresses the current issue where removing /noc or /finance from the URL can expose the main platform.
