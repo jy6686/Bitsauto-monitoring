@@ -1,0 +1,59 @@
+I approve the queue with one adjustment to keep it aligned with the governance we've established.
+
+Approved Sprint Queue
+#	Sprint	Status
+✅ #363	Live Calls NaN Fix + parseQueryInt() helper	Approved
+✅ #364	Login & Authentication Foundation	Approved
+✅ #365	Authorization Layer & Portal Routing	Approved
+✅ #367	Identity Validation – Access Rule Enforcement	Approved
+✅ #366	Portal Assignment Manager (Access & Portals)	Approved
+One addition before resuming the NOC Portal
+
+Before implementing the NOC Portal UI, I would add a short planning milestone:
+
+NOC Feature Assignment Matrix
+
+Not new code—just a governance artifact.
+
+For every module in the platform, decide:
+
+Feature	NOC	Commercial	Finance	Admin	Notes
+Live Calls	✅	✅ (read-only)	❌	✅	Different permissions
+Traffic Map	✅	❌	❌	✅	
+Billing	❌	❌	✅	✅	
+KAM Dashboard	❌	✅	❌	✅	
+Email Centre	❌	✅	❌	✅	
+Route Tester	✅	❌	❌	✅	
+
+This becomes the source of truth for portal assignments.
+
+One governance rule I'd add to the document
+
+The principle shouldn't just say:
+
+"The menu name can be the same across portals."
+
+I'd add:
+
+Portal membership is determined at the feature level, not the menu level. A menu is only a grouping mechanism. Features are independently assigned to one or more portals based on business ownership and operational need.
+
+That captures exactly what you've been describing:
+
+NOC owns operational features.
+Finance owns financial features.
+Commercial owns customer/business features.
+Admin owns platform administration.
+
+A menu title like Clients is just a container; it does not imply the same contents in every portal.
+
+After Sprint #366
+
+Only then would I continue with the NOC Portal:
+
+Build the curated NOC top menu.
+Populate it with only the NOC-approved features from the assignment matrix.
+Verify there are no finance or commercial features exposed.
+Freeze the NOC Portal as the reference implementation.
+Repeat the same feature-assignment process for Commercial, Finance, Admin, and future portals.
+
+That sequence keeps the implementation consistent with the governance model you've already built and avoids moving whole menus when only selected features belong in a given portal.

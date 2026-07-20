@@ -1,0 +1,374 @@
+ets work one by one first NOC portal, move attached in noc portal including what already in NOC portal do not change
+
+
+I agree. Let's freeze every other portal and design only the NOC Portal first.
+
+Also, let's keep one important rule:
+
+Everything already in the NOC Portal stays exactly as it is. We only add the missing NOC-owned features.
+
+From your screenshot, we'll start with these top menus:
+
+Clients
+Operations
+BitsEye
+Analytics
+Intelligence
+Security
+NOC Portal v1
+Dashboard
+
+Keep existing
+
+NOC Dashboard
+Live KPIs
+Quick Actions
+Health Cards
+Chat
+
+Keep existing
+
+Team Chat
+Incident Chat
+Live Network
+
+Keep existing
+
+Live Calls
+Live Traffic
+Traffic Map
+
+No changes.
+
+Clients
+
+This is where we begin adding features.
+
+The screenshot shows:
+
+Clients
+
+Account Management
+Onboarding
+Assets & Numbers
+
+For the NOC Portal, I recommend:
+
+Account Management
+
+Move:
+
+✅ Accounts
+✅ Client Identity
+
+Do not move:
+
+❌ KAM Dashboard
+❌ Company List
+
+Reason:
+
+KAM and Company List are commercial/customer-management functions.
+
+Onboarding
+
+Move only the technical onboarding capabilities:
+
+✅ Create Test Account
+✅ SIP Account Provisioning
+✅ Assign Switch
+✅ Assign SIP Profile
+✅ Configure Authentication
+✅ Configure IP
+✅ Enable Test Routing
+
+Do not move:
+
+❌ Commercial onboarding
+❌ Contract setup
+❌ Credit approval
+Assets & Numbers
+
+Move all technical inventory:
+
+✅ DID Inventory
+✅ Number Assignment
+✅ Test Numbers
+✅ SIP Numbers
+✅ CLI Mapping
+
+These are operational responsibilities.
+
+Existing NOC client features
+
+Keep:
+
+Active Calls
+Client Status
+Client Health
+Client Routes
+Client Contacts
+Client Balance (Read Only)
+Final Clients menu
+Clients
+
+Account Management
+    Accounts
+    Client Identity
+
+Technical Onboarding
+    Create Test Account
+    SIP Provisioning
+    Switch Assignment
+    SIP Profile
+    Authentication
+    IP Configuration
+    Test Routing
+
+Assets & Numbers
+    DID Inventory
+    Number Assignment
+    Test Numbers
+    SIP Numbers
+    CLI Mapping
+
+Operations
+    Active Calls
+    Client Status
+    Client Health
+    Client Routes
+    Client Contacts
+    Client Balance (Read Only)
+This is our approach going forward
+
+We'll work one menu at a time:
+
+✅ Clients (current task)
+Operations
+BitsEye
+Analytics
+Intelligence
+Security
+
+For each menu, we'll apply the same rule:
+
+Keep everything already in the NOC Portal.
+Move only features that belong to NOC operations.
+Do not move commercial or finance functionality.
+
+By the end, we'll have a complete NOC Portal Feature Matrix that can be implemented without affecting the Commercial or Finance portal designs.
+
+This is our approach going forward
+
+We'll work one menu at a time:
+
+✅ Clients full menu, do not mention sub menu its creating confusion , what you mentioned is not like that
+Operations
+BitsEye
+Analytics
+Intelligence
+Security
+
+Final Clients menu in portal its totally different:
+Clients
+
+Account Management
+    Accounts
+    Client Identity
+
+Technical Onboarding
+    Create Test Account
+    SIP Provisioning
+    Switch Assignment
+    SIP Profile
+    Authentication
+    IP Configuration
+    Test Routing
+
+Assets & Numbers
+    DID Inventory
+    Number Assignment
+    Test Numbers
+    SIP Numbers
+    CLI Mapping
+
+Operations
+    Active Calls
+    Client Status
+    Client Health
+    Client Routes
+    Client Contacts
+    Client Balance (Read Only)
+
+I agree, and I think we've identified the source of the confusion.
+
+I was redesigning the Clients menu. That's not what we decided.
+
+What we actually decided is:
+
+Keep the existing Clients menu structure exactly as it is.
+Move the NOC-owned features into the NOC Portal.
+Do not redesign or rename the menu.
+Do not invent new submenus.
+
+So from now on, we'll work at the feature level, not by creating a new menu hierarchy.
+
+NOC Portal – Clients
+
+We'll take the existing Clients menu and move only the features that belong to NOC.
+
+For example:
+
+Include
+Accounts
+Client Identity
+Technical Onboarding (existing technical features only)
+Assets & Numbers
+Test Account creation/configuration
+SIP provisioning/configuration
+IP authentication
+Routing assignment
+DID/Number management
+Client Status
+Active Calls
+Client Health
+Client Routes
+Client Contacts
+Client Balance (Read Only)
+Do not include
+KAM Dashboard
+Contracts
+CRM
+Commercial approvals
+Pricing
+Rate Manager
+Sales pipeline
+Commercial notices
+Email Centre
+
+Those remain for the Commercial Portal.
+
+New Working Rule
+
+From this point onward, we will not redesign menus.
+
+For every top menu:
+
+Clients
+Operations
+BitsEye
+Analytics
+Intelligence
+Security
+
+we will simply answer one question:
+
+Which existing features belong in the NOC Portal?
+
+No new menu names.
+No new submenu structure.
+No UI redesign.
+
+We'll use the platform as it already exists and assign features to the NOC Portal based on ownership.
+
+I think that's a much better approach because it matches your governance model and makes implementation straightforward. After we finish Clients, we'll move to Operations, then BitsEye, and continue menu by menu until the NOC Portal feature assignment is complete.
+
+in my opinion Email Centre is in NOC portal, all client/vendor configuration would part of NOC portal
+Thought for 10s
+
+I think that's a valid architectural decision, and it actually makes sense for a telecom operations platform.
+
+The key is to define what "Email Centre" means.
+
+If it's:
+
+Customer outage notifications
+Maintenance notifications
+Low balance alerts
+Route migration notices
+Technical announcements
+Vendor maintenance notifications
+Network maintenance emails
+
+then it is an operational communication tool, and it belongs in the NOC Portal.
+
+Similarly, if NOC is responsible for creating and configuring customers and vendors technically, then the NOC Portal should own all technical client/vendor configuration.
+
+Revised NOC ownership
+Clients
+
+Include all technical customer configuration:
+
+Accounts
+Client Identity
+Onboarding
+Assets & Numbers
+Technical Profiles
+Test Account Management
+SIP Configuration
+Routing Configuration
+Authentication
+IP Whitelisting
+DID/CLI Management
+Client Status
+Client Health
+Active Calls
+Client Contacts
+Client Routes
+Client Balance (read-only)
+Vendors
+
+Likewise, NOC should own technical vendor configuration:
+
+Vendor Accounts
+Vendor Identity
+SIP Configuration
+Routing
+Authentication
+Capacity
+Technical Contacts
+Route Assignment
+Technical Status
+Email Centre
+
+I would move Email Centre into the NOC Portal provided its purpose is operational communications.
+
+Examples:
+
+Maintenance notices
+Emergency notifications
+Planned outages
+Low balance alerts
+Technical announcements
+Vendor notifications
+Customer operational notices
+
+That fits naturally with NOC responsibilities.
+
+Commercial Portal becomes simpler
+
+Commercial would then focus on business activities, such as:
+
+CRM
+Contracts
+Sales
+Rate Management
+Commercial Analytics
+Customer Portfolio
+Disputes
+Account Management (business side)
+
+Not technical provisioning.
+
+Ownership rule
+
+I think we've arrived at a clearer governance rule:
+
+NOC Portal owns technical operations and technical client/vendor configuration.
+Commercial Portal owns business relationships and commercial activities.
+Finance Portal owns financial operations.
+Admin/Main Platform owns platform administration.
+
+That means we won't decide based on the page title (for example, "Clients" or "Email Centre"). We'll decide based on business ownership.
+
+If NOC is responsible for configuring it, operating it, or communicating technical events about it, it belongs in the NOC Portal—even if the feature is under a "Clients" menu today.
