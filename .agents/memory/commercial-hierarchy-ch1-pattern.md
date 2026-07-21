@@ -39,9 +39,34 @@ Where live data is needed (calls, revenue, health), the UI fetches TWO endpoints
 
 Merge with a `useMemo` Map by `accountId`. This avoids re-querying Sippy per page render.
 
+## resolveCommercialScope(req) — CH-2 addition
+
+All endpoints now call this single helper instead of repeating the admin-check + scope-call boilerplate:
+
+```ts
+const scope = await resolveCommercialScope(req);
+// scope.accountIds, scope.kamIds, scope.orgRole, scope.scopeError, scope.isAdmin
+if (scope.scopeError) return res.json({ data: [], scopeError: scope.scopeError, ... });
+const inClause = buildInClause(scope.accountIds); // returns { placeholders, params } or null
+```
+
+## /api/commercial/scope endpoint (CH-2 addition)
+
+Returns full `{ accountIds, kamIds, orgRole, isAdmin, scopeError }` without pagination.
+Used by frontend modules that need the accountIds Set for client-side intersection
+(e.g. CH-2: filters live calls by scoped accountIds).
+
+This is NOT hierarchy in the UI — the UI receives a server-resolved list and uses it
+only as a lookup key. Hierarchy stays server-side.
+
+## CH-2 Live Calls pattern
+Frontend: fetch `/api/commercial/scope` + `/api/sippy/live-calls`, build a Set from
+accountIds, filter allCalls where `call.accountId ∈ scopeSet`. Auto-refreshes every 15s.
+
 ## Files
-- `server/routes-commercial.ts` — all Commercial API routes
+- `server/routes-commercial.ts` — all Commercial API routes; resolveCommercialScope() here
 - `server/services/commercial/hierarchy-scope.ts` — `getVisibleAccountIds()` + `getAllAccountIds()`
-- `client/src/pages/commercial-clients.tsx` — reference implementation
+- `client/src/pages/commercial-clients.tsx` — CH-1 reference implementation
+- `client/src/pages/commercial-live-calls.tsx` — CH-2 reference implementation
 - `client/src/portals/configs/commercial.config.ts` — nav config
 - `.local/governance/COMMERCIAL-DASHBOARD-GOVERNANCE.md` — governance rules

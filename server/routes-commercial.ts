@@ -3,12 +3,18 @@
  *
  * Commercial Portal API — hierarchy-scoped endpoints.
  *
- * Every endpoint here resolves getVisibleAccountIds(userId) before touching any
- * data, ensuring the response contains only accounts within the caller's
- * commercial hierarchy.  Admin / super_admin users receive getAllAccountIds()
- * (the full scope) so the dashboard stays useful for management.
+ * Every endpoint resolves commercial scope via resolveCommercialScope(req)
+ * before touching any data.  Admin / super_admin users receive the full
+ * platform scope (getAllAccountIds); everyone else gets the subtree visible
+ * through their KAM hierarchy (getVisibleAccountIds).
  *
  * Registered via registerCommercialRoutes(app) from routes.ts.
+ *
+ * CH-1 pattern (canonical — all future modules must follow):
+ *   1. resolveCommercialScope(req)   — single call, handles admin override
+ *   2. early-return on scopeError    — consistent error shape
+ *   3. WHERE account_id IN (...)     — parameterised, never string-concat
+ *   4. return scope metadata         — scopeError, kamIds, orgRole alongside data
  */
 
 import { Express } from 'express';
@@ -18,56 +24,98 @@ import { inArray } from 'drizzle-orm';
 import {
   getVisibleAccountIds,
   getAllAccountIds,
+  type CommercialScope,
 } from './services/commercial/hierarchy-scope';
 
-// ── Auth guard (inline — avoids cross-file import issues) ────────────────────
+// ── Auth guard ────────────────────────────────────────────────────────────────
 function requireAuth(req: any, res: any, next: any) {
   if (!req.user?.claims?.sub) return res.status(401).json({ error: 'Unauthorized' });
   next();
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-function isAdminRole(role?: string): boolean {
-  return ['admin', 'super_admin'].includes(role ?? '');
+// ── resolveCommercialScope ────────────────────────────────────────────────────
+//
+// Single call per endpoint.  Encapsulates the admin-override check and the
+// hierarchy tree walk so every route stays thin.
+//
+// Returns CommercialScope augmented with an isAdmin flag.
+//
+interface ResolvedScope extends CommercialScope {
+  isAdmin: boolean;
+}
+
+async function resolveCommercialScope(req: any): Promise<ResolvedScope> {
+  const userId   = req.user.claims.sub as string;
+  const userRole = req.user?.claims?.role ?? req.user?.claims?.org_role ?? '';
+  const isAdmin  = ['admin', 'super_admin'].includes(userRole);
+
+  const scope = isAdmin
+    ? await getAllAccountIds()
+    : await getVisibleAccountIds(userId);
+
+  return { ...scope, isAdmin };
+}
+
+// ── SQL helpers ───────────────────────────────────────────────────────────────
+//
+// Build a postgres $1,$2,... placeholder string and corresponding params array
+// for an IN clause.  Returns null when the list is empty so callers can bail
+// early before issuing a query.
+//
+function buildInClause(ids: string[]): { placeholders: string; params: string[] } | null {
+  if (ids.length === 0) return null;
+  return {
+    placeholders: ids.map((_, i) => `$${i + 1}`).join(', '),
+    params:       [...ids],
+  };
 }
 
 // ── Route registration ────────────────────────────────────────────────────────
 export function registerCommercialRoutes(app: Express) {
 
-  // ── GET /api/commercial/dashboard/kpis ──────────────────────────────────────
+  // ── GET /api/commercial/scope ─────────────────────────────────────────────
   //
-  // Returns cross-table KPIs that require DB queries, scoped to the caller's
-  // commercial hierarchy.  KPIs derivable purely from the portfolio response
-  // (liveCallCount, calls24h, revenue24h, healthScore, state) are computed on
-  // the frontend to avoid redundant Sippy round-trips.
+  // Returns the authenticated user's complete commercial scope — account IDs,
+  // KAM IDs, org role — without any module-specific data.
   //
-  // Response shape:
-  //   accountCount     — number of Sippy accounts in hierarchy scope
-  //   pendingFirstRate — rate_notification_jobs in 'pending_rates' state for scope
-  //   pendingApproval  — rate_notification_jobs in 'pending_approval' state for scope
-  //   scopeError       — 'no_kam_link' | 'no_accounts' | null
+  // Used by frontend modules that need the full accountIds list for client-side
+  // filtering (e.g. CH-2 live calls: fetch all calls, keep only scoped accounts).
+  //
+  // Hierarchy resolution is always server-side.  The frontend never computes
+  // which accounts are in scope — it only uses this list as a lookup key.
+  //
+  // Response: { accountIds, kamIds, orgRole, isAdmin, scopeError }
+  app.get('/api/commercial/scope', requireAuth, async (req: any, res: any) => {
+    try {
+      const scope = await resolveCommercialScope(req);
+      res.json({
+        accountIds: scope.accountIds,
+        kamIds:     scope.kamIds,
+        orgRole:    scope.orgRole,
+        isAdmin:    scope.isAdmin,
+        scopeError: scope.scopeError ?? null,
+      });
+    } catch (err: any) {
+      console.error('[commercial/scope]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/commercial/dashboard/kpis ─────────────────────────────────────
+  //
+  // Returns cross-table KPIs scoped to the caller's commercial hierarchy.
+  //
+  // Response: { accountCount, pendingFirstRate, pendingApproval, scopeError }
   app.get('/api/commercial/dashboard/kpis', requireAuth, async (req: any, res: any) => {
     try {
-      const userId   = req.user.claims.sub as string;
-      const userRole = req.user?.claims?.role ?? req.user?.claims?.org_role ?? '';
+      const scope = await resolveCommercialScope(req);
 
-      // Admin / super_admin → full platform scope (no hierarchy filter)
-      const scope = isAdminRole(userRole)
-        ? await getAllAccountIds()
-        : await getVisibleAccountIds(userId);
-
-      // Scope error — no KAM link or no accounts assigned yet
       if (scope.scopeError) {
-        return res.json({
-          scopeError:      scope.scopeError,
-          accountCount:    0,
-          pendingFirstRate: 0,
-          pendingApproval:  0,
-        });
+        return res.json({ scopeError: scope.scopeError, accountCount: 0, pendingFirstRate: 0, pendingApproval: 0 });
       }
 
       const accountIds = scope.accountIds
-        .map(id => typeof id === 'string' ? parseInt(id, 10) : Number(id))
+        .map(id => (typeof id === 'string' ? parseInt(id, 10) : Number(id)))
         .filter(n => !isNaN(n) && n > 0);
 
       let pendingFirstRate = 0;
@@ -75,10 +123,7 @@ export function registerCommercialRoutes(app: Express) {
 
       if (accountIds.length > 0) {
         const jobs = await db
-          .select({
-            id:     rateNotificationJobs.id,
-            status: rateNotificationJobs.status,
-          })
+          .select({ id: rateNotificationJobs.id, status: rateNotificationJobs.status })
           .from(rateNotificationJobs)
           .where(inArray(rateNotificationJobs.iAccount, accountIds));
 
@@ -86,12 +131,7 @@ export function registerCommercialRoutes(app: Express) {
         pendingApproval  = jobs.filter(j => j.status === 'pending_approval').length;
       }
 
-      res.json({
-        accountCount:    accountIds.length,
-        pendingFirstRate,
-        pendingApproval,
-        scopeError:      null,
-      });
+      res.json({ accountCount: accountIds.length, pendingFirstRate, pendingApproval, scopeError: null });
 
     } catch (err: any) {
       console.error('[commercial/kpis]', err.message);
@@ -101,38 +141,22 @@ export function registerCommercialRoutes(app: Express) {
 
   // ── GET /api/commercial/clients ─────────────────────────────────────────────
   //
-  // Returns the authenticated user's portfolio client list, scoped to their
-  // hierarchy.  Joins kam_accounts with kams so KAM name is available for
-  // team-lead and manager views.
+  // Returns the hierarchy-scoped client list with KAM attribution.
   //
-  // Query params:
-  //   search  — case-insensitive substring match on client_name or account_id
-  //   page    — 1-based page number (default 1)
-  //   limit   — rows per page (default 50, max 200)
+  // Query params: search (ILIKE on name/accountId), page (1-based), limit (max 200)
   //
-  // Response shape:
-  //   clients      — array of { accountId, clientName, kamId, kamName, orgRole }
-  //   total        — total matching rows (before pagination)
-  //   scopeError   — 'no_kam_link' | 'no_accounts' | null
-  //   kamIds       — KAM node IDs in scope (useful for debugging)
-  //   orgRole      — caller's org role (null if admin override)
+  // Response: { clients[], total, scopeError, kamIds, orgRole }
   app.get('/api/commercial/clients', requireAuth, async (req: any, res: any) => {
     try {
-      const userId   = req.user.claims.sub as string;
-      const userRole = req.user?.claims?.role ?? req.user?.claims?.org_role ?? '';
-
-      const scope = isAdminRole(userRole)
-        ? await getAllAccountIds()
-        : await getVisibleAccountIds(userId);
+      const scope = await resolveCommercialScope(req);
 
       if (scope.scopeError) {
-        return res.json({
-          clients:    [],
-          total:      0,
-          scopeError: scope.scopeError,
-          kamIds:     [],
-          orgRole:    scope.orgRole,
-        });
+        return res.json({ clients: [], total: 0, scopeError: scope.scopeError, kamIds: [], orgRole: scope.orgRole });
+      }
+
+      const inClause = buildInClause(scope.accountIds);
+      if (!inClause) {
+        return res.json({ clients: [], total: 0, scopeError: null, kamIds: scope.kamIds, orgRole: scope.orgRole });
       }
 
       const search = (req.query.search as string | undefined)?.trim() ?? '';
@@ -140,14 +164,7 @@ export function registerCommercialRoutes(app: Express) {
       const limit  = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
       const offset = (page - 1) * limit;
 
-      // Build WHERE clause: account_id IN scope + optional search
-      const accountIdList = scope.accountIds;
-      if (accountIdList.length === 0) {
-        return res.json({ clients: [], total: 0, scopeError: null, kamIds: scope.kamIds, orgRole: scope.orgRole });
-      }
-
-      const placeholders = accountIdList.map((_, i) => `$${i + 1}`).join(', ');
-      const baseParams: any[] = [...accountIdList];
+      const { placeholders, params: baseParams } = inClause;
 
       let whereSearch = '';
       if (search) {
@@ -166,8 +183,8 @@ export function registerCommercialRoutes(app: Express) {
       const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
 
       const dataParams = [...baseParams, limit, offset];
-      const limitIdx  = dataParams.length - 1;
-      const offsetIdx = dataParams.length;
+      const limitIdx   = dataParams.length - 1;
+      const offsetIdx  = dataParams.length;
 
       const rows = await pool.query<{
         account_id:  string;
@@ -191,16 +208,14 @@ export function registerCommercialRoutes(app: Express) {
         dataParams
       );
 
-      const clients = rows.rows.map(r => ({
-        accountId:  r.account_id,
-        clientName: r.client_name ?? `Account ${r.account_id}`,
-        kamId:      r.kam_id,
-        kamName:    r.kam_name ?? '—',
-        orgRole:    r.org_role ?? null,
-      }));
-
       res.json({
-        clients,
+        clients: rows.rows.map(r => ({
+          accountId:  r.account_id,
+          clientName: r.client_name ?? `Account ${r.account_id}`,
+          kamId:      r.kam_id,
+          kamName:    r.kam_name ?? '—',
+          orgRole:    r.org_role ?? null,
+        })),
         total,
         scopeError: null,
         kamIds:     scope.kamIds,

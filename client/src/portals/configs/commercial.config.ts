@@ -32,10 +32,10 @@ export const commercialPortalConfig: PortalConfig = {
         icon:  'layout-dashboard',
       },
 
-      // 2. Live Calls — read-only, hierarchy filtered
+      // 2. Live Calls — read-only, hierarchy filtered (portfolio-scoped page)
       {
         label: 'Live Calls',
-        path:  '/calls',
+        path:  '/commercial-live-calls',
         icon:  'phone',
       },
 

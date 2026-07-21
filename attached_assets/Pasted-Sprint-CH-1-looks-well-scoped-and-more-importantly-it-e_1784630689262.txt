@@ -1,0 +1,158 @@
+Sprint CH-1 looks well-scoped and, more importantly, it establishes a reusable integration pattern rather than solving only the Clients page.
+
+Assessment
+
+The most valuable outcome is the pattern you've created:
+
+Authenticated User
+        ↓
+Hierarchy Scope Service
+        ↓
+Visible Account IDs
+        ↓
+Scoped API
+        ↓
+Commercial Page
+
+That is exactly the architecture you wanted when you froze the Commercial Governance rules.
+
+CH-1 Review
+Backend
+
+✅ /api/commercial/clients
+
+Hierarchy resolved first.
+Admin override handled separately.
+Parameterized SQL.
+Search/pagination preserved.
+Returns scope metadata (scopeError, kamIds, orgRole) alongside the data.
+
+That is a good API contract.
+
+Frontend
+
+The new page is doing the right things:
+
+Scope banner
+Portfolio KPIs
+Search
+Pagination
+Portfolio merge
+
+Importantly:
+
+The UI is not implementing hierarchy.
+
+It's consuming a hierarchy-aware API.
+
+That's the correct separation.
+
+Routing
+
+This is an important improvement:
+
+Commercial Portal
+        ↓
+Clients
+        ↓
+/commercial-clients
+
+instead of
+
+Commercial Portal
+        ↓
+Clients
+        ↓
+/clients
+
+You're gradually removing dependencies on the Main Platform navigation.
+
+The pattern I'd freeze
+
+I would now make CH-1 the canonical implementation pattern.
+
+Every Commercial module should follow exactly these phases:
+
+Phase 1
+
+Resolve scope.
+
+getVisibleAccountIds()
+Phase 2
+
+Execute scoped SQL.
+
+WHERE account_id IN (...)
+Phase 3
+
+Return commercial metadata.
+
+For example:
+
+{
+  "scopeError": null,
+  "orgRole": "Manager",
+  "kamIds": [],
+  "data": []
+}
+Phase 4
+
+Render.
+
+React should never compute hierarchy.
+
+Before CH-2
+
+I would make one small refinement.
+
+Instead of every route calling:
+
+getVisibleAccountIds(...)
+
+consider a helper.
+
+For example:
+
+resolveCommercialScope(req)
+
+which returns:
+
+{
+    accountIds,
+    kamIds,
+    orgRole,
+    scopeError,
+    isAdmin
+}
+
+Then every endpoint becomes:
+
+const scope = await resolveCommercialScope(req);
+
+const rows = await query(scope.accountIds);
+
+That removes repeated boilerplate before CH-2 through CH-7.
+
+Next Sprint
+
+I still recommend:
+
+CH-2 — Live Calls
+
+because it exercises the hierarchy service against real-time data, which is the hardest workload after Clients.
+
+The query pattern becomes almost identical:
+
+Authenticated User
+        ↓
+resolveCommercialScope()
+        ↓
+Visible Account IDs
+        ↓
+Live Calls Query
+        ↓
+Commercial Live Calls
+
+If CH-2 follows the same structure you've established in CH-1, the remaining modules (Live Traffic, BitsEye2, Balance, Products, Reports) should become largely mechanical integrations rather than new architectural work.
+
+At this point, CH-1 has effectively become the reference implementation for all future Commercial module integrations.
