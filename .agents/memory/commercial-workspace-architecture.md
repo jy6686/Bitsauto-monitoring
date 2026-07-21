@@ -52,9 +52,24 @@ Section Component
 | Products      | 3-tab: Rate Analysis/Push History/Send Rate | ✅ | A   |
 | Reports       | 3-tab: Revenue/Traffic/P&L (inline)   | ✅     | A      |
 
+## Sprint B — Intelligence section (added after Dashboard)
+
+`IntelligenceSection`: 2×2 panel grid visible all at once (no tabs).
+- **Traffic**: hourly sparkline (SVG, no lib) + top-5 by calls24h from context
+- **Quality**: MOS/Jitter/PktLoss from `/api/commercial/intelligence` endpoint; 4h trend badge
+- **Risk**: flagged accounts derived from portfolio context (zero_traffic/at_risk/degraded/declining)
+- **Commercial**: 7d revenue sparkline + top-4 + growing/attention columns from context
+
+Backend: `GET /api/commercial/intelligence` — three DB queries in one endpoint:
+  hourlyTrend (concurrent_snapshots, dim=client), qualityMetrics (mos_hourly + rtp_quality_history), revenueTrend (financial_snapshot 7d, scope-filtered)
+
+Risk + Commercial computed client-side from shared portfolio context — no extra API calls.
+
+`Sparkline` SVG helper, `mosColor`, `ScopeAlertInline` are shared helpers inside commercial-workspace.tsx.
+
 ## Sprint A — canonical pattern confirmed
 
-All 7 sections now follow the same pattern:
+All 8 sections now follow the same pattern:
 - **Backend**: `resolveCommercialScope()` → service/Sippy → scoped DTO
 - **Frontend**: `useCommercialWorkspace()` → section-level query for specific data
 

@@ -24,6 +24,7 @@ import {
   TrendingUp, TrendingDown, Minus,
   RefreshCw, ShieldAlert, DollarSign,
   ExternalLink, FileText, ArrowRight, Lock, Globe,
+  Gauge, Zap, CheckCircle2, XCircle, AlertCircle, Signal,
   type LucideProps,
 } from "lucide-react";
 import {
@@ -34,7 +35,7 @@ import {
 // ── Section ID ────────────────────────────────────────────────────────────────
 
 type SectionId =
-  | 'dashboard' | 'clients' | 'live-calls'
+  | 'dashboard' | 'intelligence' | 'clients' | 'live-calls'
   | 'live-traffic' | 'balance' | 'products' | 'reports';
 
 // ── Shared micro-components ───────────────────────────────────────────────────
@@ -1223,18 +1224,398 @@ function ScopeAlertInline({ error }: { error: string }) {
   );
 }
 
+// ── Sprint B: Portfolio Intelligence ─────────────────────────────────────────
+//
+// Goal: KAM opens workspace and understands portfolio health in ≤ 60 seconds.
+// Layout: 2×2 panel grid (Traffic · Quality · Risk · Commercial) — all visible
+// at once, no tabs. Risk + Commercial panels derive from the shared portfolio
+// context so no extra round-trips are needed.
+//
+// Backend endpoint: GET /api/commercial/intelligence
+//   hourlyTrend   — concurrent_snapshots (dim=client, last 24h by hour)
+//   qualityMetrics— mos_hourly + rtp_quality_history (24h aggregate + trend)
+//   revenueTrend  — financial_snapshot (7d, scope-filtered)
+
+interface HourlyPoint  { hour: string; calls: number }
+interface RevPoint     { date: string; revenue: number; margin: number }
+interface QualityMeta  {
+  avgMos:     number | null;
+  avgJitter:  number | null;
+  avgPktLoss: number | null;
+  callCount:  number;
+  trend:      'improving' | 'stable' | 'declining';
+}
+interface IntelResp {
+  hourlyTrend:    HourlyPoint[];
+  qualityMetrics: QualityMeta | null;
+  revenueTrend:   RevPoint[];
+  scopeError:     string | null;
+  orgRole:        string | null;
+  scoredAt:       string;
+}
+
+// ── Inline SVG sparkline (no external library) ─────────────────────────────
+function Sparkline({ data, color = 'currentColor', h = 36, w = 160 }: {
+  data:  number[];
+  color?: string;
+  h?:    number;
+  w?:    number;
+}) {
+  if (data.length < 2) {
+    return <div className="rounded bg-muted/20" style={{ width: w, height: h }} />;
+  }
+  const max = Math.max(...data, 1);
+  const pad = 2;
+  const pts = data.map((v, i) =>
+    `${pad + (i / (data.length - 1)) * (w - pad * 2)},${h - pad - ((v / max) * (h - pad * 2))}`
+  ).join(' ');
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="overflow-visible">
+      <polyline
+        points={pts}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+// ── MOS quality colour helper ──────────────────────────────────────────────
+function mosColor(mos: number | null) {
+  if (mos === null)  return 'text-muted-foreground';
+  if (mos >= 4.0)    return 'text-emerald-400';
+  if (mos >= 3.5)    return 'text-sky-400';
+  if (mos >= 3.0)    return 'text-amber-400';
+  return 'text-red-400';
+}
+
+function IntelligenceSection() {
+  const { portfolio } = useCommercialWorkspace();
+
+  const intel = useQuery<IntelResp>({
+    queryKey: ['/api/commercial/intelligence'],
+    staleTime: 30_000,
+    refetchInterval: 120_000,
+  });
+
+  const data = intel.data;
+
+  // ── Derived from portfolio context (no extra round-trip) ──────────────────
+  const byVolume   = useMemo(() => [...portfolio].sort((a, b) => (b.calls24h ?? 0) - (a.calls24h ?? 0)), [portfolio]);
+  const byRevenue  = useMemo(() => [...portfolio].sort((a, b) => (b.revenue24h ?? 0) - (a.revenue24h ?? 0)), [portfolio]);
+  const growing    = useMemo(() => portfolio.filter(a => a.trendDirection === 'up'),   [portfolio]);
+  const declining  = useMemo(() => portfolio.filter(a => a.trendDirection === 'down'), [portfolio]);
+
+  const riskFlags = useMemo(() => {
+    const flags: Array<{ accountId: string; name: string; reasons: string[] }> = [];
+    portfolio.forEach(a => {
+      const r: string[] = [];
+      if ((a.calls24h   ?? 0) === 0)             r.push('zero_traffic');
+      if (a.state === 'at_risk')                  r.push('at_risk');
+      if (a.state === 'degraded')                 r.push('degraded');
+      if (a.trendDirection === 'down')            r.push('declining');
+      if (r.length) flags.push({ accountId: a.accountId, name: a.clientName, reasons: r });
+    });
+    return flags;
+  }, [portfolio]);
+
+  const hourlyValues = (data?.hourlyTrend ?? []).map(p => p.calls);
+  const peakCalls    = hourlyValues.length ? Math.max(...hourlyValues) : 0;
+
+  const revValues    = (data?.revenueTrend ?? []).map(p => p.revenue);
+  const totalRev7d   = revValues.reduce((s, v) => s + v, 0);
+
+  const qm = data?.qualityMetrics;
+
+  const REASON_LABEL: Record<string, string> = {
+    zero_traffic: 'No Traffic',
+    at_risk:      'At Risk',
+    degraded:     'Degraded',
+    declining:    'Declining',
+  };
+  const REASON_COLOR: Record<string, string> = {
+    zero_traffic: 'text-slate-400 bg-slate-500/10 border-slate-500/30',
+    at_risk:      'text-red-400 bg-red-500/10 border-red-500/30',
+    degraded:     'text-amber-400 bg-amber-500/10 border-amber-500/30',
+    declining:    'text-orange-400 bg-orange-500/10 border-orange-500/30',
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h3 className="text-base font-semibold flex items-center gap-2">
+            <Gauge className="w-4 h-4 text-emerald-400" />
+            Portfolio Intelligence
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            60-second morning brief · {portfolio.length} accounts in scope
+            {data?.scoredAt && (
+              <span className="ml-2 text-muted-foreground/50">
+                · updated {new Date(data.scoredAt).toLocaleTimeString()}
+              </span>
+            )}
+          </p>
+        </div>
+        {intel.isFetching && (
+          <RefreshCw className="w-3.5 h-3.5 text-muted-foreground animate-spin" />
+        )}
+      </div>
+
+      {/* 2×2 Panel grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+        {/* ── Panel 1: Traffic ───────────────────────────────────────────── */}
+        <div className="rounded-xl border border-border/50 bg-card/50 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-sky-400" />
+              <span className="text-sm font-semibold">Traffic</span>
+            </div>
+            <div className="text-right">
+              <div className="text-base font-bold tabular-nums text-sky-400">{peakCalls}</div>
+              <div className="text-[10px] text-muted-foreground">peak concurrent (24h)</div>
+            </div>
+          </div>
+
+          {/* Hourly trend sparkline */}
+          <div className="rounded-lg bg-muted/20 px-3 py-2">
+            <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wider">Hourly call trend · last 24h</div>
+            {intel.isLoading
+              ? <div className="h-9 animate-pulse bg-muted/30 rounded" />
+              : <Sparkline data={hourlyValues} color="rgb(56,189,248)" h={36} w={240} />
+            }
+          </div>
+
+          {/* Top accounts by volume */}
+          <div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Top by 24h calls</div>
+            <div className="space-y-1.5">
+              {byVolume.slice(0, 5).map(a => {
+                const maxCalls = byVolume[0]?.calls24h ?? 1;
+                const pct = maxCalls > 0 ? Math.round(((a.calls24h ?? 0) / maxCalls) * 100) : 0;
+                return (
+                  <div key={a.accountId} className="flex items-center gap-2">
+                    <div className="text-xs truncate w-32 shrink-0">{a.clientName}</div>
+                    <div className="flex-1 h-1.5 rounded-full bg-muted/30">
+                      <div className="h-full rounded-full bg-sky-500" style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="text-xs tabular-nums text-muted-foreground w-10 text-right">{a.calls24h ?? 0}</div>
+                    <TrendIcon dir={a.trendDirection} />
+                  </div>
+                );
+              })}
+              {byVolume.length === 0 && <div className="text-xs text-muted-foreground">No traffic data.</div>}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Panel 2: Quality ───────────────────────────────────────────── */}
+        <div className="rounded-xl border border-border/50 bg-card/50 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Signal className="w-4 h-4 text-violet-400" />
+              <span className="text-sm font-semibold">Quality</span>
+            </div>
+            {qm && (
+              <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                qm.trend === 'improving' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' :
+                qm.trend === 'declining' ? 'text-red-400 bg-red-500/10 border-red-500/30' :
+                'text-muted-foreground bg-muted/20 border-border/40'
+              }`}>
+                {qm.trend}
+              </span>
+            )}
+          </div>
+
+          {/* MOS KPIs */}
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { label: 'Avg MOS',   value: qm?.avgMos     != null ? qm.avgMos.toFixed(2)    : null, unit: '',   color: mosColor(qm?.avgMos ?? null) },
+              { label: 'Jitter',    value: qm?.avgJitter  != null ? qm.avgJitter.toFixed(1)  : null, unit: 'ms', color: 'text-foreground' },
+              { label: 'Pkt Loss',  value: qm?.avgPktLoss != null ? qm.avgPktLoss.toFixed(2) : null, unit: '%',  color: qm?.avgPktLoss != null && qm.avgPktLoss > 2 ? 'text-red-400' : 'text-foreground' },
+            ].map(k => (
+              <div key={k.label} className="rounded-lg bg-muted/20 px-3 py-2.5 text-center">
+                {intel.isLoading
+                  ? <div className="h-5 animate-pulse bg-muted/30 rounded mx-2 mb-1" />
+                  : <div className={`text-lg font-bold tabular-nums ${k.color}`}>
+                      {k.value != null ? `${k.value}${k.unit}` : '—'}
+                    </div>
+                }
+                <div className="text-[10px] text-muted-foreground mt-0.5">{k.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* MOS quality scale */}
+          <div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5">Quality reference</div>
+            <div className="flex rounded-lg overflow-hidden h-2">
+              {[
+                { color: 'bg-red-500',     w: '20%' },
+                { color: 'bg-amber-500',   w: '15%' },
+                { color: 'bg-yellow-500',  w: '15%' },
+                { color: 'bg-sky-500',     w: '20%' },
+                { color: 'bg-emerald-500', w: '30%' },
+              ].map((s, i) => <div key={i} className={`h-full ${s.color}`} style={{ width: s.w }} />)}
+            </div>
+            <div className="flex justify-between text-[9px] text-muted-foreground mt-0.5">
+              <span>1.0 · Critical</span><span>3.0 · Acceptable</span><span>4.5 · Excellent</span>
+            </div>
+          </div>
+
+          {/* Calls sampled */}
+          <div className="text-[10px] text-muted-foreground">
+            {qm?.callCount != null ? `${qm.callCount.toLocaleString()} calls sampled in last 24h` : intel.isLoading ? 'Loading…' : 'No quality data collected yet'}
+          </div>
+        </div>
+
+        {/* ── Panel 3: Risk ──────────────────────────────────────────────── */}
+        <div className="rounded-xl border border-border/50 bg-card/50 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-amber-400" />
+              <span className="text-sm font-semibold">Risk</span>
+            </div>
+            <div className="flex gap-2 text-right">
+              <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-2 py-1">
+                <div className="text-base font-bold text-red-400 tabular-nums">{riskFlags.length}</div>
+                <div className="text-[9px] text-red-400/70">flagged</div>
+              </div>
+            </div>
+          </div>
+
+          {riskFlags.length === 0 ? (
+            <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-3 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <div className="text-xs text-emerald-400">All accounts are healthy — no risk flags detected.</div>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-52 overflow-y-auto">
+              {riskFlags.map(f => (
+                <div key={f.accountId} className="flex items-center justify-between gap-2 py-1.5 border-b border-border/20">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <XCircle className="w-3 h-3 text-red-400 shrink-0" />
+                    <span className="text-xs font-medium truncate">{f.name}</span>
+                    <span className="font-mono text-[9px] text-muted-foreground/50 shrink-0">#{f.accountId}</span>
+                  </div>
+                  <div className="flex gap-1 flex-wrap justify-end">
+                    {f.reasons.map(r => (
+                      <span key={r} className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded border whitespace-nowrap ${REASON_COLOR[r] ?? 'text-muted-foreground bg-muted/20 border-border/40'}`}>
+                        {REASON_LABEL[r] ?? r}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Risk summary counts */}
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { label: 'Zero traffic',   count: portfolio.filter(a => (a.calls24h ?? 0) === 0).length,               color: 'text-slate-400' },
+              { label: 'Declining',      count: declining.length,                                                      color: 'text-orange-400' },
+              { label: 'At risk / deg.', count: portfolio.filter(a => ['at_risk','degraded'].includes(a.state)).length,color: 'text-red-400'   },
+              { label: 'Growing',        count: growing.length,                                                        color: 'text-emerald-400'},
+            ].map(k => (
+              <div key={k.label} className="rounded-lg bg-muted/20 px-3 py-1.5 flex items-center justify-between">
+                <span className="text-[10px] text-muted-foreground">{k.label}</span>
+                <span className={`text-sm font-bold tabular-nums ${k.color}`}>{k.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Panel 4: Commercial ────────────────────────────────────────── */}
+        <div className="rounded-xl border border-border/50 bg-card/50 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-emerald-400" />
+              <span className="text-sm font-semibold">Commercial</span>
+            </div>
+            <div className="text-right">
+              <div className="text-base font-bold tabular-nums text-emerald-400">${totalRev7d.toFixed(0)}</div>
+              <div className="text-[10px] text-muted-foreground">revenue · last 7d</div>
+            </div>
+          </div>
+
+          {/* 7-day revenue sparkline */}
+          <div className="rounded-lg bg-muted/20 px-3 py-2">
+            <div className="text-[10px] text-muted-foreground mb-1.5 uppercase tracking-wider">Revenue trend · last 7d</div>
+            {intel.isLoading
+              ? <div className="h-9 animate-pulse bg-muted/30 rounded" />
+              : revValues.length > 0
+                ? <Sparkline data={revValues} color="rgb(52,211,153)" h={36} w={240} />
+                : <div className="h-9 flex items-center justify-center text-[10px] text-muted-foreground/40">No financial snapshot data</div>
+            }
+          </div>
+
+          {/* Top accounts by revenue */}
+          <div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-2">Top by 24h revenue</div>
+            <div className="space-y-1.5">
+              {byRevenue.slice(0, 4).map(a => {
+                const maxRev = byRevenue[0]?.revenue24h ?? 1;
+                const pct = maxRev > 0 ? Math.round(((a.revenue24h ?? 0) / maxRev) * 100) : 0;
+                return (
+                  <div key={a.accountId} className="flex items-center gap-2">
+                    <div className="text-xs truncate w-32 shrink-0">{a.clientName}</div>
+                    <div className="flex-1 h-1.5 rounded-full bg-muted/30">
+                      <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="text-xs tabular-nums text-emerald-400 w-16 text-right">${(a.revenue24h ?? 0).toFixed(0)}</div>
+                  </div>
+                );
+              })}
+              {byRevenue.length === 0 && <div className="text-xs text-muted-foreground">No revenue data.</div>}
+            </div>
+          </div>
+
+          {/* Fastest growing + needs attention */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <div className="text-[10px] text-emerald-400/70 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <Zap className="w-2.5 h-2.5" /> Fastest growing
+              </div>
+              {growing.slice(0, 3).map(a => (
+                <div key={a.accountId} className="text-xs text-muted-foreground truncate py-0.5">{a.clientName}</div>
+              ))}
+              {growing.length === 0 && <div className="text-xs text-muted-foreground/40">None</div>}
+            </div>
+            <div>
+              <div className="text-[10px] text-amber-400/70 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+                <AlertCircle className="w-2.5 h-2.5" /> Needs attention
+              </div>
+              {riskFlags.slice(0, 3).map(f => (
+                <div key={f.accountId} className="text-xs text-muted-foreground truncate py-0.5">{f.name}</div>
+              ))}
+              {riskFlags.length === 0 && <div className="text-xs text-muted-foreground/40">All clear</div>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Sidebar nav config ────────────────────────────────────────────────────────
 
 type IconComponent = (props: LucideProps) => JSX.Element;
 
 const SECTIONS: { id: SectionId; label: string; icon: IconComponent }[] = [
-  { id: 'dashboard',    label: 'Dashboard',   icon: LayoutDashboard },
-  { id: 'clients',      label: 'Clients',     icon: Users           },
-  { id: 'live-calls',   label: 'Live Calls',  icon: Phone           },
-  { id: 'live-traffic', label: 'Live Traffic',icon: Activity        },
-  { id: 'balance',      label: 'Balance',     icon: Wallet          },
-  { id: 'products',     label: 'Products',    icon: Layers          },
-  { id: 'reports',      label: 'Reports',     icon: BarChart2       },
+  { id: 'dashboard',     label: 'Dashboard',    icon: LayoutDashboard },
+  { id: 'intelligence',  label: 'Intelligence', icon: Gauge           },
+  { id: 'clients',       label: 'Clients',      icon: Users           },
+  { id: 'live-calls',    label: 'Live Calls',   icon: Phone           },
+  { id: 'live-traffic',  label: 'Live Traffic', icon: Activity        },
+  { id: 'balance',       label: 'Balance',      icon: Wallet          },
+  { id: 'products',      label: 'Products',     icon: Layers          },
+  { id: 'reports',       label: 'Reports',      icon: BarChart2       },
 ];
 
 // ── Inner shell (reads context) ───────────────────────────────────────────────
@@ -1322,6 +1703,7 @@ function WorkspaceShell() {
       {/* ── Main ─────────────────────────────────────────────────────────── */}
       <main className="flex-1 overflow-y-auto p-6">
         {active === 'dashboard'    && <DashboardSection    />}
+        {active === 'intelligence' && <IntelligenceSection />}
         {active === 'clients'      && <ClientsSection      />}
         {active === 'live-calls'   && <LiveCallsSection    />}
         {active === 'live-traffic' && <LiveTrafficSection  />}

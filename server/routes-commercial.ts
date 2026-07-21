@@ -444,4 +444,146 @@ export function registerCommercialRoutes(app: Express) {
     }
   });
 
+  // ── GET /api/commercial/intelligence ─────────────────────────────────────────
+  //
+  // Portfolio intelligence data — the 60-second morning brief for KAMs.
+  // Three data sources, one endpoint:
+  //   hourlyTrend   — concurrent_snapshots (dim=client, last 24h by hour)
+  //   qualityMetrics— mos_hourly + rtp_quality_history (last 24h aggregate)
+  //   revenueTrend  — financial_snapshot (last 7d, scope-filtered by accountId)
+  //
+  // Risk and Commercial panels are computed client-side from the portfolio
+  // context which is already loaded — no redundant scope round-trip.
+  //
+  app.get('/api/commercial/intelligence', requireAuth, async (req: any, res: any) => {
+    try {
+      const scope = await resolveCommercialScope(req);
+
+      if (scope.scopeError) {
+        return res.json({
+          hourlyTrend: [], qualityMetrics: null, revenueTrend: [],
+          scopeError: scope.scopeError, orgRole: scope.orgRole,
+        });
+      }
+
+      const h24AgoMs = Date.now() - 24 * 60 * 60 * 1_000;
+
+      // ── 1. Hourly traffic trend from concurrent_snapshots ──────────────────
+      const trendRows = await pool.query<{ hour: Date; calls: string }>(`
+        SELECT
+          date_trunc('hour', to_timestamp(ts / 1000.0)) AS hour,
+          SUM(active)                                   AS calls
+        FROM concurrent_snapshots
+        WHERE ts  >= $1
+          AND dim = 'client'
+        GROUP BY 1
+        ORDER BY 1
+      `, [h24AgoMs]);
+
+      const hourlyTrend = trendRows.rows.map(r => ({
+        hour:  r.hour instanceof Date ? r.hour.toISOString() : String(r.hour),
+        calls: Number(r.calls),
+      }));
+
+      // ── 2. Quality metrics from mos_hourly + rtp_quality_history ──────────
+      const mosRows = await pool.query<{
+        avg_mos_24h: string | null;
+        avg_mos_4h:  string | null;
+        avg_mos_p4h: string | null;
+        calls_24h:   string | null;
+      }>(`
+        SELECT
+          AVG(avg_mos) FILTER (WHERE hour >= NOW() - INTERVAL '24 hours')                                              AS avg_mos_24h,
+          AVG(avg_mos) FILTER (WHERE hour >= NOW() - INTERVAL '4 hours')                                               AS avg_mos_4h,
+          AVG(avg_mos) FILTER (WHERE hour >= NOW() - INTERVAL '8 hours' AND hour < NOW() - INTERVAL '4 hours')         AS avg_mos_p4h,
+          SUM(call_count) FILTER (WHERE hour >= NOW() - INTERVAL '24 hours')                                           AS calls_24h
+        FROM mos_hourly
+        WHERE hour >= NOW() - INTERVAL '24 hours'
+      `);
+
+      const rtpRows = await pool.query<{
+        avg_jitter:   string | null;
+        avg_pkt_loss: string | null;
+      }>(`
+        SELECT
+          AVG(avg_jitter_ms)::numeric(8,2)   AS avg_jitter,
+          AVG(avg_pkt_loss_pct)::numeric(6,3) AS avg_pkt_loss
+        FROM rtp_quality_history
+        WHERE snapped_at >= NOW() - INTERVAL '24 hours'
+      `);
+
+      const mRow = mosRows.rows[0];
+      const rRow = rtpRows.rows[0];
+
+      let qualTrend: 'improving' | 'stable' | 'declining' = 'stable';
+      if (mRow?.avg_mos_4h && mRow?.avg_mos_p4h) {
+        const delta = Number(mRow.avg_mos_4h) - Number(mRow.avg_mos_p4h);
+        if (delta >  0.1) qualTrend = 'improving';
+        if (delta < -0.1) qualTrend = 'declining';
+      }
+
+      const qualityMetrics = {
+        avgMos:    mRow?.avg_mos_24h ? Number(mRow.avg_mos_24h) : null,
+        avgJitter: rRow?.avg_jitter  ? Number(rRow.avg_jitter)  : null,
+        avgPktLoss:rRow?.avg_pkt_loss? Number(rRow.avg_pkt_loss): null,
+        callCount: Number(mRow?.calls_24h ?? 0),
+        trend:     qualTrend,
+      };
+
+      // ── 3. Revenue trend from financial_snapshot (last 7 days) ────────────
+      let revenueTrend: { date: string; revenue: number; margin: number }[] = [];
+
+      const accountIdStrs = scope.accountIds.map(String);
+
+      if (scope.isAdmin || accountIdStrs.length > 0) {
+        const revRows = await pool.query<{
+          date:    string;
+          revenue: string;
+          margin:  string;
+        }>(
+          scope.isAdmin
+            ? `SELECT
+                 report_date::text            AS date,
+                 SUM(sell_amount::numeric)    AS revenue,
+                 SUM(margin_amount::numeric)  AS margin
+               FROM financial_snapshot
+               WHERE report_date >= CURRENT_DATE - 7
+                 AND row_type = 'client'
+               GROUP BY 1
+               ORDER BY 1`
+            : `SELECT
+                 report_date::text            AS date,
+                 SUM(sell_amount::numeric)    AS revenue,
+                 SUM(margin_amount::numeric)  AS margin
+               FROM financial_snapshot
+               WHERE report_date >= CURRENT_DATE - 7
+                 AND row_type = 'client'
+                 AND account_id = ANY($1)
+               GROUP BY 1
+               ORDER BY 1`,
+          scope.isAdmin ? [] : [accountIdStrs],
+        );
+
+        revenueTrend = revRows.rows.map(r => ({
+          date:    r.date,
+          revenue: Number(r.revenue ?? 0),
+          margin:  Number(r.margin  ?? 0),
+        }));
+      }
+
+      res.json({
+        hourlyTrend,
+        qualityMetrics,
+        revenueTrend,
+        scopeError: null,
+        orgRole:    scope.orgRole,
+        scoredAt:   new Date().toISOString(),
+      });
+
+    } catch (err: any) {
+      console.error('[commercial/intelligence]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
 }
