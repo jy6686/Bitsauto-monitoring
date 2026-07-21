@@ -83,7 +83,8 @@ Event taxonomy (dot-notation, extend in execution-engine.ts):
   workflow.note_added
 
 subject_type values: rate_job | account | quality_alert | balance_alert
-correlation_id format: "{subject_type}_{subject_id}" by convention
+correlation_id format: "{subject_type}_{subject_id}" by convention — use makeCorrelationId() from event-taxonomy.ts
+Event taxonomy module: server/services/commercial/event-taxonomy.ts — ALL event_type strings must come from here; no inline literals in routes
 
 ## Sprint C — Action Center (added after Intelligence)
 
