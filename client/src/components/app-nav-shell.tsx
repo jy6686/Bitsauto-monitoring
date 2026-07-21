@@ -23,7 +23,7 @@ import { useQuery } from "@tanstack/react-query";
 import { inferWorkspace } from "@/lib/workspace";
 import type { WorkspaceDefinition } from "@shared/schema";
 import { useChatDrawer } from "@/context/chat-drawer-context";
-import { PortalNavBar } from "@/portals/PortalNavBar";
+import { PortalTopNav } from "@/components/portal-sidebar";
 import { usePortal } from "@/context/portal-context";
 import { FavoritesStrip } from "@/components/favorites-strip";
 
@@ -801,7 +801,7 @@ export function AppNavShell() {
 
         {/* ── Centre nav: Navigation Governance config in portal mode,
              else the main-platform domain tabs ── */}
-        {isPortalMode ? <PortalNavBar /> : (
+        {isPortalMode ? <PortalTopNav /> : (
         <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" role="menubar">
             {visibleDomains.map(domain => {
               const isActive = meta.domain === domain.id;
