@@ -92,7 +92,7 @@ import {
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
 import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
 import { refreshVendorAcds } from "./vendor-acd-cache";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, navigationModules } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, inArray, sql } from "drizzle-orm";
 const sqlExpr = sql;
@@ -1548,6 +1548,38 @@ export async function registerRoutes(
     try { res.json(await storage.getAllNavigationModules()); }
     catch (err: any) { res.status(500).json({ error: err.message }); }
   });
+
+  // Create a navigation module (upsert by module_key — safe to call multiple times)
+  app.post('/api/governance/modules',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      const { moduleKey, title, icon, route, category, defaultPortal, isMovable, isSystem, sortOrder } = req.body;
+      if (!moduleKey || !title || !route) return res.status(400).json({ error: 'moduleKey, title, route required' });
+      try {
+        const [mod] = await db.insert(navigationModules)
+          .values({
+            moduleKey,
+            title,
+            icon: icon ?? 'circle',
+            route,
+            category: category ?? 'general',
+            defaultPortal: defaultPortal ?? null,
+            isMovable: isMovable ?? true,
+            isSystem: isSystem ?? false,
+            sortOrder: sortOrder ?? 0,
+          })
+          .onConflictDoNothing()
+          .returning();
+        // If null, row already existed — return the existing row
+        if (!mod) {
+          const existing = await storage.getAllNavigationModules()
+            .then(all => all.find(m => m.moduleKey === moduleKey));
+          return res.json(existing ?? { skipped: true, moduleKey });
+        }
+        res.status(201).json(mod);
+      } catch (err: any) { res.status(500).json({ error: err.message }); }
+    }
+  );
 
   app.put('/api/governance/portals/:slug',
     (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
