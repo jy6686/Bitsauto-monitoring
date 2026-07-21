@@ -15873,11 +15873,11 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
       // Update liveCallsCache so the API endpoint can serve instantly without hitting Sippy
       if (enrichedCalls.length > 0) {
         consecutiveZeros = 0;
-        liveCallsCache = { calls: enrichedCalls, ts: Date.now() };
+        updateLiveCallsCache({ calls: enrichedCalls, ts: Date.now() });
       } else {
         consecutiveZeros++;
         if (consecutiveZeros >= ZERO_CONFIRM_COUNT) {
-          liveCallsCache = { calls: [], ts: Date.now() };
+          updateLiveCallsCache({ calls: [], ts: Date.now() });
         }
       }
       // T002: Live fraud watch — check current calls against blacklist rules
