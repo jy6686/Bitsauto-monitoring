@@ -1,0 +1,361 @@
+commercial portal: 
+bitseye2: strat with assign account page attached SS for reference
+balance: only readable
+in product>rate manager>rate analysis>send rate and Push history
+Reports: revenue, forecast, profit/loss readable only 
+
+This fits well with the governance you've already frozen. Rather than exposing the entire platform inside the Commercial Portal, keep it focused on the workflows a Commercial/KAM user actually needs.
+
+Based on your requirements, I'd scope the remaining modules like this:
+
+Commercial Module	Scope	Permissions
+Dashboard	Portfolio KPIs	Read-only
+Live Calls	Portfolio live calls	Read-only
+Live Traffic / BitsEye2	Portfolio traffic visibility	Read-only
+Clients	Portfolio clients	Read/Write where applicable
+Balance	Portfolio account balances	Read-only
+Products	Rate management only	Mixed (see below)
+Reports	Commercial reporting	Read-only
+1. BitsEye2
+
+The screenshot shows the current entity-based navigation (Clients, Vendors, Countries, Destinations, Routing, etc.).
+
+For the Commercial Portal, I would not expose the full BitsEye2 navigation. Instead, make it portfolio-first.
+
+Start from the Assigned Accounts (portfolio) and let everything drill down from there.
+
+Assigned Accounts
+        ↓
+Client
+        ↓
+Vendor
+        ↓
+Country
+        ↓
+Destination
+        ↓
+Routes
+        ↓
+Live Calls
+
+Every node should already be filtered by getVisibleAccountIds().
+
+This aligns perfectly with your hierarchy model.
+
+2. Balance
+
+Keep it read-only.
+
+Display items such as:
+
+Current Balance
+Credit Limit
+Available Credit
+Outstanding Amount
+Last Recharge
+Last Payment
+Balance Trend
+
+No edit actions.
+
+No recharge actions.
+
+No billing administration.
+
+3. Products
+
+Reduce this section to the Commercial workflow only.
+
+Products
+    └── Rate Manager
+            ├── Rate Analysis
+            ├── Send Rate
+            └── Push History
+
+Do not expose:
+
+Product Registry
+Destination Catalog
+LCR tools
+Internal pricing administration
+Platform configuration
+
+Only customer-facing rate operations.
+
+4. Reports
+
+Keep these reports available as read-only:
+
+Reports
+    Revenue
+    Forecast
+    Profit / Loss
+
+Users should be able to:
+
+filter
+search
+export (CSV/Excel/PDF if already supported)
+
+But not modify financial data or reporting configuration.
+
+Recommended Commercial Portal Structure
+Commercial Portal
+
+Dashboard
+
+Live Calls
+
+Live Traffic
+
+BitsEye2
+    Assigned Accounts
+        Client
+        Vendor
+        Country
+        Destination
+        Routes
+
+Clients
+
+Balance (Read Only)
+
+Products
+    Rate Manager
+        Rate Analysis
+        Send Rate
+        Push History
+
+Reports (Read Only)
+    Revenue
+    Forecast
+    Profit / Loss
+
+This keeps the Commercial Portal consistent with the governance you've established:
+
+Hierarchy-aware: every module uses getVisibleAccountIds().
+Portfolio-centric: users only see their assigned accounts and inherited hierarchy.
+Least privilege: Balance and Reports remain read-only, while Products exposes only the customer-facing rate workflow rather than the full platform administration.
+commercial port would b single pager 
+
+I actually think a single-page Commercial Portal is a better fit for the role than a traditional multi-page portal.
+
+Instead of navigating between modules, the user stays on one workspace with collapsible sections or tabs. That reduces context switching and reinforces that Commercial work revolves around managing a portfolio rather than administering the platform.
+
+A layout like this would fit your governance:
+
+┌──────────────────────────────────────────────────────────────┐
+│ Commercial Dashboard                                         │
+│ Portfolio: Team Alpha (124 Accounts)                         │
+│ Scope: VP Commercial > Manager > Team Lead                   │
+├──────────────────────────────────────────────────────────────┤
+│ KPI Strip                                                    │
+│ Clients | Live Calls | Revenue | P/L | Forecast | Balance    │
+├──────────────────────────────────────────────────────────────┤
+│ Left Navigation                                              │
+│ • Clients                                                    │
+│ • Live Calls                                                 │
+│ • Live Traffic (BitsEye2)                                    │
+│ • Balance                                                    │
+│ • Products                                                   │
+│ • Reports                                                    │
+├──────────────────────────────────────────────────────────────┤
+│ Main Workspace                                               │
+│                                                              │
+│ Clients                                                      │
+│ ├── Account List                                              │
+│ ├── Search                                                    │
+│ ├── Filters                                                   │
+│ └── Select Account                                            │
+│                                                              │
+│ Live Calls                                                   │
+│ └── Portfolio Calls                                           │
+│                                                              │
+│ Live Traffic (BitsEye2)                                      │
+│ └── Account-centric topology                                  │
+│                                                              │
+│ Balance (Read Only)                                          │
+│                                                              │
+│ Products                                                     │
+│ ├── Rate Analysis                                             │
+│ ├── Send Rate                                                 │
+│ └── Push History                                              │
+│                                                              │
+│ Reports (Read Only)                                          │
+│ ├── Revenue                                                   │
+│ ├── Forecast                                                  │
+│ └── Profit / Loss                                             │
+└──────────────────────────────────────────────────────────────┘
+BitsEye2 section
+
+Based on your screenshot, I would simplify the Commercial version. Instead of exposing all global entities (Clients, Vendors, Countries, Destinations, Routing, etc.), start from the assigned accounts. When a user selects an account, the related vendors, countries, destinations, and routes are shown only for that portfolio.
+
+Interaction model
+
+The left navigation doesn't change pages. It simply scrolls or switches the visible section within the same workspace:
+
+Dashboard
+Clients
+Live Calls
+Live Traffic (BitsEye2)
+Balance (read-only)
+Products (Rate Analysis, Send Rate, Push History)
+Reports (Revenue, Forecast, Profit/Loss – read-only)
+
+This keeps the portal feeling like a dedicated operational console rather than a collection of separate applications.
+
+It also aligns naturally with your hierarchy model: the hierarchy scope is resolved once when the page loads, and every section uses that same portfolio scope instead of repeatedly navigating between different pages.
+
+Good architectural feedback. Two actions: add resolveCommercialScope(req) helper first, then build CH-2 (Live Calls) on top of it.
+
+Let me read the current routes-commercial.ts and hierarchy-scope.ts in parallel:
+
+
+3 actions
+Now I have everything I need. Here's the plan:
+
+Add resolveCommercialScope(req) to routes-commercial.ts and refactor both existing endpoints to use it
+Add GET /api/commercial/live-calls (CH-2) using the same helper
+Build commercial-live-calls.tsx frontend page
+Wire the new route in App.tsx and commercial.config.ts
+Let me check what live-calls data is available simultaneously:
+
+
+7 actions
+Let me quickly check the live call object shape, then I'll build everything in parallel:
+
+
+2 actions
+Now I have the full picture. Let me build everything in parallel — resolveCommercialScope helper + CH-2 backend + CH-2 frontend + routing:
+
+
+2 actions
+Good — I have the full picture. Here's the exact plan before I write code:
+
+Step 1 — Add resolveCommercialScope(req) to routes-commercial.ts, refactor the two existing endpoints to use it, and add a lightweight GET /api/commercial/scope endpoint that returns the full accountIds[] (no pagination) — needed by the CH-2 frontend filter.
+
+Step 2 — CH-2 frontend: commercial-live-calls.tsx fetches /api/commercial/scope (scoped accountIds, server-resolved) + /api/sippy/live-calls (all live calls from background cache), intersects on accountId client-side. Hierarchy is still 100% server-resolved — React just uses the returned list as a lookup key.
+
+Step 3 — Update commercial.config.ts entry 2 (/calls → /commercial-live-calls) + wire App.tsx.
+
+Building all four in parallel now:
+
+
+2 actions
+Now build the CH-2 frontend, update the config, and wire the route — all in parallel:
+
+
+4 actions
+Need to add the <Route> for /commercial-live-calls in App.tsx:
+
+
+2 actions
+Let me check the logs to confirm clean compilation:
+
+
+2 actions
+Server running cleanly — zero TypeScript errors. Let me update the commit message and memory, then mark complete:
+
+CH-2 is a solid step forward, especially because you've extracted the common scope resolution instead of duplicating it.
+
+What improved
+✅ 1. resolveCommercialScope(req)
+
+This is the right abstraction.
+
+Instead of every endpoint doing:
+
+const accountIds = ...
+const kamIds = ...
+const orgRole = ...
+
+you now have:
+
+const scope = await resolveCommercialScope(req);
+
+That makes CH-3 through CH-7 much easier to implement consistently.
+
+✅ 2. Canonical endpoint pattern
+
+Your Commercial endpoints are now following a repeatable structure:
+
+Authenticated User
+        ↓
+resolveCommercialScope(req)
+        ↓
+{
+  accountIds,
+  kamIds,
+  orgRole,
+  isAdmin,
+  scopeError
+}
+        ↓
+Commercial API
+        ↓
+Response
+
+That's exactly the pattern you wanted when you froze the governance.
+
+✅ 3. Live Calls implementation
+
+Using the scope helper before exposing data is correct.
+
+One thing I'd distinguish, though, is the current implementation versus the target architecture.
+
+Current:
+
+/api/commercial/scope
+        +
+/api/sippy/live-calls
+        ↓
+React filters
+
+Target:
+
+/api/commercial/live-calls
+        ↓
+resolveCommercialScope()
+        ↓
+server filters
+        ↓
+React renders
+
+The current approach is a reasonable transitional step because the live call data is coming from an existing cached service. It keeps the hierarchy decision on the server and avoids recomputing it in the client.
+
+Recommendation for CH-2.5
+
+Before moving to Live Traffic, I'd consider removing the extra /api/commercial/scope dependency from the UI.
+
+Instead, make /api/commercial/live-calls return only scoped calls directly:
+
+{
+  "calls": [...],
+  "total": 27,
+  "orgRole": "Manager",
+  "scopeError": null
+}
+
+Then the page only needs:
+
+GET /api/commercial/live-calls
+
+That gives you:
+
+one request instead of two,
+no client-side intersection,
+all filtering enforced on the server.
+
+It also aligns perfectly with your governance rule that hierarchy decisions belong in the backend.
+
+Readiness for CH-3
+
+With CH-1 and CH-2 complete, you now have:
+
+✅ Canonical scope resolver
+✅ Scoped Clients
+✅ Scoped Live Calls
+
+That means Live Traffic (BitsEye2) is the logical next integration, because it can reuse the same resolveCommercialScope(req) contract rather than introducing another access pattern.
+
+Overall, the architecture is progressing in the right direction: each sprint is extending a common server-side pattern instead of creating one-off implementations.

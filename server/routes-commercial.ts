@@ -26,6 +26,7 @@ import {
   getAllAccountIds,
   type CommercialScope,
 } from './services/commercial/hierarchy-scope';
+import { sharedLiveCallsCache } from './live-calls-cache';
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
 function requireAuth(req: any, res: any, next: any) {
@@ -224,6 +225,49 @@ export function registerCommercialRoutes(app: Express) {
 
     } catch (err: any) {
       console.error('[commercial/clients]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/commercial/live-calls ──────────────────────────────────────────
+  //
+  // Server-side hierarchy-filtered live calls.
+  // Source: sharedLiveCallsCache — populated every ~15 s by background poller.
+  // Callers receive ONLY calls belonging to accounts in their hierarchy scope.
+  //
+  // Response: { calls[], total, totalOnSwitch, scopeError, orgRole, lastUpdated }
+  app.get('/api/commercial/live-calls', requireAuth, async (req: any, res: any) => {
+    try {
+      const scope = await resolveCommercialScope(req);
+
+      if (scope.scopeError) {
+        return res.json({
+          calls: [], total: 0, totalOnSwitch: 0,
+          scopeError: scope.scopeError, orgRole: scope.orgRole, lastUpdated: null,
+        });
+      }
+
+      const { calls: allCalls, ts } = sharedLiveCallsCache;
+
+      const filteredCalls = scope.isAdmin
+        ? allCalls
+        : (() => {
+            const scopeSet = new Set(scope.accountIds.map(String));
+            return allCalls.filter(c => c.accountId && scopeSet.has(String(c.accountId)));
+          })();
+
+      res.json({
+        calls:         filteredCalls,
+        total:         filteredCalls.length,
+        totalOnSwitch: allCalls.length,
+        scopeError:    null,
+        orgRole:       scope.orgRole,
+        kamIds:        scope.kamIds,
+        lastUpdated:   ts || null,
+      });
+
+    } catch (err: any) {
+      console.error('[commercial/live-calls]', err.message);
       res.status(500).json({ error: err.message });
     }
   });

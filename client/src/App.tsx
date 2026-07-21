@@ -67,6 +67,7 @@ import TeamPage from "@/pages/team";
 import ClientsPage from "@/pages/clients";
 import CommercialClientsPage from "@/pages/commercial-clients";
 import CommercialLiveCallsPage from "@/pages/commercial-live-calls";
+import CommercialWorkspacePage from "@/pages/commercial-workspace";
 import FraudPage from "@/pages/fraud";
 import CDRsPage from "@/pages/cdrs";
 import ToolsPage from "@/pages/tools";
@@ -883,7 +884,7 @@ function Router() {
         {() => <PortalHomeRoute />}
       </Route>
       <Route path="/commercial">
-        {() => <ProtectedRoute component={CommercialPortalHomePage} requiredRoles={['admin','management','super_admin']} />}
+        {() => <ProtectedRoute component={CommercialWorkspacePage} requiredRoles={['admin','management','super_admin']} />}
       </Route>
       <Route path="/noc-dashboard">
         {() => <ProtectedRoute component={NocDashboardPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}

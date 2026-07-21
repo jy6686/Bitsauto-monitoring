@@ -1,6 +1,7 @@
 
 import type { Express } from "express";
 import { parseQueryInt } from './lib/query-utils';
+import { sharedLiveCallsCache, updateLiveCallsCache } from './live-calls-cache';
 import { createAlias } from './services/destination/destination-alias.service';
 import { registerBhaooRoutes } from './routes-bhaoo';
 import { registerCommercialDebugRoutes } from './routes-commercial-debug';
@@ -3628,7 +3629,7 @@ export async function registerRoutes(
     return out;
   }
 
-  let liveCallsCache: { calls: any[]; ts: number } = { calls: [], ts: 0 };
+  const liveCallsCache = sharedLiveCallsCache;
   let consecutiveZeros = 0;
 
   // ── Live Fraud Watch state ──────────────────────────────────────────────────
@@ -3774,11 +3775,11 @@ export async function registerRoutes(
       //     (guards against transient login failures that silently return []).
       if (calls.length > 0) {
         consecutiveZeros = 0;
-        liveCallsCache = { calls, ts: Date.now() };
+        updateLiveCallsCache({ calls, ts: Date.now() });
       } else {
         consecutiveZeros++;
         if (consecutiveZeros >= ZERO_CONFIRM_COUNT) {
-          liveCallsCache = { calls: [], ts: Date.now() };
+          updateLiveCallsCache({ calls: [], ts: Date.now() });
         }
         // else: keep previous cache (could be a login-failure empty result)
       }
