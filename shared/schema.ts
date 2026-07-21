@@ -4750,3 +4750,45 @@ export const financialSnapshot = pgTable("financial_snapshot", {
 export type FinancialSnapshot       = typeof financialSnapshot.$inferSelect;
 export type InsertFinancialSnapshot = typeof financialSnapshot.$inferInsert;
 export const insertFinancialSnapshotSchema = createInsertSchema(financialSnapshot).omit({ id: true });
+
+// ── Execution Layer — workflow_events ──────────────────────────────────────────
+//
+// Canonical event store for Commercial Workspace v2 Execution Layer.
+// Every execution action (rate push, approval, follow-up, note) writes here.
+// Timeline, Audit, Follow-up, Action Center are all projections over this table.
+//
+// subject_type/subject_id — the object being acted upon
+// event_type              — dot-notation: "rate_job.approved", "followup.started"
+// correlation_id          — groups all events in a single workflow instance
+// parent_event_id         — optional chaining within a workflow
+// metadata (JSONB)        — flexible payload; never add columns for workflow data
+//
+// No route writes directly to this table — all writes go through
+// executeWorkflowAction() in server/services/commercial/execution-engine.ts
+//
+export const workflowEvents = pgTable("workflow_events", {
+  id:            serial("id").primaryKey(),
+  // Subject — the object being acted upon
+  subjectType:   varchar("subject_type",   { length: 64  }).notNull(),  // rate_job | account | quality_alert | balance_alert
+  subjectId:     varchar("subject_id",     { length: 128 }).notNull(),  // PK or synthetic UUID
+  // Event descriptor
+  eventType:     varchar("event_type",     { length: 64  }).notNull(),  // e.g. rate_job.approved
+  status:        varchar("status",         { length: 32  }).notNull().default("completed"), // pending | completed | failed
+  // Workspace context
+  workspace:     varchar("workspace",      { length: 64  }).default("commercial"),
+  // Actors
+  performedBy:   varchar("performed_by",   { length: 128 }),
+  assignedTo:    varchar("assigned_to",    { length: 128 }),
+  // Timestamps
+  occurredAt:    timestamp("occurred_at",  { withTimezone: true }).defaultNow().notNull(),
+  completedAt:   timestamp("completed_at", { withTimezone: true }),
+  // Flexible payload — no workflow-specific columns; all detail goes here
+  metadata:      jsonb("metadata"),
+  // Chaining — allows grouping an entire workflow lifecycle
+  correlationId: varchar("correlation_id", { length: 128 }),
+  parentEventId: integer("parent_event_id"),
+});
+
+export type WorkflowEvent       = typeof workflowEvents.$inferSelect;
+export type InsertWorkflowEvent = typeof workflowEvents.$inferInsert;
+export const insertWorkflowEventSchema = createInsertSchema(workflowEvents).omit({ id: true, occurredAt: true });

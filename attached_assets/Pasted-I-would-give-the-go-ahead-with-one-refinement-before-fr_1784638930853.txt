@@ -1,0 +1,192 @@
+I would give the go-ahead, with one refinement before freezing the schema.
+
+I agree with workflow_events being the canonical event store. The only part I'd strengthen is avoiding an entity_type design that becomes too specific to today's entities.
+
+Phase 1 Goal
+
+Deliver one reusable execution infrastructure that every future Commercial workflow uses.
+
+Action
+      ↓
+Execution Engine
+      ↓
+workflow_events
+      ↓
+Workspace Refresh
+
+Everything else (Timeline, Follow-up, Audit, Action Center) becomes different views over the same event stream.
+
+Refined workflow_events schema
+
+I'd separate what the event is from what it belongs to.
+
+Subject
+subject_type
+subject_id
+
+Examples:
+
+subject_type	subject_id
+rate_job	rate_notification_jobs.id
+account	Sippy i_account
+quality_alert	synthetic UUID
+balance_alert	synthetic UUID
+
+This identifies the object being acted upon.
+
+Event
+event_type
+
+Examples:
+
+rate_job.created
+rate_job.approved
+rate_job.rejected
+rate_job.activated
+
+followup.created
+followup.started
+followup.completed
+
+quality.alert
+
+balance.warning
+
+workflow.note_added
+
+This describes what happened.
+
+That separation makes querying much cleaner.
+
+Recommended columns
+id
+
+subject_type
+subject_id
+
+event_type
+
+status
+
+workspace
+portal
+
+performed_by
+assigned_to
+
+occurred_at
+
+metadata JSONB
+
+Optional but useful later:
+
+parent_event_id
+correlation_id
+
+These allow grouping an entire workflow.
+
+Correlation ID
+
+I recommend adding this now, even if you don't use it immediately.
+
+Example:
+
+correlation_id = rate_job_2847
+
+Events become:
+
+created
+approved
+activated
+verified
+customer_notified
+
+All tied together.
+
+Timeline becomes trivial.
+
+Audit becomes trivial.
+
+Metadata
+
+Keep metadata flexible.
+
+Example:
+
+{
+  "oldRate": 0.14,
+  "newRate": 0.13,
+  "prefixesChanged": 42
+}
+
+Don't create new columns for every workflow.
+
+Execution Engine
+
+Every mutation should pass through one service.
+
+executeWorkflowAction()
+
+validate()
+
+perform()
+
+writeEvent()
+
+refresh()
+
+No route writes directly to workflow_events.
+
+Readers
+
+Exactly as you outlined:
+
+Action Center
+        ↓
+workflow_events
+
+Timeline
+        ↓
+workflow_events
+
+Audit
+        ↓
+workflow_events
+
+Follow-ups
+        ↓
+workflow_events
+
+One source.
+
+Multiple projections.
+
+Entity Mapping
+
+Your proposal is good, with one adjustment.
+
+Subject	Identifier
+rate_job	rate_notification_jobs.id
+account	Sippy i_account
+quality_alert	UUID/synthetic ID, with vendor/account details in metadata
+action_item	Derived, not persisted separately
+
+I would not persist action_item as a subject type.
+
+The Action Center should be a projection of workflow_events plus current operational state, not a separate domain object.
+
+That avoids having to synchronize two representations of the same work.
+
+Phase 1 Exit Criteria
+
+I'd consider Phase 1 complete when you have:
+
+✅ workflow_events table
+✅ execution engine/service
+✅ canonical event taxonomy (event_type)
+✅ subject_type / subject_id
+✅ correlation_id
+✅ metadata support
+✅ no route writes directly to the table
+
+Once those are in place, D1 through D5 become feature work on top of a stable event infrastructure rather than separate implementations. That's the right place to invest the architectural effort before building the execution workflows.

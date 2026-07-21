@@ -22,6 +22,14 @@ import { pool, db } from './db';
 import { rateNotificationJobs } from '../shared/schema';
 import { inArray } from 'drizzle-orm';
 import {
+  initWorkflowEventsTable,
+  executeWorkflowAction,
+  queryWorkflowEvents,
+  getWorkflowTimeline,
+  getSubjectHistory,
+  type ExecuteOptions,
+} from './services/commercial/execution-engine';
+import {
   getVisibleAccountIds,
   getAllAccountIds,
   type CommercialScope,
@@ -75,6 +83,12 @@ function buildInClause(ids: string[]): { placeholders: string; params: string[] 
 
 // ── Route registration ────────────────────────────────────────────────────────
 export function registerCommercialRoutes(app: Express) {
+
+  // ── Phase 1 — Execution Layer table init (idempotent) ─────────────────────
+  // workflow_events is created on first registration, not via db:push.
+  initWorkflowEventsTable().catch(err =>
+    console.error('[commercial/execution-engine] table init failed:', err.message)
+  );
 
   // ── GET /api/commercial/scope ─────────────────────────────────────────────
   //
@@ -871,6 +885,158 @@ export function registerCommercialRoutes(app: Express) {
 
     } catch (err: any) {
       console.error('[commercial/actions]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Execution Layer read endpoints ────────────────────────────────────────
+  //
+  // All write operations go through POST /api/commercial/execute.
+  // All read operations query workflow_events via the helper functions.
+  //
+  // GET  /api/commercial/events              — filtered event log
+  // GET  /api/commercial/events/audit        — recent workspace audit (last N)
+  // GET  /api/commercial/events/timeline/:id — full workflow lifecycle by correlationId
+  // GET  /api/commercial/events/subject      — history for one subject (type+id)
+  // POST /api/commercial/execute             — write an execution event
+  //
+
+  // ── GET /api/commercial/events ──────────────────────────────────────────────
+  app.get('/api/commercial/events', requireAuth, async (req: any, res: any) => {
+    try {
+      const {
+        subjectType, subjectId, correlationId,
+        eventType,   workspace, performedBy,
+        since, limit, offset,
+      } = req.query as Record<string, string | undefined>;
+
+      const events = await queryWorkflowEvents({
+        subjectType:   subjectType   || undefined,
+        subjectId:     subjectId     || undefined,
+        correlationId: correlationId || undefined,
+        eventType:     eventType     || undefined,
+        workspace:     workspace     || undefined,
+        performedBy:   performedBy   || undefined,
+        since:         since ? new Date(since) : undefined,
+        limit:         limit  ? Math.min(Number(limit),  500) : 50,
+        offset:        offset ? Number(offset) : 0,
+      });
+
+      res.json({ events, count: events.length });
+    } catch (err: any) {
+      console.error('[commercial/events]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/commercial/events/audit ────────────────────────────────────────
+  // Recent workspace-wide audit view — last N events regardless of subject.
+  app.get('/api/commercial/events/audit', requireAuth, async (req: any, res: any) => {
+    try {
+      const limit = Math.min(Number(req.query.limit ?? 100), 500);
+      const since = req.query.since
+        ? new Date(req.query.since as string)
+        : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); // default: last 7 days
+
+      const events = await queryWorkflowEvents({
+        workspace: 'commercial',
+        since,
+        limit,
+      });
+
+      // Group by correlation_id for timeline-style output
+      const byCorrelation: Record<string, typeof events> = {};
+      const ungrouped: typeof events = [];
+
+      for (const ev of events) {
+        if (ev.correlationId) {
+          if (!byCorrelation[ev.correlationId]) byCorrelation[ev.correlationId] = [];
+          byCorrelation[ev.correlationId].push(ev);
+        } else {
+          ungrouped.push(ev);
+        }
+      }
+
+      res.json({
+        events,
+        total:            events.length,
+        correlationGroups: Object.keys(byCorrelation).length,
+        ungroupedCount:   ungrouped.length,
+        since:            since.toISOString(),
+      });
+    } catch (err: any) {
+      console.error('[commercial/events/audit]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/commercial/events/timeline/:correlationId ──────────────────────
+  // Full lifecycle for one workflow instance, ordered chronologically.
+  app.get('/api/commercial/events/timeline/:correlationId', requireAuth, async (req: any, res: any) => {
+    try {
+      const { correlationId } = req.params;
+      if (!correlationId) return res.status(400).json({ error: 'correlationId required' });
+
+      const events = await getWorkflowTimeline(correlationId);
+      res.json({ correlationId, events, count: events.length });
+    } catch (err: any) {
+      console.error('[commercial/events/timeline]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/commercial/events/subject ──────────────────────────────────────
+  // History for one specific subject — e.g. all events on rate_job #2847.
+  app.get('/api/commercial/events/subject', requireAuth, async (req: any, res: any) => {
+    try {
+      const { subjectType, subjectId, limit } = req.query as Record<string, string | undefined>;
+      if (!subjectType || !subjectId) {
+        return res.status(400).json({ error: 'subjectType and subjectId are required' });
+      }
+
+      const events = await getSubjectHistory(
+        subjectType,
+        subjectId,
+        limit ? Math.min(Number(limit), 200) : 50
+      );
+
+      res.json({ subjectType, subjectId, events, count: events.length });
+    } catch (err: any) {
+      console.error('[commercial/events/subject]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── POST /api/commercial/execute ────────────────────────────────────────────
+  //
+  // The single write entry point for all Commercial Workspace execution actions.
+  // Callers perform their domain mutation BEFORE calling this; this endpoint
+  // records the outcome as an auditable workflow event.
+  //
+  // Body: ExecuteOptions (see execution-engine.ts)
+  //
+  app.post('/api/commercial/execute', requireAuth, async (req: any, res: any) => {
+    try {
+      const opts: ExecuteOptions = req.body;
+
+      if (!opts?.subjectType || !opts?.subjectId || !opts?.eventType) {
+        return res.status(400).json({
+          error: 'subjectType, subjectId, and eventType are required',
+        });
+      }
+
+      // Stamp the authenticated user as performedBy if not explicitly set
+      const performedBy = opts.performedBy
+        || req.user?.name
+        || req.user?.username
+        || req.user?.id
+        || 'system';
+
+      const event = await executeWorkflowAction({ ...opts, performedBy });
+
+      res.json({ event, success: true });
+    } catch (err: any) {
+      console.error('[commercial/execute]', err.message);
       res.status(500).json({ error: err.message });
     }
   });

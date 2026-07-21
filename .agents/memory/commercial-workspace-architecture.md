@@ -52,6 +52,39 @@ Section Component
 | Products      | 3-tab: Rate Analysis/Push History/Send Rate | ✅ | A   |
 | Reports       | 3-tab: Revenue/Traffic/P&L (inline)   | ✅     | A      |
 
+## Phase 1 — Execution Layer infrastructure (v2)
+
+Single canonical event store: `workflow_events` table.
+Engine: `server/services/commercial/execution-engine.ts`
+
+Rules (permanent, enforced at engine level):
+- NO route writes workflow_events directly — ALL writes go through executeWorkflowAction()
+- Table created via `initWorkflowEventsTable()` (idempotent SQL) — never db:push
+- All D1–D5 workstreams are projections (reads) + single write path
+
+Key functions:
+- `executeWorkflowAction(opts)` → inserts and returns the new event row
+- `queryWorkflowEvents(q)` → flexible read with 7 filter params
+- `getWorkflowTimeline(correlationId)` → full lifecycle grouped by correlation
+- `getSubjectHistory(type, id)` → all events on one subject
+
+API surface (all in routes-commercial.ts):
+- GET  /api/commercial/events              — filtered event log
+- GET  /api/commercial/events/audit        — 7-day workspace audit
+- GET  /api/commercial/events/timeline/:id — lifecycle by correlationId
+- GET  /api/commercial/events/subject      — subject history
+- POST /api/commercial/execute             — single write entry point
+
+Event taxonomy (dot-notation, extend in execution-engine.ts):
+  rate_job.{created|approved|rejected|activated|verification_passed|customer_notified}
+  followup.{created|started|completed|dismissed|assigned}
+  quality.{alert_acknowledged|alert_escalated}
+  balance.warning_acknowledged
+  workflow.note_added
+
+subject_type values: rate_job | account | quality_alert | balance_alert
+correlation_id format: "{subject_type}_{subject_id}" by convention
+
 ## Sprint C — Action Center (added after Intelligence)
 
 `ActionsSection`: prioritised work queue for KAM morning triage.
