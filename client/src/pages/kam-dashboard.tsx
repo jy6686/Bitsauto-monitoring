@@ -366,35 +366,30 @@ export default function KamDashboardPage() {
     staleTime: 30_000,
   });
 
-  const { data: liveCallsRaw = [] } = useQuery<any>({
-    queryKey: ["/api/sippy/live-calls"],
-    refetchInterval: 30_000,
-    staleTime: 15_000,
+  const { data: commercialKpis } = useQuery<{
+    pendingFirstRate: number;
+    pendingApproval:  number;
+    accountCount:     number;
+    scopeError?:      string | null;
+  }>({
+    queryKey:        ["/api/commercial/dashboard/kpis"],
+    refetchInterval:  60_000,
+    staleTime:        30_000,
   });
 
-  const { data: invoices = [] } = useQuery<any[]>({
-    queryKey: ["/api/invoices"],
-    staleTime: 5 * 60_000,
-  });
+  const portfolio        = portfolioData?.portfolio ?? [];
+  const kamName          = portfolioData?.kamName;
 
-  const { data: disputes = [] } = useQuery<any[]>({
-    queryKey: ["/api/billing-disputes"],
-    staleTime: 5 * 60_000,
-  });
+  // ── Portfolio-derived KPIs (no global queries) ────────────────────────────
+  // These are computed from /api/kam/portfolio which is already hierarchy-scoped.
+  // liveCallCount, calls24h, revenue24h are per-account fields in the portfolio response.
+  const totalLive        = portfolio.reduce((s, a) => s + (a.liveCallCount ?? 0), 0);
+  const clientsNoTraffic = portfolio.filter(a => (a.calls24h ?? 0) === 0).length;
+  const totalRevenue24h  = portfolio.reduce((s, a) => s + (a.revenue24h ?? 0), 0);
 
-  const { data: rnJobs = [] } = useQuery<any[]>({
-    queryKey: ["/api/rate-notification-jobs"],
-    staleTime: 60_000,
-    refetchInterval: 60_000,
-  });
-
-  const portfolio  = portfolioData?.portfolio ?? [];
-  const kamName    = portfolioData?.kamName;
-  const totalLive  = Array.isArray(liveCallsRaw) ? liveCallsRaw.length : (liveCallsRaw?.calls?.length ?? liveCallsRaw?.count ?? 0);
-  const openInvoices = Array.isArray(invoices) ? invoices.filter((i: any) => i.status === "sent" || i.status === "overdue").length : 0;
-  const openDisputes = Array.isArray(disputes) ? disputes.filter((d: any) => d.status === "open").length : 0;
-
-  const pendingFirstRate = Array.isArray(rnJobs) ? rnJobs.filter((j: any) => j.status === "pending_rates").length : 0;
+  // ── Cross-table KPIs (scoped via /api/commercial/dashboard/kpis) ──────────
+  const pendingFirstRate = commercialKpis?.pendingFirstRate ?? 0;
+  const pendingApproval  = commercialKpis?.pendingApproval  ?? 0;
 
   const atRisk    = portfolio.filter(a => a.state === "at_risk" || a.state === "degraded");
   const onWatch   = portfolio.filter(a => a.state === "watch");
@@ -449,51 +444,92 @@ export default function KamDashboardPage() {
         <div className="flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden">
           <div className="px-6 py-5 space-y-6">
 
-            {/* ── Portfolio KPI strip ──────────────────────────────────────── */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3">
+            {/* ── Portfolio KPI strip — 8 hierarchy-scoped commercial KPIs ────── */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
               {[
+                // 1. Managed Accounts — total accounts in hierarchy scope
                 {
-                  label: "Managed Accounts", value: portfolio.length, icon: Users,
-                  color: "text-purple-400", bg: "bg-purple-500/10", href: "/clients",
-                  sub: portfolio.length > 0 ? `${healthy.length} healthy` : undefined,
+                  label: "Managed Accounts",
+                  value: portfolio.length,
+                  icon: Users,
+                  color: "text-purple-400",
+                  bg: "bg-purple-500/10",
+                  href: "/clients",
+                  sub: portfolio.length > 0 ? `${healthy.length} healthy` : "None assigned",
                 },
+                // 2. Portfolio Health — avg health score across all accounts
                 {
-                  label: "Portfolio Health", value: avgHealth !== null ? avgHealth : "—", icon: HeartPulse,
-                  color: scoreColor(avgHealth), bg: "bg-white/[0.04]", href: undefined,
+                  label: "Portfolio Health",
+                  value: avgHealth !== null ? avgHealth : "—",
+                  icon: HeartPulse,
+                  color: scoreColor(avgHealth),
+                  bg: "bg-white/[0.04]",
+                  href: undefined,
                   sub: avgHealth !== null ? (avgHealth >= 80 ? "Strong" : avgHealth >= 60 ? "Fair" : "Needs attention") : undefined,
                 },
+                // 3. At Risk — accounts in at_risk or degraded state
                 {
-                  label: "At Risk", value: atRisk.length, icon: ShieldAlert,
+                  label: "At Risk",
+                  value: atRisk.length,
+                  icon: ShieldAlert,
                   color: atRisk.length > 0 ? "text-rose-400" : "text-emerald-400",
                   bg: atRisk.length > 0 ? "bg-rose-500/10" : "bg-emerald-500/10",
                   href: undefined,
                   sub: onWatch.length > 0 ? `${onWatch.length} on watch` : "None on watch",
                 },
+                // 4. Live Calls — sum of liveCallCount from portfolio (hierarchy-scoped)
                 {
-                  label: "Live Calls", value: totalLive, icon: TrendingUp,
-                  color: "text-blue-400", bg: "bg-blue-500/10", href: "/calls",
-                  sub: "Across portfolio",
+                  label: "Live Calls",
+                  value: totalLive,
+                  icon: TrendingUp,
+                  color: "text-blue-400",
+                  bg: "bg-blue-500/10",
+                  href: "/calls",
+                  sub: "Portfolio calls",
                 },
+                // 5. Revenue 24h — sum of revenue24h from portfolio accounts
                 {
-                  label: "Open Invoices", value: openInvoices, icon: FileText,
-                  color: openInvoices > 0 ? "text-cyan-400" : "text-emerald-400",
-                  bg: openInvoices > 0 ? "bg-cyan-500/10" : "bg-emerald-500/10",
-                  href: "/invoices",
-                  sub: openInvoices > 0 ? "Awaiting payment" : "All settled",
+                  label: "Revenue 24h",
+                  value: totalRevenue24h > 0
+                    ? `$${totalRevenue24h >= 1000
+                        ? `${(totalRevenue24h / 1000).toFixed(1)}k`
+                        : totalRevenue24h.toFixed(0)}`
+                    : "$0",
+                  icon: Wallet,
+                  color: totalRevenue24h > 0 ? "text-emerald-400" : "text-muted-foreground/40",
+                  bg: totalRevenue24h > 0 ? "bg-emerald-500/10" : "bg-white/[0.04]",
+                  href: "/reports",
+                  sub: "Portfolio today",
                 },
+                // 6. No Traffic — accounts with zero calls in last 24h
                 {
-                  label: "Open Disputes", value: openDisputes, icon: AlertTriangle,
-                  color: openDisputes > 0 ? "text-amber-400" : "text-emerald-400",
-                  bg: openDisputes > 0 ? "bg-amber-500/10" : "bg-emerald-500/10",
-                  href: "/billing-disputes",
-                  sub: openDisputes > 0 ? "Need resolution" : "None open",
+                  label: "No Traffic",
+                  value: clientsNoTraffic,
+                  icon: TrendingDown,
+                  color: clientsNoTraffic > 0 ? "text-amber-400" : "text-emerald-400",
+                  bg: clientsNoTraffic > 0 ? "bg-amber-500/10" : "bg-emerald-500/10",
+                  href: undefined,
+                  sub: clientsNoTraffic > 0 ? "Clients idle 24h" : "All generating",
                 },
+                // 7. Pending Rate — rate jobs waiting for rate sheet (portfolio-scoped)
                 {
-                  label: "Pending First Rate", value: pendingFirstRate, icon: FileSpreadsheet,
+                  label: "Pending Rate",
+                  value: pendingFirstRate,
+                  icon: FileSpreadsheet,
                   color: pendingFirstRate > 0 ? "text-orange-400" : "text-emerald-400",
                   bg: pendingFirstRate > 0 ? "bg-orange-500/10" : "bg-emerald-500/10",
                   href: "/rate-manager?tab=notifications&subtab=jobs&statusFilter=pending_rates",
                   sub: pendingFirstRate > 0 ? "Awaiting rate sheet" : "All rated",
+                },
+                // 8. Pending Approval — rate jobs awaiting commercial approval
+                {
+                  label: "Pending Approval",
+                  value: pendingApproval,
+                  icon: Clock,
+                  color: pendingApproval > 0 ? "text-cyan-400" : "text-emerald-400",
+                  bg: pendingApproval > 0 ? "bg-cyan-500/10" : "bg-emerald-500/10",
+                  href: "/rate-manager?tab=notifications&subtab=jobs&statusFilter=pending_approval",
+                  sub: pendingApproval > 0 ? "Needs sign-off" : "None pending",
                 },
               ].map(card => {
                 const I = card.icon;
