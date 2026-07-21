@@ -1,6 +1,6 @@
 import { db } from "./db";
-import { configurationValues, validationRules, governanceReviews } from "../shared/schema";
-import { count } from "drizzle-orm";
+import { configurationValues, validationRules, governanceReviews, navigationModules, portalSections, portalModuleAssignments } from "../shared/schema";
+import { count, inArray } from "drizzle-orm";
 
 const CONFIG_SEED = [
   { id:1,  category:"vendor",     configKey:"old_effective_date",            label:"Old Effective Date",                       description:null,                                                               unit:"days",   value:"7",           defaultValue:"7",           valueType:"days",   isEditable:true, isActive:true, sortOrder:10  },
@@ -81,49 +81,132 @@ const RULES_SEED = [
   { id:18, scope:"commercial", groupName:"Suspicious",   ruleKey:"comm_excess_clients",           description:"Push Affects Excess Client Count",        configCategory:"commercial", configKey:"require_approval_above_clients",  selectedAction:"approval_reqd",sortOrder:60 },
 ];
 
+// ── Commercial Portal seed data ───────────────────────────────────────────────
+const COMMERCIAL_MODULES = [
+  { moduleKey: "kam-dashboard",            title: "KAM Dashboard",        icon: "layout-dashboard", route: "/commercial/kam-dashboard",           sortOrder: 1  },
+  { moduleKey: "clients",                  title: "Clients",              icon: "users",            route: "/commercial/clients",                 sortOrder: 2  },
+  { moduleKey: "partner-profiles",         title: "Partner Profiles",     icon: "building-2",       route: "/commercial/partner-profiles",        sortOrder: 3  },
+  { moduleKey: "deals",                    title: "Deals",                icon: "handshake",        route: "/commercial/deals",                  sortOrder: 4  },
+  { moduleKey: "rate-manager",             title: "Rate Manager",         icon: "settings-2",       route: "/commercial/rate-manager",           sortOrder: 5  },
+  { moduleKey: "destination-catalog",      title: "Destination Catalog",  icon: "globe",            route: "/commercial/destination-catalog",    sortOrder: 6  },
+  { moduleKey: "product-registry",         title: "Product Registry",     icon: "box",              route: "/commercial/product-registry",       sortOrder: 7  },
+  { moduleKey: "invoices",                 title: "Invoices",             icon: "file-text",        route: "/commercial/invoices",               sortOrder: 8  },
+  { moduleKey: "commercial-notifications", title: "Notifications",        icon: "bell",             route: "/commercial/commercial-notifications",sortOrder: 9  },
+  { moduleKey: "margin-intelligence",      title: "Margin Intelligence",  icon: "trending-up",      route: "/commercial/margin-intelligence",    sortOrder: 10 },
+];
+
+const COMMERCIAL_SECTIONS = [
+  { portalId: "commercial", sectionKey: "clients",      title: "Clients & Partners", icon: "users",       sortOrder: 1 },
+  { portalId: "commercial", sectionKey: "pricing",      title: "Pricing & Rates",    icon: "settings-2",  sortOrder: 2 },
+  { portalId: "commercial", sectionKey: "billing",      title: "Billing",            icon: "file-text",   sortOrder: 3 },
+  { portalId: "commercial", sectionKey: "intelligence", title: "Intelligence",       icon: "trending-up", sortOrder: 4 },
+];
+
+const COMMERCIAL_ASSIGNMENTS = [
+  { moduleKey: "kam-dashboard",            section: "clients",      displayOrder: 1, isHome: true,  isPinned: true  },
+  { moduleKey: "clients",                  section: "clients",      displayOrder: 2, isHome: false, isPinned: true  },
+  { moduleKey: "partner-profiles",         section: "clients",      displayOrder: 3, isHome: false, isPinned: false },
+  { moduleKey: "deals",                    section: "clients",      displayOrder: 4, isHome: false, isPinned: false },
+  { moduleKey: "rate-manager",             section: "pricing",      displayOrder: 1, isHome: false, isPinned: true  },
+  { moduleKey: "destination-catalog",      section: "pricing",      displayOrder: 2, isHome: false, isPinned: false },
+  { moduleKey: "product-registry",         section: "pricing",      displayOrder: 3, isHome: false, isPinned: false },
+  { moduleKey: "invoices",                 section: "billing",      displayOrder: 1, isHome: false, isPinned: true  },
+  { moduleKey: "commercial-notifications", section: "billing",      displayOrder: 2, isHome: false, isPinned: false },
+  { moduleKey: "margin-intelligence",      section: "intelligence", displayOrder: 1, isHome: false, isPinned: true  },
+];
+
+async function seedCommercialPortal(): Promise<void> {
+  // 1. Upsert navigation modules (idempotent)
+  await db.insert(navigationModules).values(
+    COMMERCIAL_MODULES.map(m => ({
+      moduleKey:    m.moduleKey,
+      title:        m.title,
+      icon:         m.icon,
+      route:        m.route,
+      category:     "commercial",
+      defaultPortal:"commercial",
+      isMovable:    true,
+      isSystem:     false,
+      sortOrder:    m.sortOrder,
+    }))
+  ).onConflictDoNothing();
+
+  // 2. Upsert portal sections (idempotent)
+  await db.insert(portalSections).values(COMMERCIAL_SECTIONS).onConflictDoNothing();
+
+  // 3. Upsert assignments — need real module IDs
+  const mods = await db
+    .select({ id: navigationModules.id, moduleKey: navigationModules.moduleKey })
+    .from(navigationModules)
+    .where(inArray(navigationModules.moduleKey, COMMERCIAL_MODULES.map(m => m.moduleKey)));
+
+  const idByKey: Record<string, number> = {};
+  for (const m of mods) idByKey[m.moduleKey] = m.id;
+
+  const rows = COMMERCIAL_ASSIGNMENTS
+    .filter(a => idByKey[a.moduleKey] != null)
+    .map(a => ({
+      portalId:     "commercial",
+      moduleId:     idByKey[a.moduleKey],
+      section:      a.section,
+      displayOrder: a.displayOrder,
+      isHome:       a.isHome,
+      isPinned:     a.isPinned,
+    }));
+
+  if (rows.length > 0) {
+    await db.insert(portalModuleAssignments).values(rows).onConflictDoNothing();
+  }
+
+  console.log(`[seed] Commercial portal: ${mods.length} modules, ${COMMERCIAL_SECTIONS.length} sections, ${rows.length} assignments.`);
+}
+
 export async function seedGovernanceData(): Promise<void> {
   try {
+    // Governance config + rules — only if the table is empty
     const [{ value: cvCount }] = await db.select({ value: count() }).from(configurationValues);
-    if (Number(cvCount) > 0) return;
+    if (Number(cvCount) === 0) {
+      console.log("[seed] Seeding governance data (configuration_values + validation_rules + governance_reviews)…");
 
-    console.log("[seed] Seeding governance data (configuration_values + validation_rules + governance_reviews)…");
+      await db.insert(configurationValues).values(
+        CONFIG_SEED.map(r => ({
+          category:     r.category,
+          configKey:    r.configKey,
+          label:        r.label,
+          description:  r.description,
+          unit:         r.unit,
+          value:        r.value || null,
+          defaultValue: r.defaultValue || null,
+          valueType:    r.valueType,
+          isEditable:   r.isEditable,
+          isActive:     r.isActive,
+          sortOrder:    r.sortOrder,
+        }))
+      ).onConflictDoNothing();
 
-    await db.insert(configurationValues).values(
-      CONFIG_SEED.map(r => ({
-        category:     r.category,
-        configKey:    r.configKey,
-        label:        r.label,
-        description:  r.description,
-        unit:         r.unit,
-        value:        r.value || null,
-        defaultValue: r.defaultValue || null,
-        valueType:    r.valueType,
-        isEditable:   r.isEditable,
-        isActive:     r.isActive,
-        sortOrder:    r.sortOrder,
-      }))
-    ).onConflictDoNothing();
+      await db.insert(validationRules).values(
+        RULES_SEED.map(r => ({
+          scope:          r.scope,
+          groupName:      r.groupName,
+          ruleKey:        r.ruleKey,
+          description:    r.description,
+          configCategory: r.configCategory,
+          configKey:      r.configKey,
+          selectedAction: r.selectedAction,
+          sortOrder:      r.sortOrder,
+          isActive:       true,
+        }))
+      ).onConflictDoNothing();
 
-    await db.insert(validationRules).values(
-      RULES_SEED.map(r => ({
-        scope:          r.scope,
-        groupName:      r.groupName,
-        ruleKey:        r.ruleKey,
-        description:    r.description,
-        configCategory: r.configCategory,
-        configKey:      r.configKey,
-        selectedAction: r.selectedAction,
-        sortOrder:      r.sortOrder,
-        isActive:       true,
-      }))
-    ).onConflictDoNothing();
-
-    const [{ value: grCount }] = await db.select({ value: count() }).from(governanceReviews);
-    if (Number(grCount) === 0) {
-      await db.insert(governanceReviews).values({ status: "draft" });
+      const [{ value: grCount }] = await db.select({ value: count() }).from(governanceReviews);
+      if (Number(grCount) === 0) {
+        await db.insert(governanceReviews).values({ status: "draft" });
+      }
+      console.log("[seed] Governance data seeded successfully.");
     }
 
-    console.log("[seed] Governance data seeded successfully.");
+    // Commercial portal — always run (fully idempotent via ON CONFLICT DO NOTHING)
+    await seedCommercialPortal();
   } catch (err) {
     console.error("[seed] Failed to seed governance data:", err);
   }
