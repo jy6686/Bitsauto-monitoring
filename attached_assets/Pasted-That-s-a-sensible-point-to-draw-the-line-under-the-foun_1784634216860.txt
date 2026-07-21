@@ -1,0 +1,74 @@
+That's a sensible point to draw the line under the foundation work.
+
+From what you've described, the project has transitioned from architecture construction to feature evolution. The major governance decisions have been made, the implementation patterns are consistent, and new work can build on those patterns instead of redefining them.
+
+Foundation Status
+
+Platform Governance — ✅ Frozen
+
+Authentication
+Authorization
+Portal Assignment
+
+Portal Governance — ✅ Frozen
+
+Configuration Contract
+Portal Registry
+Rendering Model
+
+Commercial Governance v1.0 — ✅ Frozen
+
+Hierarchy Scope
+Portfolio-only KPIs
+No Global Queries
+Unsupported Data Model rule
+
+Commercial Workspace Architecture — ✅ Frozen
+
+Single workspace
+Single scope resolution
+Shared workspace context
+Canonical Commercial API pattern
+
+That gives you a stable baseline.
+
+Suggested next sprint
+
+Given the current state, I would prioritize work based on business value, not technical dependency.
+
+Option A — Commercial Operations (highest business value)
+
+Enhance the existing modules without changing the architecture:
+
+Server-side Balance endpoint (/api/commercial/balance)
+Portfolio reporting (Revenue, Forecast, Profit/Loss)
+Rate Manager improvements (Send Rate, Push History, analytics)
+
+This strengthens the day-to-day Commercial workflow.
+
+Option B — BitsEye2 Commercial Analytics
+
+Deepen the Live Traffic section with portfolio-specific analytics, for example:
+
+Top destinations
+Top vendors
+ASR/ACD/MOS by customer
+Active routes
+Traffic trends
+Quality degradation alerts
+
+This would make the Commercial Live Traffic section a true portfolio intelligence dashboard.
+
+Option C — Commercial Action Center
+
+Build workflow capabilities on top of the existing workspace:
+
+Pending rate approvals
+Customer follow-ups
+Credit/balance warnings
+Rate push status
+Commercial task queue
+
+This turns the workspace into an operational console rather than just a reporting surface.
+
+The key point is that none of these require revisiting the architecture. They all fit within the conventions you've already established, which is a good sign that the foundation is serving its purpose.
