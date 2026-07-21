@@ -27,6 +27,8 @@ import {
   type CommercialScope,
 } from './services/commercial/hierarchy-scope';
 import { sharedLiveCallsCache } from './live-calls-cache';
+import { storage } from './storage';
+import { listSippyAccounts } from './sippy';
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
 function requireAuth(req: any, res: any, next: any) {
@@ -368,6 +370,76 @@ export function registerCommercialRoutes(app: Express) {
 
     } catch (err: any) {
       console.error('[commercial/live-traffic]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/commercial/balance ──────────────────────────────────────────────
+  //
+  // Server-side hierarchy-filtered account balances.
+  // Calls Sippy listSippyAccounts then filters to scope.accountIds.
+  // Replaces the client-side filter pattern on /api/sippy/balance-monitor.
+  //
+  // Response: { accounts[], total, totalBalance, lowCount, scopeError, orgRole }
+  app.get('/api/commercial/balance', requireAuth, async (req: any, res: any) => {
+    try {
+      const scope = await resolveCommercialScope(req);
+
+      if (scope.scopeError) {
+        return res.json({
+          accounts: [], total: 0, totalBalance: 0, lowCount: 0,
+          scopeError: scope.scopeError, orgRole: scope.orgRole,
+        });
+      }
+
+      const settings = await storage.getSippySettings();
+      if (!settings) {
+        return res.json({
+          accounts: [], total: 0, totalBalance: 0, lowCount: 0,
+          scopeError: 'sippy_not_configured', orgRole: scope.orgRole,
+        });
+      }
+
+      const portalUrl = settings.sippyUrl?.replace(/\/+$/, '') ?? undefined;
+      const u = settings.apiAdminUsername ?? '';
+      const p = settings.apiAdminPassword ?? '';
+
+      const { accounts: allAccounts } = await listSippyAccounts(u, p, {}, portalUrl);
+
+      // Account name cache (set by routes.ts background poller)
+      const nameCache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
+
+      const scopeSet = new Set(scope.accountIds.map(String));
+      const source   = scope.isAdmin ? allAccounts : allAccounts.filter(a => scopeSet.has(String(a.iAccount)));
+
+      const accounts = source.map(a => {
+        const bal  = a.balance      ?? 0;
+        const lim  = a.creditLimit  ?? null;
+        const isLow = lim !== null && bal < lim * 0.1;
+        return {
+          iAccount:    a.iAccount,
+          name:        nameCache?.get(String(a.iAccount)) ?? a.username ?? `Account ${a.iAccount}`,
+          balance:     bal,
+          creditLimit: lim,
+          balanceFlag: isLow ? 'low' : 'ok',
+          blocked:     a.blocked    ?? false,
+        };
+      }).sort((a, b) => a.balance - b.balance); // lowest balance first
+
+      const totalBalance = accounts.reduce((s, a) => s + a.balance, 0);
+      const lowCount     = accounts.filter(a => a.balanceFlag === 'low').length;
+
+      res.json({
+        accounts,
+        total:        accounts.length,
+        totalBalance,
+        lowCount,
+        scopeError:   null,
+        orgRole:      scope.orgRole,
+      });
+
+    } catch (err: any) {
+      console.error('[commercial/balance]', err.message);
       res.status(500).json({ error: err.message });
     }
   });

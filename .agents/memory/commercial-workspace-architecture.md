@@ -42,15 +42,37 @@ Section Component
 
 ## Completed sections (all in `client/src/pages/commercial-workspace.tsx`)
 
-| Section       | Endpoint                            | Status |
-|---------------|-------------------------------------|--------|
-| Dashboard     | context (portfolio + kpis)          | ✅     |
-| Clients       | /api/commercial/clients (paginated) | ✅     |
-| Live Calls    | /api/commercial/live-calls          | ✅     |
-| Live Traffic  | /api/commercial/live-traffic        | ✅     |
-| Balance       | /api/sippy/balance-monitor (scoped) | ✅     |
-| Products      | /api/rate-manager/jobs              | ✅     |
-| Reports       | read-only links to existing pages   | ✅     |
+| Section       | Endpoint                              | Status | Sprint |
+|---------------|---------------------------------------|--------|--------|
+| Dashboard     | context (portfolio + kpis)            | ✅     | Fdn    |
+| Clients       | /api/commercial/clients (paginated)   | ✅     | Fdn    |
+| Live Calls    | /api/commercial/live-calls            | ✅     | CH-2.5 |
+| Live Traffic  | /api/commercial/live-traffic          | ✅     | CH-3   |
+| Balance       | /api/commercial/balance (server-side) | ✅     | A      |
+| Products      | 3-tab: Rate Analysis/Push History/Send Rate | ✅ | A   |
+| Reports       | 3-tab: Revenue/Traffic/P&L (inline)   | ✅     | A      |
+
+## Sprint A — canonical pattern confirmed
+
+All 7 sections now follow the same pattern:
+- **Backend**: `resolveCommercialScope()` → service/Sippy → scoped DTO
+- **Frontend**: `useCommercialWorkspace()` → section-level query for specific data
+
+No section uses client-side scope filtering. No section calls `/api/sippy/*` directly for commercial concerns.
+
+## Balance endpoint specifics
+
+`GET /api/commercial/balance` in `routes-commercial.ts`:
+- Imports: `storage` from `./storage`; `listSippyAccounts` from `./sippy`
+- Names enriched from `(global).__bitsautoAccountCache` (set by routes.ts poller)
+- `balanceFlag: 'low'` when `balance < creditLimit * 0.1`
+- Returns accounts sorted low→high so at-risk appear first
+
+## Products section tabs
+
+- **Rate Analysis**: `/api/rate-manager/kpi` + `/api/rate-manager/products`
+- **Push History**: `/api/rate-manager/jobs` with search filter + progress bars
+- **Send Rate**: portfolio coverage snapshot from context + links to Rate Manager
 
 ## Scope resolution chain
 

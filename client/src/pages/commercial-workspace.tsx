@@ -570,90 +570,114 @@ function LiveTrafficSection() {
   );
 }
 
-// ── Section: Balance ──────────────────────────────────────────────────────────
+// ── Section: Balance ─────────────────────────────────────────────────────────
+// Uses /api/commercial/balance — server-side scope filtered (mirrors Live Calls)
 
-interface BalanceAccount {
-  i_account:    number;
-  name:         string;
-  balance:      number;
-  credit_limit?: number;
-  balance_flag?: string;
+interface CommercialBalanceAccount {
+  iAccount:    number;
+  name:        string;
+  balance:     number;
+  creditLimit: number | null;
+  balanceFlag: 'low' | 'ok';
+  blocked:     boolean;
+}
+
+interface CommercialBalanceResp {
+  accounts:     CommercialBalanceAccount[];
+  total:        number;
+  totalBalance: number;
+  lowCount:     number;
+  scopeError:   string | null;
+  orgRole:      string | null;
 }
 
 function BalanceSection() {
-  const { scope } = useCommercialWorkspace();
-  const q = useQuery<{ accounts: BalanceAccount[] }>({
-    queryKey: ['/api/sippy/balance-monitor'],
+  const q = useQuery<CommercialBalanceResp>({
+    queryKey: ['/api/commercial/balance'],
     staleTime: 60_000,
   });
 
-  const scopeSet = useMemo(
-    () => new Set((scope?.accountIds ?? []).map(String)),
-    [scope],
-  );
-
-  const accounts = useMemo(() => {
-    if (!q.data?.accounts) return [];
-    const all = q.data.accounts;
-    return scope?.isAdmin ? all : all.filter(a => scopeSet.has(String(a.i_account)));
-  }, [q.data, scopeSet, scope]);
-
-  const totalBalance = accounts.reduce((s, a) => s + (a.balance ?? 0), 0);
-  const lowCount     = accounts.filter(a => a.balance_flag === 'low' || (a.credit_limit && a.balance < a.credit_limit * 0.1)).length;
+  const data     = q.data;
+  const accounts = data?.accounts ?? [];
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h3 className="text-base font-semibold">Balance</h3>
           <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-            <Lock className="w-3 h-3" /> Read-only · {accounts.length} accounts
+            <Lock className="w-3 h-3" /> Read-only · server-scoped · {data?.total ?? 0} accounts
           </p>
         </div>
-        <div className="text-right">
-          <div className="text-lg font-bold text-emerald-400">${totalBalance.toFixed(2)}</div>
-          <div className="text-[10px] text-muted-foreground">Total portfolio balance</div>
+        <div className="flex gap-4 text-right">
+          <div>
+            <div className="text-lg font-bold text-emerald-400">${(data?.totalBalance ?? 0).toFixed(2)}</div>
+            <div className="text-[10px] text-muted-foreground">Total portfolio balance</div>
+          </div>
+          {(data?.lowCount ?? 0) > 0 && (
+            <div>
+              <div className="text-lg font-bold text-red-400">{data!.lowCount}</div>
+              <div className="text-[10px] text-muted-foreground">Low balance</div>
+            </div>
+          )}
         </div>
       </div>
 
-      {lowCount > 0 && (
+      {(data?.lowCount ?? 0) > 0 && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-          {lowCount} account{lowCount > 1 ? 's' : ''} with low balance.
+          {data!.lowCount} account{data!.lowCount > 1 ? 's' : ''} below 10% of credit limit — review required.
         </div>
       )}
+
+      {data?.scopeError && <ScopeAlertInline error={data.scopeError} />}
 
       <div className="rounded-xl border border-border/50 bg-card/40 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border/40 bg-muted/20">
-              {['Account', 'Acct ID', 'Balance', 'Credit Limit', 'Status'].map(h => (
-                <th key={h} className="text-left px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>
+              {['Account', 'Acct ID', 'Balance', 'Credit Limit', 'Utilisation', 'Status'].map(h => (
+                <th key={h} className="text-left px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {q.isLoading && (
-              <tr><td colSpan={5} className="text-center py-10 text-xs text-muted-foreground">
+              <tr><td colSpan={6} className="text-center py-10 text-xs text-muted-foreground">
                 <Activity className="w-4 h-4 animate-pulse mx-auto mb-1" />Loading…
               </td></tr>
             )}
             {!q.isLoading && accounts.map((a, i) => {
-              const isLow = a.balance_flag === 'low' || (a.credit_limit && a.balance < a.credit_limit * 0.1);
+              const util = a.creditLimit ? Math.min(100, Math.round((1 - a.balance / a.creditLimit) * 100)) : null;
               return (
-                <tr key={a.i_account} className={`border-b border-border/25 hover:bg-muted/20 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
-                  <td className="px-3 py-2 text-xs font-medium">{a.name}</td>
-                  <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">{a.i_account}</td>
+                <tr key={a.iAccount} className={`border-b border-border/25 hover:bg-muted/20 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
+                  <td className="px-3 py-2 text-xs font-medium">
+                    <div className="flex items-center gap-1.5">
+                      {a.blocked && <span className="text-[9px] font-bold text-red-400 bg-red-500/10 border border-red-500/30 px-1 rounded">BLOCKED</span>}
+                      {a.name}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">{a.iAccount}</td>
                   <td className="px-3 py-2">
-                    <span className={`text-xs font-semibold tabular-nums ${isLow ? 'text-red-400' : 'text-emerald-400'}`}>
-                      ${(a.balance ?? 0).toFixed(2)}
+                    <span className={`text-xs font-semibold tabular-nums ${a.balanceFlag === 'low' ? 'text-red-400' : 'text-emerald-400'}`}>
+                      ${a.balance.toFixed(2)}
                     </span>
                   </td>
                   <td className="px-3 py-2 text-xs text-muted-foreground tabular-nums">
-                    {a.credit_limit != null ? `$${a.credit_limit.toFixed(2)}` : '—'}
+                    {a.creditLimit != null ? `$${a.creditLimit.toFixed(2)}` : '—'}
                   </td>
                   <td className="px-3 py-2">
-                    {isLow
+                    {util !== null ? (
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-14 h-1.5 rounded-full bg-muted/40">
+                          <div className={`h-full rounded-full ${util > 90 ? 'bg-red-500' : util > 70 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${util}%` }} />
+                        </div>
+                        <span className="text-[11px] text-muted-foreground tabular-nums">{util}%</span>
+                      </div>
+                    ) : <span className="text-muted-foreground/30 text-xs">—</span>}
+                  </td>
+                  <td className="px-3 py-2">
+                    {a.balanceFlag === 'low'
                       ? <span className="text-[10px] font-semibold text-red-400    uppercase tracking-wider">Low</span>
                       : <span className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider">OK</span>
                     }
@@ -662,7 +686,7 @@ function BalanceSection() {
               );
             })}
             {!q.isLoading && accounts.length === 0 && (
-              <tr><td colSpan={5} className="text-center py-10 text-xs text-muted-foreground">No balance data available.</td></tr>
+              <tr><td colSpan={6} className="text-center py-10 text-xs text-muted-foreground">No balance data in scope.</td></tr>
             )}
           </tbody>
         </table>
@@ -672,6 +696,9 @@ function BalanceSection() {
 }
 
 // ── Section: Products ─────────────────────────────────────────────────────────
+// Tabs: Rate Analysis · Push History · Send Rate
+
+type ProductsTab = 'analysis' | 'history' | 'send';
 
 interface RatePushJob {
   id:           number;
@@ -679,74 +706,499 @@ interface RatePushJob {
   iAccount?:    number;
   clientName?:  string;
   createdAt?:   string;
+  completedAt?: string;
   totalRates?:  number;
   pushedRates?: number;
+  failedRates?: number;
+}
+
+interface RateKpi {
+  totalCountries:    number;
+  totalDestinations: number;
+  totalClients:      number;
+  totalProducts:     number;
+}
+
+interface Product {
+  id:          number;
+  name:        string;
+  status:      string;
+  productClass?: string;
+  trunkPrefix?: string;
+  description?: string;
 }
 
 function ProductsSection() {
-  const jobsQ = useQuery<{ jobs: RatePushJob[] }>({
-    queryKey: ['/api/rate-manager/jobs'],
-    staleTime: 30_000,
-  });
-  const recentJobs = (jobsQ.data?.jobs ?? []).slice(0, 10);
+  const { portfolio } = useCommercialWorkspace();
+  const [tab, setTab] = useState<ProductsTab>('analysis');
+  const [jobSearch, setJobSearch] = useState('');
+
+  const kpiQ  = useQuery<RateKpi>({ queryKey: ['/api/rate-manager/kpi'],      staleTime: 60_000 });
+  const prodsQ = useQuery<Product[]>({ queryKey: ['/api/rate-manager/products'], staleTime: 60_000 });
+  const jobsQ  = useQuery<{ jobs: RatePushJob[] }>({ queryKey: ['/api/rate-manager/jobs'], staleTime: 30_000 });
+
+  const kpi     = kpiQ.data;
+  const products = prodsQ.data ?? [];
+  const allJobs  = jobsQ.data?.jobs ?? [];
+
+  const filteredJobs = useMemo(() => {
+    if (!jobSearch.trim()) return allJobs;
+    const lq = jobSearch.toLowerCase();
+    return allJobs.filter(j =>
+      (j.clientName ?? '').toLowerCase().includes(lq) ||
+      String(j.iAccount ?? '').includes(lq) ||
+      j.status.includes(lq)
+    );
+  }, [allJobs, jobSearch]);
+
+  const completedJobs  = allJobs.filter(j => j.status === 'completed').length;
+  const failedJobs     = allJobs.filter(j => j.status === 'failed').length;
+  const pendingJobs    = allJobs.filter(j => ['pending', 'running'].includes(j.status)).length;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h3 className="text-base font-semibold">Products · Rate Manager</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">Rate analysis, send rates, push history</p>
+          <h3 className="text-base font-semibold">Products</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">Rate analysis · push history · send rates to Sippy</p>
         </div>
         <Link href="/rate-manager" className="flex items-center gap-1.5 text-xs text-sky-400 hover:text-sky-300 border border-sky-500/30 rounded-lg px-2.5 py-1.5 hover:bg-sky-500/10 transition-colors">
-          Open Rate Manager <ArrowRight className="w-3 h-3" />
+          Full Rate Manager <ExternalLink className="w-3 h-3" />
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {[
-          { label: 'Rate Analysis', desc: 'Analyse rates against destination catalogue', href: '/rate-manager', icon: BarChart2  },
-          { label: 'Send Rate',     desc: 'Push rates to Sippy tariffs',                 href: '/rate-manager', icon: TrendingUp },
-          { label: 'Push History',  desc: 'View rate push job history and status',       href: '/rate-manager', icon: Clock      },
-        ].map(item => (
-          <Link key={item.label} href={item.href}>
-            <div className="rounded-xl border border-border/50 bg-card/60 p-4 hover:bg-card/80 hover:border-sky-500/30 transition-colors cursor-pointer group">
-              <item.icon className="w-4 h-4 text-sky-400 mb-2" />
-              <div className="text-sm font-medium group-hover:text-sky-400 transition-colors">{item.label}</div>
-              <div className="text-xs text-muted-foreground mt-1">{item.desc}</div>
-            </div>
-          </Link>
+      {/* Tab bar */}
+      <div className="flex items-center gap-1 rounded-lg border border-border/50 p-0.5 bg-muted/20 w-fit">
+        {([
+          ['analysis', 'Rate Analysis', BarChart2 ],
+          ['history',  'Push History',  Clock     ],
+          ['send',     'Send Rate',     TrendingUp],
+        ] as [ProductsTab, string, any][]).map(([id, label, Icon]) => (
+          <button
+            key={id}
+            data-testid={`tab-products-${id}`}
+            onClick={() => setTab(id)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors font-medium ${
+              tab === id ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Icon className="w-3 h-3" />{label}
+          </button>
         ))}
       </div>
 
-      {recentJobs.length > 0 && (
-        <div>
-          <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Recent Rate Push Jobs</h4>
+      {/* ── Tab: Rate Analysis ── */}
+      {tab === 'analysis' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: 'Countries',    value: kpi?.totalCountries    ?? '—', icon: Globe,       color: 'text-violet-400' },
+              { label: 'Destinations', value: kpi?.totalDestinations ?? '—', icon: Activity,    color: 'text-sky-400'    },
+              { label: 'Clients',      value: kpi?.totalClients      ?? '—', icon: Users,       color: 'text-emerald-400'},
+              { label: 'Products',     value: kpi?.totalProducts     ?? '—', icon: Layers,      color: 'text-amber-400'  },
+            ].map(k => (
+              <div key={k.label} className="rounded-xl border border-border/50 bg-card/60 px-4 py-3 flex items-center gap-3">
+                <k.icon className={`w-4 h-4 shrink-0 ${k.color}`} />
+                <div>
+                  <div className="text-xl font-bold tabular-nums">{k.value}</div>
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider">{k.label}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Commercial Products</h4>
+            <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/40 bg-muted/20">
+                    {['Product', 'Class', 'Prefix', 'Status'].map(h => (
+                      <th key={h} className="text-left px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {prodsQ.isLoading && (
+                    <tr><td colSpan={4} className="text-center py-8 text-xs text-muted-foreground"><Activity className="w-4 h-4 animate-pulse mx-auto mb-1" />Loading…</td></tr>
+                  )}
+                  {!prodsQ.isLoading && products.map((p, i) => (
+                    <tr key={p.id} className={`border-b border-border/25 hover:bg-muted/20 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
+                      <td className="px-3 py-2 text-xs font-medium">{p.name}</td>
+                      <td className="px-3 py-2">
+                        <span className="font-mono text-[10px] text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded">{p.productClass ?? '—'}</span>
+                      </td>
+                      <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">{p.trunkPrefix ?? '—'}</td>
+                      <td className="px-3 py-2">
+                        <span className={`text-[10px] font-semibold uppercase tracking-wider ${
+                          p.status === 'commercial' ? 'text-emerald-400' :
+                          p.status === 'testing'    ? 'text-amber-400'   : 'text-muted-foreground'
+                        }`}>{p.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                  {!prodsQ.isLoading && products.length === 0 && (
+                    <tr><td colSpan={4} className="text-center py-8 text-xs text-muted-foreground">No commercial products configured.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tab: Push History ── */}
+      {tab === 'history' && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex gap-3">
+              {[
+                { label: 'Completed', value: completedJobs, color: 'text-emerald-400' },
+                { label: 'Failed',    value: failedJobs,    color: 'text-red-400'     },
+                { label: 'Pending',   value: pendingJobs,   color: 'text-amber-400'   },
+              ].map(s => (
+                <div key={s.label} className="rounded-lg border border-border/40 bg-card/50 px-3 py-1.5 text-center">
+                  <div className={`text-base font-bold tabular-nums ${s.color}`}>{s.value}</div>
+                  <div className="text-[10px] text-muted-foreground">{s.label}</div>
+                </div>
+              ))}
+            </div>
+            <div className="relative flex-1 min-w-[180px] max-w-xs ml-auto">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+              <input
+                data-testid="input-job-search"
+                value={jobSearch} onChange={e => setJobSearch(e.target.value)}
+                placeholder="Filter by client, status…"
+                className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-border/60 bg-muted/30 placeholder:text-muted-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/40"
+              />
+            </div>
+          </div>
+
           <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border/40 bg-muted/20">
-                  {['Job ID', 'Client', 'Status', 'Rates', 'Created'].map(h => (
+                  {['Job ID', 'Client', 'Status', 'Rates (done/total)', 'Created', 'Completed'].map(h => (
+                    <th key={h} className="text-left px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {jobsQ.isLoading && (
+                  <tr><td colSpan={6} className="text-center py-8 text-xs text-muted-foreground"><Activity className="w-4 h-4 animate-pulse mx-auto mb-1" />Loading…</td></tr>
+                )}
+                {!jobsQ.isLoading && filteredJobs.slice(0, 20).map((j, i) => (
+                  <tr key={j.id} className={`border-b border-border/25 hover:bg-muted/20 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
+                    <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">#{j.id}</td>
+                    <td className="px-3 py-2 text-xs font-medium">{j.clientName ?? `Acct.${j.iAccount ?? '—'}`}</td>
+                    <td className="px-3 py-2">
+                      <span className={`text-[10px] font-semibold uppercase tracking-wider ${
+                        j.status === 'completed' ? 'text-emerald-400' :
+                        j.status === 'failed'    ? 'text-red-400'     :
+                        j.status === 'running'   ? 'text-sky-400'     : 'text-amber-400'
+                      }`}>{j.status}</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {j.pushedRates ?? 0}/{j.totalRates ?? '—'}
+                        </span>
+                        {j.totalRates && j.pushedRates != null && (
+                          <div className="w-12 h-1 rounded-full bg-muted/40">
+                            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.round((j.pushedRates / j.totalRates) * 100)}%` }} />
+                          </div>
+                        )}
+                        {(j.failedRates ?? 0) > 0 && (
+                          <span className="text-[10px] text-red-400">{j.failedRates} failed</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-muted-foreground whitespace-nowrap">
+                      {j.createdAt ? new Date(j.createdAt).toLocaleString() : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-[11px] text-muted-foreground whitespace-nowrap">
+                      {j.completedAt ? new Date(j.completedAt).toLocaleString() : '—'}
+                    </td>
+                  </tr>
+                ))}
+                {!jobsQ.isLoading && filteredJobs.length === 0 && (
+                  <tr><td colSpan={6} className="text-center py-8 text-xs text-muted-foreground">No push jobs found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tab: Send Rate ── */}
+      {tab === 'send' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-border/40 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
+            <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="text-xs text-amber-300/80 leading-relaxed">
+              Rate push is a privileged operation. Rates are pushed directly to Sippy tariffs assigned to portfolio accounts.
+              Use the full Rate Manager for batch operations, preview, and advanced configuration.
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {[
+              { label: 'Push Rates to Account', desc: 'Send a specific rate to one or more portfolio accounts. Select destination prefix, rate, and effective date.', action: 'rate-manager', cta: 'Open Rate Push →' },
+              { label: 'Analyse Rate Coverage', desc: 'Review which destinations have rates assigned and identify gaps across the portfolio.', action: 'rate-manager', cta: 'Open Rate Analysis →' },
+            ].map(item => (
+              <Link key={item.label} href={`/${item.action}`}>
+                <div className="rounded-xl border border-border/50 bg-card/60 p-5 hover:bg-card/80 hover:border-sky-500/30 transition-colors cursor-pointer group">
+                  <div className="text-sm font-semibold mb-2">{item.label}</div>
+                  <div className="text-xs text-muted-foreground leading-relaxed mb-4">{item.desc}</div>
+                  <div className="text-xs text-sky-400 font-medium group-hover:underline">{item.cta}</div>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          <div className="rounded-xl border border-border/50 bg-card/40 p-4">
+            <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Portfolio Rate Coverage Snapshot</div>
+            <div className="space-y-2">
+              {portfolio.slice(0, 8).map(a => (
+                <div key={a.accountId} className="flex items-center justify-between py-1 border-b border-border/20">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-3 h-3 text-muted-foreground/40 shrink-0" />
+                    <span className="text-xs">{a.clientName}</span>
+                    <span className="font-mono text-[10px] text-muted-foreground/50">#{a.accountId}</span>
+                  </div>
+                  <span className={`text-[10px] font-semibold uppercase ${
+                    a.state === 'healthy' ? 'text-emerald-400' :
+                    a.state === 'at_risk' ? 'text-red-400'     : 'text-amber-400'
+                  }`}>{a.state.replace('_', ' ')}</span>
+                </div>
+              ))}
+              {portfolio.length > 8 && (
+                <div className="text-[10px] text-muted-foreground/50 pt-1">+{portfolio.length - 8} more accounts in portfolio</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Section: Reports ─────────────────────────────────────────────────────────
+// Inline portfolio data views — stay within the workspace
+
+type ReportsTab = 'revenue' | 'traffic' | 'pnl';
+
+function ReportsSection() {
+  const { portfolio, kpis } = useCommercialWorkspace();
+  const [tab, setTab] = useState<ReportsTab>('revenue');
+
+  const byRevenue = useMemo(
+    () => [...portfolio].sort((a, b) => (b.revenue24h ?? 0) - (a.revenue24h ?? 0)),
+    [portfolio],
+  );
+
+  const byCalls = useMemo(
+    () => [...portfolio].sort((a, b) => (b.calls24h ?? 0) - (a.calls24h ?? 0)),
+    [portfolio],
+  );
+
+  const totalRev  = portfolio.reduce((s, a) => s + (a.revenue24h  ?? 0), 0);
+  const totalCalls = portfolio.reduce((s, a) => s + (a.calls24h ?? 0), 0);
+  const growing   = portfolio.filter(a => a.trendDirection === 'up').length;
+  const declining = portfolio.filter(a => a.trendDirection === 'down').length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h3 className="text-base font-semibold">Reports</h3>
+          <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+            <Lock className="w-3 h-3" /> Read-only · portfolio-scoped · data from context
+          </p>
+        </div>
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex items-center gap-1 rounded-lg border border-border/50 p-0.5 bg-muted/20 w-fit">
+        {([
+          ['revenue', 'Revenue',  DollarSign],
+          ['traffic', 'Traffic',  Activity  ],
+          ['pnl',     'P & L',    BarChart2  ],
+        ] as [ReportsTab, string, any][]).map(([id, label, Icon]) => (
+          <button
+            key={id}
+            data-testid={`tab-reports-${id}`}
+            onClick={() => setTab(id)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors font-medium ${
+              tab === id ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Icon className="w-3 h-3" />{label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Revenue tab ── */}
+      {tab === 'revenue' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: '24h Revenue',     value: `$${totalRev.toFixed(2)}`,   color: 'text-violet-400' },
+              { label: 'Growing Accts',   value: growing,                      color: 'text-emerald-400'},
+              { label: 'Declining Accts', value: declining,                    color: 'text-red-400'    },
+            ].map(k => (
+              <div key={k.label} className="rounded-xl border border-border/50 bg-card/60 px-4 py-3">
+                <div className={`text-xl font-bold tabular-nums ${k.color}`}>{k.value}</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">{k.label}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
+            <div className="px-4 py-3 border-b border-border/40 flex items-center justify-between">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Top Accounts by 24h Revenue</span>
+              <Link href="/revenue-heatmap" className="flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 transition-colors">
+                Full Report <ExternalLink className="w-3 h-3" />
+              </Link>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/40 bg-muted/20">
+                  {['Account', 'Acct ID', '24h Revenue', 'Trend', 'Status'].map(h => (
                     <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {recentJobs.map((j, i) => (
-                  <tr key={j.id} className={`border-b border-border/25 hover:bg-muted/20 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
-                    <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">#{j.id}</td>
-                    <td className="px-3 py-2 text-xs">{j.clientName ?? `Acct.${j.iAccount ?? '—'}`}</td>
+                {byRevenue.slice(0, 15).map((a, i) => (
+                  <tr key={a.accountId} className={`border-b border-border/25 hover:bg-muted/20 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
+                    <td className="px-3 py-2 text-xs font-medium">{a.clientName}</td>
+                    <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">{a.accountId}</td>
                     <td className="px-3 py-2">
-                      <span className={`text-[10px] font-semibold uppercase ${
-                        j.status === 'completed' ? 'text-emerald-400' :
-                        j.status === 'failed'    ? 'text-red-400'     : 'text-amber-400'
-                      }`}>{j.status}</span>
+                      <span className="text-xs font-semibold text-violet-400 tabular-nums">${(a.revenue24h ?? 0).toFixed(2)}</span>
                     </td>
-                    <td className="px-3 py-2 text-xs text-muted-foreground tabular-nums">{j.pushedRates ?? 0}/{j.totalRates ?? '—'}</td>
-                    <td className="px-3 py-2 text-xs text-muted-foreground">
-                      {j.createdAt ? new Date(j.createdAt).toLocaleDateString() : '—'}
-                    </td>
+                    <td className="px-3 py-2"><TrendIcon dir={a.trendDirection} /></td>
+                    <td className="px-3 py-2"><StateBadge state={a.state} /></td>
                   </tr>
                 ))}
+                {byRevenue.length === 0 && (
+                  <tr><td colSpan={5} className="text-center py-8 text-xs text-muted-foreground">No revenue data available.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Traffic tab ── */}
+      {tab === 'traffic' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: '24h Calls',    value: totalCalls,                    color: 'text-sky-400'     },
+              { label: 'Active Accts', value: portfolio.filter(a => (a.calls24h ?? 0) > 0).length, color: 'text-emerald-400' },
+              { label: 'Silent Accts', value: portfolio.filter(a => (a.calls24h ?? 0) === 0).length, color: 'text-amber-400' },
+            ].map(k => (
+              <div key={k.label} className="rounded-xl border border-border/50 bg-card/60 px-4 py-3">
+                <div className={`text-xl font-bold tabular-nums ${k.color}`}>{k.value}</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">{k.label}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
+            <div className="px-4 py-3 border-b border-border/40 flex items-center justify-between">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Traffic by Account · Last 24h</span>
+              <Link href="/traffic-forecast" className="flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 transition-colors">
+                Forecast <ExternalLink className="w-3 h-3" />
+              </Link>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/40 bg-muted/20">
+                  {['Account', 'Calls 24h', 'Live', 'Trend', 'Status'].map(h => (
+                    <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {byCalls.slice(0, 15).map((a, i) => (
+                  <tr key={a.accountId} className={`border-b border-border/25 hover:bg-muted/20 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
+                    <td className="px-3 py-2 text-xs font-medium">{a.clientName}</td>
+                    <td className="px-3 py-2">
+                      <span className="text-xs font-semibold text-sky-400 tabular-nums">{a.calls24h ?? 0}</span>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={`text-xs font-semibold tabular-nums ${(a.liveCallCount ?? 0) > 0 ? 'text-emerald-400' : 'text-muted-foreground/30'}`}>
+                        {a.liveCallCount ?? 0}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2"><TrendIcon dir={a.trendDirection} /></td>
+                    <td className="px-3 py-2"><StateBadge state={a.state} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── P&L tab ── */}
+      {tab === 'pnl' && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-border/40 bg-muted/10 px-4 py-3 flex items-start gap-3">
+            <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+            <div className="text-xs text-muted-foreground/80 leading-relaxed">
+              Detailed P&L data — including cost, margin, and vendor breakdown — is available in the full Analytics suite.
+              Portfolio-level margin calculations require the Finance snapshot pipeline.
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {[
+              { label: 'Analytics — P&L',    desc: 'Full P&L breakdown by account, route, and vendor. Includes cost, margin, and revenue analysis.',  href: '/analytics',        icon: BarChart2,   color: 'text-emerald-400' },
+              { label: 'Finance Cockpit',     desc: 'Invoice batches, reconciliation, margin snapshots, and financial health across the portfolio.',     href: '/finance-cockpit',  icon: DollarSign,  color: 'text-violet-400'  },
+            ].map(r => (
+              <Link key={r.label} href={r.href}>
+                <div className="rounded-xl border border-border/50 bg-card/60 p-5 hover:bg-card/80 transition-colors cursor-pointer group">
+                  <r.icon className={`w-4 h-4 mb-2 ${r.color}`} />
+                  <div className="text-sm font-medium">{r.label}</div>
+                  <div className="text-xs text-muted-foreground mt-1 leading-relaxed">{r.desc}</div>
+                  <div className="flex items-center gap-1 mt-3 text-xs text-sky-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                    Open <ArrowRight className="w-3 h-3" />
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
+            <div className="px-4 py-3 border-b border-border/40">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Revenue vs Traffic — 24h Snapshot</span>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/40 bg-muted/20">
+                  {['Account', 'Revenue 24h', 'Calls 24h', 'Rev / Call', 'Trend'].map(h => (
+                    <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {byRevenue.slice(0, 10).map((a, i) => {
+                  const revPerCall = (a.calls24h ?? 0) > 0 ? (a.revenue24h ?? 0) / a.calls24h! : null;
+                  return (
+                    <tr key={a.accountId} className={`border-b border-border/25 hover:bg-muted/20 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
+                      <td className="px-3 py-2 text-xs font-medium">{a.clientName}</td>
+                      <td className="px-3 py-2 text-xs font-semibold text-violet-400 tabular-nums">${(a.revenue24h ?? 0).toFixed(2)}</td>
+                      <td className="px-3 py-2 text-xs text-sky-400 tabular-nums">{a.calls24h ?? 0}</td>
+                      <td className="px-3 py-2 text-xs text-muted-foreground tabular-nums">
+                        {revPerCall != null ? `$${revPerCall.toFixed(3)}` : '—'}
+                      </td>
+                      <td className="px-3 py-2"><TrendIcon dir={a.trendDirection} /></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -756,35 +1208,17 @@ function ProductsSection() {
   );
 }
 
-// ── Section: Reports ──────────────────────────────────────────────────────────
-
-function ReportsSection() {
+// ── Shared scope alert (inline variant) ───────────────────────────────────────
+function ScopeAlertInline({ error }: { error: string }) {
+  const msg = error === 'sippy_not_configured'
+    ? 'Sippy is not configured. Contact your administrator.'
+    : error === 'no_kam_link'
+      ? 'Your account is not linked to a KAM profile.'
+      : 'No accounts in scope.';
   return (
-    <div className="space-y-4">
-      <div>
-        <h3 className="text-base font-semibold">Reports</h3>
-        <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-          <Lock className="w-3 h-3" /> Read-only · Revenue · Forecast · Profit / Loss
-        </p>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {[
-          { label: 'Revenue Report',   desc: 'Portfolio revenue breakdown by account and destination.', href: '/revenue-heatmap',  icon: DollarSign, color: 'text-violet-400' },
-          { label: 'Traffic Forecast', desc: 'Forecast portfolio traffic and revenue trends.',           href: '/traffic-forecast', icon: TrendingUp,  color: 'text-sky-400'    },
-          { label: 'Profit / Loss',    desc: 'P&L analysis across portfolio — margin, cost, revenue.',  href: '/analytics',        icon: BarChart2,   color: 'text-emerald-400'},
-        ].map(r => (
-          <Link key={r.label} href={r.href}>
-            <div className="rounded-xl border border-border/50 bg-card/60 p-4 hover:bg-card/80 transition-colors cursor-pointer group">
-              <r.icon className={`w-4 h-4 mb-2 ${r.color}`} />
-              <div className="text-sm font-medium">{r.label}</div>
-              <div className="text-xs text-muted-foreground mt-1 leading-relaxed">{r.desc}</div>
-              <div className="flex items-center gap-1 mt-3 text-xs text-sky-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                Open report <ArrowRight className="w-3 h-3" />
-              </div>
-            </div>
-          </Link>
-        ))}
-      </div>
+    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs">
+      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+      {msg}
     </div>
   );
 }
