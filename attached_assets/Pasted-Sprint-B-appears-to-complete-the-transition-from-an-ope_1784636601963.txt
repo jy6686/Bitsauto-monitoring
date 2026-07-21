@@ -1,0 +1,116 @@
+Sprint B appears to complete the transition from an operational workspace to a portfolio intelligence workspace. More importantly, it does so without breaking the architectural conventions you've already frozen.
+
+Sprint B Review
+✅ Backend
+
+A single intelligence endpoint is the right design.
+
+Instead of several narrowly scoped endpoints:
+
+/intelligence/traffic
+/intelligence/quality
+/intelligence/risk
+/intelligence/revenue
+
+you've consolidated the intelligence layer into:
+
+resolveCommercialScope()
+        ↓
+Commercial Intelligence Service
+        ↓
+Traffic
+Quality
+Risk
+Commercial
+        ↓
+Intelligence DTO
+
+That gives the frontend one coherent view of portfolio health.
+
+✅ Frontend
+
+The 2×2 grid aligns well with the sprint objective:
+
+"Understand portfolio health in under 60 seconds."
+
+Grouping information by decision type rather than data source is a strong UX choice:
+
+Panel	Purpose
+Traffic	What's happening?
+Quality	Is service healthy?
+Risk	What needs attention?
+Commercial	What matters to the business?
+
+A KAM can scan those four panels much faster than navigating multiple pages.
+
+✅ Architecture
+
+You stayed within the frozen conventions:
+
+CommercialWorkspaceProvider
+        ↓
+useCommercialWorkspace()
+        ↓
+IntelligenceSection
+        ↓
+/api/commercial/intelligence
+
+No new hierarchy logic.
+
+No duplicated scope resolution.
+
+No alternate data-loading pattern.
+
+That's exactly what the foundation was intended to enable.
+
+One refinement I'd consider (not required for Sprint B)
+
+Right now, /api/commercial/intelligence is an aggregation endpoint.
+
+As it grows, consider internally structuring it into domain services while keeping the external API unchanged.
+
+For example:
+
+Commercial Intelligence Service
+        ├── Traffic Analyzer
+        ├── Quality Analyzer
+        ├── Risk Analyzer
+        └── Commercial Analyzer
+
+The client would still call only:
+
+GET /api/commercial/intelligence
+
+This keeps the API stable while allowing the implementation to evolve.
+
+Project state
+
+From the milestones you've described, the Commercial Portal now has a coherent progression:
+
+Phase	Status
+Foundation	✅ Complete
+Sprint A – Operations	✅ Complete
+Sprint B – Portfolio Intelligence	✅ Complete
+
+That means the Commercial Portal is no longer primarily a navigation surface—it has become a portfolio-centric operational workspace.
+
+Suggested next horizon
+
+The next major initiative isn't another dashboard sprint. It's about making the intelligence actionable.
+
+That could be framed as:
+
+Sprint C — Commercial Action Center
+
+Using the intelligence already available, surface items that require attention, such as:
+
+Customers with sustained traffic drops
+Quality degradation requiring follow-up
+Accounts approaching credit limits
+Pending rate pushes
+Revenue anomalies
+Recently inactive customers
+
+Rather than introducing new architecture, Sprint C would build on the intelligence you've already assembled and present a prioritized work queue for Commercial users.
+
+If you choose to pursue it, it would naturally extend the workspace without altering the architectural conventions you've already frozen.

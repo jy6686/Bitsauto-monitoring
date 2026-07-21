@@ -52,6 +52,24 @@ Section Component
 | Products      | 3-tab: Rate Analysis/Push History/Send Rate | ✅ | A   |
 | Reports       | 3-tab: Revenue/Traffic/P&L (inline)   | ✅     | A      |
 
+## Sprint C — Action Center (added after Intelligence)
+
+`ActionsSection`: prioritised work queue for KAM morning triage.
+Signal sources — four backend DB queries + two frontend context derivations:
+1. Traffic drops: `concurrent_snapshots` last 3h vs prior 3h (by entityName, scope-filtered via nameCache)
+2. Quality alerts: `mos_hourly` avgMos < 3.5 with 4h trend comparison
+3. Revenue drops: `financial_snapshot` today vs 7d average (scope-filtered by accountId[])
+4. Rate job alerts: `rate_notification_jobs` WHERE status IN (awaiting_approval, failed, rejected, pending_rates)
+5. Zero-traffic accounts: portfolio context (calls24h === 0 AND state !== healthy)
+6. At-risk / degraded accounts: portfolio context state field
+
+Priority encoding: critical/high/medium/low — sorted before response.
+Backend does NOT call Sippy (avoids expensive live call per refresh).
+Balance alerts computed client-side from balance section data.
+Sidebar badge shows critical+high count from shared TanStack Query cache.
+
+`ActionsResp` type + `ActionItem` type + `PRIORITY_ORDER/STYLE/TYPE_ICON` maps defined in commercial-workspace.tsx.
+
 ## Sprint B — Intelligence section (added after Dashboard)
 
 `IntelligenceSection`: 2×2 panel grid visible all at once (no tabs).

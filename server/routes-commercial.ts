@@ -586,4 +586,293 @@ export function registerCommercialRoutes(app: Express) {
     }
   });
 
+  // ── GET /api/commercial/actions ──────────────────────────────────────────────
+  //
+  // Sprint C — Commercial Action Center.
+  // Returns a prioritised work queue computed from four signal sources:
+  //
+  //   1. Traffic drops  — concurrent_snapshots (last 3h vs prior 3h, per account)
+  //   2. Quality alerts — mos_hourly (avgMos < 3.0 in last 2h, per vendor)
+  //   3. Revenue drops  — financial_snapshot (today vs 7d avg, scoped by accountId)
+  //   4. Rate job alerts— rate_notification_jobs (awaiting approval / failed)
+  //
+  // Risk, zero-traffic, and balance items are cheaply computed client-side from
+  // the portfolio context and balance data already loaded — they are NOT repeated
+  // here to avoid re-calling Sippy.
+  //
+  app.get('/api/commercial/actions', requireAuth, async (req: any, res: any) => {
+    try {
+      const scope = await resolveCommercialScope(req);
+
+      if (scope.scopeError) {
+        return res.json({
+          actions: [], total: 0, criticalCount: 0, highCount: 0,
+          scopeError: scope.scopeError, orgRole: scope.orgRole,
+        });
+      }
+
+      const nameCache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
+      const scopeSet  = new Set(scope.accountIds.map(String));
+
+      // Account names visible in this scope (for concurrent_snapshots entityName filter)
+      const scopeNames = nameCache
+        ? Array.from(nameCache.entries())
+            .filter(([id]) => scope.isAdmin || scopeSet.has(id))
+            .map(([, name]) => name)
+        : [];
+
+      const actions: Array<{
+        id:              string;
+        priority:        'critical' | 'high' | 'medium' | 'low';
+        type:            'traffic' | 'quality' | 'revenue' | 'rate';
+        accountId:       string | null;
+        accountName:     string | null;
+        title:           string;
+        detail:          string;
+        suggestedAction: string;
+        link:            string | null;
+        detectedAt:      string;
+      }> = [];
+
+      const now = new Date().toISOString();
+
+      // ── 1. Traffic drops ────────────────────────────────────────────────────
+      // Only run if we have scope names to filter on (avoids full-table scan)
+      if (scopeNames.length > 0) {
+        const tdRows = await pool.query<{
+          entity_name:   string;
+          recent_calls:  string;
+          prior_calls:   string;
+          drop_pct:      string;
+        }>(`
+          WITH recent AS (
+            SELECT entity_name, SUM(active) AS calls
+            FROM   concurrent_snapshots
+            WHERE  ts  >= extract(epoch FROM NOW() - INTERVAL '3 hours') * 1000
+              AND  dim  = 'client'
+              AND  entity_name = ANY($1)
+            GROUP  BY entity_name
+          ),
+          prior AS (
+            SELECT entity_name, SUM(active) AS calls
+            FROM   concurrent_snapshots
+            WHERE  ts  >= extract(epoch FROM NOW() - INTERVAL '6 hours') * 1000
+              AND  ts   < extract(epoch FROM NOW() - INTERVAL '3 hours') * 1000
+              AND  dim  = 'client'
+              AND  entity_name = ANY($1)
+            GROUP  BY entity_name
+          )
+          SELECT
+            r.entity_name,
+            r.calls                                                                  AS recent_calls,
+            p.calls                                                                  AS prior_calls,
+            ROUND(((p.calls - r.calls)::numeric / NULLIF(p.calls, 0)) * 100, 1)     AS drop_pct
+          FROM   recent r
+          JOIN   prior  p USING (entity_name)
+          WHERE  p.calls > 5 AND r.calls < p.calls * 0.7
+          ORDER  BY drop_pct DESC
+          LIMIT  10
+        `, [scopeNames]);
+
+        for (const row of tdRows.rows) {
+          const pct = Number(row.drop_pct);
+          const priority = pct >= 70 ? 'critical' : pct >= 50 ? 'high' : 'medium';
+          actions.push({
+            id:              `traffic_drop_${row.entity_name}`,
+            priority,
+            type:            'traffic',
+            accountId:       null,
+            accountName:     row.entity_name,
+            title:           `Traffic drop — ${row.entity_name}`,
+            detail:          `${pct}% reduction in the last 3h (${row.prior_calls} → ${row.recent_calls} concurrent)`,
+            suggestedAction: 'Review live traffic and check route configuration',
+            link:            '/commercial',
+            detectedAt:      now,
+          });
+        }
+      }
+
+      // ── 2. Quality alerts ───────────────────────────────────────────────────
+      const qaRows = await pool.query<{
+        vendor:   string | null;
+        avg_mos:  string;
+        mos_drop: string;
+      }>(`
+        WITH recent AS (
+          SELECT vendor, AVG(avg_mos) AS mos
+          FROM   mos_hourly
+          WHERE  hour >= NOW() - INTERVAL '2 hours'
+          GROUP  BY vendor
+        ),
+        prior AS (
+          SELECT vendor, AVG(avg_mos) AS mos
+          FROM   mos_hourly
+          WHERE  hour >= NOW() - INTERVAL '6 hours'
+            AND  hour  < NOW() - INTERVAL '2 hours'
+          GROUP  BY vendor
+        )
+        SELECT
+          COALESCE(r.vendor, 'System') AS vendor,
+          ROUND(r.mos::numeric, 2)     AS avg_mos,
+          ROUND(((COALESCE(p.mos, r.mos) - r.mos) / NULLIF(COALESCE(p.mos, r.mos), 0) * 100)::numeric, 1) AS mos_drop
+        FROM   recent r
+        LEFT   JOIN prior p USING (vendor)
+        WHERE  r.mos < 3.5
+        ORDER  BY r.mos ASC
+        LIMIT  5
+      `);
+
+      for (const row of qaRows.rows) {
+        const mos  = Number(row.avg_mos);
+        const priority = mos < 2.5 ? 'critical' : mos < 3.0 ? 'high' : 'medium';
+        actions.push({
+          id:              `quality_${row.vendor ?? 'system'}`,
+          priority,
+          type:            'quality',
+          accountId:       null,
+          accountName:     null,
+          title:           `MOS degradation — ${row.vendor ?? 'System-wide'}`,
+          detail:          `Avg MOS ${mos.toFixed(2)} in last 2h${Number(row.mos_drop) > 5 ? ` (↓${row.mos_drop}% vs prior 4h)` : ''}`,
+          suggestedAction: 'Check vendor route health and switch to backup if available',
+          link:            '/noc',
+          detectedAt:      now,
+        });
+      }
+
+      // ── 3. Revenue drops ────────────────────────────────────────────────────
+      const accountIdStrs = scope.isAdmin ? [] : scope.accountIds.map(String);
+      const revFilter = scope.isAdmin
+        ? ''
+        : `AND account_id = ANY($1)`;
+      const revParams = scope.isAdmin ? [] : [accountIdStrs];
+
+      const revRows = await pool.query<{
+        account_id:   string;
+        account_name: string;
+        avg_7d:       string;
+        today_rev:    string;
+        drop_pct:     string;
+      }>(`
+        WITH daily_rev AS (
+          SELECT account_id, account_name, report_date,
+                 SUM(sell_amount::numeric) AS revenue
+          FROM   financial_snapshot
+          WHERE  report_date >= CURRENT_DATE - 8
+            AND  row_type = 'client'
+            ${revFilter}
+          GROUP  BY account_id, account_name, report_date
+        ),
+        stats AS (
+          SELECT account_id, account_name,
+                 AVG(revenue) FILTER (WHERE report_date < CURRENT_DATE)        AS avg_7d,
+                 MAX(revenue) FILTER (WHERE report_date = CURRENT_DATE)        AS today_rev
+          FROM   daily_rev
+          GROUP  BY account_id, account_name
+        )
+        SELECT
+          account_id, account_name,
+          ROUND(avg_7d::numeric,   2) AS avg_7d,
+          ROUND(today_rev::numeric, 2) AS today_rev,
+          ROUND(((avg_7d - today_rev) / NULLIF(avg_7d, 0) * 100)::numeric, 1) AS drop_pct
+        FROM   stats
+        WHERE  avg_7d > 0 AND today_rev < avg_7d * 0.7
+        ORDER  BY drop_pct DESC
+        LIMIT  8
+      `, revParams);
+
+      for (const row of revRows.rows) {
+        const pct      = Number(row.drop_pct);
+        const priority = pct >= 50 ? 'high' : 'medium';
+        actions.push({
+          id:              `revenue_${row.account_id}`,
+          priority,
+          type:            'revenue',
+          accountId:       row.account_id,
+          accountName:     row.account_name,
+          title:           `Revenue drop — ${row.account_name}`,
+          detail:          `Today $${Number(row.today_rev).toFixed(0)} vs 7d avg $${Number(row.avg_7d).toFixed(0)} (−${pct}%)`,
+          suggestedAction: 'Review traffic levels and check for route or product changes',
+          link:            '/analytics',
+          detectedAt:      now,
+        });
+      }
+
+      // ── 4. Rate job alerts ──────────────────────────────────────────────────
+      const rateRows = await pool.query<{
+        id:                integer;
+        job_ref:           string;
+        client_name:       string;
+        product_name:      string | null;
+        status:            string;
+        violated_rules:    boolean;
+        approval_required: boolean;
+        submitted_for_approval_at: Date | null;
+      }>(`
+        SELECT
+          id, job_ref, client_name, product_name,
+          status, violated_rules, approval_required,
+          submitted_for_approval_at
+        FROM rate_notification_jobs
+        WHERE status IN ('awaiting_approval', 'failed', 'rejected', 'pending_rates')
+          AND (
+            submitted_for_approval_at >= NOW() - INTERVAL '7 days'
+            OR status = 'pending_rates'
+            OR status = 'failed'
+          )
+        ORDER BY id DESC
+        LIMIT 10
+      `);
+
+      for (const row of rateRows.rows) {
+        const isApproval = row.status === 'awaiting_approval';
+        const isFailed   = row.status === 'failed';
+        const isRejected = row.status === 'rejected';
+        const isPending  = row.status === 'pending_rates';
+        const priority   = isApproval ? 'high' : isFailed ? 'high' : isRejected ? 'medium' : 'low';
+        const title      = isApproval ? `Rate approval pending — ${row.client_name}`
+                         : isFailed   ? `Rate push failed — ${row.client_name}`
+                         : isRejected ? `Rate rejected — ${row.client_name}`
+                         : `Rate pending push — ${row.client_name}`;
+        const detail     = `${row.job_ref}${row.product_name ? ` · ${row.product_name}` : ''}`;
+        const suggestion = isApproval ? 'Review and approve or reject the pending rate notification'
+                         : isFailed   ? 'Retry the rate push or check Sippy credentials'
+                         : isRejected ? 'Contact requester or re-submit with corrections'
+                         : 'Activate the tariff update in Sippy';
+        actions.push({
+          id:              `rate_${row.id}`,
+          priority,
+          type:            'rate',
+          accountId:       null,
+          accountName:     row.client_name,
+          title,
+          detail,
+          suggestedAction: suggestion,
+          link:            '/rate-manager',
+          detectedAt:      now,
+        });
+      }
+
+      // ── Sort: critical → high → medium → low ───────────────────────────────
+      const ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+      actions.sort((a, b) => (ORDER[a.priority] ?? 4) - (ORDER[b.priority] ?? 4));
+
+      const criticalCount = actions.filter(a => a.priority === 'critical').length;
+      const highCount     = actions.filter(a => a.priority === 'high').length;
+
+      res.json({
+        actions,
+        total:         actions.length,
+        criticalCount,
+        highCount,
+        scopeError:    null,
+        orgRole:       scope.orgRole,
+        computedAt:    now,
+      });
+
+    } catch (err: any) {
+      console.error('[commercial/actions]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
 }

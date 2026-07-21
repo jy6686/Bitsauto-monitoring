@@ -35,7 +35,7 @@ import {
 // ── Section ID ────────────────────────────────────────────────────────────────
 
 type SectionId =
-  | 'dashboard' | 'intelligence' | 'clients' | 'live-calls'
+  | 'dashboard' | 'intelligence' | 'actions' | 'clients' | 'live-calls'
   | 'live-traffic' | 'balance' | 'products' | 'reports';
 
 // ── Shared micro-components ───────────────────────────────────────────────────
@@ -1224,6 +1224,331 @@ function ScopeAlertInline({ error }: { error: string }) {
   );
 }
 
+// ── Sprint C: Action Center ───────────────────────────────────────────────────
+//
+// Goal: surface items that require KAM attention, drawn from four signal sources.
+// Backend:  GET /api/commercial/actions   (traffic drops, quality, revenue, rate jobs)
+// Frontend: augment with portfolio context (zero_traffic, at_risk, balance low)
+//           then sort critical → high → medium → low.
+
+type ActionPriority = 'critical' | 'high' | 'medium' | 'low';
+type ActionType     = 'traffic' | 'quality' | 'revenue' | 'rate' | 'balance' | 'inactive' | 'risk';
+
+interface ActionItem {
+  id:              string;
+  priority:        ActionPriority;
+  type:            ActionType;
+  accountId:       string | null;
+  accountName:     string | null;
+  title:           string;
+  detail:          string;
+  suggestedAction: string;
+  link:            string | null;
+  detectedAt:      string;
+}
+
+interface ActionsResp {
+  actions:       ActionItem[];
+  total:         number;
+  criticalCount: number;
+  highCount:     number;
+  scopeError:    string | null;
+  orgRole:       string | null;
+  computedAt:    string;
+}
+
+const PRIORITY_ORDER: Record<ActionPriority, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+
+const PRIORITY_STYLE: Record<ActionPriority, string> = {
+  critical: 'text-red-400    bg-red-500/10    border-red-500/40',
+  high:     'text-amber-400  bg-amber-500/10  border-amber-500/40',
+  medium:   'text-sky-400    bg-sky-500/10    border-sky-500/40',
+  low:      'text-slate-400  bg-slate-500/10  border-slate-500/40',
+};
+
+const TYPE_ICON: Record<ActionType, any> = {
+  traffic:  Activity,
+  quality:  Signal,
+  revenue:  DollarSign,
+  rate:     TrendingUp,
+  balance:  Wallet,
+  inactive: Minus,
+  risk:     AlertTriangle,
+};
+
+function ActionsSection() {
+  const { portfolio } = useCommercialWorkspace();
+
+  const actQ = useQuery<ActionsResp>({
+    queryKey: ['/api/commercial/actions'],
+    staleTime: 60_000,
+    refetchInterval: 180_000,
+  });
+
+  const backendActions = actQ.data?.actions ?? [];
+
+  // ── Frontend-derived actions from portfolio context ────────────────────────
+  const contextActions = useMemo<ActionItem[]>(() => {
+    const now = new Date().toISOString();
+    const items: ActionItem[] = [];
+
+    portfolio.forEach(a => {
+      if ((a.calls24h ?? 0) === 0 && a.state !== 'healthy') {
+        items.push({
+          id:              `inactive_${a.accountId}`,
+          priority:        'medium',
+          type:            'inactive',
+          accountId:       a.accountId,
+          accountName:     a.clientName,
+          title:           `No traffic · ${a.clientName}`,
+          detail:          'Account had zero calls in the last 24h',
+          suggestedAction: 'Verify account status and check for route or product issues',
+          link:            '/commercial',
+          detectedAt:      now,
+        });
+      }
+      if (a.state === 'at_risk') {
+        items.push({
+          id:              `risk_${a.accountId}`,
+          priority:        'high',
+          type:            'risk',
+          accountId:       a.accountId,
+          accountName:     a.clientName,
+          title:           `At risk · ${a.clientName}`,
+          detail:          'Account health is flagged as at-risk — review required',
+          suggestedAction: 'Check live traffic, balance, and recent call quality',
+          link:            '/commercial',
+          detectedAt:      now,
+        });
+      }
+      if (a.state === 'degraded') {
+        items.push({
+          id:              `degraded_${a.accountId}`,
+          priority:        'medium',
+          type:            'risk',
+          accountId:       a.accountId,
+          accountName:     a.clientName,
+          title:           `Degraded · ${a.clientName}`,
+          detail:          'Account is in a degraded state — may need intervention',
+          suggestedAction: 'Review recent quality metrics and routing configuration',
+          link:            '/commercial',
+          detectedAt:      now,
+        });
+      }
+    });
+
+    return items;
+  }, [portfolio]);
+
+  // Merge + deduplicate (backend wins for same id), sort by priority
+  const allActions = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: ActionItem[] = [];
+
+    // Backend items first
+    for (const a of backendActions) {
+      seen.add(a.id);
+      merged.push(a);
+    }
+    // Context items that don't overlap
+    for (const a of contextActions) {
+      if (!seen.has(a.id)) merged.push(a);
+    }
+
+    return merged.sort((a, b) =>
+      (PRIORITY_ORDER[a.priority] ?? 4) - (PRIORITY_ORDER[b.priority] ?? 4)
+    );
+  }, [backendActions, contextActions]);
+
+  const criticalCount = allActions.filter(a => a.priority === 'critical').length;
+  const highCount     = allActions.filter(a => a.priority === 'high').length;
+  const total         = allActions.length;
+
+  const [filter, setFilter] = useState<ActionPriority | ActionType | 'all'>('all');
+  const [search, setSearch] = useState('');
+
+  const visible = useMemo(() => {
+    let list = allActions;
+    if (filter !== 'all') {
+      list = list.filter(a => a.priority === filter || a.type === filter);
+    }
+    if (search.trim()) {
+      const lq = search.toLowerCase();
+      list = list.filter(a =>
+        a.title.toLowerCase().includes(lq) ||
+        (a.accountName ?? '').toLowerCase().includes(lq) ||
+        a.detail.toLowerCase().includes(lq)
+      );
+    }
+    return list;
+  }, [allActions, filter, search]);
+
+  return (
+    <div className="space-y-4">
+
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h3 className="text-base font-semibold flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-400" />
+            Action Center
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Prioritised work queue · {total} item{total !== 1 ? 's' : ''}
+            {actQ.data?.computedAt && (
+              <span className="ml-2 text-muted-foreground/50">
+                · computed {new Date(actQ.data.computedAt).toLocaleTimeString()}
+              </span>
+            )}
+          </p>
+        </div>
+        {(criticalCount > 0 || highCount > 0) && (
+          <div className="flex gap-2">
+            {criticalCount > 0 && (
+              <div className="rounded-lg px-3 py-1.5 bg-red-500/10 border border-red-500/30 text-center">
+                <div className="text-base font-bold text-red-400 tabular-nums">{criticalCount}</div>
+                <div className="text-[9px] text-red-400/70 uppercase tracking-wider">Critical</div>
+              </div>
+            )}
+            {highCount > 0 && (
+              <div className="rounded-lg px-3 py-1.5 bg-amber-500/10 border border-amber-500/30 text-center">
+                <div className="text-base font-bold text-amber-400 tabular-nums">{highCount}</div>
+                <div className="text-[9px] text-amber-400/70 uppercase tracking-wider">High</div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Filter + search bar */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1 rounded-lg border border-border/50 p-0.5 bg-muted/20">
+          {(['all', 'critical', 'high', 'medium', 'low'] as const).map(f => (
+            <button
+              key={f}
+              data-testid={`filter-actions-${f}`}
+              onClick={() => setFilter(f)}
+              className={`px-2.5 py-1 text-[11px] rounded-md transition-colors font-medium capitalize ${
+                filter === f ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
+            </button>
+          ))}
+        </div>
+        <div className="relative flex-1 min-w-[180px] max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            data-testid="input-actions-search"
+            value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search actions…"
+            className="w-full pl-8 pr-3 py-1.5 text-sm rounded-lg border border-border/60 bg-muted/30 placeholder:text-muted-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/40"
+          />
+        </div>
+        {actQ.isFetching && <RefreshCw className="w-3.5 h-3.5 text-muted-foreground animate-spin" />}
+      </div>
+
+      {/* All-clear state */}
+      {!actQ.isLoading && total === 0 && (
+        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-6 flex flex-col items-center gap-3">
+          <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+          <div className="text-sm font-semibold text-emerald-400">Portfolio is healthy</div>
+          <div className="text-xs text-muted-foreground text-center max-w-sm">
+            No action items detected across traffic, quality, revenue, or rate management. Check back after the next data refresh.
+          </div>
+        </div>
+      )}
+
+      {/* Loading */}
+      {actQ.isLoading && (
+        <div className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-20 rounded-xl border border-border/30 bg-muted/10 animate-pulse" />
+          ))}
+        </div>
+      )}
+
+      {/* Action item list */}
+      {!actQ.isLoading && visible.length > 0 && (
+        <div className="space-y-2">
+          {visible.map(item => {
+            const Icon = TYPE_ICON[item.type] ?? AlertTriangle;
+            return (
+              <div
+                key={item.id}
+                data-testid={`action-item-${item.id}`}
+                className={`rounded-xl border bg-card/50 p-4 transition-colors hover:bg-card/70 ${
+                  item.priority === 'critical' ? 'border-red-500/25' :
+                  item.priority === 'high'     ? 'border-amber-500/25' :
+                  'border-border/40'
+                }`}
+              >
+                <div className="flex items-start gap-3">
+                  {/* Priority + type indicator */}
+                  <div className={`mt-0.5 w-8 h-8 rounded-lg border flex items-center justify-center shrink-0 ${PRIORITY_STYLE[item.priority]}`}>
+                    <Icon className="w-4 h-4" />
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold truncate">{item.title}</span>
+                      <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${PRIORITY_STYLE[item.priority]}`}>
+                        {item.priority}
+                      </span>
+                      <span className="text-[9px] text-muted-foreground uppercase tracking-wider border border-border/40 px-1.5 py-0.5 rounded bg-muted/20">
+                        {item.type}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{item.detail}</p>
+                    <div className="flex items-start gap-1 text-xs text-muted-foreground/70">
+                      <Info className="w-3 h-3 shrink-0 mt-0.5" />
+                      <span>{item.suggestedAction}</span>
+                    </div>
+                  </div>
+
+                  {/* CTA */}
+                  {item.link && (
+                    <Link href={item.link} className="shrink-0">
+                      <div className="flex items-center gap-1 text-xs text-sky-400 border border-sky-500/30 rounded-lg px-2.5 py-1.5 hover:bg-sky-500/10 transition-colors whitespace-nowrap">
+                        Review <ArrowRight className="w-3 h-3" />
+                      </div>
+                    </Link>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Empty filter state */}
+      {!actQ.isLoading && visible.length === 0 && total > 0 && (
+        <div className="rounded-xl border border-border/40 bg-card/30 p-6 text-center text-xs text-muted-foreground">
+          No items match the current filter. <button className="text-sky-400 underline" onClick={() => { setFilter('all'); setSearch(''); }}>Clear filters</button>
+        </div>
+      )}
+
+      {/* Summary footer */}
+      {total > 0 && (
+        <div className="flex items-center gap-4 pt-2 border-t border-border/30 text-[10px] text-muted-foreground">
+          {(['critical', 'high', 'medium', 'low'] as ActionPriority[]).map(p => {
+            const count = allActions.filter(a => a.priority === p).length;
+            if (!count) return null;
+            return (
+              <div key={p} className="flex items-center gap-1">
+                <span className={`font-bold ${PRIORITY_STYLE[p].split(' ')[0]}`}>{count}</span>
+                <span className="capitalize">{p}</span>
+              </div>
+            );
+          })}
+          <span className="ml-auto">Sources: traffic · quality · revenue · rate jobs · portfolio context</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Sprint B: Portfolio Intelligence ─────────────────────────────────────────
 //
 // Goal: KAM opens workspace and understands portfolio health in ≤ 60 seconds.
@@ -1608,14 +1933,15 @@ function IntelligenceSection() {
 type IconComponent = (props: LucideProps) => JSX.Element;
 
 const SECTIONS: { id: SectionId; label: string; icon: IconComponent }[] = [
-  { id: 'dashboard',     label: 'Dashboard',    icon: LayoutDashboard },
-  { id: 'intelligence',  label: 'Intelligence', icon: Gauge           },
-  { id: 'clients',       label: 'Clients',      icon: Users           },
-  { id: 'live-calls',    label: 'Live Calls',   icon: Phone           },
-  { id: 'live-traffic',  label: 'Live Traffic', icon: Activity        },
-  { id: 'balance',       label: 'Balance',      icon: Wallet          },
-  { id: 'products',      label: 'Products',     icon: Layers          },
-  { id: 'reports',       label: 'Reports',      icon: BarChart2       },
+  { id: 'dashboard',     label: 'Dashboard',     icon: LayoutDashboard },
+  { id: 'intelligence',  label: 'Intelligence',  icon: Gauge           },
+  { id: 'actions',       label: 'Action Center', icon: Zap             },
+  { id: 'clients',       label: 'Clients',       icon: Users           },
+  { id: 'live-calls',    label: 'Live Calls',    icon: Phone           },
+  { id: 'live-traffic',  label: 'Live Traffic',  icon: Activity        },
+  { id: 'balance',       label: 'Balance',       icon: Wallet          },
+  { id: 'products',      label: 'Products',      icon: Layers          },
+  { id: 'reports',       label: 'Reports',       icon: BarChart2       },
 ];
 
 // ── Inner shell (reads context) ───────────────────────────────────────────────
@@ -1640,10 +1966,18 @@ function WorkspaceShell() {
     );
   }
 
+  const actionsQ = useQuery<ActionsResp>({
+    queryKey: ['/api/commercial/actions'],
+    staleTime: 60_000,
+    refetchInterval: 180_000,
+  });
+  const actionUrgent = (actionsQ.data?.criticalCount ?? 0) + (actionsQ.data?.highCount ?? 0);
+
   const badges: Partial<Record<SectionId, { count: number; variant: 'risk' | 'live' | 'neutral' }>> = {
-    dashboard:    atRiskCount > 0 ? { count: atRiskCount, variant: 'risk'    } : undefined,
-    clients:      clientCount > 0 ? { count: clientCount, variant: 'neutral' } : undefined,
-    'live-calls': liveCallCount > 0 ? { count: liveCallCount, variant: 'live' } : undefined,
+    dashboard:    atRiskCount   > 0 ? { count: atRiskCount,   variant: 'risk'    } : undefined,
+    actions:      actionUrgent  > 0 ? { count: actionUrgent,  variant: 'risk'    } : undefined,
+    clients:      clientCount   > 0 ? { count: clientCount,   variant: 'neutral' } : undefined,
+    'live-calls': liveCallCount > 0 ? { count: liveCallCount, variant: 'live'    } : undefined,
   };
 
   return (
@@ -1704,6 +2038,7 @@ function WorkspaceShell() {
       <main className="flex-1 overflow-y-auto p-6">
         {active === 'dashboard'    && <DashboardSection    />}
         {active === 'intelligence' && <IntelligenceSection />}
+        {active === 'actions'      && <ActionsSection      />}
         {active === 'clients'      && <ClientsSection      />}
         {active === 'live-calls'   && <LiveCallsSection    />}
         {active === 'live-traffic' && <LiveTrafficSection  />}
