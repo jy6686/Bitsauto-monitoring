@@ -1,0 +1,181 @@
+Yes—but I would deliver it as one program increment with multiple internal workstreams, not as one monolithic implementation.
+
+Looking at what you've built so far, all five items sit on the same architecture, but they are not equally risky.
+
+Workstream	Depends On	Risk	Recommendation
+D1 – Rate Push Lifecycle	Existing rate jobs	Low	✅ Start immediately
+D2 – Commercial Approvals	D1 workflow	Low–Medium	✅ Build alongside D1
+D3 – Client Timeline	Existing events/audit	Medium	✅ Build in parallel
+D4 – Follow-up Tracking	New workflow state	Medium	✅ Build in parallel
+D5 – Audit & Outcomes	All execution events	Medium	✅ Finish after D1–D4 APIs are defined
+
+So from a release perspective:
+
+Yes — one release ("Execution Layer v1").
+
+From an implementation perspective:
+
+No — don't write all five features as one giant change.
+
+Recommended structure
+Sprint D (Execution Layer v1)
+
+Internally split it into five workstreams that merge into one release.
+
+Execution Layer
+
+├── D1 Rate Lifecycle
+├── D2 Approvals
+├── D3 Timeline
+├── D4 Follow-ups
+└── D5 Audit
+
+Users receive one feature.
+
+Developers build five coordinated components.
+
+Build order
+Phase 1 — Execution Engine
+
+Create the reusable backend:
+
+Action
+      ↓
+Validate
+      ↓
+Execute
+      ↓
+Record Event
+      ↓
+Refresh Workspace
+
+Everything else depends on this.
+
+Phase 2 — Rate Lifecycle
+
+Implement:
+
+Review
+Approve
+Reject
+Activate
+Verification
+Phase 3 — Timeline
+
+Every execution automatically creates timeline events.
+
+No separate implementation later.
+
+Phase 4 — Follow-up
+
+Every action can be
+
+Assigned
+Started
+Completed
+Dismissed
+Phase 5 — Audit
+
+Every execution produces
+
+Audit record
+Outcome
+Duration
+Actor
+Timestamp
+One database model
+
+Instead of five independent tables, consider one canonical event model.
+
+workflow_events
+
+id
+workspace
+entity_type
+entity_id
+action
+status
+performed_by
+assigned_to
+created_at
+completed_at
+metadata (JSON)
+
+Everything uses it.
+
+Examples:
+
+RATE_PUSH_CREATED
+RATE_PUSH_APPROVED
+RATE_PUSH_ACTIVATED
+
+BALANCE_WARNING
+
+FOLLOW_UP_STARTED
+
+FOLLOW_UP_COMPLETED
+
+QUALITY_ALERT_ACKNOWLEDGED
+
+Now
+
+Timeline
+Audit
+Follow-up
+Action Center
+
+all read from the same source.
+
+One UI model
+
+Avoid five screens.
+
+Keep everything inside the workspace.
+
+Action Center
+
+Pending Approval
+    ↓
+Drawer
+
+Approve
+
+Reject
+
+Activate
+
+Notes
+
+Timeline
+
+Audit
+
+Related Client
+
+Same drawer.
+
+Different content.
+
+Why this works
+
+Your architecture is already designed for this.
+
+You have:
+
+Workspace Context ✅
+Commercial APIs ✅
+Intelligence Layer ✅
+Action Center ✅
+
+The Execution Layer is essentially the missing behavior on top of those foundations.
+
+My recommendation
+
+I would absolutely make this one release, but I'd organize it as Execution Layer v1 with five coordinated workstreams sharing:
+
+one event model,
+one execution engine,
+one UI interaction model,
+one audit mechanism.
+
+That gives you the benefit of a single cohesive feature while keeping the implementation modular and maintainable.
