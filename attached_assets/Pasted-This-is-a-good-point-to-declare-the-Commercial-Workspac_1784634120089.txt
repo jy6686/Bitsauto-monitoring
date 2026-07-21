@@ -1,0 +1,60 @@
+This is a good point to declare the Commercial Workspace Foundation complete and treat subsequent work as feature enhancement rather than architectural development.
+
+Commercial Workspace Status
+
+Architecture: ✅ Frozen
+
+The implementation consistently follows the established conventions:
+
+Backend
+
+resolveCommercialScope()
+        ↓
+Commercial Service / Query
+        ↓
+DTO
+        ↓
+Response
+
+Frontend
+
+CommercialWorkspaceProvider
+        ↓
+useCommercialWorkspace()
+        ↓
+Workspace Section
+
+There is now a single hierarchy resolution path, a single workspace context, and a single pattern for Commercial APIs.
+
+Current Workspace Coverage
+Section	Status	Notes
+Dashboard	✅ Complete	Portfolio KPIs from workspace context
+Clients	✅ Complete	Server-side hierarchy filtering, pagination, search
+Live Calls	✅ Complete	Server-side filtered from shared cache
+Live Traffic	✅ Complete	Portfolio-scoped endpoint with periodic refresh
+Balance	✅ Complete	Read-only, currently filtered client-side
+Products	✅ Complete	Commercial entry points into Rate Manager workflows
+Reports	✅ Complete	Read-only reporting access
+
+From an architectural perspective, all seven sections are integrated into the same workspace model.
+
+Future Work
+
+The remaining items are incremental improvements rather than new patterns. For example:
+
+Balance
+Introduce /api/commercial/balance so filtering moves entirely server-side, matching the Live Calls model.
+Products
+Expand portfolio-aware Rate Manager capabilities while continuing to enforce hierarchy scope and existing permissions.
+Reports
+Replace static links with richer portfolio-scoped reporting views or exports where appropriate.
+
+These enhancements should continue using the same frozen conventions rather than introducing new data flows or UI patterns.
+
+Milestone
+
+At this stage, I'd record the state as:
+
+Commercial Workspace Foundation — Complete
+
+The Commercial Portal is now implemented as a hierarchy-aware, single-workspace application with centralized scope resolution, shared workspace context, and consistent backend/frontend conventions. Future development should extend existing modules within this architecture rather than creating new architectural patterns.
