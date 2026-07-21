@@ -1,0 +1,121 @@
+This is a meaningful milestone. Looking at the progression rather than just the features, you've now shifted from building isolated pages to building a Commercial application shell.
+
+What CH-2.5 accomplished
+1. Server-side enforcement
+
+Moving from:
+
+Commercial Scope
+        +
+Global Live Calls
+        ↓
+React filters
+
+to:
+
+Commercial API
+        ↓
+resolveCommercialScope()
+        ↓
+Server-side filtering
+        ↓
+React renders
+
+is the right direction. It aligns with your governance rule that hierarchy decisions belong on the server.
+
+2. Shared live-calls cache
+
+Extracting the live-calls cache into a shared module is also a good architectural improvement.
+
+Instead of multiple consumers each implementing their own cache or fetch path, you now have:
+
+Sippy Poller
+        ↓
+Shared Live Calls Cache
+        ↓
+NOC API
+Commercial API
+Future APIs
+
+That separation is reusable beyond the Commercial Portal.
+
+3. Single-page workspace
+
+This is probably the biggest UX improvement.
+
+Instead of treating Commercial as another portal with independent pages:
+
+Dashboard
+↓
+Clients
+↓
+Balance
+↓
+Products
+↓
+Reports
+
+you're moving toward:
+
+Commercial Workspace
+        ├── Dashboard
+        ├── Clients
+        ├── Live Calls
+        ├── Live Traffic
+        ├── Balance
+        ├── Products
+        └── Reports
+
+The hierarchy scope is resolved once, and every section operates within that same context.
+
+That fits your governance model much better than page-by-page navigation.
+
+One recommendation before CH-3
+
+Since you now have a workspace, I'd avoid letting individual sections own their own data-loading patterns.
+
+Instead, introduce a single workspace context:
+
+CommercialWorkspace
+        ↓
+resolveCommercialScope()
+        ↓
+Workspace Context
+        ├── accountIds
+        ├── orgRole
+        ├── isAdmin
+        ├── scopeError
+        └── portfolioSummary
+
+Then each section simply consumes the shared context:
+
+Clients
+Live Calls
+Live Traffic
+Balance
+Products
+Reports
+
+That reduces duplicate API calls and guarantees that every section is operating on the exact same scope.
+
+Suggested next sprint
+
+With the workspace in place, I would prioritize CH-3 — Live Traffic (BitsEye2).
+
+The implementation pattern is already established:
+
+Commercial Workspace
+        ↓
+Workspace Context
+        ↓
+resolveCommercialScope()
+        ↓
+Visible Account IDs
+        ↓
+BitsEye2 Data
+        ↓
+Portfolio-only Live Traffic
+
+Once Live Traffic follows that pattern, the remaining modules—Balance, Products, and Reports—should largely be integrations into the same workspace rather than new architectural work.
+
+At this point, the foundation appears consistent with the governance you've frozen: one workspace, one scope resolution, server-enforced visibility, and portfolio-centric data throughout.

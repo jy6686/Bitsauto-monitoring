@@ -272,4 +272,104 @@ export function registerCommercialRoutes(app: Express) {
     }
   });
 
+  // ── GET /api/commercial/live-traffic ────────────────────────────────────────
+  //
+  // Per-account live traffic breakdown for the BitsEye2-style portfolio view.
+  // Groups sharedLiveCallsCache by accountId within the caller's hierarchy scope.
+  //
+  // Response: {
+  //   accounts:            AccountTrafficSummary[]  (sorted by liveCallCount desc)
+  //   totalPortfolioCalls: number
+  //   uniqueDestinations:  number
+  //   scopeError:          string | null
+  //   orgRole:             string | null
+  //   lastUpdated:         number | null
+  // }
+  app.get('/api/commercial/live-traffic', requireAuth, async (req: any, res: any) => {
+    try {
+      const scope = await resolveCommercialScope(req);
+
+      if (scope.scopeError) {
+        return res.json({
+          accounts: [], totalPortfolioCalls: 0, uniqueDestinations: 0,
+          scopeError: scope.scopeError, orgRole: scope.orgRole, lastUpdated: null,
+        });
+      }
+
+      const { calls: allCalls, ts } = sharedLiveCallsCache;
+
+      // Filter to scope
+      const filteredCalls = scope.isAdmin
+        ? allCalls
+        : (() => {
+            const s = new Set(scope.accountIds.map(String));
+            return allCalls.filter(c => c.accountId && s.has(String(c.accountId)));
+          })();
+
+      // Group by accountId
+      const accountMap = new Map<string, {
+        accountId:  string;
+        clientName: string;
+        calls:      any[];
+      }>();
+
+      for (const call of filteredCalls) {
+        const id = String(call.accountId ?? 'unknown');
+        if (!accountMap.has(id)) {
+          accountMap.set(id, {
+            accountId:  id,
+            clientName: call.clientName ?? `Account ${id}`,
+            calls:      [],
+          });
+        }
+        accountMap.get(id)!.calls.push(call);
+      }
+
+      // Build per-account summaries
+      const accounts = [...accountMap.values()].map(({ accountId, clientName, calls }) => {
+        const connected = calls.filter(c => c.callStatus === 'connected').length;
+        const avgDuration = calls.length > 0
+          ? Math.round(calls.reduce((s: number, c: any) => s + (c.duration ?? 0), 0) / calls.length)
+          : 0;
+
+        const countryCounts = new Map<string, number>();
+        for (const c of calls) {
+          const country = c.destCountry ?? 'Unknown';
+          countryCounts.set(country, (countryCounts.get(country) ?? 0) + 1);
+        }
+        const topDestinations = [...countryCounts.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 4)
+          .map(([country, count]) => ({ country, count }));
+
+        return {
+          accountId,
+          clientName,
+          liveCallCount:  calls.length,
+          connectedCalls: connected,
+          routingCalls:   calls.length - connected,
+          topDestinations,
+          avgDuration,
+        };
+      }).sort((a, b) => b.liveCallCount - a.liveCallCount);
+
+      const uniqueDestinations = new Set(
+        filteredCalls.map((c: any) => c.destCountry).filter(Boolean)
+      ).size;
+
+      res.json({
+        accounts,
+        totalPortfolioCalls: filteredCalls.length,
+        uniqueDestinations,
+        scopeError:          null,
+        orgRole:             scope.orgRole,
+        lastUpdated:         ts || null,
+      });
+
+    } catch (err: any) {
+      console.error('[commercial/live-traffic]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
 }
