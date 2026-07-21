@@ -33,6 +33,18 @@ export const moduleRegistry: Record<string, ModuleComponent> = {
   "noc-dashboard": lazy(() => import("@/portals/noc/PortalAwareNocDashboard")),
   "noc-command":   lazy(() => import("@/pages/noc-command")),
   "ops-console":   lazy(() => import("@/pages/ops-console")),
+
+  // ── Commercial (Phase 1) ─────────────────────────────────────────────────────
+  "kam-dashboard":             lazy(() => import("@/pages/kam-dashboard")),
+  "clients":                   lazy(() => import("@/pages/clients")),
+  "partner-profiles":          lazy(() => import("@/pages/partner-profiles")),
+  "deals":                     lazy(() => import("@/pages/deals")),
+  "rate-manager":              lazy(() => import("@/pages/rate-manager")),
+  "destination-catalog":       lazy(() => import("@/pages/destination-catalog")),
+  "product-registry":          lazy(() => import("@/pages/product-registry")),
+  "invoices":                  lazy(() => import("@/pages/invoices")),
+  "commercial-notifications":  lazy(() => import("@/pages/commercial-notifications")),
+  "margin-intelligence":       lazy(() => import("@/pages/margin-intelligence")),
 };
 
 /** Resolve a module key to its component, or null if the key is unknown. */

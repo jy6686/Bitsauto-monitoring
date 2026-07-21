@@ -4702,6 +4702,61 @@ export const insertTreasuryAccountSchema = createInsertSchema(treasuryAccounts, 
   ),
 });
 
+// ── Payment Runs ──────────────────────────────────────────────────────────────
+// Batch payment run header. Each run references one treasury account as source.
+// On execution: creates vendor_payments for each included item, reduces
+// treasury account balance, sets item.vendor_payment_id.
+export const paymentRuns = pgTable("payment_runs", {
+  id:                 serial("id").primaryKey(),
+  runNumber:          varchar("run_number",         { length: 30  }).notNull().unique(),  // PR-YYYY-NNNN
+  name:               varchar("name",               { length: 255 }).notNull(),
+  treasuryAccountId:  integer("treasury_account_id").notNull().references(() => treasuryAccounts.id),
+  currency:           varchar("currency",           { length: 10  }).notNull().default("USD"),
+  totalAmount:        numeric("total_amount",        { precision: 14, scale: 4 }).notNull().default("0"),
+  itemCount:          integer("item_count").notNull().default(0),
+  status:             varchar("status",             { length: 20  }).notNull().default("draft"), // draft|reviewed|approved|executed|completed|cancelled
+  executionMode:      varchar("execution_mode",     { length: 20  }).notNull().default("manual"), // manual|api|blockchain
+  executedAt:         timestamp("executed_at",      { withTimezone: true }),
+  executedBy:         varchar("executed_by",        { length: 255 }),
+  externalReference:  varchar("external_reference", { length: 255 }),
+  executionNotes:     text("execution_notes"),
+  scheduledDate:      varchar("scheduled_date",     { length: 10  }),   // ISO date string YYYY-MM-DD
+  notes:              text("notes"),
+  createdBy:          varchar("created_by",         { length: 255 }).notNull(),
+  reviewedBy:         varchar("reviewed_by",        { length: 255 }),
+  reviewedAt:         timestamp("reviewed_at",      { withTimezone: true }),
+  approvedBy:         varchar("approved_by",        { length: 255 }),
+  approvedAt:         timestamp("approved_at",      { withTimezone: true }),
+  createdAt:          timestamp("created_at",       { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:          timestamp("updated_at",       { withTimezone: true }).notNull().defaultNow(),
+  deletedAt:          timestamp("deleted_at",       { withTimezone: true }),
+});
+export type PaymentRun       = typeof paymentRuns.$inferSelect;
+export type InsertPaymentRun = typeof paymentRuns.$inferInsert;
+export const insertPaymentRunSchema = createInsertSchema(paymentRuns, {
+  name: (s) => s.min(1, "Run name is required"),
+});
+
+// ── Payment Run Items ─────────────────────────────────────────────────────────
+// Each item links one vendor_bill to the run.
+// vendor_payment_id is populated when the run is executed.
+export const paymentRunItems = pgTable("payment_run_items", {
+  id:                 serial("id").primaryKey(),
+  paymentRunId:       integer("payment_run_id").notNull().references(() => paymentRuns.id),
+  vendorBillId:       integer("vendor_bill_id").notNull().references(() => vendorBills.id),
+  businessPartnerId:  integer("business_partner_id").notNull().references(() => businessPartners.id),
+  amount:             numeric("amount",   { precision: 14, scale: 4 }).notNull(),
+  currency:           varchar("currency", { length: 10 }).notNull(),
+  itemStatus:         varchar("item_status", { length: 20 }).notNull().default("included"), // included|excluded|paid
+  vendorPaymentId:    integer("vendor_payment_id").references(() => vendorPayments.id),
+  notes:              text("notes"),
+  createdAt:          timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt:          timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type PaymentRunItem       = typeof paymentRunItems.$inferSelect;
+export type InsertPaymentRunItem = typeof paymentRunItems.$inferInsert;
+export const insertPaymentRunItemSchema = createInsertSchema(paymentRunItems);
+
 // Phase 1 read migration — re-exported from shared/destinations-view.ts
 export { destinationsView } from './destinations-view';
 
