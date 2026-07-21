@@ -1,0 +1,100 @@
+Excellent. That's actually an important milestone because the implementation and the governance are now aligned.
+
+From your verification:
+
+✅ Exactly 8 KPIs remain.
+✅ Every KPI is portfolio-scoped.
+✅ Open Invoices removed.
+✅ Open Disputes removed.
+✅ No remaining global KPIs.
+
+That matches the Commercial Portal architecture you've defined.
+
+I would make this a permanent governance rule
+Commercial Dashboard Governance
+
+Purpose
+
+The Commercial Dashboard is a portfolio management dashboard, not a network operations dashboard.
+
+Rule 1 — Scope
+
+Every widget, KPI, chart, table, alert, and report must derive its data from the authenticated user's hierarchy scope.
+
+Authenticated User
+        ↓
+Hierarchy Scope Service
+        ↓
+Visible Account IDs
+        ↓
+Commercial Dashboard
+
+No widget may bypass this flow.
+
+Rule 2 — Global Queries
+
+The Commercial Dashboard must not consume global operational queries.
+
+Prohibited examples:
+
+Global Live Calls
+Global Traffic
+Global Clients
+Global Alerts
+Global Revenue
+Global Top Routes
+
+These belong to the NOC Portal.
+
+Rule 3 — Allowed KPIs
+
+The dashboard should expose only portfolio-scoped metrics.
+
+Current approved KPI set:
+
+Managed Accounts
+Portfolio Health
+Live Calls
+Revenue (24h)
+Clients with No Traffic
+Pending Rate Requests
+At Risk Clients
+Pending First Rate
+
+Each KPI must be computable from the authenticated user's visible account set.
+
+Rule 4 — Unsupported Data
+
+If a metric cannot be filtered by hierarchy, it must not appear on the Commercial Dashboard until the underlying data model supports portfolio scoping.
+
+This prevents accidental reintroduction of global statistics.
+
+Why this matters
+
+You've now created a clear distinction between the two operational dashboards:
+
+NOC Dashboard
+
+Question it answers:
+
+"How is the network performing?"
+
+Scope:
+
+Entire platform
+Entire switch
+All customers
+All vendors
+Commercial Dashboard
+
+Question it answers:
+
+"How is my customer portfolio performing?"
+
+Scope:
+
+Visible accounts only
+Hierarchy filtered
+Commercial KPIs only
+
+That distinction should remain fixed going forward, and documenting it as a governance rule will help ensure future features continue to follow the same architecture.
