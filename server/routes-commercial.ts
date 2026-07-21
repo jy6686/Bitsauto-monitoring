@@ -12,7 +12,7 @@
  */
 
 import { Express } from 'express';
-import { db } from './db';
+import { pool, db } from './db';
 import { rateNotificationJobs } from '../shared/schema';
 import { inArray } from 'drizzle-orm';
 import {
@@ -95,6 +95,120 @@ export function registerCommercialRoutes(app: Express) {
 
     } catch (err: any) {
       console.error('[commercial/kpis]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/commercial/clients ─────────────────────────────────────────────
+  //
+  // Returns the authenticated user's portfolio client list, scoped to their
+  // hierarchy.  Joins kam_accounts with kams so KAM name is available for
+  // team-lead and manager views.
+  //
+  // Query params:
+  //   search  — case-insensitive substring match on client_name or account_id
+  //   page    — 1-based page number (default 1)
+  //   limit   — rows per page (default 50, max 200)
+  //
+  // Response shape:
+  //   clients      — array of { accountId, clientName, kamId, kamName, orgRole }
+  //   total        — total matching rows (before pagination)
+  //   scopeError   — 'no_kam_link' | 'no_accounts' | null
+  //   kamIds       — KAM node IDs in scope (useful for debugging)
+  //   orgRole      — caller's org role (null if admin override)
+  app.get('/api/commercial/clients', requireAuth, async (req: any, res: any) => {
+    try {
+      const userId   = req.user.claims.sub as string;
+      const userRole = req.user?.claims?.role ?? req.user?.claims?.org_role ?? '';
+
+      const scope = isAdminRole(userRole)
+        ? await getAllAccountIds()
+        : await getVisibleAccountIds(userId);
+
+      if (scope.scopeError) {
+        return res.json({
+          clients:    [],
+          total:      0,
+          scopeError: scope.scopeError,
+          kamIds:     [],
+          orgRole:    scope.orgRole,
+        });
+      }
+
+      const search = (req.query.search as string | undefined)?.trim() ?? '';
+      const page   = Math.max(1, parseInt(req.query.page  as string) || 1);
+      const limit  = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
+      const offset = (page - 1) * limit;
+
+      // Build WHERE clause: account_id IN scope + optional search
+      const accountIdList = scope.accountIds;
+      if (accountIdList.length === 0) {
+        return res.json({ clients: [], total: 0, scopeError: null, kamIds: scope.kamIds, orgRole: scope.orgRole });
+      }
+
+      const placeholders = accountIdList.map((_, i) => `$${i + 1}`).join(', ');
+      const baseParams: any[] = [...accountIdList];
+
+      let whereSearch = '';
+      if (search) {
+        baseParams.push(`%${search}%`);
+        const si = baseParams.length;
+        whereSearch = `AND (ka.client_name ILIKE $${si} OR ka.account_id::text ILIKE $${si})`;
+      }
+
+      const countResult = await pool.query<{ count: string }>(
+        `SELECT COUNT(*) AS count
+         FROM   kam_accounts ka
+         WHERE  ka.account_id IN (${placeholders})
+         ${whereSearch}`,
+        baseParams
+      );
+      const total = parseInt(countResult.rows[0]?.count ?? '0', 10);
+
+      const dataParams = [...baseParams, limit, offset];
+      const limitIdx  = dataParams.length - 1;
+      const offsetIdx = dataParams.length;
+
+      const rows = await pool.query<{
+        account_id:  string;
+        client_name: string | null;
+        kam_id:      number;
+        kam_name:    string | null;
+        org_role:    string | null;
+      }>(
+        `SELECT
+           ka.account_id,
+           ka.client_name,
+           ka.kam_id,
+           k.name    AS kam_name,
+           k.org_role
+         FROM   kam_accounts ka
+         LEFT   JOIN kams k ON k.id = ka.kam_id
+         WHERE  ka.account_id IN (${placeholders})
+         ${whereSearch}
+         ORDER  BY COALESCE(ka.client_name, ka.account_id::text) ASC
+         LIMIT  $${limitIdx} OFFSET $${offsetIdx}`,
+        dataParams
+      );
+
+      const clients = rows.rows.map(r => ({
+        accountId:  r.account_id,
+        clientName: r.client_name ?? `Account ${r.account_id}`,
+        kamId:      r.kam_id,
+        kamName:    r.kam_name ?? '—',
+        orgRole:    r.org_role ?? null,
+      }));
+
+      res.json({
+        clients,
+        total,
+        scopeError: null,
+        kamIds:     scope.kamIds,
+        orgRole:    scope.orgRole,
+      });
+
+    } catch (err: any) {
+      console.error('[commercial/clients]', err.message);
       res.status(500).json({ error: err.message });
     }
   });

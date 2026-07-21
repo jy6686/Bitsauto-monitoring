@@ -53,10 +53,10 @@ export const commercialPortalConfig: PortalConfig = {
         icon:  'eye',
       },
 
-      // 5. Clients — read-only, hierarchy filtered
+      // 5. Clients — read-only, hierarchy filtered (portfolio-scoped page)
       {
         label: 'Clients',
-        path:  '/clients',
+        path:  '/commercial-clients',
         icon:  'users',
       },
 

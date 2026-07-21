@@ -65,6 +65,7 @@ import SettingsPage from "@/pages/settings";
 import ReportsPage from "@/pages/reports";
 import TeamPage from "@/pages/team";
 import ClientsPage from "@/pages/clients";
+import CommercialClientsPage from "@/pages/commercial-clients";
 import FraudPage from "@/pages/fraud";
 import CDRsPage from "@/pages/cdrs";
 import ToolsPage from "@/pages/tools";
@@ -464,6 +465,9 @@ function Router() {
       </Route>
       <Route path="/clients">
         {() => <ProtectedRoute component={ClientsPage} requiredRoles={['admin','management']} mgmtFeature="clients" />}
+      </Route>
+      <Route path="/commercial-clients">
+        {() => <ProtectedRoute component={CommercialClientsPage} requiredRoles={['admin','management','super_admin']} />}
       </Route>
       <Route path="/fraud">
         {() => <ProtectedRoute component={FraudPage} requiredRoles={['admin','management']} viewerAssignment="fraud_fas" mgmtFeature="fraud_fas" />}

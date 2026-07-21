@@ -1,0 +1,130 @@
+I would start with Clients.
+
+Not because it's the simplest, but because it becomes the foundation for almost every other Commercial module.
+
+Recommended integration order
+Sprint CH-1 — Clients ⭐ (Start here)
+
+Goal
+
+Replace global client visibility with hierarchy-scoped visibility.
+
+Commercial User
+        ↓
+Hierarchy Scope Service
+        ↓
+Visible Account IDs
+        ↓
+/api/commercial/clients
+        ↓
+Clients Grid
+
+Acceptance Criteria
+
+Only assigned clients are returned.
+Team Lead sees own + team clients.
+Manager sees team clients.
+VP sees organization clients.
+No client outside the hierarchy is returned.
+Pagination and search continue to work.
+Sprint CH-2 — Live Calls
+
+Reuse the same account scope.
+
+Visible Account IDs
+        ↓
+Live Calls Query
+        ↓
+WHERE i_account IN (...)
+
+This becomes the reference implementation for real-time filtering.
+
+Sprint CH-3 — Live Traffic
+
+The traffic map and traffic charts should consume the same scoped dataset as Live Calls.
+
+No new hierarchy logic.
+
+Only a different visualization.
+
+Sprint CH-4 — BitsEye2
+
+This is probably the biggest user-visible improvement.
+
+Instead of:
+
+Global ASR
+Global ACD
+Global MOS
+
+Users see:
+
+Portfolio ASR
+Portfolio ACD
+Portfolio MOS
+
+The View button you've already fixed (/bitseye2?kamId=...) will finally become meaningful.
+
+Sprint CH-5 — Balance
+
+Once Clients are scoped, Balance becomes straightforward:
+
+Visible Account IDs
+        ↓
+Balance Query
+        ↓
+Aggregated Portfolio Balance
+Sprint CH-6 — Products (Rate Manager)
+
+This is the first write-capable module.
+
+Two checks:
+
+Permission
+        ↓
+Hierarchy Scope
+        ↓
+Visible Accounts
+        ↓
+Rate Operations
+
+An AE can only send rates to their assigned customers.
+
+Managers inherit their team's scope.
+
+Sprint CH-7 — Reports
+
+Leave Reports until last.
+
+They benefit from all previous integrations and will naturally reuse the hierarchy scope across CDRs, revenue, and exports.
+
+One architectural rule
+
+At this point I'd introduce a permanent implementation rule:
+
+Commercial modules must never call getVisibleAccountIds() directly from UI components.
+
+Instead:
+
+React Page
+        ↓
+Commercial API
+        ↓
+Hierarchy Scope Service
+        ↓
+Database
+
+That keeps the hierarchy logic entirely server-side, making it easier to audit and impossible for the client to bypass.
+
+Recommendation
+
+Start with Clients.
+
+It establishes the canonical pattern:
+
+API receives authenticated user.
+API resolves hierarchy scope.
+API filters by visibleAccountIds.
+UI remains unaware of the hierarchy implementation.
+
+Once that pattern is proven, the remaining six modules become largely repetitive integrations rather than new architectural work.
