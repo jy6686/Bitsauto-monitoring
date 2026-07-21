@@ -1,0 +1,106 @@
+This is the right direction. Based on your implementation summary, you've made an important architectural shift:
+
+The Commercial Dashboard is no longer consuming global operational data where portfolio data already exists.
+
+That aligns with the model you've defined.
+
+What changed architecturally
+
+Instead of:
+
+Commercial Dashboard
+        ↓
+Global APIs
+
+you've moved toward:
+
+Commercial Dashboard
+        ↓
+Hierarchy Scope Service
+        ↓
+Portfolio Data
+        ↓
+Dashboard KPIs
+
+Specifically:
+
+✅ Live Calls derived from the portfolio rather than /api/sippy/live-calls.
+✅ Clients with No Traffic derived from portfolio data.
+✅ Pending Rate Requests filtered through iAccount.
+✅ Added commercial-centric KPIs like Revenue 24h.
+
+Those are all appropriate for a portfolio dashboard.
+
+One thing I'd change before calling it complete
+
+From your investigation:
+
+rateNotificationJobs → ✅ client-linked (iAccount)
+invoices → ❌ not client-linked
+billingDisputes → ❌ vendor-linked
+
+That means these dashboard cards need to be treated differently.
+
+Pending Rate Requests
+
+✅ Good.
+
+Keep it.
+
+Open Invoices
+
+I'd hide this KPI until invoices can be scoped to customers.
+
+Don't show a global number.
+
+Don't show a misleading number.
+
+If it cannot be filtered by portfolio, it doesn't belong on a hierarchy-aware dashboard yet.
+
+Open Disputes
+
+Same recommendation.
+
+Today's dispute model is vendor-centric.
+
+Commercial users should eventually see client disputes, not vendor disputes.
+
+Until there is a client-account relationship, I'd remove or hide this KPI.
+
+KPI recommendations
+
+The Commercial Dashboard should ideally contain KPIs that are all derived from the visible account set.
+
+For example:
+
+KPI	Portfolio scoped?
+Managed Accounts	✅
+Live Calls	✅
+Revenue 24h	✅
+Portfolio Health	✅
+Clients with No Traffic	✅
+Pending Rate Requests	✅
+Low Balance Clients	✅ (future)
+Credit Limit Alerts	✅ (future)
+
+Notice every KPI answers:
+
+"How are my customers doing?"
+
+rather than
+
+"How is the platform doing?"
+
+Future rule
+
+I would actually document this as a governance rule for Commercial.
+
+Commercial Dashboard Rule
+
+Every widget, KPI, chart, and table must be derived exclusively from the authenticated user's hierarchy scope.
+
+Widgets that cannot be filtered by hierarchy must not appear until the underlying data model supports portfolio scoping.
+
+That rule prevents future regressions where someone accidentally introduces a global query back into the Commercial dashboard.
+
+Overall, this is the correct evolution. The dashboard is becoming portfolio-centric instead of network-centric, which is exactly the distinction between the Commercial Portal and the NOC Portal. The remaining work is mainly to continue replacing the last global queries with hierarchy-aware data sources as those underlying models become available.
