@@ -1,0 +1,116 @@
+I agree with your sequencing: A → B is the strongest path because it maximizes business value while preserving momentum.
+
+Sprint A — Commercial Operations Completion
+
+This sprint should have one objective:
+
+Eliminate the remaining "bridge" implementations so every Commercial section follows the canonical backend pattern.
+
+Deliverables
+1. Balance (highest priority)
+
+Replace:
+
+/api/sippy/balance-monitor
+        ↓
+Client-side filtering
+
+with:
+
+resolveCommercialScope()
+        ↓
+/api/commercial/balance
+        ↓
+Portfolio balances
+
+This makes Balance consistent with Clients, Live Calls, and Live Traffic.
+
+2. Reports
+
+Replace static links with Commercial-native report views:
+
+Revenue
+Forecast
+Profit / Loss
+
+All portfolio-scoped and read-only.
+
+Even if V1 simply wraps existing report data, the user should remain inside the Commercial Workspace.
+
+3. Products
+
+Keep the current Rate Manager integration, but remove the feeling of a "link-out."
+
+The Commercial workspace should present:
+
+Products
+ ├── Rate Analysis
+ ├── Send Rate
+ └── Push History
+
+using the existing architecture and hierarchy scope.
+
+Sprint B — Commercial Intelligence
+
+This is where the product becomes genuinely differentiated.
+
+I wouldn't think of it as "Live Traffic improvements."
+
+I'd define it as:
+
+Portfolio Intelligence
+
+Instead of only showing live call counts, expose operational insight for a KAM's portfolio.
+
+Intelligence panels
+
+Traffic
+
+Top customers by volume
+Active destinations
+Active vendors
+Hourly trend
+
+Quality
+
+ASR
+ACD
+MOS
+PDD
+Jitter (where available)
+
+Risk
+
+Traffic drops
+Quality degradation
+Zero-traffic customers
+Balance warnings
+Route instability
+
+Commercial
+
+Revenue trend
+Margin trend (if available)
+Top growth accounts
+Accounts requiring attention
+
+The goal is that a KAM can open the workspace each morning and immediately know which customers need attention.
+
+Suggested roadmap
+
+At this point I'd formalize the roadmap like this:
+
+Sprint	Theme	Status
+Foundation	Workspace architecture	✅ Complete
+A	Operations Completion	Next
+B	Portfolio Intelligence	Planned
+C	Action Center	Future
+
+That keeps each sprint focused:
+
+Foundation established the architecture.
+Sprint A removes the remaining inconsistencies.
+Sprint B delivers the features that distinguish the Commercial Portal.
+Sprint C introduces workflow and task management only after the analytical foundation is mature.
+
+This sequence builds on the frozen architecture without introducing unnecessary complexity, and it keeps each sprint aligned with a clear business objective.
