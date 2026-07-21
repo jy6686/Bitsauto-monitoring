@@ -1,0 +1,186 @@
+I agree with Approach C. It preserves your architectural principle while avoiding a disruptive migration.
+
+The key is to be explicit about what is authoritative and what is a projection.
+
+Authority Model
+User Action
+      ↓
+Business Module
+      ↓
+Execution Engine
+      ↓
+workflow_events   ← System of Record
+      ↓
+Projection
+      ↓
+rate_notification_jobs.status  ← Read Model / Cache
+
+This means:
+
+Writes always go through the execution engine.
+workflow_events is the canonical history.
+status exists to support fast queries, existing UI, and backwards compatibility.
+If they ever disagree, workflow_events wins and the projection can be rebuilt.
+
+That gives you recoverability, which pure dual-write (Approach B) does not.
+
+D1.1 Recommendation
+
+I'd separate the responsibilities slightly.
+
+1. State Machine
+
+Define the legal transitions only.
+
+pending_rates
+        ↓
+awaiting_approval
+        ↓
+approved
+        ↓
+activated
+        ↓
+verification_passed
+        ↓
+complete
+
+Rejected
+Dismissed
+Cancelled
+
+The state machine should know nothing about SQL.
+
+2. Execution Engine
+
+Responsible for:
+
+Validate transition
+        ↓
+Persist workflow_event
+        ↓
+Update projection(s)
+
+Notice I would make the event write first.
+
+BEGIN
+
+INSERT workflow_events ...
+
+UPDATE rate_notification_jobs ...
+
+COMMIT
+
+If the transaction rolls back, neither survives.
+
+If the transaction commits, both survive.
+
+That preserves consistency.
+
+3. Projection Layer
+
+I'd avoid sprinkling
+
+UPDATE rate_notification_jobs
+
+through execution code.
+
+Instead expose something like
+
+projectRateLifecycle(jobId, state)
+
+Internally that updates
+
+rate_notification_jobs.status
+
+Tomorrow it may update
+
+dashboards
+counters
+caches
+notifications
+
+without changing the engine.
+
+deriveJobState()
+
+I also like your projection idea, but I'd use it differently.
+
+Instead of being part of the normal execution path, make it the recovery mechanism.
+
+Normal runtime:
+
+workflow event
+        ↓
+projection updated
+
+Recovery:
+
+workflow_events
+        ↓
+deriveJobState(jobId)
+        ↓
+repair projection
+
+That makes rebuilding possible after bugs, imports, or future schema changes.
+
+D1.2
+
+The drawer becomes much richer if it consumes the event stream instead of the status.
+
+Instead of
+
+Current Status:
+Approved
+
+show
+
+09:10 Draft Created
+09:11 Validation Passed
+09:15 Submitted
+09:18 Approval Requested
+09:24 Approved
+
+Current state is simply
+
+latest lifecycle event
+
+The timeline becomes the primary UI.
+
+D2
+
+Your sequencing also looks correct.
+
+D1
+Lifecycle
+
+↓
+
+D2
+Approvals
+
+↓
+
+Future
+Credit approvals
+Pricing approvals
+Discount approvals
+Disputes
+Customer onboarding
+
+The execution engine becomes reusable rather than Rate Manager-specific.
+
+One additional governance rule
+
+Since you're freezing architecture as you go, I'd add one more permanent rule before implementing D1.1:
+
+Business modules must never update workflow projections directly.
+
+Only the execution engine may:
+
+append workflow events,
+advance workflow state,
+update lifecycle projections.
+
+That guarantees every workflow—whether it's rates today or disputes tomorrow—uses the same execution semantics.
+
+With that rule in place, D1.1 becomes the reference implementation for every future workflow built on the execution infrastructure.
