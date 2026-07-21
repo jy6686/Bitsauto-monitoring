@@ -1,0 +1,120 @@
+This is a significant architectural milestone. Looking at the sequence (CH-1 → CH-2 → CH-2.5 → CH-3), you're no longer just integrating features—you've established a reusable application architecture for the Commercial Portal.
+
+CH-3 Assessment
+✅ 1. Workspace Context
+
+This is the biggest architectural improvement.
+
+Instead of each section independently resolving or receiving scope:
+
+Workspace
+    ├── Clients(props)
+    ├── Live Calls(props)
+    ├── Balance(props)
+    └── Reports(props)
+
+you now have:
+
+CommercialWorkspaceProvider
+        ↓
+Commercial Workspace Context
+        ├── scope
+        ├── accountIds
+        ├── orgRole
+        ├── portfolio
+        ├── liveCalls
+        └── liveTraffic
+
+Every section becomes a consumer of the same state rather than implementing its own data flow.
+
+✅ 2. Single Scope Resolution
+
+This aligns perfectly with the governance you've frozen.
+
+The application lifecycle becomes:
+
+Authentication
+        ↓
+Authorization
+        ↓
+Portal Assignment
+        ↓
+Commercial Workspace
+        ↓
+resolveCommercialScope()
+        ↓
+Workspace Context
+        ↓
+All Commercial Modules
+
+Scope is resolved once and shared everywhere.
+
+✅ 3. Live Traffic
+
+Creating a dedicated Commercial Live Traffic endpoint is the right separation.
+
+Instead of adapting the NOC BitsEye2 endpoint in the UI, Commercial now has its own API contract that naturally enforces hierarchy scope.
+
+That keeps the NOC and Commercial responsibilities distinct:
+
+NOC → network-wide operational visibility.
+Commercial → portfolio-scoped operational visibility.
+What I'd freeze now
+
+At this point, I would treat the following as permanent architectural conventions for Commercial development:
+
+Backend
+
+Every Commercial endpoint should follow:
+
+resolveCommercialScope()
+        ↓
+Commercial Service
+        ↓
+DTO
+        ↓
+Response
+Frontend
+
+Every Commercial section should follow:
+
+CommercialWorkspaceProvider
+        ↓
+useCommercialWorkspace()
+        ↓
+Section Component
+
+No section should resolve scope independently.
+
+No section should duplicate hierarchy logic.
+
+Suggested next integrations
+
+With the shared context established, the remaining modules can simply consume it:
+
+Balance
+Read-only portfolio balances.
+Uses accountIds from context.
+Products
+Rate Analysis
+Send Rate
+Push History
+Permission-aware but scope-driven.
+Reports
+Revenue
+Forecast
+Profit/Loss
+Read-only, portfolio-scoped exports.
+
+These are now primarily feature integrations, not architectural work, because the core infrastructure is already in place.
+
+Overall
+
+The progression has been coherent:
+
+CH-1 established the canonical hierarchy-aware API pattern.
+CH-2 applied it to real-time data.
+CH-2.5 moved filtering to the server and introduced the application shell.
+CH-3 centralized state with a workspace context and separated Commercial Live Traffic from NOC BitsEye2.
+
+That gives you a solid foundation for completing the remaining Commercial modules without introducing new architectural patterns.
