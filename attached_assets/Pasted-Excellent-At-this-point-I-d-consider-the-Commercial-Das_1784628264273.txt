@@ -1,0 +1,72 @@
+Excellent. At this point I'd consider the Commercial Dashboard Governance v1.0 to be a baseline document rather than a working draft.
+
+Frozen Governance Baseline
+
+Status: ✅ Version 1.0 – Frozen
+
+Canonical Rules
+
+Hierarchy Scope (Mandatory)
+Every widget, KPI, chart, table, alert, and report must derive its data from the authenticated user's hierarchy scope.
+No Global Queries
+Global operational queries are prohibited in the Commercial Dashboard.
+Portfolio KPIs Only
+Every KPI must be derived from the authenticated user's visible account set.
+Unsupported Data Models
+Metrics that cannot be hierarchy-filtered must not appear until the underlying data model supports portfolio scoping.
+
+Design Principle
+
+The Commercial Dashboard is a portfolio management dashboard, not a network operations dashboard. It answers "How are my customers performing?" rather than "How is the platform performing?"
+
+What this means architecturally
+
+You now have three important governance layers frozen:
+
+Platform Governance
+Authentication
+Authorization
+Portal Assignment
+Navigation Governance
+Portal Governance
+Portal Configuration Contract
+Portal Registry
+Portal Rendering
+Commercial Governance
+Hierarchy Scope
+Portfolio-only Dashboard
+Portfolio-only KPIs
+No Global Queries
+
+Those layers fit together cleanly:
+
+Authentication
+        ↓
+Authorization
+        ↓
+Portal Assignment
+        ↓
+Portal Configuration
+        ↓
+Hierarchy Scope Service
+        ↓
+Commercial APIs
+        ↓
+Commercial Dashboard
+Suggested next implementation phase
+
+With governance now frozen, I'd avoid further dashboard redesign and move into Commercial Hierarchy Integration.
+
+A practical rollout order would be:
+
+✅ Clients (portfolio-filtered)
+✅ Live Calls (portfolio-filtered)
+✅ Live Traffic (portfolio-filtered)
+✅ BitsEye2 (portfolio-filtered)
+✅ Balance (portfolio-filtered)
+✅ Products / Rate Manager (portfolio-filtered + permission-aware)
+✅ Commercial Reports (portfolio-filtered)
+
+Each module should use the Hierarchy Scope Service as its only source for determining visible accounts. That keeps the implementation aligned with the governance you've now formalized.
+
+At this stage, the governance work is in a good place to freeze, allowing the remaining effort to focus on implementation rather than revisiting architecture.
