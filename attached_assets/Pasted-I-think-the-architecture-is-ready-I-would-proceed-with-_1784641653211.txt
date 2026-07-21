@@ -1,0 +1,142 @@
+I think the architecture is ready. I would proceed with D1.1 as designed, with one small refinement to make the execution engine easier to evolve.
+
+D1.1 Deliverables
+1. Lifecycle State Machine
+
+Keep this completely declarative.
+
+RATE_LIFECYCLE_TRANSITIONS
+
+pending_rates
+    → awaiting_approval
+
+awaiting_approval
+    → approved
+    → rejected
+    → dismissed
+
+approved
+    → activated
+
+activated
+    → verification_passed
+
+verification_passed
+    → complete
+
+No database logic.
+No business rules.
+Only legal transitions.
+
+2. Transition Validation
+validateTransition(from, to)
+
+Single responsibility:
+
+Is the transition legal?
+If not, throw a domain error.
+
+Do not check permissions here.
+
+Permission checks belong in the business module before the workflow is executed.
+
+3. Execution Engine
+
+I would extend executeWorkflowAction() rather than creating a parallel API.
+
+The execution flow becomes:
+
+Business Module
+        ↓
+validateTransition()
+        ↓
+BEGIN
+        ↓
+INSERT workflow_event
+        ↓
+projectRateLifecycle()
+        ↓
+COMMIT
+
+That keeps every workflow using one execution path.
+
+4. Projection
+
+I especially like making this a dedicated service.
+
+projectRateLifecycle(jobId, state)
+
+Today it updates:
+
+rate_notification_jobs.status
+
+Tomorrow it may also update:
+
+dashboard counters
+notification queues
+materialized views
+analytics projections
+
+without touching the execution engine.
+
+5. Recovery
+
+I would intentionally treat deriveJobState() as an administrative/recovery function rather than part of the normal runtime.
+
+Runtime should trust the projection.
+
+Recovery should trust the event stream.
+
+workflow_events
+        ↓
+deriveJobState(jobId)
+        ↓
+projectRateLifecycle(jobId)
+
+That distinction keeps the runtime fast while preserving recoverability.
+
+One additional recommendation
+
+I would add a monotonically increasing workflow sequence number to every workflow event.
+
+For example:
+
+job_id: 842
+
+seq: 1
+Draft Created
+
+seq: 2
+Validation Passed
+
+seq: 3
+Approval Requested
+
+seq: 4
+Approved
+
+seq: 5
+Activated
+
+Instead of relying solely on timestamps, the sequence gives you:
+
+deterministic ordering,
+easier replay,
+simpler debugging,
+protection against equal timestamps or clock precision issues.
+
+It's a small addition now that can pay off significantly as workflows become more sophisticated.
+
+Definition of Done for D1.1
+
+I'd consider D1.1 complete when all of the following are true:
+
+✅ Lifecycle transitions are defined in a declarative state machine.
+✅ validateTransition() enforces only legal state changes.
+✅ Every transition goes through executeWorkflowAction().
+✅ Workflow events are written before projections inside a single transaction.
+✅ projectRateLifecycle() is the only component that updates rate_notification_jobs.status.
+✅ deriveJobState() can reconstruct the current state from workflow_events.
+✅ No route or business module updates rate_notification_jobs.status directly.
+
+If those criteria are met, D1.1 becomes the reference implementation for every future workflow built on the execution infrastructure, whether it's rate approvals, disputes, customer onboarding, or other commercial processes.

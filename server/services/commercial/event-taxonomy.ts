@@ -76,6 +76,108 @@ export const WORKFLOW = {
   NOTE_ADDED: 'workflow.note_added',
 } as const;
 
+// ── Rate Lifecycle State Machine ──────────────────────────────────────────────
+//
+// Declarative definition of ALL legal state transitions for the rate push
+// lifecycle.  This map knows nothing about SQL, permissions, or business rules.
+//
+// Responsibility: "Is this transition legal?"
+// Permissions:   enforced by the CALLER (business module) before calling execute
+// SQL:           handled by the execution engine and projection layer
+//
+// State flow:
+//
+//   pending_rates → awaiting_approval
+//                ↘ dismissed
+//
+//   awaiting_approval → approved
+//                     → rejected → awaiting_approval  (re-submit)
+//                     → dismissed
+//
+//   approved → activated
+//            → dismissed
+//
+//   activated → verification_passed
+//             → verification_failed → activated  (retry)
+//                                   → dismissed
+//
+//   verification_passed → complete
+//   complete            → (terminal)
+//   dismissed           → (terminal)
+//
+export const RATE_LIFECYCLE_TRANSITIONS: Readonly<Record<string, readonly string[]>> = {
+  pending_rates:        ['awaiting_approval', 'dismissed'],
+  awaiting_approval:    ['approved', 'rejected', 'dismissed'],
+  approved:             ['activated', 'dismissed'],
+  activated:            ['verification_passed', 'verification_failed'],
+  verification_passed:  ['complete'],
+  verification_failed:  ['activated', 'dismissed'],
+  rejected:             ['awaiting_approval'],  // re-submit path
+  complete:             [],
+  dismissed:            [],
+} as const;
+
+// Terminal states — no further transitions are legal
+export const RATE_LIFECYCLE_TERMINAL: ReadonlySet<string> = new Set(['complete', 'dismissed']);
+
+/**
+ * Validate a state transition against the rate lifecycle state machine.
+ *
+ * Single responsibility: is the transition legal?
+ * Throws a domain error if the hop is illegal — callers should surface this
+ * to the user as a validation failure, not a 500.
+ *
+ * Permission checks (can THIS user make this transition?) belong in the
+ * business module BEFORE calling this function.
+ */
+export function validateRateTransition(from: string, to: string): void {
+  const legal = RATE_LIFECYCLE_TRANSITIONS[from] ?? [];
+  if (!(legal as readonly string[]).includes(to)) {
+    const allowed = (RATE_LIFECYCLE_TRANSITIONS[from] ?? []).join(', ') || 'none';
+    throw new RateTransitionError(
+      `Illegal rate lifecycle transition: "${from}" → "${to}". ` +
+      `Legal transitions from "${from}": [${allowed}]`
+    );
+  }
+}
+
+/** Domain error for illegal lifecycle transitions — distinct from system errors */
+export class RateTransitionError extends Error {
+  readonly isDomainError = true;
+  constructor(message: string) {
+    super(message);
+    this.name = 'RateTransitionError';
+  }
+}
+
+// ── Rate status → event_type mapping ─────────────────────────────────────────
+// Maps a rate_notification_jobs.status value to its corresponding event_type.
+// Used by deriveJobState() when rebuilding projection from the event stream.
+export const RATE_STATUS_TO_EVENT: Readonly<Record<string, string>> = {
+  pending_rates:        RATE_JOB.CREATED,
+  awaiting_approval:    RATE_JOB.APPROVED,       // closest event
+  approved:             RATE_JOB.APPROVED,
+  rejected:             RATE_JOB.REJECTED,
+  activated:            RATE_JOB.ACTIVATED,
+  verification_passed:  RATE_JOB.VERIFICATION_PASSED,
+  verification_failed:  RATE_JOB.VERIFICATION_FAILED,
+  complete:             RATE_JOB.CUSTOMER_NOTIFIED,
+  dismissed:            RATE_JOB.DISMISSED,
+} as const;
+
+// Reverse map: event_type → status string for projection rebuilding
+export const RATE_EVENT_TO_STATUS: Readonly<Record<string, string>> = {
+  [RATE_JOB.CREATED]:             'pending_rates',
+  [RATE_JOB.RESUBMITTED]:         'awaiting_approval',
+  [RATE_JOB.APPROVED]:            'approved',
+  [RATE_JOB.REJECTED]:            'rejected',
+  [RATE_JOB.ACTIVATED]:           'activated',
+  [RATE_JOB.VERIFICATION_PASSED]: 'verification_passed',
+  [RATE_JOB.VERIFICATION_FAILED]: 'verification_failed',
+  [RATE_JOB.CUSTOMER_NOTIFIED]:   'complete',
+  [RATE_JOB.DISMISSED]:           'dismissed',
+} as const;
+
 // ── Convenience union type ────────────────────────────────────────────────────
 // Enables TypeScript narrowing on event_type strings from workflow_events rows.
 export type RateJobEvent   = typeof RATE_JOB[keyof typeof RATE_JOB];

@@ -4787,6 +4787,10 @@ export const workflowEvents = pgTable("workflow_events", {
   // Chaining — allows grouping an entire workflow lifecycle
   correlationId: varchar("correlation_id", { length: 128 }),
   parentEventId: integer("parent_event_id"),
+  // Monotonically increasing per correlationId — deterministic ordering,
+  // easier replay, simpler debugging, protection against clock precision issues.
+  // NULL for events without a correlationId (standalone audit events).
+  seq:           integer("seq"),
 });
 
 export type WorkflowEvent       = typeof workflowEvents.$inferSelect;
