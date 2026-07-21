@@ -125,6 +125,20 @@ async function requireAdmin(req: any, res: any, next: any) {
 // Maps governedCall.id → active setTimeout handle
 const activeTimers = new Map<number, NodeJS.Timeout>();
 
+// ── Active channel set ─────────────────────────────────────────────────────────
+// Tracks channel names (A-leg + B-leg) for every currently active governed call.
+// The hangup handler uses this to skip the DB SELECT entirely for non-governed
+// channels, which constitute the vast majority of AMI hangup events and were
+// causing DB pool exhaustion at high call volume.
+const activeChannels = new Set<string>();
+
+// ── Hangup handler concurrency limiter ────────────────────────────────────────
+// Prevents more than 8 concurrent DB operations in the hangup handler so a
+// burst of AMI events cannot exhaust the connection pool (pool max = 25;
+// 8 reserved here leaves 17 free for all other routes including auth/session).
+let _hangupDbOps = 0;
+const HANGUP_MAX_CONCURRENT = 8;
+
 // ── Eager CDR lookup ───────────────────────────────────────────────────────────
 // Runs 45 s after every cut so the CDR is still at the top of the portal list.
 // Stores result directly on the governed_calls row — billing view reads from DB.
@@ -747,6 +761,9 @@ async function reconcileActiveCalls() {
       if (!aLive && !bLive) {
         const timer = activeTimers.get(row.id);
         if (timer) { clearTimeout(timer); activeTimers.delete(row.id); }
+        // Remove from channel set before marking completed
+        if (row.channelA) activeChannels.delete(row.channelA);
+        if (row.channelB) activeChannels.delete(row.channelB);
         await db.update(governedCalls)
           .set({ completedAt: new Date(), status: 'completed' })
           .where(eq(governedCalls.id, row.id));
@@ -757,6 +774,11 @@ async function reconcileActiveCalls() {
           details:        'Auto-completed: channels absent from AMI bridge list',
         });
         console.log(`[call-governance] Stale cleanup (AMI): call #${row.id} (${row.channelB}) not in AMI → completed`);
+      } else {
+        // Still live — seed activeChannels so the hangup handler can find them
+        // (important after a server restart where the in-memory set was empty)
+        if (row.channelA) activeChannels.add(row.channelA);
+        if (row.channelB) activeChannels.add(row.channelB);
       }
     }
 
@@ -1070,6 +1092,13 @@ export function registerCallGovernanceRoutes(app: Express) {
         recordingPath,
       }).onConflictDoNothing().returning();
 
+      // Track governed channels in memory so the hangup handler can skip DB
+      // queries for the vast majority of non-governed AMI hangup events.
+      if (gc) {
+        if (channelA) activeChannels.add(channelA);
+        if (channelB) activeChannels.add(channelB);
+      }
+
       if (!gc) {
         // Conflict was hit after pre-check (concurrent insert race).
         // Fetch the winning row and re-arm its timer if it isn't already tracked.
@@ -1134,6 +1163,21 @@ export function registerCallGovernanceRoutes(app: Express) {
     if (_hangupDedup.has(event.channel)) return;
     _hangupDedup.set(event.channel, setTimeout(() => _hangupDedup.delete(event.channel), 10_000));
 
+    // ── Fast-path: skip DB entirely for non-governed channels ─────────────────
+    // activeChannels tracks only channels that belong to a governed call.
+    // The vast majority of AMI hangup events are for non-governed calls — this
+    // check eliminates their DB queries, which were exhausting the connection pool.
+    if (!activeChannels.has(event.channel)) return;
+
+    // ── Concurrency limiter ───────────────────────────────────────────────────
+    // Hard cap: at most 8 concurrent DB operations from hangup events.
+    // If the pool is already under pressure, drop excess events gracefully.
+    if (_hangupDbOps >= HANGUP_MAX_CONCURRENT) {
+      console.warn(`[call-governance] hangup limiter: dropping event for ${event.channel} (${_hangupDbOps} ops in flight)`);
+      return;
+    }
+    _hangupDbOps++;
+
     try {
       const rows = await db
         .select()
@@ -1147,10 +1191,15 @@ export function registerCallGovernanceRoutes(app: Express) {
         .limit(1);
 
       if (!rows.length) {
-        console.warn(`[call-governance] hangup on unmatched channel: ${event.channel} cause=${event.cause ?? '?'}`);
+        // Channel was in activeChannels but not in DB — stale entry; clean up
+        activeChannels.delete(event.channel);
         return;
       }
       const gc = rows[0];
+
+      // Remove both legs from the in-memory set
+      if (gc.channelA) activeChannels.delete(gc.channelA);
+      if (gc.channelB) activeChannels.delete(gc.channelB);
 
       // Cancel any pending timer
       const timer = activeTimers.get(gc.id);
@@ -1168,6 +1217,8 @@ export function registerCallGovernanceRoutes(app: Express) {
       });
     } catch (err: any) {
       console.error('[call-governance] hangup handler error:', err?.message);
+    } finally {
+      _hangupDbOps--;
     }
   });
 

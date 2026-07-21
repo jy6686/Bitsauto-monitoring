@@ -17,7 +17,7 @@ export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 25,                   // raised from 10 — 274 concurrent calls need headroom
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 15000,
+  connectionTimeoutMillis: 3000, // fail-fast: 3 s instead of 15 s so hangup storms don't starve auth
 });
 // Pool health monitor — logs every 30s so we can spot starvation
 setInterval(() => {
