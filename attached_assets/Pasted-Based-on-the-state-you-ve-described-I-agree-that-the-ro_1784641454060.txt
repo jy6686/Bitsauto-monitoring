@@ -1,0 +1,92 @@
+Based on the state you've described, I agree that the roadmap has effectively been completed and the gating dependencies have been satisfied.
+
+The important transition is this:
+
+Foundation established the architecture.
+Sprint A completed the operational workspace.
+Sprint B completed the portfolio intelligence layer.
+Sprint C completed the operational action layer.
+Phase 1 introduced the generic execution infrastructure (event store, taxonomy, workflow engine).
+
+That means the next phase is no longer about building infrastructure—it's about implementing business workflows on top of it.
+
+Phase 2 Focus
+
+The sequencing you propose also makes sense:
+
+D1 — Rate Lifecycle
+
+This should become the canonical lifecycle for every commercial rate action.
+
+A representative flow would be:
+
+Draft
+    ↓
+Validate
+    ↓
+Submit
+    ↓
+Review
+    ↓
+Approve / Reject
+    ↓
+Schedule
+    ↓
+Push
+    ↓
+Verify
+    ↓
+Complete
+
+Every transition should emit a workflow event so the execution layer remains the system of record.
+
+D2 — Commercial Approvals
+
+Build approvals as a consumer of the execution engine rather than embedding approval logic in Rate Manager.
+
+For example:
+
+Rate Lifecycle
+        ↓
+Approval Request
+        ↓
+Execution Engine
+        ↓
+Approver Decision
+        ↓
+Workflow Event
+        ↓
+Lifecycle Continues
+
+This keeps approvals reusable for future workflows (credits, discounts, disputes, customer changes, etc.).
+
+Recommended implementation principle
+
+One principle I'd explicitly adopt before starting Phase 2 is:
+
+Business modules own business rules; the execution engine owns workflow state.
+
+In practice:
+
+Rate Manager decides what needs approval.
+Execution Engine tracks where the workflow is.
+Commercial Workspace displays current state.
+Workflow Events provide the audit trail.
+
+That separation will make it much easier to introduce additional workflow-driven features later without duplicating state management.
+
+Suggested milestones
+
+I'd structure Phase 2 into small, verifiable increments:
+
+Milestone	Deliverable	Outcome
+D1.1	Rate lifecycle state machine	Canonical lifecycle defined and persisted
+D1.2	Lifecycle UI & timeline	Users can view state progression and history
+D1.3	Workflow event integration	All transitions recorded in the execution layer
+D2.1	Approval request generation	Lifecycle can create approval tasks
+D2.2	Approval actions	Approve, reject, request changes
+D2.3	Role-aware approval routing	Decisions follow organizational permissions
+
+This keeps the work incremental while leveraging the execution infrastructure you've already built.
+
+At this stage, the architecture appears mature enough that Phase 2 can focus almost entirely on business capability rather than foundational engineering.
