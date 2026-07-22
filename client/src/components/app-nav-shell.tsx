@@ -458,7 +458,20 @@ function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems }: {
 
   // Filter out hidden items, then skip groups with nothing left
   const visibleGroups = domain.groups
-    .map(group => ({ ...group, items: group.items.filter(item => !hiddenItems.has(item.href)) }))
+    .map(group => {
+      let items = group.items.filter(item => !hiddenItems.has(item.href));
+      if (activePortal) {
+        const groupHasPortalItems = items.some(
+          i => !!routeToModuleKey[i.href.replace(/\/+$/, '')]
+        );
+        if (groupHasPortalItems) {
+          // Only show portal-assigned items in this group — hides Call Governance etc.
+          items = items.filter(i => !!routeToModuleKey[i.href.replace(/\/+$/, '')]);
+        }
+        // Groups with no portal items (e.g. Infrastructure) keep all items.
+      }
+      return { ...group, items };
+    })
     .filter(group => group.items.length > 0);
 
   return (
@@ -562,6 +575,10 @@ function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems }: {
     </div>
   );
 }
+
+// Domains that own their own portal workspace — hidden in ALL portal modes.
+// IDs confirmed from DOMAINS: finance, products, trading (Voice Trading).
+const PORTAL_OWNED_DOMAINS = new Set(['finance', 'products', 'trading']);
 
 export function AppNavShell() {
   const [location, navigate]  = useLocation();
@@ -819,7 +836,10 @@ export function AppNavShell() {
              else the main-platform domain tabs ── */}
         {(
         <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" role="menubar">
-            {visibleDomains.map(domain => {
+            {(isPortalMode
+          ? visibleDomains.filter(d => !PORTAL_OWNED_DOMAINS.has(d.id))
+          : visibleDomains
+        ).map(domain => {
               const isActive = meta.domain === domain.id;
               const isOpen   = openDomain === domain.id;
               return (
