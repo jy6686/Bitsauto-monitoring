@@ -460,14 +460,9 @@ function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems }: {
     .map(group => {
       let items = group.items.filter(item => !hiddenItems.has(item.href));
       if (activePortal) {
-        const groupHasPortalItems = items.some(
-          i => !!routeToModuleKey[i.href.replace(/\/+$/, '')]
-        );
-        if (groupHasPortalItems) {
-          // Only show portal-assigned items in this group — hides Call Governance etc.
-          items = items.filter(i => !!routeToModuleKey[i.href.replace(/\/+$/, '')]);
-        }
-        // Groups with no portal items (e.g. Infrastructure) keep all items.
+        // Strict filter: only show items with portal module assignments.
+        // Items without assignments navigate bare main-platform routes, breaking portal context.
+        items = items.filter(i => !!routeToModuleKey[i.href.replace(/\/+$/, '')]);
       }
       return { ...group, items };
     })
