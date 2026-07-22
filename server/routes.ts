@@ -10100,11 +10100,13 @@ export async function registerRoutes(
         .filter((a: any) => Number(a.iAccount) > 0)
         .map((a: any) => {
           const iAccount = Number(a.iAccount);
-          // Cache supplements username — fall back to DB customerName if not cached
-          const username = cache?.get(String(iAccount)) ?? a.customerName ?? `Account ${iAccount}`;
+          // DB customerName is the operator-configured display name — always prefer it.
+          // Cache (Sippy username/description) is a fallback only when DB name is blank.
+          const username = a.customerName?.trim() || cache?.get(String(iAccount)) || `Account ${iAccount}`;
           const tariffName = _tariffProductCache?.labels?.get(iAccount) ?? null;
           return { iAccount, username, tariffName, balance: null };
-        });
+        })
+        .sort((a: any, b: any) => a.username.localeCompare(b.username));
 
       return res.json({
         accounts,
