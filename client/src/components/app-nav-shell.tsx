@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   Radio, Users, Wifi, GitBranch, BarChart2,
@@ -413,10 +413,26 @@ function inferMeta(path: string): { domain: string; label: string } {
   return { domain, label: 'Dashboard' };
 }
 
+// ── Portal route resolver (DB-driven) ──────────────────────────────────────────
+function resolveNavHref(
+  href: string,
+  portal: string | null,
+  routeToModule: Record<string, string>
+): string {
+  if (!portal) return href;
+  const moduleKey = routeToModule[href.replace(/\/+$/, '')];
+  return moduleKey ? `/${portal}/${moduleKey}` : href;
+}
+
 // ── Cascade Menu (L2 dropdown + L3 submenu) ───────────────────────────────────
 function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems }: {
   domain: Domain; onClose: () => void; openLeft?: boolean; stats: NavStats; hiddenItems: Set<string>;
 }) {
+  const { activePortal, modules: portalModules } = usePortal();
+  const routeToModuleKey = useMemo(
+    () => Object.fromEntries((portalModules ?? []).map(m => [m.route.replace(/\/+$/, ''), m.moduleKey])),
+    [portalModules]
+  );
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const groupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -522,7 +538,7 @@ function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems }: {
                   {group.items.map(item => (
                     <Link
                       key={item.href}
-                      href={item.href}
+                      href={resolveNavHref(item.href, activePortal, routeToModuleKey)}
                       onClick={onClose}
                       data-testid={`nav-module-${item.href.replace(/\//g, '-')}`}
                     >
@@ -824,9 +840,9 @@ export function AppNavShell() {
                     <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-gradient-to-r from-violet-400 to-indigo-500 pointer-events-none" />
                   )}
                   <Link
-                    href={`/workspace/${domain.id}`}
+                    href={isPortalMode ? `#` : `/workspace/${domain.id}`}
                     data-testid={`nav-domain-${domain.id}`}
-                    onClick={() => setOpen(null)}
+                    onClick={(e) => { if (isPortalMode) { e.preventDefault(); setOpen(domain.id); } else setOpen(null); }}
                     className="flex items-center gap-1.5 pl-2.5 pr-1 h-full"
                     aria-label={`${domain.label} workspace`}
                   >
