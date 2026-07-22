@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { usePortal } from "@/context/portal-context";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
 import { useQuery } from "@tanstack/react-query";
@@ -392,39 +393,62 @@ export function PortalTopNav() {
     >
       {sections.map(section => {
         const isActive = section.sectionKey === activeSection;
+        const sectionMods = modules.filter((m: any) => m.section === section.sectionKey);
         const Icon = resolveIcon(section.icon);
+
+        const tabClassName = cn(
+          "relative flex items-center gap-1.5 h-[36px] px-3 rounded-lg text-[11px] font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0",
+          isActive
+            ? "text-foreground bg-white/[0.08]"
+            : "text-muted-foreground/60 hover:text-foreground hover:bg-white/[0.05]",
+        );
+
         return (
-          <button
-            key={section.sectionKey}
-            onClick={() => {
-              setSection(section.sectionKey);
-              const homeModule = modules.find((m: any) => m.section === section.sectionKey && m.isHome);
-              const firstModule = modules.find((m: any) => m.section === section.sectionKey);
-              const target = homeModule ?? firstModule;
-              // Portal-relative navigation keeps the user inside the portal namespace.
-              if (target && activePortal) navigate(`/${activePortal}/${target.moduleKey}`);
-            }}
-            data-testid={`nav-section-${section.sectionKey}`}
-            className={cn(
-              "relative flex items-center gap-1.5 h-[36px] px-3 rounded-lg text-[11px] font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0",
-              isActive
-                ? "text-foreground bg-white/[0.08]"
-                : "text-muted-foreground/60 hover:text-foreground hover:bg-white/[0.05]",
-            )}
-          >
-            {isActive && (
-              <span className={cn(
-                "absolute bottom-0 left-2 right-2 h-[2px] rounded-full pointer-events-none",
-                portalConfig.theme === "purple" ? "bg-gradient-to-r from-purple-400 to-indigo-500" :
-                portalConfig.theme === "blue"   ? "bg-gradient-to-r from-blue-400 to-cyan-500" :
-                portalConfig.theme === "green"  ? "bg-gradient-to-r from-emerald-400 to-teal-500" :
-                portalConfig.theme === "indigo" ? "bg-gradient-to-r from-indigo-400 to-violet-500" :
-                "bg-gradient-to-r from-violet-400 to-indigo-500"
-              )} />
-            )}
-            <Icon className={cn("w-3.5 h-3.5", isActive ? accent : "")} />
-            <span>{section.title}</span>
-          </button>
+          <DropdownMenu key={section.sectionKey}>
+            <DropdownMenuTrigger asChild>
+              <button
+                data-testid={`nav-section-${section.sectionKey}`}
+                className={tabClassName}
+                onClick={() => {
+                  setSection(section.sectionKey);
+                  const homeModule = sectionMods.find((m: any) => m.isHome) ?? sectionMods[0];
+                  if (homeModule && activePortal) navigate(`/${activePortal}/${homeModule.moduleKey}`);
+                }}
+              >
+                {isActive && (
+                  <span className={cn(
+                    "absolute bottom-0 left-2 right-2 h-[2px] rounded-full pointer-events-none",
+                    portalConfig.theme === "purple" ? "bg-gradient-to-r from-purple-400 to-indigo-500" :
+                    portalConfig.theme === "blue"   ? "bg-gradient-to-r from-blue-400 to-cyan-500" :
+                    portalConfig.theme === "green"  ? "bg-gradient-to-r from-emerald-400 to-teal-500" :
+                    portalConfig.theme === "indigo" ? "bg-gradient-to-r from-indigo-400 to-violet-500" :
+                    "bg-gradient-to-r from-violet-400 to-indigo-500"
+                  )} />
+                )}
+                <Icon className={cn("w-3.5 h-3.5", isActive ? accent : "")} />
+                <span>{section.title}</span>
+                <ChevronDown className="w-3 h-3 ml-0.5 opacity-60" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-[180px]">
+              {sectionMods.map((mod: any) => {
+                const ModIcon = resolveIcon(mod.icon);
+                return (
+                  <DropdownMenuItem
+                    key={mod.moduleKey}
+                    onClick={() => {
+                      setSection(section.sectionKey);
+                      if (activePortal) navigate(`/${activePortal}/${mod.moduleKey}`);
+                    }}
+                    className="gap-2 text-[11px] cursor-pointer"
+                  >
+                    <ModIcon className="w-3.5 h-3.5" />
+                    {mod.label}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
         );
       })}
     </nav>
