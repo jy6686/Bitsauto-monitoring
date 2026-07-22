@@ -1516,6 +1516,7 @@ export async function registerRoutes(
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
     try {
       const modules = await storage.getPortalModules(req.params.slug);
+      if (req.params.slug === 'noc') console.log('[NOC-DEBUG]', JSON.stringify(modules.map(m => ({k: m.moduleKey, home: m.isHome, ord: m.displayOrder}))));
       res.json(modules);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
