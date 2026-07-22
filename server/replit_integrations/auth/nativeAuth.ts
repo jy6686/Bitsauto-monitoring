@@ -81,6 +81,107 @@ export function deriveDisplayName(user: {
 
 export function registerNativeAuthRoutes(app: Express): void {
   /**
+   * GET /set-password
+   * Serves a minimal HTML form for the bootstrap password-set flow.
+   * Protected by SESSION_SECRET — token must be provided in the URL query.
+   */
+  app.get("/set-password", (req: any, res: any) => {
+    const token = String(req.query.token ?? "");
+    const secret = process.env.SESSION_SECRET ?? "";
+    if (!secret || token !== secret) {
+      return res.status(403).send("Forbidden — invalid or missing token.");
+    }
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Set Password — Bitsauto Auth</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+  .card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:2rem;width:100%;max-width:400px}
+  h2{margin:0 0 1.5rem;font-size:1.25rem;color:#f8fafc}
+  label{display:block;font-size:.8rem;color:#94a3b8;margin-bottom:.35rem}
+  input{width:100%;box-sizing:border-box;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:.65rem .75rem;color:#f8fafc;font-size:.9rem;outline:none;margin-bottom:1rem}
+  input:focus{border-color:#6366f1}
+  button{width:100%;background:#6366f1;color:#fff;border:none;border-radius:8px;padding:.75rem;font-size:.9rem;font-weight:600;cursor:pointer}
+  button:hover{background:#4f46e5}
+  #msg{margin-top:1rem;font-size:.85rem;text-align:center;color:#94a3b8}
+  .ok{color:#4ade80}.err{color:#f87171}
+</style>
+</head>
+<body>
+<div class="card">
+  <h2>Set / Reset Password</h2>
+  <label for="email">Email or Username</label>
+  <input id="email" type="text" placeholder="you@company.com" />
+  <label for="pw">New Password</label>
+  <input id="pw" type="password" placeholder="••••••••" />
+  <label for="pw2">Confirm Password</label>
+  <input id="pw2" type="password" placeholder="••••••••" />
+  <button onclick="go()">Set Password</button>
+  <div id="msg"></div>
+</div>
+<script>
+async function go(){
+  const email=document.getElementById('email').value.trim();
+  const pw=document.getElementById('pw').value;
+  const pw2=document.getElementById('pw2').value;
+  const msg=document.getElementById('msg');
+  msg.className='';msg.textContent='';
+  if(!email||!pw){msg.className='err';msg.textContent='Email and password are required.';return;}
+  if(pw!==pw2){msg.className='err';msg.textContent='Passwords do not match.';return;}
+  if(pw.length<8){msg.className='err';msg.textContent='Password must be at least 8 characters.';return;}
+  msg.textContent='Setting…';
+  try{
+    const r=await fetch('/api/auth/bootstrap-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifier:email,newPassword:pw,token:${JSON.stringify(token)}})});
+    const d=await r.json();
+    if(r.ok){msg.className='ok';msg.textContent='Password set! You can now log in.';}
+    else{msg.className='err';msg.textContent=d.message||'Failed.';}
+  }catch(e){msg.className='err';msg.textContent='Network error.';}
+}
+</script>
+</body></html>`
+      .replace("${JSON.stringify(token)}", JSON.stringify(token)));
+  });
+
+  /**
+   * POST /api/auth/bootstrap-password
+   * Body: { identifier, newPassword, token }
+   * token must equal SESSION_SECRET — one-time admin bootstrap, not for general use.
+   */
+  app.post("/api/auth/bootstrap-password", async (req: any, res: any) => {
+    try {
+      const { identifier, newPassword, token } = req.body ?? {};
+      const secret = process.env.SESSION_SECRET ?? "";
+      if (!secret || token !== secret) {
+        return res.status(403).json({ message: "Forbidden — invalid token." });
+      }
+      if (!identifier?.trim() || !newPassword) {
+        return res.status(400).json({ message: "identifier and newPassword are required." });
+      }
+      if (newPassword.length < 8) {
+        return res.status(400).json({ message: "Password must be at least 8 characters." });
+      }
+      const { or, eq } = await import("drizzle-orm");
+      const [user] = await db
+        .select({ id: users.id, email: users.email })
+        .from(users)
+        .where(or(eq(users.email, identifier.toLowerCase().trim()), eq(users.username, identifier.trim())))
+        .limit(1);
+      if (!user) {
+        return res.status(404).json({ message: "No account found with that email or username." });
+      }
+      const hash = await hashPassword(newPassword);
+      await db.update(users).set({ passwordHash: hash } as any).where(eq(users.id, user.id));
+      console.log(`[bootstrap-password] password set for ${user.email ?? identifier}`);
+      return res.json({ ok: true, message: "Password set successfully." });
+    } catch (err: any) {
+      console.error("[bootstrap-password] error:", err?.message);
+      return res.status(500).json({ message: "Internal error." });
+    }
+  });
+
+  /**
    * POST /api/auth/login
    * Body: { identifier: string (email or username), password: string }
    * Response (200): { user: { id, email, username, role, accessScope, defaultPortal,
