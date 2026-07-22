@@ -20,6 +20,11 @@ export type ModuleComponent = LazyExoticComponent<ComponentType<any>>;
  * page between portals never does (that is pure DB / Portal Assignment Manager).
  */
 export const moduleRegistry: Record<string, ModuleComponent> = {
+  // ── Core (shared across portals) ─────────────────────────────────────────────
+  // Main platform DashboardPage reused in any portal that assigns module key
+  // "dashboard". One component, one API, zero drift.
+  "dashboard":     lazy(() => import("@/pages/dashboard")),
+
   // ── NOC (Phase 1) ────────────────────────────────────────────────────────────
   "live-calls":    lazy(() => import("@/pages/calls-list")),
   "live-traffic":  lazy(() => import("@/pages/live-traffic")),
