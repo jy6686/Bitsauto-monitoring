@@ -13,13 +13,15 @@ import {
   Phone, Bell, Monitor, Radio, ShieldAlert, Settings, Layers, Key, Lock,
   Banknote, ArrowRightLeft, FileSpreadsheet, TrendingDown, TrendingUp, BrainCircuit, Brain,
   CreditCard, RefreshCw, BookOpen, AlertTriangle, Network, Receipt, Scale,
-  LogOut, ChevronDown, Circle, LayoutGrid, SlidersHorizontal, Sun, Moon, X, Wrench,
+  LogOut, ChevronDown, Circle, LayoutGrid, Map as MapIcon, SlidersHorizontal, Sun, Moon, X, Wrench,
 } from "lucide-react";
 
 // ── Icon registry ──────────────────────────────────────────────────────────────
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   // kebab-case (portal module legacy keys)
   "layout-dashboard":   LayoutDashboard,
+  "map":                MapIcon,
+  "layout-grid":        LayoutGrid,
   "users":              Users,
   "heart-pulse":        HeartPulse,
   "zap":                Zap,
@@ -443,7 +445,7 @@ export function PortalTopNav() {
                     className="gap-2 text-[11px] cursor-pointer"
                   >
                     <ModIcon className="w-3.5 h-3.5" />
-                    {mod.label}
+                    {mod.title}
                   </DropdownMenuItem>
                 );
               })}

@@ -801,7 +801,7 @@ export function AppNavShell() {
 
         {/* ── Centre nav: Navigation Governance config in portal mode,
              else the main-platform domain tabs ── */}
-        {isPortalMode ? <PortalTopNav /> : (
+        {(
         <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" role="menubar">
             {visibleDomains.map(domain => {
               const isActive = meta.domain === domain.id;
@@ -1080,46 +1080,10 @@ export function AppNavShell() {
         </div>
       </div>
 
-      {/* ── ROW 2 (retired): the portal top-nav is now PortalNavBar (Navigation Governance)
-           in row 1. Legacy Model-B workspace row disabled to keep a single nav source. ── */}
-      {false && isPortalMode && portalWorkspaces.length > 0 && (
-        <div
-          className="flex items-center h-[36px] px-6 gap-0.5 border-b"
-          style={{
-            background:           'hsl(var(--background)/0.88)',
-            backdropFilter:       'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
-            borderColor:          'rgba(255,255,255,0.05)',
-          }}
-        >
-          {portalWorkspaces.map(ws => {
-            const active = isWsActive(ws.slug);
-            const t      = portalConfig?.theme ?? 'neutral';
-            return (
-              <Link
-                key={ws.slug}
-                href={WORKSPACE_DEFAULT_ROUTE[ws.slug] ?? '/'}
-                data-testid={`nav-workspace-${ws.slug}`}
-                className={cn(
-                  "relative flex items-center h-[34px] px-3 rounded-lg text-[11px] font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0",
-                  active
-                    ? "text-foreground bg-white/[0.07]"
-                    : "text-muted-foreground/60 hover:text-foreground hover:bg-white/[0.05]"
-                )}
-              >
-                {active && (
-                  <span className={cn(
-                    "absolute bottom-0 left-2 right-2 h-[2px] rounded-full pointer-events-none",
-                    PORTAL_UNDERLINE[t] ?? PORTAL_UNDERLINE.neutral
-                  )} />
-                )}
-                {ws.label}
-              </Link>
-            );
-          })}
-        </div>
+            {/* ── ROW 2: portal section tabs ── */}
+      {isPortalMode && (
+        <PortalTopNav />
       )}
-
       {/* ── Cascade menu — positioned below the hovered tab ── */}
       {openDomain && (() => {
         const tabEl   = tabRefs.current.get(openDomain);
