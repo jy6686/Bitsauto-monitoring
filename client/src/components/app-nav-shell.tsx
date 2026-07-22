@@ -23,7 +23,6 @@ import { useQuery } from "@tanstack/react-query";
 import { inferWorkspace } from "@/lib/workspace";
 import type { WorkspaceDefinition } from "@shared/schema";
 import { useChatDrawer } from "@/context/chat-drawer-context";
-import { PortalTopNav } from "@/components/portal-sidebar";
 import { usePortal } from "@/context/portal-context";
 import { FavoritesStrip } from "@/components/favorites-strip";
 
@@ -1117,10 +1116,7 @@ export function AppNavShell() {
       </div>
 
             {/* ── ROW 2: portal section tabs ── */}
-      {isPortalMode && (
-        <PortalTopNav />
-      )}
-      {/* ── Cascade menu — positioned below the hovered tab ── */}
+            {/* ── Cascade menu — positioned below the hovered tab ── */}
       {openDomain && (() => {
         const tabEl   = tabRefs.current.get(openDomain);
         const shellEl = shellRef.current;
