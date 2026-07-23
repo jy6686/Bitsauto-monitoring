@@ -24,6 +24,7 @@ import { inferWorkspace } from "@/lib/workspace";
 import type { WorkspaceDefinition } from "@shared/schema";
 import { useChatDrawer } from "@/context/chat-drawer-context";
 import { usePortal } from "@/context/portal-context";
+import { PortalTopNav } from "@/components/portal-sidebar";
 import { FavoritesStrip } from "@/components/favorites-strip";
 
 function openCommandBar() {
