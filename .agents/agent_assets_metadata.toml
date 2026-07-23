@@ -124,7 +124,7 @@ title = "7. BitsEye Analytics — Revenue & Margin Drill-Down"
 id = "qBfftD15OjOw1Ztxf03px"
 uri = "file://attached_assets/generated_videos/Bitsauto_Demo_Presentation.mp4"
 type = "video"
-title = "Bitsauto Monitoring Platform — Full Demo Presentation (1:23)"
+title = "🎬 Bitsauto Platform — Full Demo Presentation"
 
 [[outputs]]
 id = "YhsFAtZqUdPypK8CScyzv"
@@ -214,13 +214,13 @@ title = "BitsAuto Demo Deck — 14 Slides (PowerPoint)"
 id = "Vf9FbzmM6RCbwVc84vlDT"
 uri = "file://attached_assets/generated_videos/act1_command_center.mp4"
 type = "video"
-title = "Act 1 — The Telecom Command Center"
+title = "Act 1 — Command Center"
 
 [[outputs]]
 id = "-os8mz4S1pbA_7Q9scKvT"
 uri = "file://attached_assets/generated_videos/act2_bitseye_evidence.mp4"
 type = "video"
-title = "Act 2 — BitsEye2 The Evidence Layer"
+title = "Act 2 — BitsEye Evidence"
 
 [[outputs]]
 id = "ih5QTI_dPlVJNUTo5Vnxi"
@@ -232,7 +232,7 @@ title = "Act 3 — Route Intelligence"
 id = "8y5tOAEGogov3ohPeY0aK"
 uri = "file://attached_assets/generated_videos/act4_ai_ops.mp4"
 type = "video"
-title = "Act 4 — AI Ops Center"
+title = "Act 4 — AI Ops"
 
 [[outputs]]
 id = "S8iQxkglXdrUSEkqRbYBX"
@@ -256,7 +256,7 @@ title = "Act 8 — Deal Workspace"
 id = "4KEy2LzRPbnOQEl6mp7ni"
 uri = "file://attached_assets/generated_videos/act_philosophy_closing.mp4"
 type = "video"
-title = "Closing — OBSERVE → UNDERSTAND → DECIDE → CONTROL → AUDIT"
+title = "Closing — Platform Philosophy"
 
 [[outputs]]
 id = "UYZuWuugwm8Arux88p7CS"
