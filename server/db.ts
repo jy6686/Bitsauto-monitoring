@@ -890,6 +890,22 @@ export async function runSafeMigrations(): Promise<void> {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_tra_i_tariff ON tariff_restore_audit (i_tariff, restored_at DESC)`);
 
+    // ── NOC portal home fix (2026-07-23) — idempotent, runs on every startup ──
+    await client.query(`
+      INSERT INTO navigation_modules (module_key, title, icon, route, category, is_system, sort_order)
+      VALUES ('dashboard', 'Dashboard', 'layout-dashboard', '/dashboard', 'general', FALSE, 0)
+      ON CONFLICT (module_key) DO NOTHING
+    `);
+    await client.query(`
+      UPDATE portal_module_assignments SET is_home = false
+      WHERE portal_id = 'noc' AND is_home = true
+    `);
+    await client.query(`
+      INSERT INTO portal_module_assignments (portal_id, module_id, section, display_order, is_home, is_pinned, visibility)
+      SELECT 'noc', id, 'dashboard', 0, true, true, 'full'
+      FROM navigation_modules WHERE module_key = 'dashboard'
+      ON CONFLICT (portal_id, module_id) DO UPDATE SET is_home = true, display_order = 0
+    `);
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);
