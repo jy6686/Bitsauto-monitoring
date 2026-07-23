@@ -902,9 +902,13 @@ export async function runSafeMigrations(): Promise<void> {
     `);
     await client.query(`
       INSERT INTO portal_module_assignments (portal_id, module_id, section, display_order, is_home, is_pinned, visibility)
-      SELECT 'noc', id, 'dashboard', 0, true, true, 'full'
-      FROM navigation_modules WHERE module_key = 'dashboard'
-      ON CONFLICT (portal_id, module_id) DO UPDATE SET is_home = true, display_order = 0
+      SELECT 'noc', nm.id, 'dashboard', 0, true, true, 'full'
+      FROM navigation_modules nm
+      WHERE nm.module_key = 'dashboard'
+        AND NOT EXISTS (
+          SELECT 1 FROM portal_module_assignments
+          WHERE portal_id = 'noc' AND module_id = nm.id
+        )
     `);
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
