@@ -573,7 +573,7 @@ function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems }: {
 
 // Domains that own their own portal workspace — hidden in ALL portal modes.
 // IDs confirmed from DOMAINS: finance, products, trading (Voice Trading).
-const PORTAL_OWNED_DOMAINS = new Set(['finance', 'products', 'trading', 'platform']);
+const PORTAL_OWNED_DOMAINS = new Set(['finance', 'products', 'trading', 'platform', 'operations', 'analytics', 'intelligence', 'security', 'company']);
 
 export function AppNavShell() {
   const [location, navigate]  = useLocation();
