@@ -1873,7 +1873,7 @@ export async function registerRoutes(
   // Leaves ~38 core operational items visible; hides advanced/supplementary features.
   const SIDEBAR_DEFAULT_HIDDEN: string[] = [
     // Live Network — keep: Live Calls, Alerts, NOC Dashboard, Incident Command, BitsEye 2, Live Traffic
-    "/route-intelligence","/noc-command","/ops-console","/console",
+    "/route-intelligence","/console",
     "/traffic-map","/graphs","/multi-switch","/server-monitoring","/sbc-monitor","/network-topology",
     // Company — keep: Accounts, Client Portal, DID Management
     "/reseller","/company/list","/company-profile","/client/wizard",
