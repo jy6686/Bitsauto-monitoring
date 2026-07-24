@@ -287,3 +287,9 @@ certification passed ✚ Phase 2A committed & pushed ✚ other flow has pulled 2
 - Migrating the main platform off `DOMAINS[]` (future, low priority).
 - In-browser admin UI for portal nav config (separate sprint).
 - Real-time nav changes without restart.
+- **Dual checksums (deferred until after NAV-C / v1.1 is stable):** split
+  `navigationChecksum` into a *structural* checksum (domains, groups, modules, routes,
+  ordering — topology, high impact) and a *metadata* checksum (icons, badges,
+  descriptions, display properties — presentation, low impact). Owner-approved as a
+  future enhancement 2026-07-24; explicitly NOT before Phase 2A — the single checksum
+  is the right simplicity for migration/certification work.
