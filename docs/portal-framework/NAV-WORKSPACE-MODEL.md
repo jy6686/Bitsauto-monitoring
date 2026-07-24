@@ -225,7 +225,27 @@ Run per portal — NOC first, then Finance, KAM, Client, Partner:
 - [ ] No orphan routes or duplicate entries.
 - [ ] No sidebar is rendered.
 
-## 7. Non-goals (this program)
+## 10. Single-owner rule for infrastructure milestones (frozen, operational)
+
+**Only one active owner may perform an infrastructure-changing milestone.** Examples:
+schema migrations, boot-logic removal, navigation-source changes, runtime switching,
+feature-flag activation. Routine feature work may run in parallel; infrastructure
+milestones never do — one designated owner, one commit, other flows pull afterwards.
+
+Current assignments (2026-07-24):
+- **Phase 2A** — owner: the Mac-clone flow (author of 031/certify/checksum/this doc).
+  Scope frozen: *"Remove Portal Workspace schema/seed boot logic from db.ts. No API
+  changes. No frontend changes. No refactoring. No formatting cleanup. No unrelated
+  migration work."* Anything outside that block = separate commit.
+- **Other flow** — does NOT execute 2A; pulls origin after 2A lands; then NAV-C1 work
+  may be parallelized (backend: provider/flag/validator · frontend: consumers) on the
+  frozen contract.
+
+**NAV-C1 exit criteria — ALL must be true before PortalWorkspaceProvider work starts:**
+dev migration applied ✚ dev certification passed ✚ prod migration applied ✚ prod
+certification passed ✚ Phase 2A committed & pushed ✚ other flow has pulled 2A.
+
+## 11. Non-goals (this program)
 
 - Migrating the main platform off `DOMAINS[]` (future, low priority).
 - In-browser admin UI for portal nav config (separate sprint).
