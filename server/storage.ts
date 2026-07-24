@@ -137,6 +137,7 @@ import {
   reconciliationEmailLog, type ReconciliationEmailLog, type InsertReconciliationEmailLog,
   portalDefinitions, navigationModules, portalModuleAssignments, portalSections,
   portalTopNavDomains, portalTopNavItems,
+  navigationDomains, navigationGroups, portalDomainAssignments, portalWorkspace,
   userFavorites,
   type PortalDefinition, type InsertPortalModuleAssignment,
   type PortalModuleAssignment, type PortalModuleWithMeta, type PortalSection,
@@ -279,6 +280,7 @@ export interface IStorage {
   getPortalModules(portalSlug: string): Promise<PortalModuleWithMeta[]>;
   getPortalSections(portalSlug: string): Promise<PortalSection[]>;
   getPortalTopNav(portalSlug: string): Promise<{ domainIds: string[]; items: Record<string, string[]> }>;
+  getPortalWorkspace(slug: string): Promise<PortalWorkspaceResponse | null>;
   upsertPortalModuleAssignment(data: Partial<InsertPortalModuleAssignment> & { portalId: string; moduleId: number }): Promise<PortalModuleAssignment>;
   removePortalModuleAssignment(portalId: string, moduleId: number): Promise<void>;
   resetPortalToDefaults(portalSlug: string): Promise<void>;
@@ -725,6 +727,59 @@ export interface IStorage {
   getIpSharingApprovalByIp(ipAddress: string): Promise<IpSharingApproval | undefined>;
   upsertIpSharingApproval(ipAddress: string, companyData: string): Promise<IpSharingApproval>;
   reviewIpSharingApproval(id: number, status: 'approved' | 'rejected', reviewedById: string, reviewedByName: string, reason?: string): Promise<IpSharingApproval>;
+}
+
+// ── Portal Workspace response shape ──────────────────────────────────────────
+// Returned by GET /api/portals/:slug/workspace — single source of truth for
+// ALL portal UI components: top nav, cascade, search, quick-actions, dashboard.
+export interface PortalWorkspaceNavItem {
+  moduleKey:   string;
+  title:       string;
+  iconKey:     string;
+  route:       string;
+  portalRoute: string;
+}
+export interface PortalWorkspaceGroup {
+  id:           number;
+  label:        string;
+  iconKey:      string;
+  displayOrder: number;
+  items:        PortalWorkspaceNavItem[];
+}
+export interface PortalWorkspaceDomain {
+  id:           string;
+  label:        string;
+  iconKey:      string;
+  colorClass:   string;
+  displayOrder: number;
+  groups:       PortalWorkspaceGroup[];
+}
+export interface PortalWorkspaceResponse {
+  portal: {
+    slug:         string;
+    name:         string;
+    theme:        string;
+    defaultRoute: string;
+  };
+  workspace: {
+    homeModule:      string | null;
+    defaultDomain:   string | null;
+    searchScope:     string;
+    sidebarStyle:    string;
+    dashboardLayout: string;
+  };
+  navigation: {
+    domains: PortalWorkspaceDomain[];
+  };
+  search: {
+    scope: string;
+    index: PortalWorkspaceNavItem[];
+  };
+  quickActions: unknown[];
+  dashboard: {
+    layout:   string;
+    sections: unknown[];
+  };
 }
 
 export class DatabaseStorage implements IStorage {
@@ -3412,6 +3467,122 @@ export class DatabaseStorage implements IStorage {
     return {
       domainIds: domainRows.map(r => r.domainId),
       items,
+    };
+  }
+
+  async getPortalWorkspace(slug: string): Promise<PortalWorkspaceResponse | null> {
+    // 1. Portal definition
+    const [portal] = await db.select()
+      .from(portalDefinitions)
+      .where(eq(portalDefinitions.slug, slug));
+    if (!portal) return null;
+
+    // 2. Workspace config (may not exist — falls back to defaults)
+    const [ws] = await db.select()
+      .from(portalWorkspace)
+      .where(eq(portalWorkspace.portalSlug, slug));
+
+    // 3. Assigned domains in display order
+    const domainRows = await db.select({
+      domainId:     portalDomainAssignments.domainId,
+      displayOrder: portalDomainAssignments.displayOrder,
+      label:        navigationDomains.label,
+      iconKey:      navigationDomains.iconKey,
+      colorClass:   navigationDomains.colorClass,
+    })
+    .from(portalDomainAssignments)
+    .innerJoin(navigationDomains, eq(portalDomainAssignments.domainId, navigationDomains.id))
+    .where(eq(portalDomainAssignments.portalSlug, slug))
+    .orderBy(asc(portalDomainAssignments.displayOrder));
+
+    if (domainRows.length === 0) {
+      // No domain assignments yet — return portal shell with empty nav
+      return {
+        portal:    { slug: portal.slug, name: portal.name, theme: portal.theme, defaultRoute: portal.defaultRoute },
+        workspace: { homeModule: ws?.homeModule ?? null, defaultDomain: ws?.defaultDomain ?? null, searchScope: ws?.searchScope ?? 'portal', sidebarStyle: ws?.sidebarStyle ?? 'compact', dashboardLayout: ws?.dashboardLayout ?? 'grid' },
+        navigation: { domains: [] },
+        search:    { scope: ws?.searchScope ?? 'portal', index: [] },
+        quickActions: [],
+        dashboard: { layout: ws?.dashboardLayout ?? 'grid', sections: [] },
+      };
+    }
+
+    const domainIds = domainRows.map(d => d.domainId);
+
+    // 4. All groups for the assigned domains
+    const groupRows = await db.select()
+      .from(navigationGroups)
+      .where(inArray(navigationGroups.domainId, domainIds))
+      .orderBy(asc(navigationGroups.domainId), asc(navigationGroups.displayOrder));
+
+    const groupIds = groupRows.map(g => g.id);
+
+    // 5. All modules for those groups
+    const moduleRows = groupIds.length > 0
+      ? await db.select()
+          .from(navigationModules)
+          .where(inArray(navigationModules.groupId as any, groupIds))
+          .orderBy(asc(navigationModules.groupId), asc(navigationModules.sortOrder))
+      : [];
+
+    // 6. Assemble nested structure
+    const modulesByGroup: Record<number, typeof moduleRows> = {};
+    for (const m of moduleRows) {
+      const gid = (m as any).groupId as number;
+      if (gid == null) continue;
+      if (!modulesByGroup[gid]) modulesByGroup[gid] = [];
+      modulesByGroup[gid].push(m);
+    }
+
+    const groupsByDomain: Record<string, typeof groupRows> = {};
+    for (const g of groupRows) {
+      if (!groupsByDomain[g.domainId]) groupsByDomain[g.domainId] = [];
+      groupsByDomain[g.domainId].push(g);
+    }
+
+    const domains: PortalWorkspaceDomain[] = domainRows.map(da => ({
+      id:           da.domainId,
+      label:        da.label,
+      iconKey:      da.iconKey,
+      colorClass:   da.colorClass,
+      displayOrder: da.displayOrder,
+      groups: (groupsByDomain[da.domainId] ?? []).map(g => ({
+        id:           g.id,
+        label:        g.label,
+        iconKey:      g.iconKey,
+        displayOrder: g.displayOrder,
+        items: (modulesByGroup[g.id] ?? []).map(m => ({
+          moduleKey:   m.moduleKey,
+          title:       m.title,
+          iconKey:     m.icon,
+          route:       m.route,
+          portalRoute: `/${slug}/${m.moduleKey}`,
+        })),
+      })),
+    }));
+
+    // 7. Flat search index — all modules across portal's assigned domains
+    const searchIndex: PortalWorkspaceNavItem[] = moduleRows.map(m => ({
+      moduleKey:   m.moduleKey,
+      title:       m.title,
+      iconKey:     m.icon,
+      route:       m.route,
+      portalRoute: `/${slug}/${m.moduleKey}`,
+    }));
+
+    return {
+      portal: { slug: portal.slug, name: portal.name, theme: portal.theme, defaultRoute: portal.defaultRoute },
+      workspace: {
+        homeModule:      ws?.homeModule      ?? null,
+        defaultDomain:   ws?.defaultDomain   ?? domainIds[0],
+        searchScope:     ws?.searchScope     ?? 'portal',
+        sidebarStyle:    ws?.sidebarStyle    ?? 'compact',
+        dashboardLayout: ws?.dashboardLayout ?? 'grid',
+      },
+      navigation: { domains },
+      search:    { scope: ws?.searchScope ?? 'portal', index: searchIndex },
+      quickActions: [],
+      dashboard: { layout: ws?.dashboardLayout ?? 'grid', sections: [] },
     };
   }
 

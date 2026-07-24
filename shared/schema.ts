@@ -2883,6 +2883,37 @@ export const portalDefinitions = pgTable("portal_definitions", {
 export type PortalDefinition       = typeof portalDefinitions.$inferSelect;
 export type InsertPortalDefinition = typeof portalDefinitions.$inferInsert;
 
+// ── Canonical Navigation Registry ─────────────────────────────────────────────
+// Single source of truth for all domain/group/module nav data.
+// Portal-specific views are composed via portal_domain_assignments.
+// The main platform keeps DOMAINS[] in app-nav-shell.tsx untouched —
+// these tables are ONLY read in portal mode via GET /api/portals/:slug/workspace.
+
+export const navigationDomains = pgTable("navigation_domains", {
+  id:           text("id").primaryKey(),                                // e.g. 'live-network'
+  label:        text("label").notNull(),
+  iconKey:      text("icon_key").notNull().default("circle"),
+  colorClass:   text("color_class").notNull().default("text-muted-foreground"),
+  displayOrder: integer("display_order").notNull().default(0),
+  isActive:     boolean("is_active").notNull().default(true),
+  createdAt:    timestamp("created_at").defaultNow().notNull(),
+});
+export type NavigationDomain       = typeof navigationDomains.$inferSelect;
+export type InsertNavigationDomain = typeof navigationDomains.$inferInsert;
+
+export const navigationGroups = pgTable("navigation_groups", {
+  id:           serial("id").primaryKey(),
+  domainId:     text("domain_id").notNull().references(() => navigationDomains.id, { onDelete: "cascade" }),
+  label:        text("label").notNull(),
+  description:  text("description"),
+  iconKey:      text("icon_key").notNull().default("circle"),
+  displayOrder: integer("display_order").notNull().default(0),
+}, (t) => [
+  uniqueIndex("uq_nav_group_domain_label").on(t.domainId, t.label),
+]);
+export type NavigationGroup       = typeof navigationGroups.$inferSelect;
+export type InsertNavigationGroup = typeof navigationGroups.$inferInsert;
+
 export const navigationModules = pgTable("navigation_modules", {
   id:             serial("id").primaryKey(),
   moduleKey:      text("module_key").unique().notNull(),
@@ -2897,6 +2928,8 @@ export const navigationModules = pgTable("navigation_modules", {
   isSystem:       boolean("is_system").notNull().default(false),
   sortOrder:      integer("sort_order").notNull().default(0),
   createdAt:      timestamp("created_at").defaultNow().notNull(),
+  // FK to canonical nav registry (null = ungrouped / main-platform only)
+  groupId:        integer("group_id").references(() => navigationGroups.id, { onDelete: "set null" }),
 });
 export type NavigationModule       = typeof navigationModules.$inferSelect;
 export type InsertNavigationModule = typeof navigationModules.$inferInsert;
@@ -2995,6 +3028,34 @@ export const portalTopNavItems = pgTable("portal_top_nav_items", {
   uniqueIndex("uq_portal_top_nav_item").on(t.portalSlug, t.domainId, t.itemHref),
 ]);
 export type PortalTopNavItem = typeof portalTopNavItems.$inferSelect;
+
+// ── Portal Domain Assignments (canonical — supersedes portal_top_nav_domains) ──
+// Controls which navigation domains are visible in a portal's top cascade menu.
+export const portalDomainAssignments = pgTable("portal_domain_assignments", {
+  portalSlug:   text("portal_slug").notNull().references(() => portalDefinitions.slug, { onDelete: "cascade" }),
+  domainId:     text("domain_id").notNull().references(() => navigationDomains.id, { onDelete: "cascade" }),
+  displayOrder: integer("display_order").notNull().default(0),
+}, (t) => [
+  uniqueIndex("uq_portal_domain_assignment").on(t.portalSlug, t.domainId),
+]);
+export type PortalDomainAssignment       = typeof portalDomainAssignments.$inferSelect;
+export type InsertPortalDomainAssignment = typeof portalDomainAssignments.$inferInsert;
+
+// ── Portal Workspace Config ────────────────────────────────────────────────────
+// One row per portal. Controls home module, search scope and layout defaults.
+// Consumed by GET /api/portals/:slug/workspace — the single source of truth for
+// every portal UI component (top nav, cascade, search, quick-actions, dashboard).
+export const portalWorkspace = pgTable("portal_workspace", {
+  portalSlug:      text("portal_slug").primaryKey().references(() => portalDefinitions.slug, { onDelete: "cascade" }),
+  homeModule:      text("home_module"),
+  defaultDomain:   text("default_domain").references(() => navigationDomains.id),
+  searchScope:     text("search_scope").notNull().default("portal"),    // 'portal' | 'global'
+  sidebarStyle:    text("sidebar_style").notNull().default("compact"),  // 'compact' | 'full'
+  dashboardLayout: text("dashboard_layout").notNull().default("grid"),  // 'grid' | 'list'
+  updatedAt:       timestamp("updated_at").defaultNow().notNull(),
+});
+export type PortalWorkspace       = typeof portalWorkspace.$inferSelect;
+export type InsertPortalWorkspace = typeof portalWorkspace.$inferInsert;
 
 // ── RBAC Matrix ────────────────────────────────────────────────────────────────
 export const rbacPermissions = pgTable("rbac_permissions", {

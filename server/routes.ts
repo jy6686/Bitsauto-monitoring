@@ -1517,6 +1517,21 @@ export async function registerRoutes(
     }
   });
 
+  // ── Portal Workspace — single source of truth for portal UI ──────────────────
+  // Returns: portal meta, workspace config, navigation (domains→groups→items),
+  // portal-scoped search index, quick-actions and dashboard config.
+  // Replaces the older /api/portals/:slug/top-nav for all portal-mode UI.
+  app.get('/api/portals/:slug/workspace', async (req: any, res) => {
+    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const workspace = await storage.getPortalWorkspace(req.params.slug);
+      if (!workspace) return res.status(404).json({ error: 'Portal not found or no workspace configured' });
+      res.json(workspace);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/portal/modules/:slug', async (req: any, res) => {
     const userId = req.user?.claims?.sub;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
