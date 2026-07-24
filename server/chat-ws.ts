@@ -76,7 +76,15 @@ function dmSlug(uid1: string, uid2: string): string {
 
 // ── Setup ──────────────────────────────────────────────────────────────────────
 export function setupChatWebSocket(httpServer: Server): void {
-  const wss = new WebSocketServer({ server: httpServer, path: "/api/chat/ws" });
+  const wss = new WebSocketServer({ noServer: true });
+
+  httpServer.on('upgrade', (req, socket, head) => {
+    const pathname = req.url?.split('?')[0];
+    if (pathname === '/api/chat/ws') {
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    }
+    // Non-matching paths are NOT destroyed — they fall through to the next upgrade listener
+  });
 
   wss.on("connection", (ws: WebSocket, _req: IncomingMessage) => {
     let myUserId = "";

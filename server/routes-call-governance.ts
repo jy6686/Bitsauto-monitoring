@@ -50,6 +50,22 @@ const PORTAL_WINDOW_MS = 24 * 60 * 60 * 1000;
 // the portal simultaneously. One scrape at a time; others wait for next retry.
 let _pnlFetching = false;
 
+// ── Portal CDR login circuit breaker ─────────────────────────────────────────
+// When portal credentials are rejected, scrapePortalCDRsAll returns [] on every
+// single governed call — dozens of failing HTTP logins per minute. This breaker
+// tracks consecutive zero-result scrapes and backs off for 5 min after 3 strikes,
+// preventing credential-failure storms from hammering the Sippy portal.
+//
+// IMPORTANT: stored on `global` (not module-level) so state survives TSX hot-reloads
+// of this file — hot-reloads reset module-level variables to their initial values,
+// which would clear the breaker counter on every file save.
+const PORTAL_SCRAPE_FAIL_THRESHOLD = 3;     // open breaker after 3 consecutive empty scrapes
+const PORTAL_SCRAPE_BACKOFF_MS     = 5 * 60_000; // 5-minute cooldown
+function _getPortalFailCount():   number { return (global as any).__bitsautoPortalFailCount  ?? 0; }
+function _setPortalFailCount(n:   number) { (global as any).__bitsautoPortalFailCount = n; }
+function _getPortalBackoffUntil():number { return (global as any).__bitsautoPortalBackoffUntil ?? 0; }
+function _setPortalBackoffUntil(t:number) { (global as any).__bitsautoPortalBackoffUntil = t; }
+
 // ── Destination-based rule selection ──────────────────────────────────────────
 /**
  * Convert a glob-style channel pattern to a RegExp.
@@ -310,7 +326,11 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
   // Portal date strings MUST be relative, NOT UTC ISO — Sippy portal interprets them
   // in server local time (UTC+5); ISO strings shift the window by 5h.
   const callIsRecent = (Date.now() - startMs) < PORTAL_WINDOW_MS;
-  if (callIsRecent && !_portalScrapeLock) {
+  const portalInBackoff = Date.now() < _getPortalBackoffUntil();
+  if (portalInBackoff) {
+    const remainSec = Math.ceil((_getPortalBackoffUntil() - Date.now()) / 1000);
+    console.log(`[call-governance] CDR lookup #${governedCallId}: Track2 skipped (portal login backoff, ${remainSec}s remaining)`);
+  } else if (callIsRecent && !_portalScrapeLock) {
     _portalScrapeLock = true;
     try {
       const liveCdrs = await sippy.scrapePortalCDRsAll(portalUser, portalPass, portalUrl, {
@@ -319,6 +339,7 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
         maxPages:  6,   // 300 CDRs — covers ~30 min of traffic at 500 cuts/hr
       });
       if (liveCdrs.length > 0) {
+        _setPortalFailCount(0); // reset circuit breaker on success
         _portalScrapeCache = { cdrs: liveCdrs, ts: Date.now() }; // cache for concurrent lookups
         const seenFp = new Set(cdrs.map((c: any) => `${c.startTime}:${c.caller}:${c.callee}`));
         let added = 0;
@@ -328,6 +349,15 @@ async function runCdrLookup(governedCallId: number, allowOverwrite = false): Pro
         }
         if (added > 0) source = cdrs.length > liveCdrs.length ? 'cache+portal' : 'portal';
         console.log(`[call-governance] CDR lookup #${governedCallId}: Track2 live → ${liveCdrs.length} CDR(s), +${added} new (pool=${cdrs.length})`);
+      } else {
+        // Empty result — may be login failure. Count strikes toward backoff.
+        const fc = _getPortalFailCount() + 1;
+        _setPortalFailCount(fc);
+        if (fc >= PORTAL_SCRAPE_FAIL_THRESHOLD) {
+          _setPortalBackoffUntil(Date.now() + PORTAL_SCRAPE_BACKOFF_MS);
+          _setPortalFailCount(0);
+          console.warn(`[call-governance] Track2 portal returned empty ${PORTAL_SCRAPE_FAIL_THRESHOLD}× — backing off for 5 min (likely login failure)`);
+        }
       }
     } catch { /* non-critical — matching continues with cache only */ }
     finally { _portalScrapeLock = false; }

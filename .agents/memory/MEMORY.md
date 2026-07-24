@@ -1,3 +1,4 @@
+- [WebSocket noServer pattern](ws-noc-path-destroy.md) — ws v8 destroys sockets on path mismatch; use noServer:true + manual upgrade routing when multiple WS servers share one HTTP server.
 - [Sprint Certification Standard](sprint-certification-standard.md) — all sprints use the template at .local/governance/sprint-certification-template.md; 5 sections required; validation summary must not reference unrelated environment issues.
 - [Commercial Workspace Architecture](commercial-workspace-architecture.md) — FROZEN: resolveCommercialScope→DTO→Response on backend; CommercialWorkspaceProvider→useCommercialWorkspace()→Section on frontend; all 7 sections complete.
 - [Commercial Hierarchy CH-1 Pattern](commercial-hierarchy-ch1-pattern.md) — canonical pattern for all Commercial Portal modules: scope via routes-commercial.ts → getAllAccountIds()/getVisibleAccountIds() → scoped SQL; UI never calls scope service directly.

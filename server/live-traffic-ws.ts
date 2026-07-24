@@ -49,7 +49,15 @@ export function broadcastLiveTrafficSnapshot(snapshot: LiveTrafficSnapshot): voi
 }
 
 export function setupLiveTrafficWebSocket(httpServer: Server): void {
-  const wss = new WebSocketServer({ server: httpServer, path: "/ws/live-traffic" });
+  const wss = new WebSocketServer({ noServer: true });
+
+  httpServer.on('upgrade', (req, socket, head) => {
+    const pathname = req.url?.split('?')[0];
+    if (pathname === '/ws/live-traffic') {
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+    }
+    // Non-matching paths are NOT destroyed — they fall through to the next upgrade listener
+  });
 
   wss.on("connection", (ws: WebSocket) => {
     const client: LtClient = { ws };
