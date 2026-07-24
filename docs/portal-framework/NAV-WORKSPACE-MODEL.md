@@ -93,9 +93,16 @@ Exceptions:  Module Override        ("portal module overrides" — hide/show one
   `portal_module_assignments` table remains for *composition* (home cards, dashboard
   widgets) only; it is NOT the navigation mechanism and future developers must not treat
   it as such.
+- **Table (frozen):** `portal_module_overrides (portal_slug, module_key, visibility, reason)`
+  - `visibility = 'hidden'` — absent from nav tree AND search index
+  - `visibility = 'read-only'` — present in nav; UI edit controls deferred to IAM/permissions program
+  - No row = `operational` (default) — never write a row expressing the default
 - Overrides are the exception, **not** the primary model — we do not hand-maintain hundreds
   of per-portal module rows.
 - The workspace API applies overrides as a filter *after* resolving the domain default.
+  `hidden` rows are excluded from `navigation` and `search.index`; `read-only` rows are
+  included in both, with a `readOnly: true` flag on the nav item so the UI can signal
+  intent without enforcing it (enforcement is IAM's job).
 
 ## 4. Permanent rules (frozen — no exceptions in portal mode)
 
