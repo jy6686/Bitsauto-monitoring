@@ -157,10 +157,17 @@ a broken tree is not success.
       | P1 | Development migration applied |
       | P2 | Development certification passed |
       | P3 | Production migration applied |
-      | P4 | Production certification passed |
+      | P4 | Production certification passed; record `navigationChecksum_prod` and
+             compare with `navigationChecksum_dev` — **two-stage:** if equal, proceed;
+             if they differ, compare the canonical navigation export (domains → groups
+             → modules → routes), determine whether the difference is *structural* or
+             *identifier-only* (SERIAL `navigation_groups.id` order can legitimately
+             differ between environments with identical content), and proceed only
+             after the cause is documented. The checksum is an integrity signal here,
+             not a brittle hard gate. |
       | P5 | Workspace API returns `workspaceVersion` |
       | P6 | Workspace API returns `navigationChecksum` — **record the certified
-             checksum now; it is the invariant for P/C7** |
+             checksum now; it is the invariant for C7** |
 
       *Execution:* delete only the Portal Workspace boot block from `db.ts`; no other
       code changes; boot the application against the migrated database.
@@ -293,3 +300,8 @@ certification passed ✚ Phase 2A committed & pushed ✚ other flow has pulled 2
   descriptions, display properties — presentation, low impact). Owner-approved as a
   future enhancement 2026-07-24; explicitly NOT before Phase 2A — the single checksum
   is the right simplicity for migration/certification work.
+- **Business-key checksum (deferred, same timing):** evolve the checksum to hash stable
+  business keys (domain id/key, group label, module_key, route, ordering) instead of
+  database surrogate ids (`navigation_groups.id`, `navigation_modules.id`). Then
+  dev checksum === prod checksum becomes a TRUE cross-environment invariant and P4
+  can be a strict equality with no caveat.
