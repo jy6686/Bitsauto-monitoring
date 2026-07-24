@@ -1511,6 +1511,32 @@ export async function registerRoutes(
     }
   });
 
+  // Portal top-nav config — which domain tabs and cascade items each portal shows
+  app.get('/api/portals/:slug/top-nav', async (req: any, res) => {
+    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const nav = await storage.getPortalTopNav(req.params.slug);
+      res.json(nav);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Portal Workspace — single source of truth for portal UI ──────────────────
+  // Returns: portal meta, workspace config, navigation (domains→groups→items),
+  // portal-scoped search index, quick-actions and dashboard config.
+  // Replaces the older /api/portals/:slug/top-nav for all portal-mode UI.
+  app.get('/api/portals/:slug/workspace', async (req: any, res) => {
+    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const workspace = await storage.getPortalWorkspace(req.params.slug);
+      if (!workspace) return res.status(404).json({ error: 'Portal not found or no workspace configured' });
+      res.json(workspace);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/portal/modules/:slug', async (req: any, res) => {
     const userId = req.user?.claims?.sub;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
@@ -1872,8 +1898,13 @@ export async function registerRoutes(
   // Default hidden set — applied when no admin has explicitly saved a config yet.
   // Leaves ~38 core operational items visible; hides advanced/supplementary features.
   const SIDEBAR_DEFAULT_HIDDEN: string[] = [
+<<<<<<< HEAD
     // Live Network — keep: Live Calls, Alerts, NOC Dashboard, Incident Command, BitsEye 2, Live Traffic
     "/route-intelligence","/console",
+=======
+    // Live Network — keep: Live Calls, Live Traffic, NOC Dashboard, NOC Command, Ops Console
+    "/route-intelligence","/console","/call-governance",
+>>>>>>> a55162559ba05073e08705494c259ddd78be4713
     "/traffic-map","/graphs","/multi-switch","/server-monitoring","/sbc-monitor","/network-topology",
     // Company — keep: Accounts, Client Portal, DID Management
     "/reseller","/company/list","/company-profile","/client/wizard",
