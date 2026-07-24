@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   Radio, Users, Wifi, GitBranch, BarChart2,
@@ -23,7 +23,7 @@ import { useQuery } from "@tanstack/react-query";
 import { inferWorkspace } from "@/lib/workspace";
 import type { WorkspaceDefinition } from "@shared/schema";
 import { useChatDrawer } from "@/context/chat-drawer-context";
-import { PortalTopNav } from "@/components/portal-sidebar";
+// PortalTopNav retired — portal nav is now a data-driven cascade (see portal_top_nav_domains/items DB tables)
 import { usePortal } from "@/context/portal-context";
 import { FavoritesStrip } from "@/components/favorites-strip";
 
@@ -412,8 +412,10 @@ function inferMeta(path: string): { domain: string; label: string } {
 }
 
 // ── Cascade Menu (L2 dropdown + L3 submenu) ───────────────────────────────────
-function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems }: {
+function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems, portalItems, resolveHref }: {
   domain: Domain; onClose: () => void; openLeft?: boolean; stats: NavStats; hiddenItems: Set<string>;
+  portalItems?: Set<string>;                   // when set, only these hrefs are shown
+  resolveHref?: (href: string) => string;      // when set, resolves item links to portal routes
 }) {
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
   const groupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -438,9 +440,15 @@ function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems }: {
     boxShadow:            '0 16px 48px rgba(0,0,0,0.45)',
   };
 
-  // Filter out hidden items, then skip groups with nothing left
+  // Filter out hidden items (and portal-restricted items when in portal mode); skip empty groups
   const visibleGroups = domain.groups
-    .map(group => ({ ...group, items: group.items.filter(item => !hiddenItems.has(item.href)) }))
+    .map(group => ({
+      ...group,
+      items: group.items.filter(item =>
+        !hiddenItems.has(item.href) &&
+        (!portalItems || portalItems.has(item.href))
+      ),
+    }))
     .filter(group => group.items.length > 0);
 
   return (
@@ -520,7 +528,7 @@ function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems }: {
                   {group.items.map(item => (
                     <Link
                       key={item.href}
-                      href={item.href}
+                      href={resolveHref ? resolveHref(item.href) : item.href}
                       onClick={onClose}
                       data-testid={`nav-module-${item.href.replace(/\//g, '-')}`}
                     >
@@ -638,6 +646,44 @@ export function AppNavShell() {
     .filter(w => w.portalSlug === activePortalSlug && w.isActive)
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 
+  // ── Portal-specific top-nav config (which domains + items each portal shows) ──
+  const { data: portalTopNav } = useQuery<{ domainIds: string[]; items: Record<string, string[]> }>({
+    queryKey: ['/api/portals', activePortalSlug, 'top-nav'],
+    queryFn: async () => {
+      const r = await fetch(`/api/portals/${activePortalSlug}/top-nav`);
+      return r.ok ? r.json() : null;
+    },
+    enabled: !!activePortalSlug && isPortalMode,
+    staleTime: 5 * 60_000,
+  });
+
+  // Portal module assignments — for route → moduleKey resolution (keeps nav inside portal)
+  const { data: portalModuleList = [] } = useQuery<Array<{ route: string; moduleKey: string }>>({
+    queryKey: ['/api/portal/modules', activePortalSlug],
+    queryFn: async () => {
+      const r = await fetch(`/api/portal/modules/${activePortalSlug}`);
+      return r.ok ? r.json() : [];
+    },
+    enabled: !!activePortalSlug && isPortalMode,
+    staleTime: 5 * 60_000,
+  });
+
+  // route → moduleKey map (e.g. '/calls' → 'live_calls')
+  const routeToModuleKey = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const m of portalModuleList as Array<{ route: string; moduleKey: string }>) {
+      if (m.route && m.moduleKey) map[m.route.replace(/\/+$/, '')] = m.moduleKey;
+    }
+    return map;
+  }, [portalModuleList]);
+
+  // Resolves a platform href to a portal-relative href (e.g. '/calls' → '/noc/live_calls')
+  const resolvePortalHref = useCallback((href: string): string => {
+    if (!activePortalSlug) return href;
+    const moduleKey = routeToModuleKey[href.replace(/\/+$/, '')];
+    return moduleKey ? `/${activePortalSlug}/${moduleKey}` : href;
+  }, [activePortalSlug, routeToModuleKey]);
+
   const WORKSPACE_DEFAULT_ROUTE: Record<string, string> = {
     'billing-ops':        '/billing',
     'revenue-assurance':  '/dmr',
@@ -711,7 +757,17 @@ export function AppNavShell() {
     setHiddenDomains(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }
 
-  const visibleDomains  = DOMAINS.filter(d => !hiddenDomains.has(d.id));
+  // In portal mode with a config loaded: show only portal-configured domain tabs (in config order).
+  // Otherwise: show all unhidden domains.
+  const visibleDomains = useMemo(() => {
+    if (isPortalMode && portalTopNav?.domainIds?.length) {
+      return portalTopNav.domainIds
+        .map(id => DOMAINS.find(d => d.id === id))
+        .filter(Boolean) as typeof DOMAINS;
+    }
+    return DOMAINS.filter(d => !hiddenDomains.has(d.id));
+  }, [isPortalMode, portalTopNav, hiddenDomains]);
+
   const MAX_NAV_TABS    = 8;
   const shownDomains    = visibleDomains.slice(0, MAX_NAV_TABS);
   const overflowDomains = visibleDomains.slice(MAX_NAV_TABS);
@@ -797,73 +853,73 @@ export function AppNavShell() {
         {/* ── Divider ── */}
         <div className="w-px h-5 bg-white/[0.08] mx-1 flex-shrink-0" />
 
-        {/* ── Centre nav: portal sections (Model A View Model) in portal mode,
-             else the main-platform domain tabs ── */}
-        {isPortalMode ? <PortalTopNav /> : (
+        {/* ── Centre nav: domain cascade tabs (portal-filtered in portal mode) ── */}
         <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" role="menubar">
-            {visibleDomains.map(domain => {
-              const isActive = meta.domain === domain.id;
-              const isOpen   = openDomain === domain.id;
-              return (
-                <div
-                  key={domain.id}
-                  ref={el => { if (el) tabRefs.current.set(domain.id, el); }}
-                  role="menuitem"
-                  className={cn(
-                    "relative flex items-center h-[36px] rounded-lg text-[11px] font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0",
-                    isActive || isOpen
-                      ? "text-foreground bg-white/[0.08]"
-                      : "text-muted-foreground/60 hover:text-foreground hover:bg-white/[0.05]"
-                  )}
-                  onMouseEnter={() => { cancelClose(); setOpen(domain.id); }}
-                  onMouseLeave={scheduleClose}
+          {shownDomains.map(domain => {
+            const isActive = meta.domain === domain.id;
+            const isOpen   = openDomain === domain.id;
+            // In portal mode the domain label click opens the cascade (no workspace page);
+            // in platform mode it navigates to /workspace/<domain>.
+            const domainHref = isPortalMode ? portalHome : `/workspace/${domain.id}`;
+            return (
+              <div
+                key={domain.id}
+                ref={el => { if (el) tabRefs.current.set(domain.id, el); }}
+                role="menuitem"
+                className={cn(
+                  "relative flex items-center h-[36px] rounded-lg text-[11px] font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0",
+                  isActive || isOpen
+                    ? "text-foreground bg-white/[0.08]"
+                    : "text-muted-foreground/60 hover:text-foreground hover:bg-white/[0.05]"
+                )}
+                onMouseEnter={() => { cancelClose(); setOpen(domain.id); }}
+                onMouseLeave={scheduleClose}
+              >
+                {isActive && (
+                  <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-gradient-to-r from-violet-400 to-indigo-500 pointer-events-none" />
+                )}
+                <Link
+                  href={domainHref}
+                  data-testid={`nav-domain-${domain.id}`}
+                  onClick={() => setOpen(null)}
+                  className="flex items-center gap-1.5 pl-2.5 pr-1 h-full"
+                  aria-label={`${domain.label} workspace`}
                 >
-                  {isActive && (
-                    <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full bg-gradient-to-r from-violet-400 to-indigo-500 pointer-events-none" />
+                  {(() => {
+                    const urgency = domainUrgencyScore(domain.id);
+                    return (
+                      <span className="relative flex-shrink-0 inline-flex">
+                        <domain.icon className={cn("w-3.5 h-3.5", isActive ? domain.color : '')} />
+                        {urgency >= 60 && (
+                          <span className="absolute -top-[3px] -right-[3px] flex h-[6px] w-[6px] pointer-events-none" aria-hidden="true">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-70" />
+                            <span className="relative inline-flex rounded-full h-[6px] w-[6px] bg-rose-500" />
+                          </span>
+                        )}
+                        {urgency >= 30 && urgency < 60 && (
+                          <span className="absolute -top-[3px] -right-[3px] h-[5px] w-[5px] rounded-full bg-amber-400 pointer-events-none" aria-hidden="true" />
+                        )}
+                      </span>
+                    );
+                  })()}
+                  <span className="hidden lg:inline">{domain.label}</span>
+                </Link>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setOpen(openDomain === domain.id ? null : domain.id); }}
+                  aria-haspopup="true"
+                  aria-expanded={isOpen}
+                  aria-label={`${domain.label} modules`}
+                  className={cn(
+                    "flex items-center justify-center pr-2 pl-0.5 h-full transition-all duration-150",
+                    isOpen ? "opacity-100" : "opacity-40 hover:opacity-80"
                   )}
-                  <Link
-                    href={`/workspace/${domain.id}`}
-                    data-testid={`nav-domain-${domain.id}`}
-                    onClick={() => setOpen(null)}
-                    className="flex items-center gap-1.5 pl-2.5 pr-1 h-full"
-                    aria-label={`${domain.label} workspace`}
-                  >
-                    {(() => {
-                      const urgency = domainUrgencyScore(domain.id);
-                      return (
-                        <span className="relative flex-shrink-0 inline-flex">
-                          <domain.icon className={cn("w-3.5 h-3.5", isActive ? domain.color : '')} />
-                          {urgency >= 60 && (
-                            <span className="absolute -top-[3px] -right-[3px] flex h-[6px] w-[6px] pointer-events-none" aria-hidden="true">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-70" />
-                              <span className="relative inline-flex rounded-full h-[6px] w-[6px] bg-rose-500" />
-                            </span>
-                          )}
-                          {urgency >= 30 && urgency < 60 && (
-                            <span className="absolute -top-[3px] -right-[3px] h-[5px] w-[5px] rounded-full bg-amber-400 pointer-events-none" aria-hidden="true" />
-                          )}
-                        </span>
-                      );
-                    })()}
-                    <span className="hidden lg:inline">{domain.label}</span>
-                  </Link>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setOpen(openDomain === domain.id ? null : domain.id); }}
-                    aria-haspopup="true"
-                    aria-expanded={isOpen}
-                    aria-label={`${domain.label} modules`}
-                    className={cn(
-                      "flex items-center justify-center pr-2 pl-0.5 h-full transition-all duration-150",
-                      isOpen ? "opacity-100" : "opacity-40 hover:opacity-80"
-                    )}
-                  >
-                    <ChevronDown className={cn("w-2.5 h-2.5 transition-transform duration-150", isOpen && "rotate-180")} />
-                  </button>
-                </div>
-              );
-            })}
-          </nav>
-        )}
+                >
+                  <ChevronDown className={cn("w-2.5 h-2.5 transition-transform duration-150", isOpen && "rotate-180")} />
+                </button>
+              </div>
+            );
+          })}
+        </nav>
 
         {/* ── Favorites strip — sits between centre nav and right zone ── */}
         <div className="hidden xl:flex items-center mx-2 flex-shrink-0 overflow-hidden">
@@ -1149,6 +1205,12 @@ export function AppNavShell() {
               openLeft={openLeft}
               stats={{ activeIncidents, pendingApprovals, degradedCarriers }}
               hiddenItems={hiddenItemsSet}
+              portalItems={
+                isPortalMode && portalTopNav?.items?.[openDomain]
+                  ? new Set(portalTopNav.items[openDomain])
+                  : undefined
+              }
+              resolveHref={isPortalMode ? resolvePortalHref : undefined}
             />
           </div>
         );

@@ -136,10 +136,12 @@ import {
   cdrRerateRuns, type CdrRerateRun, type InsertCdrRerateRun,
   reconciliationEmailLog, type ReconciliationEmailLog, type InsertReconciliationEmailLog,
   portalDefinitions, navigationModules, portalModuleAssignments, portalSections,
+  portalTopNavDomains, portalTopNavItems,
   userFavorites,
   type PortalDefinition, type InsertPortalModuleAssignment,
   type PortalModuleAssignment, type PortalModuleWithMeta, type PortalSection,
   type NavigationModule, type UserFavorite,
+  type PortalTopNavDomain, type PortalTopNavItem,
   workspaceDefinitions, workspaceTabs, workspaceTabItems,
   type WorkspaceDefinition, type WorkspaceTab, type WorkspaceTabItem,
   type WorkspaceTabWithItems, type WorkspaceWithTabs,
@@ -276,6 +278,7 @@ export interface IStorage {
   getPortalDefinitions(): Promise<PortalDefinition[]>;
   getPortalModules(portalSlug: string): Promise<PortalModuleWithMeta[]>;
   getPortalSections(portalSlug: string): Promise<PortalSection[]>;
+  getPortalTopNav(portalSlug: string): Promise<{ domainIds: string[]; items: Record<string, string[]> }>;
   upsertPortalModuleAssignment(data: Partial<InsertPortalModuleAssignment> & { portalId: string; moduleId: number }): Promise<PortalModuleAssignment>;
   removePortalModuleAssignment(portalId: string, moduleId: number): Promise<void>;
   resetPortalToDefaults(portalSlug: string): Promise<void>;
@@ -3387,6 +3390,29 @@ export class DatabaseStorage implements IStorage {
         eq(portalSections.isActive, true),
       ))
       .orderBy(asc(portalSections.sortOrder));
+  }
+
+  async getPortalTopNav(portalSlug: string): Promise<{ domainIds: string[]; items: Record<string, string[]> }> {
+    const domainRows = await db.select()
+      .from(portalTopNavDomains)
+      .where(eq(portalTopNavDomains.portalSlug, portalSlug))
+      .orderBy(asc(portalTopNavDomains.displayOrder));
+
+    const itemRows = await db.select()
+      .from(portalTopNavItems)
+      .where(eq(portalTopNavItems.portalSlug, portalSlug))
+      .orderBy(asc(portalTopNavItems.domainId), asc(portalTopNavItems.displayOrder));
+
+    const items: Record<string, string[]> = {};
+    for (const row of itemRows) {
+      if (!items[row.domainId]) items[row.domainId] = [];
+      items[row.domainId].push(row.itemHref);
+    }
+
+    return {
+      domainIds: domainRows.map(r => r.domainId),
+      items,
+    };
   }
 
   async resetPortalToDefaults(portalSlug: string): Promise<void> {

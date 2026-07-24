@@ -1506,6 +1506,17 @@ export async function registerRoutes(
     }
   });
 
+  // Portal top-nav config — which domain tabs and cascade items each portal shows
+  app.get('/api/portals/:slug/top-nav', async (req: any, res) => {
+    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const nav = await storage.getPortalTopNav(req.params.slug);
+      res.json(nav);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/portal/modules/:slug', async (req: any, res) => {
     const userId = req.user?.claims?.sub;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
@@ -1863,8 +1874,8 @@ export async function registerRoutes(
   // Default hidden set — applied when no admin has explicitly saved a config yet.
   // Leaves ~38 core operational items visible; hides advanced/supplementary features.
   const SIDEBAR_DEFAULT_HIDDEN: string[] = [
-    // Live Network — keep: Live Calls, Alerts, NOC Dashboard, Incident Command, BitsEye 2, Live Traffic
-    "/route-intelligence","/noc-command","/ops-console","/console",
+    // Live Network — keep: Live Calls, Live Traffic, NOC Dashboard, NOC Command, Ops Console
+    "/route-intelligence","/console","/call-governance",
     "/traffic-map","/graphs","/multi-switch","/server-monitoring","/sbc-monitor","/network-topology",
     // Company — keep: Accounts, Client Portal, DID Management
     "/reseller","/company/list","/company-profile","/client/wizard",

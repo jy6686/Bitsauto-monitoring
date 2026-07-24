@@ -2972,6 +2972,30 @@ export type UserFavorite       = typeof userFavorites.$inferSelect;
 export type InsertUserFavorite = typeof userFavorites.$inferInsert;
 export type InsertPortalSection = typeof portalSections.$inferInsert;
 
+// ── Portal Top-Nav Configuration ──────────────────────────────────────────────
+// Which domain tabs appear (and in what order) for each portal's cascade nav.
+export const portalTopNavDomains = pgTable("portal_top_nav_domains", {
+  id:           serial("id").primaryKey(),
+  portalSlug:   text("portal_slug").notNull(),
+  domainId:     text("domain_id").notNull(),       // matches DOMAINS[].id in app-nav-shell
+  displayOrder: integer("display_order").notNull().default(0),
+}, (t) => [
+  uniqueIndex("uq_portal_top_nav_domain").on(t.portalSlug, t.domainId),
+]);
+export type PortalTopNavDomain = typeof portalTopNavDomains.$inferSelect;
+
+// Which cascade items (by href) appear within each domain for each portal.
+export const portalTopNavItems = pgTable("portal_top_nav_items", {
+  id:           serial("id").primaryKey(),
+  portalSlug:   text("portal_slug").notNull(),
+  domainId:     text("domain_id").notNull(),
+  itemHref:     text("item_href").notNull(),        // matches items[].href in DOMAINS constant
+  displayOrder: integer("display_order").notNull().default(0),
+}, (t) => [
+  uniqueIndex("uq_portal_top_nav_item").on(t.portalSlug, t.domainId, t.itemHref),
+]);
+export type PortalTopNavItem = typeof portalTopNavItems.$inferSelect;
+
 // ── RBAC Matrix ────────────────────────────────────────────────────────────────
 export const rbacPermissions = pgTable("rbac_permissions", {
   id:          serial("id").primaryKey(),

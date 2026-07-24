@@ -282,6 +282,103 @@ export async function runSafeMigrations(): Promise<void> {
       )
     `);
 
+    // ── Portal Top-Nav Configuration ───────────────────────────────────────────
+    // portal_top_nav_domains: which domain tabs show for each portal (and in what order)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS portal_top_nav_domains (
+        id            SERIAL PRIMARY KEY,
+        portal_slug   TEXT NOT NULL REFERENCES portal_definitions(slug) ON DELETE CASCADE,
+        domain_id     TEXT NOT NULL,
+        display_order INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (portal_slug, domain_id)
+      )
+    `);
+
+    // portal_top_nav_items: which cascade items appear per domain per portal
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS portal_top_nav_items (
+        id            SERIAL PRIMARY KEY,
+        portal_slug   TEXT NOT NULL REFERENCES portal_definitions(slug) ON DELETE CASCADE,
+        domain_id     TEXT NOT NULL,
+        item_href     TEXT NOT NULL,
+        display_order INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (portal_slug, domain_id, item_href)
+      )
+    `);
+
+    // Extend navigation_modules with NOC-specific routes not yet seeded
+    await client.query(`
+      INSERT INTO navigation_modules (module_key, title, icon, route, category, default_portal, is_system, sort_order)
+      VALUES
+        ('noc_dashboard',   'NOC Dashboard',    'monitor',        '/noc-dashboard',        'live',       'noc', TRUE,  20),
+        ('noc_command',     'NOC Command',      'monitor',        '/noc-command',           'live',       'noc', TRUE,  21),
+        ('ops_console',     'Ops Console',      'sliders',        '/ops-console',           'live',       'noc', TRUE,  22),
+        ('live_traffic',    'Live Traffic',     'activity',       '/live-traffic',          'live',       'noc', TRUE,  23),
+        ('traffic_map',     'Traffic Map',      'globe',          '/traffic-map',           'live',       'noc', FALSE, 24),
+        ('balance_monitor', 'Balance Monitor',  'wallet',         '/balance',               'operations', 'noc', FALSE, 25),
+        ('vendor_health',   'Health Engine',    'heart-pulse',    '/vendor-health',         'operations', 'noc', FALSE, 26),
+        ('sla_scorecard',   'SLA Scorecard',    'heart-pulse',    '/vendor-sla-scorecard',  'operations', 'noc', FALSE, 27),
+        ('sip_trace',       'SIP Trace',        'mic',            '/sip-trace',             'operations', 'noc', FALSE, 28),
+        ('replay_engine',   'Replay Engine',    'rewind',         '/replay',                'operations', 'noc', FALSE, 29),
+        ('bitseye_classic', 'BitsEye Classic',  'eye',            '/bitseye',               'analytics',  'noc', FALSE, 30)
+      ON CONFLICT (module_key) DO NOTHING
+    `);
+
+    // portal_module_assignments for the new NOC modules (enables portal-relative navigation)
+    await client.query(`
+      INSERT INTO portal_module_assignments (portal_id, module_id, section, display_order, visibility)
+      SELECT 'noc', nm.id, nm.category, nm.sort_order, 'full'
+      FROM navigation_modules nm
+      WHERE nm.module_key IN (
+        'noc_dashboard','noc_command','ops_console','live_traffic','traffic_map',
+        'balance_monitor','vendor_health','sla_scorecard','sip_trace','replay_engine',
+        'bitseye_classic','alerts','vendors','routing_manager','asr_acd','cdrs','bitseye'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM portal_module_assignments pma
+        WHERE pma.portal_id = 'noc' AND pma.module_id = nm.id
+      )
+    `);
+
+    // Seed NOC portal top-nav domains
+    await client.query(`
+      INSERT INTO portal_top_nav_domains (portal_slug, domain_id, display_order) VALUES
+        ('noc', 'live-network', 1),
+        ('noc', 'operations',   2),
+        ('noc', 'telemetry',    3),
+        ('noc', 'analytics',    4)
+      ON CONFLICT (portal_slug, domain_id) DO NOTHING
+    `);
+
+    // Seed NOC portal top-nav items (no call-governance, no Infrastructure items)
+    await client.query(`
+      INSERT INTO portal_top_nav_items (portal_slug, domain_id, item_href, display_order) VALUES
+        -- Live Network: Live Operations group
+        ('noc', 'live-network', '/calls',                  1),
+        ('noc', 'live-network', '/live-traffic',           2),
+        ('noc', 'live-network', '/traffic-map',            3),
+        ('noc', 'live-network', '/alerts',                 4),
+        -- Live Network: Command Centre group
+        ('noc', 'live-network', '/noc-dashboard',          5),
+        ('noc', 'live-network', '/noc-command',            6),
+        ('noc', 'live-network', '/ops-console',            7),
+        -- Operations: Carriers
+        ('noc', 'operations',   '/vendors',                1),
+        ('noc', 'operations',   '/balance',                2),
+        ('noc', 'operations',   '/vendor-sla-scorecard',   3),
+        ('noc', 'operations',   '/vendor-health',          4),
+        -- Operations: Diagnostics
+        ('noc', 'operations',   '/sip-trace',              5),
+        ('noc', 'operations',   '/replay',                 6),
+        -- BitsEye / Telemetry
+        ('noc', 'telemetry',    '/bitseye2',               1),
+        ('noc', 'telemetry',    '/bitseye',                2),
+        -- Analytics
+        ('noc', 'analytics',    '/asr-acd',                1),
+        ('noc', 'analytics',    '/cdrs',                   2)
+      ON CONFLICT (portal_slug, domain_id, item_href) DO NOTHING
+    `);
+
     // user_favorites — pinned strip bookmarks
     await client.query(`
       CREATE TABLE IF NOT EXISTS user_favorites (
@@ -889,6 +986,28 @@ export async function runSafeMigrations(): Promise<void> {
       )
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_tra_i_tariff ON tariff_restore_audit (i_tariff, restored_at DESC)`);
+
+    // ── NOC portal home fix (added 2026-07-23) ────────────────────────────────
+    // Ensures the main DashboardPage (/dashboard) is the NOC portal landing,
+    // not noc-dashboard. Idempotent: safe on every startup.
+    await client.query(`
+      INSERT INTO navigation_modules (module_key, title, icon, route, category, is_system, sort_order)
+      VALUES ('dashboard', 'Dashboard', 'layout-dashboard', '/dashboard', 'general', FALSE, 0)
+      ON CONFLICT (module_key) DO NOTHING
+    `);
+    await client.query(`
+      UPDATE portal_module_assignments
+      SET is_home = false
+      WHERE portal_id = 'noc' AND is_home = true
+    `);
+    await client.query(`
+      INSERT INTO portal_module_assignments
+        (portal_id, module_id, section, display_order, is_home, is_pinned, visibility)
+      SELECT 'noc', id, 'dashboard', 0, true, true, 'full'
+      FROM navigation_modules WHERE module_key = 'dashboard'
+      ON CONFLICT (portal_id, module_id) DO UPDATE
+        SET is_home = true, display_order = 0
+    `);
 
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
