@@ -148,6 +148,25 @@ a broken tree is not success.
 - [ ] **Phase 2A — Remove ONLY the Portal Workspace boot block** from `db.ts`
       (navigation_domains / navigation_groups / portal_domain_assignments /
       portal_workspace). Verify. Commit as a standalone milestone.
+
+      **Phase 2A completion checklist — the commit is created ONLY when all ten are green:**
+
+      | # | Check | Expected |
+      |---|---|---|
+      | 1 | Workspace tables exist | ✅ |
+      | 2 | Workspace seed data exists | ✅ |
+      | 3 | `GET /api/portals/noc/workspace` succeeds | ✅ |
+      | 4 | `workspaceVersion` present | ✅ |
+      | 5 | `navigationChecksum` present | ✅ |
+      | 6 | Certification script passes | ✅ |
+      | 7 | Application boots without the db.ts workspace block | ✅ |
+      | 8 | No new startup errors | ✅ |
+      | 9 | NOC home module resolves | ✅ |
+      | 10 | Search index matches navigation scope | ✅ |
+
+      Diff discipline: delete only the Portal Workspace boot block — no formatting
+      changes, no opportunistic cleanup, no API changes, no frontend changes. Small,
+      reviewable, revertible.
 - [ ] **Phase 2B — Move remaining legacy boot tables** (portal_definitions,
       navigation_modules, user_favorites, caches, noc_incidents, …) to numbered
       migrations. Unrelated to NAV-C; separate milestone for easy rollback.
