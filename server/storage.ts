@@ -1,5 +1,6 @@
 
-import { 
+import { createHash } from "node:crypto";
+import {
   calls, metrics, alerts, settings, userRoles, clientProfiles, userConfig,
   switches, fasEvents, fasVendorSettings, callSnapshots, monitoringAssignments, outageLog, alertRules,
   monitoredHosts, hostOutageLog, kams, kamAccounts, trafficAlerts, sippySnapshots,
@@ -755,6 +756,11 @@ export interface PortalWorkspaceDomain {
   groups:       PortalWorkspaceGroup[];
 }
 export interface PortalWorkspaceResponse {
+  // Contract version — bumped ONLY on additive shape changes (NAV-WORKSPACE-MODEL §7).
+  workspaceVersion: number;
+  // Server-computed hash of the navigation tree. The frontend logs it on load so
+  // stale caches / mismatched deployments are diagnosable at a glance.
+  navigationChecksum: string;
   portal: {
     slug:         string;
     name:         string;
@@ -784,6 +790,12 @@ export interface PortalWorkspaceResponse {
     sections: unknown[];
   };
 }
+
+// Bump ONLY when the frozen workspace contract gains additive keys (§7).
+export const WORKSPACE_CONTRACT_VERSION = 1;
+
+const navigationChecksumOf = (domains: PortalWorkspaceDomain[]): string =>
+  createHash("sha256").update(JSON.stringify(domains)).digest("hex").slice(0, 16);
 
 export class DatabaseStorage implements IStorage {
   async getCalls(limit: number = 20): Promise<CallWithLatestMetric[]> {
@@ -3501,6 +3513,8 @@ export class DatabaseStorage implements IStorage {
     if (domainRows.length === 0) {
       // No domain assignments yet — return portal shell with empty nav
       return {
+        workspaceVersion:   WORKSPACE_CONTRACT_VERSION,
+        navigationChecksum: navigationChecksumOf([]),
         portal:    { slug: portal.slug, name: portal.name, theme: portal.theme, defaultRoute: portal.defaultRoute },
         workspace: { homeModule: ws?.homeModule ?? null, defaultDomain: ws?.defaultDomain ?? null, searchScope: ws?.searchScope ?? 'portal', sidebarStyle: ws?.sidebarStyle ?? 'compact', dashboardLayout: ws?.dashboardLayout ?? 'grid' },
         navigation: { domains: [] },
@@ -3575,6 +3589,8 @@ export class DatabaseStorage implements IStorage {
     }));
 
     return {
+      workspaceVersion:   WORKSPACE_CONTRACT_VERSION,
+      navigationChecksum: navigationChecksumOf(domains),
       portal: { slug: portal.slug, name: portal.name, theme: portal.theme, defaultRoute: portal.defaultRoute },
       workspace: {
         homeModule:      ws?.homeModule      ?? null,

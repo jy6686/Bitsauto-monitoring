@@ -25,11 +25,22 @@ Search, favorites, quick actions, and breadcrumbs all derive from the Portal Wor
 Main Platform:  Header + Left Sidebar          (administration workspace)
 Portals:        Header + Top Menu + Cascade    (dedicated application; no sidebar)
 
-┌─────────────────────────────────────────────────────────────┐
-│ Logo | Top Menu (Main Menu) | Search | Notifications | User │
-├─────────────────────────────────────────────────────────────┤
-│                       Portal Content                        │
-└─────────────────────────────────────────────────────────────┘
+Portal Workspace
+│
+├── Header
+│     ├── Logo
+│     ├── Top Menu (Main Menu)
+│     ├── Search
+│     ├── Favorites (★)
+│     ├── Quick Actions (+)
+│     ├── Notifications
+│     └── User Menu
+│
+├── Cascade Menu
+│
+├── Content
+│
+└── Footer (optional)
 ```
 
 Consequences:
@@ -107,6 +118,10 @@ Exceptions:  Module Override        ("portal module overrides" — hide/show one
    `runSafeMigrations()` blocks get extracted the same way). Runtime **reads only**.
 8. `portalRoute` is always computed server-side (`/${slug}/${moduleKey}`). The frontend
    never constructs portal routes.
+9. **No UI component may construct its own navigation tree.** Never `DOMAINS.map(...)`
+   inside a portal component; never query `navigation_modules` (or any nav table) from a
+   UI component. Top Menu, Cascade, Search, Favorites, Quick Actions, and Breadcrumb all
+   read the same `PortalWorkspaceContext` object — nothing else.
 
 ## 5. Validation (frozen requirement — BOTH ends)
 
@@ -142,10 +157,15 @@ a broken tree is not success.
 - [ ] **Baseline snapshots (MANDATORY before Phase 6)** — Main Platform, NOC, Finance ×
       top menu, cascade, sidebar, search, breadcrumb, dashboard; compare after EVERY phase
 - [ ] **Phase 6 — Consumers, one at a time, in this order:**
-      Search → Top Menu → Cascade → **Sidebar (removed in portals, §0)** → Breadcrumb →
-      Quick Actions → Favorites. Never flip everything simultaneously.
+      Search → Top Menu → Cascade (+ **sidebar removed**, §0) → Breadcrumb →
+      Favorites → Quick Actions. Breadcrumb comes right after navigation because it
+      derives from the same route hierarchy; favorites/quick actions are less critical.
+      Never flip everything simultaneously.
 - [ ] **NAV-D** — Replit deploy + delete Model B `/api/workspaces` + `seedWorkspacesIfEmpty`
+- [ ] **Portal acceptance checklist** (§9) per portal — NOC first — before the flag is
+      enabled in production
 - [ ] **NOC v1.1 certification** — runtime-validate in production, THEN advance the tag
+      and declare **Portal Framework v1.1** (§8)
 
 ## 7. Frozen API contract — `GET /api/portals/:slug/workspace`
 
@@ -153,6 +173,8 @@ Top-level shape (frozen; additive-only changes, never breaking):
 
 ```json
 {
+  "workspaceVersion":   1,
+  "navigationChecksum": "4d6d9…",
   "portal":       { "slug": "", "name": "", "theme": "", "defaultRoute": "" },
   "workspace":    { "homeModule": "", "defaultDomain": "", "searchScope": "portal",
                     "sidebarStyle": "(reserved — ignored by frontend)", "dashboardLayout": "" },
@@ -171,6 +193,37 @@ Rules: `portalRoute` server-computed only; `search.index` contains exactly the m
 reachable through `navigation` (no wider); `favorites`/`quickActions` are stubs today and
 will be populated per-user later WITHOUT shape changes. No other endpoint may serve
 navigation, search, favorites, or quick-action data to portal UI.
+
+`workspaceVersion` = contract version (bumped only on additive shape changes).
+`navigationChecksum` = server-computed hash of the navigation tree; the frontend logs
+`Loaded workspace v{N} checksum {…}` on load so stale caches and mismatched deployments
+are diagnosable at a glance.
+
+## 8. Portal Framework v1.1 — permanent architectural rules
+
+Declared when NAV-C completes + NOC passes §9. These are the platform's permanent
+navigation contract; future work builds on them, never around them:
+
+1. Top Menu = Main Menu.
+2. No sidebar in portals.
+3. The Workspace is the only navigation source.
+4. Search is portal-scoped.
+5. Domain Assignment by default.
+6. Module Override by exception.
+7. The navigation API is additive-only.
+8. Components never build navigation independently.
+
+## 9. Portal acceptance checklist (before the flag is enabled in production)
+
+Run per portal — NOC first, then Finance, KAM, Client, Partner:
+
+- [ ] Top menu matches the portal's assigned domains.
+- [ ] Every cascade renders correctly.
+- [ ] Search returns only portal-scoped modules.
+- [ ] Favorites and Quick Actions are portal-scoped.
+- [ ] Home module is reachable.
+- [ ] No orphan routes or duplicate entries.
+- [ ] No sidebar is rendered.
 
 ## 7. Non-goals (this program)
 

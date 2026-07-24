@@ -22,7 +22,7 @@ import pg from "pg";
 const url = process.env.MIGRATE_DATABASE_URL || process.env.DATABASE_URL;
 if (!url) { console.error("Set DATABASE_URL (or MIGRATE_DATABASE_URL)."); process.exit(1); }
 
-const FROZEN_TOP_LEVEL_KEYS = ["portal", "workspace", "navigation", "search", "quickActions", "favorites", "dashboard"];
+const FROZEN_TOP_LEVEL_KEYS = ["workspaceVersion", "navigationChecksum", "portal", "workspace", "navigation", "search", "quickActions", "favorites", "dashboard"];
 const ITEM_KEYS = ["moduleKey", "title", "iconKey", "route", "portalRoute"];
 
 let failures = 0;
