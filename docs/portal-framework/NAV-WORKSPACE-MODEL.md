@@ -7,7 +7,37 @@
 This document is the single source of truth for portal navigation governance. It records
 decisions made 2026-07-24. Do not re-litigate; fill in the next unchecked item.
 
+> **Default: Domain Assignment. Exceptions: Module Override.**
+>
+> That single sentence is the entire navigation philosophy. A portal owns domains;
+> owning a domain exposes everything under it; a module override hides (or shows) one
+> module as the rare exception. Nothing else governs what is navigable.
+
 ---
+
+## 0. Portal layout (frozen): portals have NO left sidebar
+
+**Portals do not render the global left sidebar.** The portal's top menu is the primary
+navigation. Cascade menus provide the second level, and modules are the third level.
+Search, favorites, quick actions, and breadcrumbs all derive from the Portal Workspace.
+
+```
+Main Platform:  Header + Left Sidebar          (administration workspace)
+Portals:        Header + Top Menu + Cascade    (dedicated application; no sidebar)
+
+┌─────────────────────────────────────────────────────────────┐
+│ Logo | Top Menu (Main Menu) | Search | Notifications | User │
+├─────────────────────────────────────────────────────────────┤
+│                       Portal Content                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Consequences:
+- `PortalSidebar` is **removed** from portal mode (not rewired to the workspace).
+- Favorites (★) and quick actions (+) live in the **header** (or dashboard widgets).
+- Breadcrumb = `Domain > Module`, resolved from the workspace tree.
+- `portal_workspace.sidebar_style` stays in the schema as a **reserved** column; the
+  frontend ignores it. Do not build UI on it.
 
 ## 1. The one invariant (frozen)
 
@@ -62,9 +92,11 @@ Exceptions:  Module Override        ("portal module overrides" — hide/show one
 2. No `PORTAL_OWNED_DOMAINS` constant.
 3. No portal filtering logic inside `CascadeMenu` / `app-nav-shell`.
 4. Search reads `workspace.search.index` — never a global `navigation_modules` query.
-5. Sidebar / top-nav / cascade read `workspace.navigation` — never their own query.
+5. Top-nav / cascade read `workspace.navigation` — never their own query. There is no
+   sidebar in portal mode (§0).
 6. No component queries navigation tables directly. Everything comes from
-   `PortalWorkspaceContext`.
+   `PortalWorkspaceContext`. **No additional navigation endpoints, no alternate search
+   endpoint, no special sidebar query — the workspace response is the only source.**
 7. **No schema creation or seed data in application boot — for ANY table, not just the
    workspace.** Target state for `server/db.ts`:
    ```
@@ -85,25 +117,60 @@ a broken tree is not success.
 **Frontend** (on workspace load, before rendering): same assertions; on failure render
 "Workspace configuration error" instead of a broken nav.
 
-## 6. Sequence (approved 2026-07-24, execution order per owner review)
+## 6. Sequence (approved 2026-07-24, revised per owner review #2)
 
 - [x] **Phase 0 — Freeze the model** (this document)
 - [x] **NAV-A/B** — schema, seed, `GET /api/portals/:slug/workspace` (76f15515)
-- [ ] **Phase 1 — Migration 031** — apply to dev AND prod; verify tables + seeds +
-      workspace endpoint on the migrated schema. Nothing removed from boot yet.
-- [ ] **Phase 2 — Remove boot logic** — strip ALL permanent schema/seed from `db.ts`
-      (not just the workspace block); commit as its own milestone
-- [ ] **Phase 3 — Backend validation** (§5) + §3 module overrides in `getPortalWorkspace`
+- [x] **Phase 1a — Migration 031 authored + locally verified** (7307444f: from-scratch
+      020→021→029→031 chain, idempotent re-apply, counts + integrity green on PG16)
+- [ ] **Phase 1b — Apply 031 to dev (Replit) AND prod (Neon)** via
+      `scripts/apply-portal-workspace.mjs`; both must report verification green
+- [ ] **API freeze** — the workspace JSON contract (§7) is frozen; every frontend
+      component consumes this object and nothing else
+- [ ] **API certification** — independent check BEFORE any React work: JSON schema keys,
+      duplicate routes, orphan groups, orphan modules, portal counts, search index,
+      permissions (`scripts/certify-portal-workspace.mjs`). Certify, then freeze.
+- [ ] **Phase 2A — Remove ONLY the Portal Workspace boot block** from `db.ts`
+      (navigation_domains / navigation_groups / portal_domain_assignments /
+      portal_workspace). Verify. Commit as a standalone milestone.
+- [ ] **Phase 2B — Move remaining legacy boot tables** (portal_definitions,
+      navigation_modules, user_favorites, caches, noc_incidents, …) to numbered
+      migrations. Unrelated to NAV-C; separate milestone for easy rollback.
+- [ ] **Phase 3 — Backend §5 validation + §3 module overrides** in `getPortalWorkspace`
 - [ ] **Phase 4 — Feature flag** — `portalWorkspaceNavigation` (default **false**)
 - [ ] **Phase 5 — NAV-C1** — `PortalWorkspaceProvider` + `usePortalWorkspace()` only
+- [ ] **Baseline snapshots (MANDATORY before Phase 6)** — Main Platform, NOC, Finance ×
+      top menu, cascade, sidebar, search, breadcrumb, dashboard; compare after EVERY phase
 - [ ] **Phase 6 — Consumers, one at a time, in this order:**
-      Search → Top Menu → Cascade → Sidebar → Breadcrumb → Quick Actions → Favorites.
-      Never flip everything simultaneously.
-- [ ] **NAV-D** — idempotent apply on Replit (Node script, no psql/heredoc)
+      Search → Top Menu → Cascade → **Sidebar (removed in portals, §0)** → Breadcrumb →
+      Quick Actions → Favorites. Never flip everything simultaneously.
+- [ ] **NAV-D** — Replit deploy + delete Model B `/api/workspaces` + `seedWorkspacesIfEmpty`
 - [ ] **NOC v1.1 certification** — runtime-validate in production, THEN advance the tag
 
-**Baseline before Phase 6:** capture screenshots (Main Platform, NOC, Finance × top menu,
-cascade, sidebar, search, breadcrumb, dashboard) and compare after each consumer switch.
+## 7. Frozen API contract — `GET /api/portals/:slug/workspace`
+
+Top-level shape (frozen; additive-only changes, never breaking):
+
+```json
+{
+  "portal":       { "slug": "", "name": "", "theme": "", "defaultRoute": "" },
+  "workspace":    { "homeModule": "", "defaultDomain": "", "searchScope": "portal",
+                    "sidebarStyle": "(reserved — ignored by frontend)", "dashboardLayout": "" },
+  "navigation":   { "domains": [ { "id": "", "label": "", "iconKey": "", "colorClass": "",
+                      "displayOrder": 0, "groups": [ { "id": 0, "label": "", "iconKey": "",
+                      "displayOrder": 0, "items": [ { "moduleKey": "", "title": "",
+                      "iconKey": "", "route": "", "portalRoute": "" } ] } ] } ] },
+  "search":       { "scope": "portal", "index": [ "…same item shape…" ] },
+  "quickActions": [],
+  "favorites":    [],
+  "dashboard":    { "layout": "grid", "sections": [] }
+}
+```
+
+Rules: `portalRoute` server-computed only; `search.index` contains exactly the modules
+reachable through `navigation` (no wider); `favorites`/`quickActions` are stubs today and
+will be populated per-user later WITHOUT shape changes. No other endpoint may serve
+navigation, search, favorites, or quick-action data to portal UI.
 
 ## 7. Non-goals (this program)
 

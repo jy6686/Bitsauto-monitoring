@@ -776,6 +776,9 @@ export interface PortalWorkspaceResponse {
     index: PortalWorkspaceNavItem[];
   };
   quickActions: unknown[];
+  // Frozen contract key (NAV-WORKSPACE-MODEL §7): stub today, populated per-user from
+  // user_favorites later without a shape change.
+  favorites: unknown[];
   dashboard: {
     layout:   string;
     sections: unknown[];
@@ -3503,6 +3506,7 @@ export class DatabaseStorage implements IStorage {
         navigation: { domains: [] },
         search:    { scope: ws?.searchScope ?? 'portal', index: [] },
         quickActions: [],
+        favorites: [],
         dashboard: { layout: ws?.dashboardLayout ?? 'grid', sections: [] },
       };
     }
@@ -3582,6 +3586,7 @@ export class DatabaseStorage implements IStorage {
       navigation: { domains },
       search:    { scope: ws?.searchScope ?? 'portal', index: searchIndex },
       quickActions: [],
+      favorites: [],
       dashboard: { layout: ws?.dashboardLayout ?? 'grid', sections: [] },
     };
   }
