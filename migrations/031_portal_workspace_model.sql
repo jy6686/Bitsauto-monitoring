@@ -314,6 +314,26 @@ VALUES
   ('team_chat',           'Team Chat',           'message-square','/chat',                'platform', FALSE, 43, (SELECT id FROM navigation_groups WHERE domain_id='platform' AND label='Notifications'))
 ON CONFLICT (module_key) DO UPDATE SET group_id = EXCLUDED.group_id;
 
+-- ── Identity merge: kebab-case is the permanent module identity (frozen rule; 029) ──
+-- The module seed above re-creates underscore-key rows for the 6 NOC modules that 029
+-- renamed to kebab (live-calls, live-traffic, traffic-map, noc-dashboard, noc-command,
+-- ops-console). Without this merge BOTH variants exist: the workspace tree serves the
+-- underscore key while the module registry / Model A / URLs use kebab — and NAV-C
+-- module resolution breaks. Merge: the kebab row (canonical, FK-referenced by
+-- portal_module_assignments) absorbs the underscore row's group_id; the underscore row
+-- is deleted. Idempotent: no-op when no dup pairs exist.
+UPDATE navigation_modules k
+SET group_id = u.group_id
+FROM navigation_modules u
+WHERE k.module_key = replace(u.module_key, '_', '-')
+  AND k.module_key <> u.module_key
+  AND u.group_id IS NOT NULL;
+
+DELETE FROM navigation_modules u
+USING navigation_modules k
+WHERE k.module_key = replace(u.module_key, '_', '-')
+  AND k.module_key <> u.module_key;
+
 -- Seed NOC portal domain assignments (4 domains for the NOC portal cascade)
 INSERT INTO portal_domain_assignments (portal_slug, domain_id, display_order) VALUES
   ('noc', 'live-network', 1),
@@ -322,9 +342,13 @@ INSERT INTO portal_domain_assignments (portal_slug, domain_id, display_order) VA
   ('noc', 'analytics',    4)
 ON CONFLICT (portal_slug, domain_id) DO NOTHING;
 
--- Seed NOC portal workspace config
+-- Seed NOC portal workspace config (home module = kebab key, matching the registry)
 INSERT INTO portal_workspace (portal_slug, home_module, default_domain, search_scope, sidebar_style, dashboard_layout)
-VALUES ('noc', 'noc_dashboard', 'live-network', 'portal', 'compact', 'grid')
+VALUES ('noc', 'noc-dashboard', 'live-network', 'portal', 'compact', 'grid')
 ON CONFLICT (portal_slug) DO NOTHING;
+
+-- Repair any pre-existing row seeded with the underscore key (boot-seeded dev DBs)
+UPDATE portal_workspace SET home_module = replace(home_module, '_', '-')
+WHERE home_module LIKE '%\_%' ESCAPE '\';
 
 COMMIT;

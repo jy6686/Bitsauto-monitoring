@@ -100,6 +100,13 @@ try {
   const { rows: [{ n: dupMk }] } = await client.query(
     `SELECT COUNT(*)::int n FROM (SELECT module_key FROM navigation_modules GROUP BY module_key HAVING COUNT(*)>1) x`);
   dupMk === 0 ? pass("module_key globally unique") : fail(`${dupMk} duplicated module_key values`);
+  // Split identity namespace: underscore and kebab variants of the same module must
+  // never coexist (kebab is the frozen permanent identity; 029/031 merge enforces it).
+  const { rows: idPairs } = await client.query(
+    `SELECT u.module_key FROM navigation_modules u JOIN navigation_modules k
+       ON k.module_key = replace(u.module_key,'_','-') AND k.module_key <> u.module_key`);
+  idPairs.length === 0 ? pass("no underscore/kebab split identities")
+    : fail(`split identities (underscore+kebab both exist): ${idPairs.map(r => r.module_key).join(", ")}`);
 
   // HTTP mode: frozen JSON shape against the live endpoint
   const base = process.env.WORKSPACE_BASE_URL;
