@@ -460,11 +460,7 @@ function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems }: {
   const visibleGroups = domain.groups
     .map(group => {
       let items = group.items.filter(item => !hiddenItems.has(item.href));
-      if (activePortal) {
-        // Strict filter: only show items with portal module assignments.
-        // Items without assignments navigate bare main-platform routes, breaking portal context.
-        items = items.filter(i => !!routeToModuleKey[i.href.replace(/\/+$/, '')]);
-      }
+
       return { ...group, items };
     })
     .filter(group => group.items.length > 0);
@@ -573,7 +569,7 @@ function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems }: {
 
 // Domains that own their own portal workspace — hidden in ALL portal modes.
 // IDs confirmed from DOMAINS: finance, products, trading (Voice Trading).
-const PORTAL_OWNED_DOMAINS = new Set(['finance', 'products', 'trading', 'platform', 'operations', 'analytics', 'intelligence', 'security', 'company']);
+const PORTAL_OWNED_DOMAINS = new Set(['finance', 'products', 'trading', 'platform']);
 
 export function AppNavShell() {
   const [location, navigate]  = useLocation();
