@@ -152,6 +152,9 @@ a broken tree is not success.
 - [ ] **API certification** — independent check BEFORE any React work: JSON schema keys,
       duplicate routes, orphan groups, orphan modules, portal counts, search index,
       permissions (`scripts/certify-portal-workspace.mjs`). Certify, then freeze.
+- [ ] **Phase 1c — Apply 032 to dev AND prod** — `migrations/032_kebab_module_keys.sql`.
+      Standardises all remaining underscore module_keys to kebab-case. Run after 031.
+      Certify again post-032; the certify script now checks "all module_key values are kebab".
 - [ ] **Phase 2A — Remove ONLY the Portal Workspace boot block** from `db.ts`
       (navigation_domains / navigation_groups / portal_domain_assignments /
       portal_workspace). Verify. Commit as a standalone milestone.

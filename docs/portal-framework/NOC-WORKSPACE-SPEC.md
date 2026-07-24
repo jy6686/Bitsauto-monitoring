@@ -49,6 +49,20 @@ Phase 3 content is sealed. The exact SQL is at the bottom of this file.
 
 All 9 review items answered. No open questions remain.
 
+> **Module key note:** The 031 migration seeds `navigation_modules` with underscore-style
+> keys (`live_calls`, `noc_dashboard`, etc.). Migration 032 renames ALL underscore keys to
+> kebab-case in one UPDATE. The classification tables below show pre-032 module_key values
+> for reference; the **Phase 3 SQL uses the canonical post-032 kebab form** and must run
+> after both 031 and 032 have been applied.
+>
+> Two keys in the 031 seed differ from the DOMAINS[] constant names — actual 031 key → kebab:
+> `comm_policies → comm-policies` (not `communication-policies`),
+> `balance_monitor → balance-monitor` (not `balance`),
+> `sla_scorecard → sla-scorecard` (not `vendor_sla_scorecard`),
+> `route_tester → route-tester` (not `test_call`),
+> `route_simulator → route-simulator` (not `call_flow_simulator`),
+> `replay_engine → replay-engine` (not `replay`).
+
 **Q1–Q9 final answers:**
 
 | # | `module_key` | Decision | Visibility | Rationale |
@@ -278,38 +292,42 @@ ON CONFLICT (portal_slug, domain_id) DO NOTHING;
 **Visibility values:** `read-only` | `hidden` (no row = `operational` default)
 
 ```sql
+-- All module_key values are post-032 kebab-case. Run migration 031, then 032,
+-- then this seed. The join-check query at the bottom of this file verifies
+-- every key resolves to a navigation_modules row before seeding.
+
 INSERT INTO portal_module_overrides (portal_slug, module_key, visibility, reason) VALUES
   -- ── read-only: visible in nav and search; edit controls deferred to IAM/permissions program ──
-  ('noc', 'routing_manager',          'read-only', 'NOC needs routing group visibility; edit authority stays with Operations team'),
-  ('noc', 'call_recordings',          'read-only', 'NOC uses for disputed-call verification; manage authority stays with Compliance'),
+  ('noc', 'routing-manager',          'read-only', 'NOC needs routing group visibility; edit authority stays with Operations team'),
+  ('noc', 'call-recordings',          'read-only', 'NOC uses for disputed-call verification; manage authority stays with Compliance'),
   -- ── hidden: absent from nav tree AND search index ──
   -- live-network
-  ('noc', 'call_governance',          'hidden', 'Owner confirmed: not for NOC portal'),
+  ('noc', 'call-governance',          'hidden', 'Owner confirmed: not for NOC portal'),
   -- operations
-  ('noc', 'auth_studio',              'hidden', 'Provisioning tool; not a NOC task'),
-  ('noc', 'communication_policies',   'hidden', 'Admin alert-routing config; not NOC'),
-  ('noc', 'commercial_notifications', 'hidden', 'Billing notification queue; Finance/Billing scope'),
-  ('noc', 'sender_profiles',          'hidden', 'SMTP identity admin; not NOC'),
+  ('noc', 'auth-studio',              'hidden', 'Provisioning tool; not a NOC task'),
+  ('noc', 'comm-policies',            'hidden', 'Admin alert-routing config; not NOC'),
+  ('noc', 'commercial-notifications', 'hidden', 'Billing notification queue; Finance/Billing scope'),
+  ('noc', 'sender-profiles',          'hidden', 'SMTP identity admin; not NOC'),
   -- analytics
-  ('noc', 'executive_reports',        'hidden', 'C-suite reporting; not a NOC surface'),
-  ('noc', 'revenue_heatmap',          'hidden', 'Revenue visualisation; Finance scope'),
-  ('noc', 'cdr_rerate',               'hidden', 'CDR re-rate engine; Finance/Revenue Assurance scope'),
+  ('noc', 'executive-reports',        'hidden', 'C-suite reporting; not a NOC surface'),
+  ('noc', 'revenue-heatmap',          'hidden', 'Revenue visualisation; Finance scope'),
+  ('noc', 'cdr-rerate',               'hidden', 'CDR re-rate engine; Finance/Revenue Assurance scope'),
   -- telemetry
-  ('noc', 'codec_analytics',          'hidden', 'Not daily NOC; quality RCA covered by BitsEye 2.0 and RTP/MOS'),
+  ('noc', 'codec-analytics',          'hidden', 'Not daily NOC; quality RCA covered by BitsEye 2.0 and RTP/MOS'),
   -- intelligence
-  ('noc', 'cost_optimisation',        'hidden', 'Route cost engine; commercial scope, not NOC'),
-  ('noc', 'intelligence_validation',  'hidden', 'Data quality/trust scoring; data-engineering scope, not L1 NOC'),
-  ('noc', 'route_optimisation',       'hidden', 'Advisory carrier recommendations; Ops scope'),
-  ('noc', 'simulation_sandbox',       'hidden', 'Traffic shift modelling; analyst scope'),
-  ('noc', 'number_intelligence',      'hidden', 'Number-level analysis; not core NOC'),
+  ('noc', 'cost-optimisation',        'hidden', 'Route cost engine; commercial scope, not NOC'),
+  ('noc', 'intelligence-validation',  'hidden', 'Data quality/trust scoring; data-engineering scope, not L1 NOC'),
+  ('noc', 'route-optimisation',       'hidden', 'Advisory carrier recommendations; Ops scope'),
+  ('noc', 'simulation-sandbox',       'hidden', 'Traffic shift modelling; analyst scope'),
+  ('noc', 'number-intelligence',      'hidden', 'Number-level analysis; not core NOC'),
   -- security
-  ('noc', 'stir_shaken',              'hidden', 'STIR/SHAKEN attestation; compliance scope, not daily NOC'),
+  ('noc', 'stir-shaken',              'hidden', 'STIR/SHAKEN attestation; compliance scope, not daily NOC'),
   ('noc', 'approvals',                'hidden', 'Approval queue; governance admin, not NOC'),
-  ('noc', 'approval_settings',        'hidden', 'Approval rule config; admin scope'),
+  ('noc', 'approval-settings',        'hidden', 'Approval rule config; admin scope'),
   ('noc', 'rbac',                     'hidden', 'Permission matrix; Platform admin scope'),
-  ('noc', 'mfa_setup',                'hidden', 'MFA setup; Platform admin scope'),
+  ('noc', 'mfa-setup',                'hidden', 'MFA setup; Platform admin scope'),
   ('noc', 'compliance',               'hidden', 'Regulatory compliance; Legal/Compliance scope'),
-  ('noc', 'audit_log',                'hidden', 'Platform audit trail; admin scope')
+  ('noc', 'audit-log',                'hidden', 'Platform audit trail; admin scope')
 ON CONFLICT (portal_slug, module_key) DO UPDATE SET
   visibility = EXCLUDED.visibility,
   reason     = EXCLUDED.reason;
@@ -329,15 +347,24 @@ etc.) which are correct as-is.
 
 However: when Phase 3 is executed and NAV-C builds registry bindings for all 52 kept
 modules, **every module key in `portal_module_overrides` must match the key in
-`navigation_modules` exactly.** The Phase 3 execution team should run a join check before
-seeding:
+`navigation_modules` exactly.** The Phase 3 execution team should run this pre-seed check:
 
 ```sql
-SELECT o.module_key
-FROM portal_module_overrides o
+-- Pre-seed validation: every override key must resolve to a navigation_modules row.
+-- Run this AFTER 031 and 032. If it returns rows, fix the keys before seeding.
+SELECT o.module_key, 'dangling key — not in navigation_modules' AS problem
+FROM (VALUES
+  ('routing-manager'), ('call-recordings'), ('call-governance'), ('auth-studio'),
+  ('comm-policies'), ('commercial-notifications'), ('sender-profiles'),
+  ('executive-reports'), ('revenue-heatmap'), ('cdr-rerate'), ('codec-analytics'),
+  ('cost-optimisation'), ('intelligence-validation'), ('route-optimisation'),
+  ('simulation-sandbox'), ('number-intelligence'), ('stir-shaken'),
+  ('approvals'), ('approval-settings'), ('rbac'), ('mfa-setup'),
+  ('compliance'), ('audit-log')
+) AS o(module_key)
 LEFT JOIN navigation_modules m ON m.module_key = o.module_key
 WHERE m.module_key IS NULL;
--- Must return 0 rows.
+-- Must return 0 rows before the INSERT proceeds.
 ```
 
 The remaining ~46 underscore-keyed modules (all except the six above) remain underscore in
