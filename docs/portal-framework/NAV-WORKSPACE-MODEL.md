@@ -149,20 +149,38 @@ a broken tree is not success.
       (navigation_domains / navigation_groups / portal_domain_assignments /
       portal_workspace). Verify. Commit as a standalone milestone.
 
-      **Phase 2A completion checklist — the commit is created ONLY when all ten are green:**
+      **Phase 2A gate — preconditions / execution / postconditions:**
 
-      | # | Check | Expected |
-      |---|---|---|
-      | 1 | Workspace tables exist | ✅ |
-      | 2 | Workspace seed data exists | ✅ |
-      | 3 | `GET /api/portals/noc/workspace` succeeds | ✅ |
-      | 4 | `workspaceVersion` present | ✅ |
-      | 5 | `navigationChecksum` present | ✅ |
-      | 6 | Certification script passes | ✅ |
-      | 7 | Application boots without the db.ts workspace block | ✅ |
-      | 8 | No new startup errors | ✅ |
-      | 9 | NOC home module resolves | ✅ |
-      | 10 | Search index matches navigation scope | ✅ |
+      *Preconditions (must already be true before the deletion starts):*
+      | # | Check |
+      |---|---|
+      | P1 | Development migration applied |
+      | P2 | Development certification passed |
+      | P3 | Production migration applied |
+      | P4 | Production certification passed |
+      | P5 | Workspace API returns `workspaceVersion` |
+      | P6 | Workspace API returns `navigationChecksum` — **record the certified
+             checksum now; it is the invariant for P/C7** |
+
+      *Execution:* delete only the Portal Workspace boot block from `db.ts`; no other
+      code changes; boot the application against the migrated database.
+
+      *Postconditions (re-verified before the commit is created):*
+      | # | Check |
+      |---|---|
+      | C1 | Application boots successfully |
+      | C2 | `GET /api/portals/noc/workspace` returns the certified contract |
+      | C3 | HTTP certification passes |
+      | C4 | NOC home module resolves |
+      | C5 | Search index matches navigation scope |
+      | C6 | No startup regressions |
+      | C7 | **`navigationChecksum` is IDENTICAL to the pre-deletion certified value.**
+             A changed checksum means runtime behavior changed — do NOT commit until
+             the cause is understood. Phase 2A changes where navigation data comes
+             from (migration instead of boot seeding), never what navigation is served. |
+
+      If any postcondition fails: revert the deletion, don't patch around it — the boot
+      block stays until the cause is understood.
 
       Diff discipline: delete only the Portal Workspace boot block — no formatting
       changes, no opportunistic cleanup, no API changes, no frontend changes. Small,
