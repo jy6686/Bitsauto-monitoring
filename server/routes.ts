@@ -1898,13 +1898,8 @@ export async function registerRoutes(
   // Default hidden set — applied when no admin has explicitly saved a config yet.
   // Leaves ~38 core operational items visible; hides advanced/supplementary features.
   const SIDEBAR_DEFAULT_HIDDEN: string[] = [
-<<<<<<< HEAD
-    // Live Network — keep: Live Calls, Alerts, NOC Dashboard, Incident Command, BitsEye 2, Live Traffic
-    "/route-intelligence","/console",
-=======
     // Live Network — keep: Live Calls, Live Traffic, NOC Dashboard, NOC Command, Ops Console
     "/route-intelligence","/console","/call-governance",
->>>>>>> a55162559ba05073e08705494c259ddd78be4713
     "/traffic-map","/graphs","/multi-switch","/server-monitoring","/sbc-monitor","/network-topology",
     // Company — keep: Accounts, Client Portal, DID Management
     "/reseller","/company/list","/company-profile","/client/wizard",

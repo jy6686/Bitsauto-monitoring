@@ -23,10 +23,7 @@ import { useQuery } from "@tanstack/react-query";
 import { inferWorkspace } from "@/lib/workspace";
 import type { WorkspaceDefinition } from "@shared/schema";
 import { useChatDrawer } from "@/context/chat-drawer-context";
-<<<<<<< HEAD
-=======
 // PortalTopNav retired — portal nav is now a data-driven cascade (see portal_top_nav_domains/items DB tables)
->>>>>>> a55162559ba05073e08705494c259ddd78be4713
 import { usePortal } from "@/context/portal-context";
 import { PortalTopNav } from "@/components/portal-sidebar";
 import { FavoritesStrip } from "@/components/favorites-strip";
@@ -464,13 +461,6 @@ function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems, portalItem
 
   // Filter out hidden items (and portal-restricted items when in portal mode); skip empty groups
   const visibleGroups = domain.groups
-<<<<<<< HEAD
-    .map(group => {
-      let items = group.items.filter(item => !hiddenItems.has(item.href));
-
-      return { ...group, items };
-    })
-=======
     .map(group => ({
       ...group,
       items: group.items.filter(item =>
@@ -478,7 +468,6 @@ function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems, portalItem
         (!portalItems || portalItems.has(item.href))
       ),
     }))
->>>>>>> a55162559ba05073e08705494c259ddd78be4713
     .filter(group => group.items.length > 0);
 
   return (
@@ -558,11 +547,7 @@ function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems, portalItem
                   {group.items.map(item => (
                     <Link
                       key={item.href}
-<<<<<<< HEAD
-                      href={resolveNavHref(item.href, activePortal, routeToModuleKey)}
-=======
                       href={resolveHref ? resolveHref(item.href) : item.href}
->>>>>>> a55162559ba05073e08705494c259ddd78be4713
                       onClick={onClose}
                       data-testid={`nav-module-${item.href.replace(/\//g, '-')}`}
                     >
@@ -891,31 +876,6 @@ export function AppNavShell() {
         {/* ── Divider ── */}
         <div className="w-px h-5 bg-white/[0.08] mx-1 flex-shrink-0" />
 
-<<<<<<< HEAD
-        {/* ── Centre nav: Navigation Governance config in portal mode,
-             else the main-platform domain tabs ── */}
-        {(
-        <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" role="menubar">
-            {(isPortalMode
-          ? visibleDomains.filter(d => !PORTAL_OWNED_DOMAINS.has(d.id))
-          : visibleDomains
-        ).map(domain => {
-              const isActive = meta.domain === domain.id;
-              const isOpen   = openDomain === domain.id;
-              return (
-                <div
-                  key={domain.id}
-                  ref={el => { if (el) tabRefs.current.set(domain.id, el); }}
-                  role="menuitem"
-                  className={cn(
-                    "relative flex items-center h-[36px] rounded-lg text-[11px] font-semibold transition-all duration-150 whitespace-nowrap flex-shrink-0",
-                    isActive || isOpen
-                      ? "text-foreground bg-white/[0.08]"
-                      : "text-muted-foreground/60 hover:text-foreground hover:bg-white/[0.05]"
-                  )}
-                  onMouseEnter={() => { cancelClose(); setOpen(domain.id); }}
-                  onMouseLeave={scheduleClose}
-=======
         {/* ── Centre nav: domain cascade tabs (portal-filtered in portal mode) ── */}
         <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" role="menubar">
           {shownDomains.map(domain => {
@@ -947,7 +907,6 @@ export function AppNavShell() {
                   onClick={() => setOpen(null)}
                   className="flex items-center gap-1.5 pl-2.5 pr-1 h-full"
                   aria-label={`${domain.label} workspace`}
->>>>>>> a55162559ba05073e08705494c259ddd78be4713
                 >
                   {(() => {
                     const urgency = domainUrgencyScore(domain.id);
@@ -977,51 +936,6 @@ export function AppNavShell() {
                     "flex items-center justify-center pr-2 pl-0.5 h-full transition-all duration-150",
                     isOpen ? "opacity-100" : "opacity-40 hover:opacity-80"
                   )}
-<<<<<<< HEAD
-                  <Link
-                    href={isPortalMode ? `#` : `/workspace/${domain.id}`}
-                    data-testid={`nav-domain-${domain.id}`}
-                    onClick={(e) => { if (isPortalMode) { e.preventDefault(); setOpen(domain.id); } else setOpen(null); }}
-                    className="flex items-center gap-1.5 pl-2.5 pr-1 h-full"
-                    aria-label={`${domain.label} workspace`}
-                  >
-                    {(() => {
-                      const urgency = domainUrgencyScore(domain.id);
-                      return (
-                        <span className="relative flex-shrink-0 inline-flex">
-                          <domain.icon className={cn("w-3.5 h-3.5", isActive ? domain.color : '')} />
-                          {urgency >= 60 && (
-                            <span className="absolute -top-[3px] -right-[3px] flex h-[6px] w-[6px] pointer-events-none" aria-hidden="true">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-70" />
-                              <span className="relative inline-flex rounded-full h-[6px] w-[6px] bg-rose-500" />
-                            </span>
-                          )}
-                          {urgency >= 30 && urgency < 60 && (
-                            <span className="absolute -top-[3px] -right-[3px] h-[5px] w-[5px] rounded-full bg-amber-400 pointer-events-none" aria-hidden="true" />
-                          )}
-                        </span>
-                      );
-                    })()}
-                    <span className="hidden lg:inline">{domain.label}</span>
-                  </Link>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setOpen(openDomain === domain.id ? null : domain.id); }}
-                    aria-haspopup="true"
-                    aria-expanded={isOpen}
-                    aria-label={`${domain.label} modules`}
-                    className={cn(
-                      "flex items-center justify-center pr-2 pl-0.5 h-full transition-all duration-150",
-                      isOpen ? "opacity-100" : "opacity-40 hover:opacity-80"
-                    )}
-                  >
-                    <ChevronDown className={cn("w-2.5 h-2.5 transition-transform duration-150", isOpen && "rotate-180")} />
-                  </button>
-                </div>
-              );
-            })}
-          </nav>
-        )}
-=======
                 >
                   <ChevronDown className={cn("w-2.5 h-2.5 transition-transform duration-150", isOpen && "rotate-180")} />
                 </button>
@@ -1029,7 +943,6 @@ export function AppNavShell() {
             );
           })}
         </nav>
->>>>>>> a55162559ba05073e08705494c259ddd78be4713
 
         {/* ── Favorites strip — sits between centre nav and right zone ── */}
         <div className="hidden xl:flex items-center mx-2 flex-shrink-0 overflow-hidden">

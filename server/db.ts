@@ -1324,34 +1324,15 @@ export async function runSafeMigrations(): Promise<void> {
     `);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_tra_i_tariff ON tariff_restore_audit (i_tariff, restored_at DESC)`);
 
-<<<<<<< HEAD
-    // ── NOC portal home fix (2026-07-23) — idempotent, runs on every startup ──
-=======
     // ── NOC portal home fix (added 2026-07-23) ────────────────────────────────
     // Ensures the main DashboardPage (/dashboard) is the NOC portal landing,
     // not noc-dashboard. Idempotent: safe on every startup.
->>>>>>> a55162559ba05073e08705494c259ddd78be4713
     await client.query(`
       INSERT INTO navigation_modules (module_key, title, icon, route, category, is_system, sort_order)
       VALUES ('dashboard', 'Dashboard', 'layout-dashboard', '/dashboard', 'general', FALSE, 0)
       ON CONFLICT (module_key) DO NOTHING
     `);
     await client.query(`
-<<<<<<< HEAD
-      UPDATE portal_module_assignments SET is_home = false
-      WHERE portal_id = 'noc' AND is_home = true
-    `);
-    await client.query(`
-      INSERT INTO portal_module_assignments (portal_id, module_id, section, display_order, is_home, is_pinned, visibility)
-      SELECT 'noc', nm.id, 'dashboard', 0, true, true, 'full'
-      FROM navigation_modules nm
-      WHERE nm.module_key = 'dashboard'
-        AND NOT EXISTS (
-          SELECT 1 FROM portal_module_assignments
-          WHERE portal_id = 'noc' AND module_id = nm.id
-        )
-    `);
-=======
       UPDATE portal_module_assignments
       SET is_home = false
       WHERE portal_id = 'noc' AND is_home = true
@@ -1364,8 +1345,6 @@ export async function runSafeMigrations(): Promise<void> {
       ON CONFLICT (portal_id, module_id) DO UPDATE
         SET is_home = true, display_order = 0
     `);
-
->>>>>>> a55162559ba05073e08705494c259ddd78be4713
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);
