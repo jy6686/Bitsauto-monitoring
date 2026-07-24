@@ -145,16 +145,23 @@ a broken tree is not success.
 - [x] **NAV-A/B** — schema, seed, `GET /api/portals/:slug/workspace` (76f15515)
 - [x] **Phase 1a — Migration 031 authored + locally verified** (7307444f: from-scratch
       020→021→029→031 chain, idempotent re-apply, counts + integrity green on PG16)
-- [ ] **Phase 1b — Apply 031 to dev (Replit) AND prod (Neon)** via
-      `scripts/apply-portal-workspace.mjs`; both must report verification green
-- [ ] **API freeze** — the workspace JSON contract (§7) is frozen; every frontend
-      component consumes this object and nothing else
-- [ ] **API certification** — independent check BEFORE any React work: JSON schema keys,
-      duplicate routes, orphan groups, orphan modules, portal counts, search index,
-      permissions (`scripts/certify-portal-workspace.mjs`). Certify, then freeze.
-- [ ] **Phase 1c — Apply 032 to dev AND prod** — `migrations/032_kebab_module_keys.sql`.
-      Standardises all remaining underscore module_keys to kebab-case. Run after 031.
-      Certify again post-032; the certify script now checks "all module_key values are kebab".
+- [ ] **Phase 1b+c — Apply 031+032 to dev (Replit) AND prod (Neon)** via
+      `scripts/apply-workspace-migrations.mjs` (single command, single verification).
+      031 and 032 are a **certification unit** — do not certify after 031 alone. The
+      combined script applies both migrations then runs structural + kebab-key +
+      referential-integrity verification in one pass. Repeat on prod.
+      
+      Mapping audit: `docs/portal-framework/MODULE-KEY-AUDIT.md` — 149 seed modules,
+      125 underscore→kebab renames, 24 already canonical, 0 dangling override refs.
+      One finding: `partner-profiles` is bound in `module-registry.ts` but has no
+      `navigation_modules` row. Not blocking; decision on whether to add a seed row
+      deferred to the portal that surfaces it.
+- [ ] **API certification** — after apply-workspace-migrations.mjs passes on both
+      environments, run `node scripts/certify-portal-workspace.mjs` to record
+      `navigationChecksum`. The script now checks: structural counts · kebab-key
+      invariant · referential integrity (home_module, user_favorites, portal_module_overrides)
+      · duplicate routes · search scope · frozen JSON shape (HTTP mode).
+      Record the checksum — it is the invariant for Phase 2A postcondition C7.
 - [ ] **Phase 2A — Remove ONLY the Portal Workspace boot block** from `db.ts`
       (navigation_domains / navigation_groups / portal_domain_assignments /
       portal_workspace). Verify. Commit as a standalone milestone.
