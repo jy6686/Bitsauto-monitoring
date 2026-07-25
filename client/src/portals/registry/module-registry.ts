@@ -50,6 +50,68 @@ export const moduleRegistry: Record<string, ModuleComponent> = {
   "invoices":                  lazy(() => import("@/pages/invoices")),
   "commercial-notifications":  lazy(() => import("@/pages/commercial-notifications")),
   "margin-intelligence":       lazy(() => import("@/pages/margin-intelligence")),
+
+  // ── NOC (Phase 6 — workspace-exposed modules) ────────────────────────────────
+  // Added when Phase 6 (Search + Top Menu consumers) started surfacing every
+  // workspace.navigation module, exposing that only 6 of the NOC portal's 55
+  // modules had a registry entry (the rest 404'd on click). Every mapping below
+  // was verified against the component actually bound to that path's legacy
+  // <Route> in App.tsx — no new pages, no guesses.
+  "ai-ops":                    lazy(() => import("@/pages/ai-ops")),
+  "alerts":                    lazy(() => import("@/pages/alerts")),
+  "analytics":                 lazy(() => import("@/pages/analytics")),
+  "asr-acd":                   lazy(() => import("@/pages/asr-acd-report")),
+  "balance-monitor":           lazy(() => import("@/pages/balance-monitor")),
+  // module_key 'bitseye' has historically pointed at the '/bitseye2' route
+  // (BitsEye 2); 'bitseye-classic' owns the plain '/bitseye' route. Verified
+  // against the live workspace API response, not guessed.
+  "bitseye":                   lazy(() => import("@/pages/bitseye2")),
+  "bitseye-classic":           lazy(() => import("@/pages/bitseye")),
+  "call-recordings":           lazy(() => import("@/pages/call-recordings")),
+  "carrier-intelligence":      lazy(() => import("@/pages/carrier-intelligence")),
+  "carrier-scoring":           lazy(() => import("@/pages/carrier-scoring")),
+  "cdrs":                      lazy(() => import("@/pages/cdrs")),
+  "firewall":                  lazy(() => import("@/pages/firewall")),
+  "fraud":                     lazy(() => import("@/pages/fraud")),
+  "graphs":                    lazy(() => import("@/pages/graphs")),
+  "intelligence-hub":          lazy(() => import("@/pages/intelligence")),
+  "lcr-analyser":              lazy(() => import("@/pages/lcr-analyser")),
+  "live-traffic-map":          lazy(() => import("@/pages/live-traffic-map")),
+  "multi-switch":              lazy(() => import("@/pages/multi-switch")),
+  "network-topology":          lazy(() => import("@/pages/network-topology")),
+  "noc-incidents":             lazy(() => import("@/pages/noc-incidents")),
+  "prefix-intelligence":       lazy(() => import("@/pages/vendor-prefix-intelligence")),
+  "qos-heatmap":               lazy(() => import("@/pages/qos-heatmap")),
+  // module_key 'replay-engine' maps to pages/replay.tsx (ReplayEnginePage) — the
+  // legacy '/replay' route's component. pages/replay-engine.tsx exists but is
+  // NOT wired into App.tsx anywhere; not used here.
+  "replay-engine":             lazy(() => import("@/pages/replay")),
+  "reports":                   lazy(() => import("@/pages/reports")),
+  "route-intelligence":        lazy(() => import("@/pages/route-intelligence")),
+  "route-simulator":           lazy(() => import("@/pages/call-flow-simulator")),
+  "route-tester":              lazy(() => import("@/pages/test-call")),
+  "route-testing":             lazy(() => import("@/pages/ai-route-copilot")),
+  "routing-intelligence":      lazy(() => import("@/pages/routing-intelligence")),
+  "routing-manager":           lazy(() => import("@/pages/routing-manager")),
+  "rtp-analytics":             lazy(() => import("@/pages/rtp-analytics")),
+  "sbc-monitor":               lazy(() => import("@/pages/sbc-monitor")),
+  "security-ops":              lazy(() => import("@/pages/security-ops")),
+  "self-heal":                 lazy(() => import("@/pages/self-heal")),
+  "server-monitoring":         lazy(() => import("@/pages/server-monitoring")),
+  "sip-trace":                 lazy(() => import("@/pages/sip-trace")),
+  "sla-breaches":              lazy(() => import("@/pages/sla-breaches")),
+  "sla-scorecard":             lazy(() => import("@/pages/vendor-sla-scorecard")),
+  "sms-monitor":               lazy(() => import("@/pages/sms-monitor")),
+  "termination-chains":        lazy(() => import("@/pages/termination-chains")),
+  "test-campaigns":            lazy(() => import("@/pages/test-campaigns")),
+  "tools":                     lazy(() => import("@/pages/tools")),
+  "traffic-forecast":          lazy(() => import("@/pages/traffic-forecast")),
+  "traffic-steering":          lazy(() => import("@/pages/traffic-steering")),
+  "vendor-health":             lazy(() => import("@/pages/vendor-health")),
+  "vendor-rca":                lazy(() => import("@/pages/vendor-rca")),
+  "vendor-stability-timeline": lazy(() => import("@/pages/vendor-stability-timeline")),
+  "vendors":                   lazy(() => import("@/pages/vendors")),
+  "voice-otp":                 lazy(() => import("@/pages/voice-otp")),
 };
 
 /** Resolve a module key to its component, or null if the key is unknown. */
