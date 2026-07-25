@@ -25,14 +25,29 @@ import type { WorkspaceDefinition } from "@shared/schema";
 import { useChatDrawer } from "@/context/chat-drawer-context";
 // PortalTopNav retired — portal nav is now a data-driven cascade (see portal_top_nav_domains/items DB tables)
 import { usePortal } from "@/context/portal-context";
+import { usePortalWorkspace } from "@/context/portal-workspace-context";
 import { FavoritesStrip } from "@/components/favorites-strip";
+
+// Phase 6b: iconKey → component lookup for workspace-derived nav (fallbacks per level).
+const WS_NAV_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  radio: Radio, users: Users, wifi: Wifi, "git-branch": GitBranch, "bar-chart-2": BarChart2,
+  wrench: Wrench, "shield-alert": ShieldAlert, settings: Settings, activity: Activity,
+  globe: Globe, phone: Phone, server: Server, "line-chart": LineChart, eye: Eye,
+  monitor: Monitor, database: Database, network: Network, "hard-drive": HardDrive,
+  layers: Layers, shield: Shield, "file-text": FileText, lock: Lock, history: History,
+  "layout-dashboard": LayoutDashboard, zap: Zap, map: MapIcon, "bar-chart-3": BarChart3,
+  brain: Brain, sliders: SlidersHorizontal, mail: Mail, building: Building2,
+  wallet: Wallet, "heart-pulse": HeartPulse, mic: Mic, bot: Bot, rewind: Rewind,
+  star: Star, search: Search, bell: Bell, "trending-down": TrendingDown,
+  "flask-conical": FlaskConical, "clipboard-list": ClipboardList, key: Key,
+};
 
 function openCommandBar() {
   document.dispatchEvent(new CustomEvent('open-command-palette', { bubbles: true }));
 }
 
 interface NavStats { activeIncidents: number; pendingApprovals: number; degradedCarriers: number; }
-interface Module  { href: string; label: string; desc: string; icon: React.ComponentType<{ className?: string }> }
+interface Module  { href: string; label: string; desc: string; icon: React.ComponentType<{ className?: string }>; readOnly?: boolean }
 interface Group   { label: string; desc?: string; icon: React.ComponentType<{ className?: string }>; items: Module[]; badge?: (s: NavStats) => number }
 interface Domain  { id: string; label: string; icon: React.ComponentType<{ className?: string }>; color: string; groups: Group[] }
 
@@ -537,7 +552,14 @@ function CascadeMenu({ domain, onClose, openLeft, stats, hiddenItems, portalItem
                           <item.icon className={cn("w-3.5 h-3.5", domain.color)} />
                         </div>
                         <div className="min-w-0">
-                          <div className="text-[12px] font-medium text-foreground leading-tight">{item.label}</div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[12px] font-medium text-foreground leading-tight">{item.label}</span>
+                            {item.readOnly && (
+                              <span className="text-[8px] font-bold uppercase tracking-wide px-1 py-px rounded bg-white/[0.08] text-muted-foreground/70 leading-none flex-shrink-0">
+                                read-only
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[10px] text-muted-foreground/50 leading-tight mt-px truncate">{item.desc}</div>
                         </div>
                       </div>
@@ -646,14 +668,45 @@ export function AppNavShell() {
     .filter(w => w.portalSlug === activePortalSlug && w.isActive)
     .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 
-  // ── Portal-specific top-nav config (which domains + items each portal shows) ──
+  // Phase 6b (Top Menu + Cascade consumer): with portalWorkspaceNavigation ON
+  // and the workspace loaded, domain tabs + cascade content render EXCLUSIVELY
+  // from workspace.navigation.domains. The portal never filters a global list —
+  // domains the workspace didn't send simply do not exist here. Legacy Model B
+  // (DOMAINS + portal_top_nav_* config) remains the fallback path.
+  const { enabled: wsEnabled, workspace } = usePortalWorkspace();
+  const wsMode = wsEnabled && !!workspace;
+
+  const wsDomains = useMemo<Domain[]>(() => {
+    if (!wsMode) return [];
+    return workspace!.navigation.domains.map(d => ({
+      id:    d.id,
+      label: d.label,
+      icon:  WS_NAV_ICONS[d.iconKey] ?? Radio,
+      color: d.colorClass || 'text-muted-foreground',
+      groups: d.groups.map(g => ({
+        label: g.label,
+        icon:  WS_NAV_ICONS[g.iconKey] ?? Layers,
+        items: g.items.map(it => ({
+          href:     it.route,
+          label:    it.title,
+          desc:     '',
+          icon:     WS_NAV_ICONS[it.iconKey] ?? Activity,
+          readOnly: it.visibility === 'read-only',
+        })),
+      })),
+    }));
+  }, [wsMode, workspace]);
+
+  const effectiveDomains = wsMode ? wsDomains : DOMAINS;
+
+  // ── Portal-specific top-nav config (Model B legacy — unused in wsMode) ──
   const { data: portalTopNav } = useQuery<{ domainIds: string[]; items: Record<string, string[]> }>({
     queryKey: ['/api/portals', activePortalSlug, 'top-nav'],
     queryFn: async () => {
       const r = await fetch(`/api/portals/${activePortalSlug}/top-nav`);
       return r.ok ? r.json() : null;
     },
-    enabled: !!activePortalSlug && isPortalMode,
+    enabled: !!activePortalSlug && isPortalMode && !wsMode,
     staleTime: 5 * 60_000,
   });
 
@@ -704,7 +757,7 @@ export function AppNavShell() {
     );
   }
   const meta          = inferMeta(location);
-  const activeDomain  = DOMAINS.find(d => d.id === meta.domain);
+  const activeDomain  = effectiveDomains.find(d => d.id === meta.domain);
   const isDashboard   = location === '/';
   // In portal mode the persistent "Dashboard" button points at the portal home
   // (/noc), so it keeps the user inside the portal instead of exiting to the platform.
@@ -757,16 +810,18 @@ export function AppNavShell() {
     setHiddenDomains(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }
 
-  // In portal mode with a config loaded: show only portal-configured domain tabs (in config order).
-  // Otherwise: show all unhidden domains.
+  // Phase 6b: workspace mode renders the workspace's domains verbatim (already
+  // portal-scoped and ordered — no filtering, no exclusions). Legacy: portal
+  // config filter over the static DOMAINS registry, else unhidden domains.
   const visibleDomains = useMemo(() => {
+    if (wsMode) return wsDomains;
     if (isPortalMode && portalTopNav?.domainIds?.length) {
       return portalTopNav.domainIds
         .map(id => DOMAINS.find(d => d.id === id))
         .filter(Boolean) as typeof DOMAINS;
     }
     return DOMAINS.filter(d => !hiddenDomains.has(d.id));
-  }, [isPortalMode, portalTopNav, hiddenDomains]);
+  }, [wsMode, wsDomains, isPortalMode, portalTopNav, hiddenDomains]);
 
   const MAX_NAV_TABS    = 8;
   const shownDomains    = visibleDomains.slice(0, MAX_NAV_TABS);
@@ -1178,7 +1233,7 @@ export function AppNavShell() {
       {openDomain && (() => {
         const tabEl   = tabRefs.current.get(openDomain);
         const shellEl = shellRef.current;
-        const domain  = DOMAINS.find(d => d.id === openDomain);
+        const domain  = effectiveDomains.find(d => d.id === openDomain);
         if (!domain) return null;
 
         // Compute left offset relative to shell
@@ -1204,9 +1259,9 @@ export function AppNavShell() {
               onClose={() => setOpen(null)}
               openLeft={openLeft}
               stats={{ activeIncidents, pendingApprovals, degradedCarriers }}
-              hiddenItems={hiddenItemsSet}
+              hiddenItems={wsMode ? new Set<string>() : hiddenItemsSet}
               portalItems={
-                isPortalMode && portalTopNav?.items?.[openDomain]
+                !wsMode && isPortalMode && portalTopNav?.items?.[openDomain]
                   ? new Set(portalTopNav.items[openDomain])
                   : undefined
               }
