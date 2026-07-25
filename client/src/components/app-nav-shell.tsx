@@ -687,7 +687,10 @@ export function AppNavShell() {
         label: g.label,
         icon:  WS_NAV_ICONS[g.iconKey] ?? Layers,
         items: g.items.map(it => ({
-          href:     it.route,
+          // portalRoute (e.g. '/noc/call-recordings'), NOT route (e.g. '/call-recordings')
+          // — the workspace API already computed the portal-scoped path. Using the bare
+          // platform route here sent users out of the portal on click.
+          href:     it.portalRoute,
           label:    it.title,
           desc:     '',
           icon:     WS_NAV_ICONS[it.iconKey] ?? Activity,
@@ -1265,7 +1268,11 @@ export function AppNavShell() {
                   ? new Set(portalTopNav.items[openDomain])
                   : undefined
               }
-              resolveHref={isPortalMode ? resolvePortalHref : undefined}
+              // wsMode items already carry the portal-scoped portalRoute — resolving
+              // through the legacy module map (built from portal_module_assignments,
+              // which doesn't cover every workspace-visible module) sent users to the
+              // bare platform route on click. Only apply the legacy resolver in Model B.
+              resolveHref={!wsMode && isPortalMode ? resolvePortalHref : undefined}
             />
           </div>
         );
