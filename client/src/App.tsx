@@ -45,6 +45,7 @@ import { TimezoneProvider } from "@/context/timezone-context";
 import { OrgScopeProvider } from "@/context/org-scope-context";
 import { PortalProvider } from "@/context/portal-context";
 import { AuthorizationProvider } from "@/context/authorization-context";
+import { PortalWorkspaceProvider } from "@/context/portal-workspace-context";
 import KamDashboardPage from "@/pages/kam-dashboard";
 import ApiKeysPage from "@/pages/api-keys";
 import TestCallPage from "@/pages/test-call";
@@ -1043,9 +1044,11 @@ function App() {
             <OrgScopeProvider>
               <AuthorizationProvider>
                 <PortalProvider>
-                  <TooltipProvider>
-                    <AppCore />
-                  </TooltipProvider>
+                  <PortalWorkspaceProvider>
+                    <TooltipProvider>
+                      <AppCore />
+                    </TooltipProvider>
+                  </PortalWorkspaceProvider>
                 </PortalProvider>
               </AuthorizationProvider>
             </OrgScopeProvider>
