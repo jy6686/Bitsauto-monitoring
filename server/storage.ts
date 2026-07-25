@@ -139,6 +139,7 @@ import {
   portalDefinitions, navigationModules, portalModuleAssignments, portalSections,
   portalTopNavDomains, portalTopNavItems,
   navigationDomains, navigationGroups, portalDomainAssignments, portalWorkspace,
+  portalModuleOverrides,
   userFavorites,
   type PortalDefinition, type InsertPortalModuleAssignment,
   type PortalModuleAssignment, type PortalModuleWithMeta, type PortalSection,
@@ -739,6 +740,10 @@ export interface PortalWorkspaceNavItem {
   iconKey:     string;
   route:       string;
   portalRoute: string;
+  // Phase 3 (additive, optional — contract stays v1): present ONLY when a
+  // portal_module_overrides row marks the module 'read-only'. Hidden modules
+  // never appear in the payload at all. Omitted = operational.
+  visibility?: "read-only";
 }
 export interface PortalWorkspaceGroup {
   id:           number;
@@ -3543,14 +3548,36 @@ export class DatabaseStorage implements IStorage {
           .orderBy(asc(navigationModules.groupId), asc(navigationModules.sortOrder))
       : [];
 
+    // 5b. Phase 3 — per-portal visibility overrides (no row = operational).
+    // 'hidden'    → excluded from nav tree AND search index below.
+    // 'read-only' → included, tagged so the UI can suppress edit controls.
+    const overrideRows = await db.select()
+      .from(portalModuleOverrides)
+      .where(eq(portalModuleOverrides.portalSlug, slug));
+    const hiddenKeys   = new Set(overrideRows.filter(o => o.visibility === "hidden").map(o => o.moduleKey));
+    const readOnlyKeys = new Set(overrideRows.filter(o => o.visibility === "read-only").map(o => o.moduleKey));
+    const visibleModuleRows = moduleRows.filter(m => !hiddenKeys.has(m.moduleKey));
+
     // 6. Assemble nested structure
     const modulesByGroup: Record<number, typeof moduleRows> = {};
-    for (const m of moduleRows) {
+    for (const m of visibleModuleRows) {
       const gid = (m as any).groupId as number;
       if (gid == null) continue;
       if (!modulesByGroup[gid]) modulesByGroup[gid] = [];
       modulesByGroup[gid].push(m);
     }
+
+    // Groups whose every module is hidden are pruned from the tree. Groups that
+    // were already empty pre-Phase-3 are kept, so portals without overrides
+    // produce a byte-identical payload (checksum unchanged).
+    const unfilteredCountByGroup: Record<number, number> = {};
+    for (const m of moduleRows) {
+      const gid = (m as any).groupId as number;
+      if (gid == null) continue;
+      unfilteredCountByGroup[gid] = (unfilteredCountByGroup[gid] ?? 0) + 1;
+    }
+    const groupEmptiedByHiding = (gid: number): boolean =>
+      (unfilteredCountByGroup[gid] ?? 0) > 0 && (modulesByGroup[gid]?.length ?? 0) === 0;
 
     const groupsByDomain: Record<string, typeof groupRows> = {};
     for (const g of groupRows) {
@@ -3564,28 +3591,32 @@ export class DatabaseStorage implements IStorage {
       iconKey:      da.iconKey,
       colorClass:   da.colorClass,
       displayOrder: da.displayOrder,
-      groups: (groupsByDomain[da.domainId] ?? []).map(g => ({
-        id:           g.id,
-        label:        g.label,
-        iconKey:      g.iconKey,
-        displayOrder: g.displayOrder,
-        items: (modulesByGroup[g.id] ?? []).map(m => ({
-          moduleKey:   m.moduleKey,
-          title:       m.title,
-          iconKey:     m.icon,
-          route:       m.route,
-          portalRoute: `/${slug}/${m.moduleKey}`,
+      groups: (groupsByDomain[da.domainId] ?? [])
+        .filter(g => !groupEmptiedByHiding(g.id))
+        .map(g => ({
+          id:           g.id,
+          label:        g.label,
+          iconKey:      g.iconKey,
+          displayOrder: g.displayOrder,
+          items: (modulesByGroup[g.id] ?? []).map(m => ({
+            moduleKey:   m.moduleKey,
+            title:       m.title,
+            iconKey:     m.icon,
+            route:       m.route,
+            portalRoute: `/${slug}/${m.moduleKey}`,
+            ...(readOnlyKeys.has(m.moduleKey) ? { visibility: "read-only" as const } : {}),
+          })),
         })),
-      })),
     }));
 
-    // 7. Flat search index — all modules across portal's assigned domains
-    const searchIndex: PortalWorkspaceNavItem[] = moduleRows.map(m => ({
+    // 7. Flat search index — non-hidden modules across portal's assigned domains
+    const searchIndex: PortalWorkspaceNavItem[] = visibleModuleRows.map(m => ({
       moduleKey:   m.moduleKey,
       title:       m.title,
       iconKey:     m.icon,
       route:       m.route,
       portalRoute: `/${slug}/${m.moduleKey}`,
+      ...(readOnlyKeys.has(m.moduleKey) ? { visibility: "read-only" as const } : {}),
     }));
 
     return {

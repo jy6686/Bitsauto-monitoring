@@ -1,5 +1,5 @@
 
-import { pgTable, text, serial, integer, boolean, timestamp, real, varchar, pgEnum, json, jsonb, uniqueIndex, bigint, index, date, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, real, varchar, pgEnum, json, jsonb, uniqueIndex, bigint, index, date, numeric, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -3149,6 +3149,22 @@ export const portalWorkspace = pgTable("portal_workspace", {
 });
 export type PortalWorkspace       = typeof portalWorkspace.$inferSelect;
 export type InsertPortalWorkspace = typeof portalWorkspace.$inferInsert;
+
+// ── Portal Module Overrides (Phase 3, frozen shape NAV-WORKSPACE-MODEL §5) ─────
+// Per-portal visibility exceptions. No row = operational (default).
+// 'hidden'    → absent from workspace navigation tree AND search index
+// 'read-only' → present with visibility flag passed to UI
+export const portalModuleOverrides = pgTable("portal_module_overrides", {
+  portalSlug: text("portal_slug").notNull().references(() => portalDefinitions.slug, { onDelete: "cascade" }),
+  moduleKey:  text("module_key").notNull().references(() => navigationModules.moduleKey, { onDelete: "cascade" }),
+  visibility: text("visibility").notNull(),                    // 'read-only' | 'hidden'
+  reason:     text("reason").notNull(),
+  createdAt:  timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.portalSlug, t.moduleKey] }),
+]);
+export type PortalModuleOverride       = typeof portalModuleOverrides.$inferSelect;
+export type InsertPortalModuleOverride = typeof portalModuleOverrides.$inferInsert;
 
 // ── RBAC Matrix ────────────────────────────────────────────────────────────────
 export const rbacPermissions = pgTable("rbac_permissions", {

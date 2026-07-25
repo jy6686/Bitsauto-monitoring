@@ -1528,6 +1528,10 @@ export async function registerRoutes(
   // Replaces the older /api/portals/:slug/top-nav for all portal-mode UI.
   app.get('/api/portals/:slug/workspace', async (req: any, res) => {
     if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
+    // Phase 3 backend validation: slug must be kebab-case (module_key invariant)
+    if (!/^[a-z0-9]+(-[a-z0-9]+)*$/.test(req.params.slug)) {
+      return res.status(400).json({ error: 'Invalid portal slug' });
+    }
     try {
       const workspace = await storage.getPortalWorkspace(req.params.slug);
       if (!workspace) return res.status(404).json({ error: 'Portal not found or no workspace configured' });
