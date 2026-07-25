@@ -1,6 +1,10 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { isPortalWorkspaceNavEnabled } from "./lib/feature-flags";
+
+// NAV-WORKSPACE Phase 4: log which navigation provider is active (no behavior change).
+isPortalWorkspaceNavEnabled();
 
 // ── Platform-wide UTC display enforcement ──────────────────────────────────────
 // All Date.prototype.toLocale* calls across every page, report, graph, and alert
