@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { usePortal } from "@/context/portal-context";
+import { usePortalWorkspace } from "@/context/portal-workspace-context";
 import { cn } from "@/lib/utils";
 import {
   CommandDialog, CommandEmpty, CommandGroup, CommandInput,
@@ -87,6 +88,13 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const { user } = useAuth();
   const { activePortal } = usePortal();
 
+  // Phase 6a (Search consumer): when the portalWorkspaceNavigation flag is ON
+  // and the workspace has loaded, module search is driven EXCLUSIVELY by the
+  // workspace tree (server-filtered: hidden absent, read-only tagged). The
+  // legacy PAGES list + global module registry remain the fallback path.
+  const { enabled: wsEnabled, workspace } = usePortalWorkspace();
+  const wsMode = wsEnabled && !!workspace;
+
   const { data: portals = [] } = useQuery<PortalDefinition[]>({
     queryKey: ["/api/portal/definitions"],
     staleTime: 60_000,
@@ -96,7 +104,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const { data: navModules = [] } = useQuery<NavigationModule[]>({
     queryKey: ["/api/governance/modules"],
     staleTime: 60_000,
-    enabled: !!user,
+    enabled: !!user && !wsMode, // workspace mode never fetches the global registry
   });
 
   const { data: favorites = [] } = useQuery<UserFavorite[]>({
@@ -165,30 +173,54 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
         <CommandSeparator />
 
-        {/* Pages — grouped */}
-        {Array.from(new Set(PAGES.map(p => p.group))).map(group => (
-          <CommandGroup key={group} heading={group}>
-            {PAGES.filter(p => p.group === group).map(page => (
-              <CommandItem
-                key={`page-${page.route}`}
-                value={`page ${page.label} ${group}`}
-                onSelect={() => go(page.route)}
-                data-testid={`cmd-page-${page.route.replace(/\//g, "-")}`}
-              >
-                <page.icon className="h-3.5 w-3.5 text-muted-foreground/60 flex-shrink-0" />
-                <span>{page.label}</span>
-                <span className="ml-auto text-[10px] text-muted-foreground/30 flex items-center gap-1">
-                  {page.route} <ArrowRight className="h-2.5 w-2.5" />
-                </span>
-              </CommandItem>
+        {/* Pages — Phase 6a: workspace tree when flag ON, legacy PAGES otherwise */}
+        {wsMode
+          ? workspace!.navigation.domains.map(domain => (
+              <CommandGroup key={`ws-${domain.id}`} heading={domain.label}>
+                {domain.groups.flatMap(g => g.items).map(item => (
+                  <CommandItem
+                    key={`ws-${item.moduleKey}`}
+                    value={`page ${item.title} ${domain.label} ${item.moduleKey}`}
+                    onSelect={() => go(item.route)}
+                    data-testid={`cmd-ws-${item.moduleKey}`}
+                  >
+                    <ModIcon k={item.iconKey} className="h-3.5 w-3.5 text-muted-foreground/60 flex-shrink-0" />
+                    <span>{item.title}</span>
+                    {item.visibility === "read-only" && (
+                      <span className="ml-2 rounded bg-muted px-1 py-0.5 text-[9px] uppercase tracking-wide text-muted-foreground/70">
+                        read-only
+                      </span>
+                    )}
+                    <span className="ml-auto text-[10px] text-muted-foreground/30 flex items-center gap-1">
+                      {item.route} <ArrowRight className="h-2.5 w-2.5" />
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ))
+          : Array.from(new Set(PAGES.map(p => p.group))).map(group => (
+              <CommandGroup key={group} heading={group}>
+                {PAGES.filter(p => p.group === group).map(page => (
+                  <CommandItem
+                    key={`page-${page.route}`}
+                    value={`page ${page.label} ${group}`}
+                    onSelect={() => go(page.route)}
+                    data-testid={`cmd-page-${page.route.replace(/\//g, "-")}`}
+                  >
+                    <page.icon className="h-3.5 w-3.5 text-muted-foreground/60 flex-shrink-0" />
+                    <span>{page.label}</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground/30 flex items-center gap-1">
+                      {page.route} <ArrowRight className="h-2.5 w-2.5" />
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
             ))}
-          </CommandGroup>
-        ))}
 
         <CommandSeparator />
 
-        {/* Navigation Modules from DB */}
-        {navModules.length > 0 && (
+        {/* Navigation Modules from DB — legacy only; workspace mode is portal-scoped */}
+        {!wsMode && navModules.length > 0 && (
           <CommandGroup heading="Module Registry">
             {navModules.map(mod => (
               <CommandItem
