@@ -441,7 +441,7 @@ export function CommandBar() {
             domain: d.label,
             domainColor: d.colorClass || 'text-muted-foreground',
             label: it.title,
-            href: it.route,
+            href: it.portalRoute, // portal-scoped path — NOT the bare platform route
             icon: WS_ICON_MAP[it.iconKey] ?? Activity,
             keywords: `${g.label} ${it.moduleKey}${it.visibility === 'read-only' ? ' read-only' : ''}`.toLowerCase(),
           });

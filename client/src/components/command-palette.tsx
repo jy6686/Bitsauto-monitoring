@@ -181,7 +181,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                   <CommandItem
                     key={`ws-${item.moduleKey}`}
                     value={`page ${item.title} ${domain.label} ${item.moduleKey}`}
-                    onSelect={() => go(item.route)}
+                    onSelect={() => go(item.portalRoute)}
                     data-testid={`cmd-ws-${item.moduleKey}`}
                   >
                     <ModIcon k={item.iconKey} className="h-3.5 w-3.5 text-muted-foreground/60 flex-shrink-0" />
@@ -192,7 +192,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                       </span>
                     )}
                     <span className="ml-auto text-[10px] text-muted-foreground/30 flex items-center gap-1">
-                      {item.route} <ArrowRight className="h-2.5 w-2.5" />
+                      {item.portalRoute} <ArrowRight className="h-2.5 w-2.5" />
                     </span>
                   </CommandItem>
                 ))}
