@@ -107,6 +107,61 @@ try {
        ON k.module_key = replace(u.module_key,'_','-') AND k.module_key <> u.module_key`);
   idPairs.length === 0 ? pass("no underscore/kebab split identities")
     : fail(`split identities (underscore+kebab both exist): ${idPairs.map(r => r.module_key).join(", ")}`);
+  // Post-032 invariant: no underscore module_keys remain anywhere.
+  // module_key is the single canonical identity across DB, workspace API, registry,
+  // router, audit, permissions, favorites, quick-actions, and portal_module_overrides.
+  // If this fails, run migration 032_kebab_module_keys.sql before proceeding.
+  const { rows: [{ n: underscoreNm }] } = await client.query(
+    `SELECT COUNT(*)::int n FROM navigation_modules WHERE strpos(module_key,'_') > 0`);
+  const { rows: [{ n: underscorePw }] } = await client.query(
+    `SELECT COUNT(*)::int n FROM portal_workspace WHERE home_module IS NOT NULL AND strpos(home_module,'_') > 0`);
+  const { rows: [{ n: underscoreUf }] } = await client.query(
+    `SELECT COUNT(*)::int n FROM user_favorites WHERE strpos(module_key,'_') > 0`);
+  underscoreNm === 0 && underscorePw === 0 && underscoreUf === 0
+    ? pass("all module_key values are kebab (032 applied)")
+    : fail(`underscore module_keys remain — run migration 032 first (nm=${underscoreNm} pw=${underscorePw} uf=${underscoreUf})`);
+
+  // Referential integrity — business-key level.
+  // Every module_key referenced in business tables must exist exactly once
+  // in navigation_modules. Catches the inverse of the "no underscores" check:
+  // a text field pointing at a key that was deleted, renamed, or never seeded.
+  console.log(`\nBusiness-key integrity:`);
+
+  // portal_workspace.home_module
+  const { rows: badHm } = await client.query(
+    `SELECT portal_slug, home_module FROM portal_workspace
+     WHERE home_module IS NOT NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM navigation_modules m WHERE m.module_key = portal_workspace.home_module
+       )`);
+  badHm.length === 0
+    ? pass("portal_workspace.home_module → valid module_key in all rows")
+    : fail(`dangling home_module refs: ${badHm.map(r => `${r.portal_slug}→'${r.home_module}'`).join(", ")}`);
+
+  // user_favorites.module_key (may be empty in dev — that is fine)
+  const { rows: [{ n: badFavs }] } = await client.query(
+    `SELECT COUNT(*)::int n FROM user_favorites uf
+     WHERE NOT EXISTS (SELECT 1 FROM navigation_modules m WHERE m.module_key = uf.module_key)`);
+  badFavs === 0
+    ? pass("user_favorites.module_key → valid module_key in all rows")
+    : fail(`${badFavs} user_favorites row(s) reference unknown module_key`);
+
+  // portal_module_overrides (Phase 3 table — skip if not yet created)
+  const { rows: [{ exists: ovExists }] } = await client.query(
+    `SELECT EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'portal_module_overrides'
+     ) AS exists`);
+  if (ovExists) {
+    const { rows: [{ n: badOv }] } = await client.query(
+      `SELECT COUNT(*)::int n FROM portal_module_overrides ov
+       WHERE NOT EXISTS (SELECT 1 FROM navigation_modules m WHERE m.module_key = ov.module_key)`);
+    badOv === 0
+      ? pass("portal_module_overrides.module_key → valid module_key in all rows")
+      : fail(`${badOv} portal_module_overrides row(s) reference unknown module_key`);
+  } else {
+    pass("portal_module_overrides not yet created (Phase 3 pending — skipped)");
+  }
 
   // HTTP mode: frozen JSON shape against the live endpoint
   const base = process.env.WORKSPACE_BASE_URL;
