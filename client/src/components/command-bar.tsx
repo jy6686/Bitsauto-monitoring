@@ -17,7 +17,22 @@ import {
   Radio, Package2, Lightbulb,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { usePortalWorkspace } from "@/context/portal-workspace-context";
 import { cn } from "@/lib/utils";
+
+// Phase 6a: iconKey → component lookup for workspace-derived route entries.
+const WS_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  "layout-dashboard": LayoutDashboard, phone: Phone, bell: Bell, settings: Settings,
+  "bar-chart-2": BarChart2, "bar-chart-3": BarChart3, users: Users, building: Building2,
+  "shield-alert": ShieldAlert, "file-text": FileText, wrench: Wrench, globe: Globe,
+  wallet: Wallet, server: Server, eye: Eye, "line-chart": LineChart, search: Search,
+  layers: Layers, monitor: Monitor, sliders: SlidersHorizontal, database: Database,
+  "hard-drive": HardDrive, "git-branch": GitBranch, brain: Brain, history: History,
+  map: Map, "heart-pulse": HeartPulse, network: Network, shield: Shield, lock: Lock,
+  zap: Zap, mail: Mail, star: Star, activity: Activity, mic: Mic, rewind: Rewind,
+  wifi: Wifi, radio: Radio, "trending-down": TrendingDown, "trending-up": TrendingUp,
+  "flask-conical": FlaskConical, "clipboard-list": ClipboardList, bot: Bot,
+};
 
 // ── Route registry ─────────────────────────────────────────────────────────────
 interface RouteEntry {
@@ -407,6 +422,40 @@ export function CommandBar() {
   const { role }            = useAuth();
   const [recent, setRecent] = useState<string[]>([]);
 
+  // Phase 6a (Search consumer): with portalWorkspaceNavigation ON and the
+  // workspace loaded, the route registry derives from the server-filtered
+  // workspace tree — portal-scoped, hidden modules absent, read-only tagged.
+  // Off-portal domains (Finance & Billing, Platform, Company, …) do not exist
+  // in it. Flag off → legacy static ROUTE_REGISTRY, byte-identical behavior.
+  const { enabled: wsEnabled, workspace } = usePortalWorkspace();
+  const wsMode = wsEnabled && !!workspace;
+
+  const effectiveRegistry = useMemo<RouteEntry[]>(() => {
+    if (!wsMode) return ROUTE_REGISTRY;
+    const out: RouteEntry[] = [];
+    for (const d of workspace!.navigation.domains) {
+      for (const g of d.groups) {
+        for (const it of g.items) {
+          out.push({
+            type: 'route',
+            domain: d.label,
+            domainColor: d.colorClass || 'text-muted-foreground',
+            label: it.title,
+            href: it.route,
+            icon: WS_ICON_MAP[it.iconKey] ?? Activity,
+            keywords: `${g.label} ${it.moduleKey}${it.visibility === 'read-only' ? ' read-only' : ''}`.toLowerCase(),
+          });
+        }
+      }
+    }
+    return out;
+  }, [wsMode, workspace]);
+
+  const effectiveDomainOrder = useMemo<string[]>(
+    () => (wsMode ? workspace!.navigation.domains.map(d => d.label) : DOMAIN_ORDER),
+    [wsMode, workspace],
+  );
+
   useEffect(() => { if (open) setRecent(getRecent()); }, [open]);
 
   // ── Live entity queries
@@ -508,7 +557,7 @@ export function CommandBar() {
     if (!expTokens.length && !hasScopeFilter) return {} as Record<string, RouteEntry[]>;
     const grouped: Record<string, RouteEntry[]> = {};
     const seen = new Set<string>();
-    for (const r of ROUTE_REGISTRY) {
+    for (const r of effectiveRegistry) {
       if (r.roles && !r.roles.includes(role)) continue;
       if (routeScopeFilter.size > 0 && !routeScopeFilter.has(r.domain)) continue;
       if (expTokens.length > 0) {
@@ -533,7 +582,7 @@ export function CommandBar() {
       }
     }
     return grouped;
-  }, [q, role, urgencyCtx]);
+  }, [q, role, urgencyCtx, effectiveRegistry]);
 
   // ── Filtered commands
   const filteredCommands = useMemo(() => {
@@ -577,14 +626,14 @@ export function CommandBar() {
   const recentRoutes = useMemo(() => {
     const seen = new Set<string>();
     return recent
-      .map(href => ROUTE_REGISTRY.find(r => r.href === href && !seen.has(r.href) && seen.add(r.href)))
+      .map(href => effectiveRegistry.find(r => r.href === href && !seen.has(r.href) && seen.add(r.href)))
       .filter(Boolean) as RouteEntry[];
-  }, [recent]);
+  }, [recent, effectiveRegistry]);
 
   const entityGroups = Object.entries(filteredEntities);
   // Sort domain groups by their max urgency score when operational conditions are active
   const routeGroups = useMemo(() => {
-    const groups = DOMAIN_ORDER
+    const groups = effectiveDomainOrder
       .map(d => [d, filteredRoutes[d]] as [string, RouteEntry[]])
       .filter(([, v]) => v?.length);
     if (urgencyCtx.inc === 0 && urgencyCtx.deg === 0) return groups;
@@ -593,7 +642,7 @@ export function CommandBar() {
       const bMax = Math.max(0, ...(bRoutes ?? []).map(r => HREF_URGENCY[r.href]?.(urgencyCtx) ?? 0));
       return bMax - aMax;
     });
-  }, [filteredRoutes, urgencyCtx]);
+  }, [filteredRoutes, urgencyCtx, effectiveDomainOrder]);
   const hasResults   = entityGroups.length > 0 || routeGroups.length > 0 || filteredCommands.length > 0 || scopeSuggestions.length > 0 || showLiveIncidents;
 
   return (
@@ -656,10 +705,10 @@ export function CommandBar() {
         {/* Empty state — domain overview when no query and no recents */}
         {!q && recentRoutes.length === 0 && (
           <CommandGroup heading="Workspaces — type to search or use @scope">
-            {DOMAIN_ORDER.map(domain => {
-              const first = ROUTE_REGISTRY.find(r => r.domain === domain);
+            {effectiveDomainOrder.map(domain => {
+              const first = effectiveRegistry.find(r => r.domain === domain);
               if (!first) return null;
-              const count = [...new Set(ROUTE_REGISTRY.filter(r => r.domain === domain).map(r => r.href))].length;
+              const count = [...new Set(effectiveRegistry.filter(r => r.domain === domain).map(r => r.href))].length;
               const chip  = SCOPE_CHIPS[domain];
               return (
                 <CommandItem key={domain} value={domain} onSelect={() => setQuery(domain.split(' ')[0].toLowerCase())}
@@ -705,7 +754,7 @@ export function CommandBar() {
                         if (!m) return null;
                         const cnt = m.type === 'entity'
                           ? allEntities.filter(e => e.dimLabel === m.key).length
-                          : [...new Set(ROUTE_REGISTRY.filter(r => r.domain === m.key).map(r => r.href))].length;
+                          : [...new Set(effectiveRegistry.filter(r => r.domain === m.key).map(r => r.href))].length;
                         const unit = m.type === 'entity' ? 'entities' : 'modules';
                         return cnt > 0 ? <span className="text-[10px] tabular-nums text-muted-foreground/40 leading-none">{cnt} {unit}</span> : null;
                       })()}
