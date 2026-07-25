@@ -44,6 +44,7 @@ import { ThemeProvider } from "@/hooks/use-theme";
 import { TimezoneProvider } from "@/context/timezone-context";
 import { OrgScopeProvider } from "@/context/org-scope-context";
 import { PortalProvider } from "@/context/portal-context";
+import { PortalWorkspaceProvider } from "@/context/portal-workspace-context";
 import KamDashboardPage from "@/pages/kam-dashboard";
 import ApiKeysPage from "@/pages/api-keys";
 import TestCallPage from "@/pages/test-call";
@@ -1019,9 +1020,11 @@ function App() {
           <QueryClientProvider client={queryClient}>
             <OrgScopeProvider>
               <PortalProvider>
-                <TooltipProvider>
-                  <AppCore />
-                </TooltipProvider>
+                <PortalWorkspaceProvider>
+                  <TooltipProvider>
+                    <AppCore />
+                  </TooltipProvider>
+                </PortalWorkspaceProvider>
               </PortalProvider>
             </OrgScopeProvider>
           </QueryClientProvider>
