@@ -216,26 +216,9 @@ export async function runSafeMigrations(): Promise<void> {
       )
     `);
 
-    // Seed core navigation modules
-    await client.query(`
-      INSERT INTO navigation_modules (module_key, title, icon, route, category, default_portal, is_system, sort_order)
-      VALUES
-        ('live_calls',       'Live Calls',        'activity',      '/calls',            'live',      'noc',       TRUE,  1),
-        ('bitseye',          'BitsEye 2',         'eye',           '/bitseye2',         'live',      'noc',       TRUE,  2),
-        ('alerts',           'Alerts',            'zap',           '/alerts',           'live',      'noc',       FALSE, 3),
-        ('analytics',        'Analytics',         'bar-chart-3',   '/analytics',        'analytics', 'analytics', FALSE, 1),
-        ('asr_acd',          'ASR / ACD',         'activity',      '/asr-acd',          'analytics', 'analytics', FALSE, 2),
-        ('cdrs',             'CDR Viewer',        'file-text',     '/cdrs',             'analytics', 'analytics', FALSE, 3),
-        ('routing_manager',  'Routing Manager',   'git-branch',    '/routing-manager',  'operations','ops',       FALSE, 1),
-        ('vendors',          'Vendors',           'users',         '/vendors',          'operations','ops',       FALSE, 2),
-        ('billing',          'Billing',           'wallet',        '/billing',          'finance',   'finance',   FALSE, 1),
-        ('rate_cards',       'Rate Cards',        'file-text',     '/rate-cards',       'finance',   'finance',   FALSE, 2),
-        ('dmr',              'Daily Minutes',     'activity',      '/dmr',              'finance',   'finance',   FALSE, 3),
-        ('fraud',            'Fraud Engine',      'shield-alert',  '/fraud',            'security',  'security',  FALSE, 1),
-        ('settings',         'Platform Settings', 'settings',      '/settings',         'platform',  'platform',  TRUE,  1),
-        ('team',             'Team & KAM',        'users',         '/team',             'platform',  'platform',  FALSE, 2)
-      ON CONFLICT (module_key) DO NOTHING
-    `);
+    // Phase 2B: navigation_modules seed data is owned by migrations (031+).
+    // The legacy underscore-keyed boot seed that lived here re-polluted the
+    // registry on every restart after 032 renamed keys to kebab. Removed.
 
     // portal_module_assignments — portal ↔ module mappings with adapter metadata
     await client.query(`
@@ -306,25 +289,13 @@ export async function runSafeMigrations(): Promise<void> {
       )
     `);
 
-    // Extend navigation_modules with NOC-specific routes not yet seeded
-    await client.query(`
-      INSERT INTO navigation_modules (module_key, title, icon, route, category, default_portal, is_system, sort_order)
-      VALUES
-        ('noc_dashboard',   'NOC Dashboard',    'monitor',        '/noc-dashboard',        'live',       'noc', TRUE,  20),
-        ('noc_command',     'NOC Command',      'monitor',        '/noc-command',           'live',       'noc', TRUE,  21),
-        ('ops_console',     'Ops Console',      'sliders',        '/ops-console',           'live',       'noc', TRUE,  22),
-        ('live_traffic',    'Live Traffic',     'activity',       '/live-traffic',          'live',       'noc', TRUE,  23),
-        ('traffic_map',     'Traffic Map',      'globe',          '/traffic-map',           'live',       'noc', FALSE, 24),
-        ('balance_monitor', 'Balance Monitor',  'wallet',         '/balance',               'operations', 'noc', FALSE, 25),
-        ('vendor_health',   'Health Engine',    'heart-pulse',    '/vendor-health',         'operations', 'noc', FALSE, 26),
-        ('sla_scorecard',   'SLA Scorecard',    'heart-pulse',    '/vendor-sla-scorecard',  'operations', 'noc', FALSE, 27),
-        ('sip_trace',       'SIP Trace',        'mic',            '/sip-trace',             'operations', 'noc', FALSE, 28),
-        ('replay_engine',   'Replay Engine',    'rewind',         '/replay',                'operations', 'noc', FALSE, 29),
-        ('bitseye_classic', 'BitsEye Classic',  'eye',            '/bitseye',               'analytics',  'noc', FALSE, 30)
-      ON CONFLICT (module_key) DO NOTHING
-    `);
+    // Phase 2B: legacy NOC underscore-keyed module seed removed (see note above).
+    // Migrations 031/032 own the canonical kebab-keyed registry.
 
-    // portal_module_assignments for the new NOC modules (enables portal-relative navigation)
+    // portal_module_assignments for the NOC modules (enables portal-relative navigation)
+    // NOTE: post-cleanup the underscore keys below match no navigation_modules
+    // rows, and the non-underscore ones are already assigned — this is a
+    // guarded no-op kept only until NAV-D deletes the Model B tables.
     await client.query(`
       INSERT INTO portal_module_assignments (portal_id, module_id, section, display_order, visibility)
       SELECT 'noc', nm.id, nm.category, nm.sort_order, 'full'
