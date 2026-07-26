@@ -1526,11 +1526,31 @@ export async function registerRoutes(
       const dbInfo = await db.execute(sql`SELECT current_database() AS db, inet_server_addr()::text AS host, inet_server_port() AS port`);
       const rawAssignments = await db.execute(sql`SELECT portal_slug, domain_id, display_order FROM portal_domain_assignments WHERE portal_slug = 'noc' ORDER BY display_order`);
       const rawDomainRow = await db.execute(sql`SELECT id, label, is_active FROM navigation_domains WHERE id = 'company'`);
+      // Reproduces the EXACT join used by getPortalWorkspace(), but as a LEFT JOIN
+      // with length/byte checks so a silent match failure (whitespace, hidden char,
+      // case) shows up instead of just quietly dropping the row like the real
+      // INNER JOIN does.
+      const joinProbe = await db.execute(sql`
+        SELECT
+          pda.domain_id                                  AS pda_domain_id,
+          nd.id                                           AS nd_id,
+          length(pda.domain_id)                           AS pda_len,
+          length(nd.id)                                   AS nd_len,
+          encode(pda.domain_id::bytea, 'hex')              AS pda_hex,
+          encode(nd.id::bytea, 'hex')                      AS nd_hex,
+          (pda.domain_id = nd.id)                          AS exact_match,
+          nd.is_active                                     AS nd_is_active
+        FROM portal_domain_assignments pda
+        LEFT JOIN navigation_domains nd ON pda.domain_id = nd.id
+        WHERE pda.portal_slug = 'noc'
+        ORDER BY pda.display_order
+      `);
       const workspace = await storage.getPortalWorkspace('noc');
       res.json({
         connection: dbInfo.rows?.[0] ?? dbInfo,
         portal_domain_assignments_raw: rawAssignments.rows ?? rawAssignments,
         navigation_domains_company_row: rawDomainRow.rows ?? rawDomainRow,
+        join_probe: joinProbe.rows ?? joinProbe,
         getPortalWorkspace_domainIds: workspace?.navigation.domains.map(d => d.id) ?? null,
         navigationChecksum: workspace?.navigationChecksum ?? null,
       });
