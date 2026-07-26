@@ -802,13 +802,6 @@ export function AppNavShell() {
     return () => document.removeEventListener('mousedown', handleOF);
   }, []);
 
-  useEffect(() => {
-    function handleOverflowClick(e: MouseEvent) {
-    }
-    document.addEventListener('mousedown', handleOverflowClick);
-    return () => document.removeEventListener('mousedown', handleOverflowClick);
-  }, []);
-
   function toggleDomainVisibility(id: string) {
     setHiddenDomains(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   }
@@ -978,6 +971,76 @@ export function AppNavShell() {
             );
           })}
         </nav>
+
+        {/* ── Overflow "More" — domains beyond MAX_NAV_TABS (e.g. Products, Voice
+              Trading, Platform). Previously computed (overflowDomains) but never
+              rendered, making these domains unreachable from the top menu. ── */}
+        {overflowDomains.length > 0 && (
+          <div className="relative flex-shrink-0" ref={overflowRef}>
+            <button
+              onClick={() => setOverflowOpen(v => !v)}
+              data-testid="nav-domain-more"
+              aria-haspopup="true"
+              aria-expanded={overflowOpen}
+              aria-label="More workspaces"
+              className={cn(
+                "flex items-center gap-1 h-[36px] px-2 rounded-lg text-[11px] font-semibold transition-all duration-150 whitespace-nowrap",
+                overflowOpen
+                  ? "text-foreground bg-white/[0.08]"
+                  : "text-muted-foreground/60 hover:text-foreground hover:bg-white/[0.05]"
+              )}
+            >
+              <MoreHorizontal className="w-3.5 h-3.5" />
+              <span className="hidden lg:inline">More</span>
+              <ChevronDown className={cn("w-2.5 h-2.5 transition-transform duration-150", overflowOpen && "rotate-180")} />
+            </button>
+            {overflowOpen && (
+              <div
+                className="absolute top-full right-0 mt-1.5 z-[150] py-1.5 rounded-xl min-w-[180px]"
+                style={{
+                  background: 'hsl(var(--background)/0.98)',
+                  backdropFilter: 'blur(20px)',
+                  WebkitBackdropFilter: 'blur(20px)',
+                  border: '1px solid rgba(255,255,255,0.07)',
+                  boxShadow: '0 16px 48px rgba(0,0,0,0.45)',
+                }}
+              >
+                {overflowDomains.map(domain => {
+                  const isActive = meta.domain === domain.id;
+                  const isOpen   = openDomain === domain.id;
+                  const domainHref = isPortalMode ? portalHome : `/workspace/${domain.id}`;
+                  return (
+                    <div
+                      key={domain.id}
+                      ref={el => { if (el) tabRefs.current.set(domain.id, el); }}
+                      role="menuitem"
+                      className={cn(
+                        "flex items-center gap-2 mx-1.5 px-2.5 h-[32px] rounded-md text-[11px] font-semibold transition-all duration-150 cursor-pointer",
+                        isActive || isOpen
+                          ? "text-foreground bg-white/[0.08]"
+                          : "text-muted-foreground/70 hover:text-foreground hover:bg-white/[0.05]"
+                      )}
+                      onMouseEnter={() => { cancelClose(); setOpen(domain.id); setOverflowOpen(false); }}
+                      onMouseLeave={scheduleClose}
+                    >
+                      <Link
+                        href={domainHref}
+                        data-testid={`nav-domain-${domain.id}`}
+                        onClick={() => { setOpen(null); setOverflowOpen(false); }}
+                        className="flex items-center gap-2 flex-1"
+                        aria-label={`${domain.label} workspace`}
+                      >
+                        <domain.icon className={cn("w-3.5 h-3.5 flex-shrink-0", isActive ? domain.color : '')} />
+                        <span>{domain.label}</span>
+                      </Link>
+                      <ChevronRight className="w-3 h-3 opacity-40 flex-shrink-0" />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Favorites strip — sits between centre nav and right zone ── */}
         <div className="hidden xl:flex items-center mx-2 flex-shrink-0 overflow-hidden">
