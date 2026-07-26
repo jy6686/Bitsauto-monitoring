@@ -44,20 +44,21 @@ export const moduleRegistry: Record<string, ModuleComponent> = {
   "clients":                   lazy(() => import("@/pages/clients")),
 
   // ── NOC (Phase 6 follow-up — Clients domain, migration 035) ──────────────────
-  // navigation_modules seeded these keys underscore-style in migration 031 and
-  // they were never kebab-cased in 032 (company/Clients domain wasn't assigned to
-  // any portal until 035). Registry keys below match the exact DB module_key
-  // values as-is — verified against App.tsx's actual <Route> bindings, no guessing.
-  "client_portal":             lazy(() => import("@/pages/client-portal")),
-  "client_identity":           lazy(() => import("@/pages/client-identity")),
-  "kam_dashboard":             lazy(() => import("@/pages/kam-dashboard")),
+  // navigation_modules seeded these as underscore keys in migration 031, but
+  // migration 033's "twinless rename" step (no WHERE-clause restriction beyond
+  // "contains an underscore") silently kebab-cased every one of them except
+  // reseller/dids (which never had underscores). Verified against the live
+  // navigation_modules table on Replit dev, not the migration source files —
+  // registry keys below are the actual current DB module_key values.
+  "client-portal":             lazy(() => import("@/pages/client-portal")),
+  "client-identity":           lazy(() => import("@/pages/client-identity")),
   "reseller":                  lazy(() => import("@/pages/reseller")),
-  "company_list":              lazy(() => import("@/pages/company-list")),
-  "client_wizard":             lazy(() => import("@/pages/client-wizard")),
-  "company_onboarding":        lazy(() => import("@/pages/company-onboarding")),
-  "company_profile":           lazy(() => import("@/pages/company-profile")),
+  "company-list":              lazy(() => import("@/pages/company-list")),
+  "client-wizard":             lazy(() => import("@/pages/client-wizard")),
+  "company-onboarding":        lazy(() => import("@/pages/company-onboarding")),
+  "company-profile":           lazy(() => import("@/pages/company-profile")),
   "dids":                      lazy(() => import("@/pages/dids")),
-  "account_names":             lazy(() => import("@/pages/account-names")),
+  "account-names":             lazy(() => import("@/pages/account-names")),
   "partner-profiles":          lazy(() => import("@/pages/partner-profiles")),
   "deals":                     lazy(() => import("@/pages/deals")),
   "rate-manager":              lazy(() => import("@/pages/rate-manager")),
