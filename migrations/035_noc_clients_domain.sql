@@ -14,7 +14,16 @@
 -- Submenu scope: matched to the live main-platform Clients cascade (verified via
 -- screenshot, not the full DOMAINS[] source list) — 8 of the 11 company-domain
 -- modules. 3 modules that exist in navigation_modules but are not part of the
--- live main-platform cascade are hidden for NOC: client_portal, reseller, dids.
+-- live main-platform cascade are hidden for NOC: client-portal, reseller, dids.
+--
+-- Module key note: the first version of this migration used underscore keys
+-- (client_portal, client_identity, company_list, etc.), matching the original
+-- 031 seed. That failed with a portal_module_overrides FK violation — migration
+-- 033's "twinless rename" step (no WHERE-clause restriction beyond "contains an
+-- underscore") had already silently kebab-cased every remaining company-domain
+-- key except reseller/dids (which never had underscores). Keys below are the
+-- actual current navigation_modules values, verified via direct query on
+-- Replit dev, not assumed from migration source files.
 --
 -- Prerequisites: 031, 032, 033, 034 applied.
 -- Idempotent: ON CONFLICT DO NOTHING / DO UPDATE; re-run is safe.
@@ -36,7 +45,7 @@ ON CONFLICT (portal_slug, domain_id) DO NOTHING;
 
 -- ── 3. Hide the 3 modules not present in the live main-platform Clients cascade ─
 INSERT INTO portal_module_overrides (portal_slug, module_key, visibility, reason) VALUES
-  ('noc', 'client_portal', 'hidden', 'Not part of the live main-platform Clients cascade'),
+  ('noc', 'client-portal', 'hidden', 'Not part of the live main-platform Clients cascade'),
   ('noc', 'reseller',      'hidden', 'Not part of the live main-platform Clients cascade'),
   ('noc', 'dids',          'hidden', 'Not part of the live main-platform Clients cascade')
 ON CONFLICT (portal_slug, module_key) DO UPDATE SET
@@ -67,10 +76,10 @@ BEGIN
   SELECT COUNT(*) INTO company_hidden
     FROM portal_module_overrides
     WHERE portal_slug = 'noc' AND visibility = 'hidden'
-      AND module_key IN ('client_portal', 'reseller', 'dids');
+      AND module_key IN ('client-portal', 'reseller', 'dids');
 
   IF company_hidden <> 3 THEN
-    RAISE EXCEPTION 'company hidden overrides=% (want 3: client_portal, reseller, dids)', company_hidden;
+    RAISE EXCEPTION 'company hidden overrides=% (want 3: client-portal, reseller, dids)', company_hidden;
   END IF;
 END $$;
 
