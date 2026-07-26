@@ -42,6 +42,22 @@ export const moduleRegistry: Record<string, ModuleComponent> = {
   // ── Commercial (Phase 1) ─────────────────────────────────────────────────────
   "kam-dashboard":             lazy(() => import("@/pages/kam-dashboard")),
   "clients":                   lazy(() => import("@/pages/clients")),
+
+  // ── NOC (Phase 6 follow-up — Clients domain, migration 035) ──────────────────
+  // navigation_modules seeded these keys underscore-style in migration 031 and
+  // they were never kebab-cased in 032 (company/Clients domain wasn't assigned to
+  // any portal until 035). Registry keys below match the exact DB module_key
+  // values as-is — verified against App.tsx's actual <Route> bindings, no guessing.
+  "client_portal":             lazy(() => import("@/pages/client-portal")),
+  "client_identity":           lazy(() => import("@/pages/client-identity")),
+  "kam_dashboard":             lazy(() => import("@/pages/kam-dashboard")),
+  "reseller":                  lazy(() => import("@/pages/reseller")),
+  "company_list":              lazy(() => import("@/pages/company-list")),
+  "client_wizard":             lazy(() => import("@/pages/client-wizard")),
+  "company_onboarding":        lazy(() => import("@/pages/company-onboarding")),
+  "company_profile":           lazy(() => import("@/pages/company-profile")),
+  "dids":                      lazy(() => import("@/pages/dids")),
+  "account_names":             lazy(() => import("@/pages/account-names")),
   "partner-profiles":          lazy(() => import("@/pages/partner-profiles")),
   "deals":                     lazy(() => import("@/pages/deals")),
   "rate-manager":              lazy(() => import("@/pages/rate-manager")),
