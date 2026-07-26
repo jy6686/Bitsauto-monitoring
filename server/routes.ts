@@ -1522,6 +1522,28 @@ export async function registerRoutes(
     }
   });
 
+  // ── TEMPORARY diagnostic — remove once the missing-Clients-domain bug is
+  // resolved. Reports what the RUNNING process's own DB connection sees,
+  // bypassing all guessing about which database a deployment is actually on.
+  app.get('/api/debug/noc-workspace-trace', async (req: any, res) => {
+    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
+    try {
+      const dbInfo = await db.execute(sql`SELECT current_database() AS db, inet_server_addr()::text AS host, inet_server_port() AS port`);
+      const rawAssignments = await db.execute(sql`SELECT portal_slug, domain_id, display_order FROM portal_domain_assignments WHERE portal_slug = 'noc' ORDER BY display_order`);
+      const rawDomainRow = await db.execute(sql`SELECT id, label, is_active FROM navigation_domains WHERE id = 'company'`);
+      const workspace = await storage.getPortalWorkspace('noc');
+      res.json({
+        connection: dbInfo.rows?.[0] ?? dbInfo,
+        portal_domain_assignments_raw: rawAssignments.rows ?? rawAssignments,
+        navigation_domains_company_row: rawDomainRow.rows ?? rawDomainRow,
+        getPortalWorkspace_domainIds: workspace?.navigation.domains.map(d => d.id) ?? null,
+        navigationChecksum: workspace?.navigationChecksum ?? null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message, stack: err.stack });
+    }
+  });
+
   // ── Portal Workspace — single source of truth for portal UI ──────────────────
   // Returns: portal meta, workspace config, navigation (domains→groups→items),
   // portal-scoped search index, quick-actions and dashboard config.
