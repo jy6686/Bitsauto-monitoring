@@ -25,6 +25,14 @@
 -- actual current navigation_modules values, verified via direct query on
 -- Replit dev, not assumed from migration source files.
 --
+-- Schema note: navigation_modules has NO domain_id column (confirmed via
+-- migration 031's actual INSERT column list: module_key, title, icon, route,
+-- category, is_system, sort_order, group_id). Modules link to domains only
+-- through group_id -> navigation_groups.domain_id. The first version of this
+-- migration's verify block queried navigation_modules.domain_id directly and
+-- failed with "column does not exist" — fixed below to join through
+-- navigation_groups.
+--
 -- Prerequisites: 031, 032, 033, 034 applied.
 -- Idempotent: ON CONFLICT DO NOTHING / DO UPDATE; re-run is safe.
 
@@ -67,7 +75,9 @@ BEGIN
   END IF;
 
   SELECT COUNT(*) INTO company_modules
-    FROM navigation_modules WHERE domain_id = 'company';
+    FROM navigation_modules m
+    JOIN navigation_groups g ON g.id = m.group_id
+    WHERE g.domain_id = 'company';
 
   IF company_modules <> 11 THEN
     RAISE EXCEPTION 'company domain module count=% (want 11)', company_modules;
