@@ -307,6 +307,38 @@ on another with no record of why. A stored per-switch profile makes that differe
 and diagnosable, and gives a single answer to "would upgrading this switch help?" — today
 that question requires re-running failed provisioning by hand.
 
+## When discovery may happen (frozen governance rule)
+
+> **Capability discovery is never performed implicitly during a production business
+> operation unless the capability is currently `UNKNOWN`.**
+
+| State | Behaviour during a business operation |
+|---|---|
+| `CONFIRMED` / `MANUAL` | Use it. No probing. |
+| `UNSUPPORTED` | Do not re-probe on every request — take the alternate path or fail with a classified reason. |
+| `UNKNOWN` | A controlled discovery may run and populate it (see the write rule below). |
+| invalidated | Reset to `UNKNOWN`; wait for a deliberate verification run or an approved discovery path. |
+
+This is what makes production traffic predictable: today the same five dead method names
+are re-probed on every provisioning attempt, paying the round-trips forever and learning
+nothing.
+
+**Write rule — resolves this against "detection is a deliberate operation" (§trap 4).**
+Both rules hold, at different grains:
+
+- An implicit discovery from `UNKNOWN` may write **only capability-class evidence** — an
+  explicit "unknown method"-style fault, i.e. a fact about the build. It is stamped
+  `CONFIRMED` with evidence noting it was observed implicitly, during which operation, and
+  under which run id.
+- It may **never** write permission outcomes or transient failures. Those stay attempt
+  records, exactly as before — which is what stops a bad network minute or a
+  thin-privileged account from being recorded as a switch limitation.
+
+So: business traffic can bootstrap a capability it genuinely does not know, but it can
+never *downgrade* the platform's understanding of a switch. Together with the governing
+principle at the top, the two rules define both how certainty is earned and when it must be
+re-established.
+
 ## Vendor documentation survey (2026-07-27)
 
 Searched Sippy's public support portal. **Article bodies were not readable from this
