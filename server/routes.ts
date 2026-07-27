@@ -3578,7 +3578,13 @@ export async function registerRoutes(
             // the PORTAL attempt; this shows what createServicePlan() itself did,
             // which is the question that decides the provisioning architecture.
             xmlrpcAttempts: planRes.xmlrpcAttempts,
-            manualStep: `Tariff "${name.trim()}" (ID ${tariffRes.iTariff}) was created successfully.\n\nTo add the Service Plan:\n1. Open Sippy → log in as ssp-root\n2. Go to: Service Plans → Add New\n3. Set Plan Name to "${resolvedPlanName}"\n4. Select Basic Tariff: "${name.trim()}" (ID ${tariffRes.iTariff})\n5. Click Save\n\nOnce saved, click "Create Tariff + Service Plan" again here — the system will auto-detect and link the plan.`,
+            // Operator-facing. Names no Sippy account: which credential the
+            // platform provisions with is an implementation detail, and per
+            // CAP-003's layering rule the UI carries business concepts only.
+            // This block is expected to disappear entirely once automated
+            // Service Plan creation is unblocked — it is a temporary
+            // operational workaround, not a designed step in the workflow.
+            manualStep: `Tariff "${name.trim()}" (ID ${tariffRes.iTariff}) was created successfully.\n\nA Service Plan still needs to be added. This requires an authorised Sippy administrator account:\n1. Open Sippy and sign in with an account permitted to manage Service Plans\n2. Go to: Service Plans → Add New\n3. Set Plan Name to "${resolvedPlanName}"\n4. Select Basic Tariff: "${name.trim()}" (ID ${tariffRes.iTariff})\n5. Click Save\n\nOnce saved, click "Create Tariff + Service Plan" again here — the system will auto-detect and link the plan.`,
           });
         }
 
