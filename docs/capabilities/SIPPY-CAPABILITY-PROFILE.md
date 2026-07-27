@@ -31,7 +31,31 @@ array of candidate names tried in sequence until one doesn't fault:
 Every one pays full network round-trips for each miss, on every call, forever. None
 records what it learned. A new integration adds a 13th array.
 
-## Target design
+## Target design — a Switch Capability Registry (core platform service)
+
+This is a **platform service, not a utility inside `sippy.ts`**. Capability discovery is a
+platform concern; `sippy.ts` becomes a consumer of it, not the place it lives:
+
+```
+server/services/switch-capabilities/
+    analyzer.ts    — runs detection probes (deliberate, operator-triggered)
+    registry.ts    — stores/serves profiles per switch
+    verifier.ts    — re-verification + staleness
+    cache.ts       — in-process read cache
+
+Capability Registry → Provisioning Engine → Sippy Service
+```
+
+The platform already manages multiple environments (Production, DID, Testing, Voice OTP,
+Lab) via the `switches` table, and they will not have identical capabilities:
+
+| Switch | Version | Service Plan XML-RPC | Portal automation | Rate upload | Status |
+|---|---|---|---|---|---|
+| PROD-1 | 2024 | ✗ | ✓ | ✓ | Certified |
+| PROD-2 | 2025 | ✓ | ✓ | ✓ | Certified |
+| LAB | 2023 | ✗ | ✗ | ✓ | Legacy |
+
+Every provisioning decision then becomes deterministic instead of discovered at runtime.
 
 Detect once per switch, store, and have every executor **ask** instead of probe:
 
@@ -64,11 +88,32 @@ skip or downgrade itself before doing any network work.
 This is the part that will bite an implementation that treats the profile as a simple
 boolean cache. Today's evidence shows **two different failures on the same feature**:
 
-| Class | Example (2026-07-27) | Stability | Cacheable? |
+| Class | Example (2026-07-27) | Belongs to | Cacheable? |
 |---|---|---|---|
-| **Capability absent** | `createServicePlan` → `UNKNOWN_METHOD` | Stable until a Sippy upgrade | ✅ yes |
-| **Permission denied** | portal Service Plan INSERT refused for the provisioning account | Changes the moment the account or its privileges change | ⚠️ account-scoped only |
-| **Transient** | timeout, network error, switch restarting | Meaningless | ❌ **never** |
+| **Capability absent** | `createServicePlan` → `UNKNOWN_METHOD` | **Switch** — stable until upgrade/patch/module install | ✅ yes |
+| **Permission denied** | portal Service Plan INSERT refused | **Switch + provisioning account** — an identity capability, not a switch one | ⚠️ account-keyed only |
+| **Transient** | timeout, network error, switch restarting | Nothing | ❌ **never** |
+
+**Three states, not two.** Alongside `SUPPORTED` / `UNSUPPORTED` there must be
+**`UNKNOWN` = never tested**. Without it, "not yet verified" is indistinguishable from
+"verified absent", and the tempting shortcut `timeout → mark unsupported` becomes
+representable. With `UNKNOWN` as the initial state, it is not.
+
+**Store evidence, not just a verdict.** A bare boolean is unmaintainable six months later;
+the record must justify itself:
+
+```
+Capability:  XMLRPC_SERVICEPLAN_CREATE
+Status:      UNSUPPORTED
+Evidence:    XML-RPC fault -32601 "Unknown method createServicePlan"
+Verified:    2026-07-27 18:42 UTC   By: Capability Analyzer v1
+
+Capability:  PORTAL_SERVICEPLAN_INSERT
+Status:      DENIED
+Scope:       account (not switch)
+Evidence:    HTTP 200, portal response "Cannot insert"
+Verified:    2026-07-27            Account: <provisioning account>
+```
 
 Consequences that must be designed in:
 
@@ -81,7 +126,20 @@ Consequences that must be designed in:
    is sufficient; a TTL is optional) and the stored `detected_at` must be surfaced wherever
    the profile influences behaviour.
 4. **Detection is a deliberate operation**, not a side effect of a failed business action —
-   otherwise a bad day for the network silently degrades the platform's model of the switch.
+   production traffic must not redefine the platform's understanding of a switch. Expose an
+   administrator action, **"Verify Switch Capabilities"**, which runs the analyzer
+   intentionally and stores an evidence-backed result. This matches the platform's existing
+   governance posture: diagnostics are deliberate, versioned, and reviewable rather than
+   implicit side effects.
+
+### Precedent already in production code
+
+`createSippyServicePlan()`'s portal path collapsed exactly these classes: a session bounced
+to the login form, a refused INSERT, and a thrown request all returned the single
+`PROVISIONING_PERMISSION_DENIED`. Only the middle one evidences a permission limit. Fixed
+2026-07-27 by recording per-attempt evidence (`portalAttempts`) and classifying from it —
+`PROVISIONING_SESSION_REJECTED` and `PROVISIONING_PORTAL_ERROR` now exist as distinct
+outcomes. The registry must not reintroduce the collapse at a higher level.
 
 ## Value in a multi-switch deployment
 
