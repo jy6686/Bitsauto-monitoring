@@ -92,7 +92,7 @@ import {
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
 import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
 import { refreshVendorAcds } from "./vendor-acd-cache";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, navigationModules, navigationDomains, portalDomainAssignments } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, navigationModules } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, inArray, sql, asc } from "drizzle-orm";
 const sqlExpr = sql;
@@ -1514,82 +1514,6 @@ export async function registerRoutes(
       res.json(nav);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ── TEMPORARY diagnostic — remove once the missing-Clients-domain bug is
-  // resolved. Reports what the RUNNING process's own DB connection sees,
-  // bypassing all guessing about which database a deployment is actually on.
-  app.get('/api/debug/noc-workspace-trace', async (req: any, res) => {
-    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
-    try {
-      const dbInfo = await db.execute(sql`SELECT current_database() AS db, inet_server_addr()::text AS host, inet_server_port() AS port`);
-      const rawAssignments = await db.execute(sql`SELECT portal_slug, domain_id, display_order FROM portal_domain_assignments WHERE portal_slug = 'noc' ORDER BY display_order`);
-      const rawDomainRow = await db.execute(sql`SELECT id, label, is_active FROM navigation_domains WHERE id = 'company'`);
-      // Reproduces the EXACT join used by getPortalWorkspace(), but as a LEFT JOIN
-      // with length/byte checks so a silent match failure (whitespace, hidden char,
-      // case) shows up instead of just quietly dropping the row like the real
-      // INNER JOIN does.
-      const joinProbe = await db.execute(sql`
-        SELECT
-          pda.domain_id                                  AS pda_domain_id,
-          nd.id                                           AS nd_id,
-          length(pda.domain_id)                           AS pda_len,
-          length(nd.id)                                   AS nd_len,
-          encode(pda.domain_id::bytea, 'hex')              AS pda_hex,
-          encode(nd.id::bytea, 'hex')                      AS nd_hex,
-          (pda.domain_id = nd.id)                          AS exact_match,
-          nd.is_active                                     AS nd_is_active
-        FROM portal_domain_assignments pda
-        LEFT JOIN navigation_domains nd ON pda.domain_id = nd.id
-        WHERE pda.portal_slug = 'noc'
-        ORDER BY pda.display_order
-      `);
-      // Checkpoint 2 — the EXACT Drizzle query storage.ts:3506-3516 runs to build
-      // domainRows, copy-pasted verbatim (not reproduced from memory) so this
-      // checkpoint can't itself be a source of drift from the real code path.
-      const domainRowsAfterJoin = await db.select({
-        domainId:     portalDomainAssignments.domainId,
-        displayOrder: portalDomainAssignments.displayOrder,
-        label:        navigationDomains.label,
-        iconKey:      navigationDomains.iconKey,
-        colorClass:   navigationDomains.colorClass,
-      })
-      .from(portalDomainAssignments)
-      .innerJoin(navigationDomains, eq(portalDomainAssignments.domainId, navigationDomains.id))
-      .where(eq(portalDomainAssignments.portalSlug, 'noc'))
-      .orderBy(asc(portalDomainAssignments.displayOrder));
-
-      const workspace = await storage.getPortalWorkspace('noc');
-      res.json({
-        connection: dbInfo.rows?.[0] ?? dbInfo,
-        // Checkpoint 1
-        portal_domain_assignments_raw: rawAssignments.rows ?? rawAssignments,
-        navigation_domains_company_row: rawDomainRow.rows ?? rawDomainRow,
-        join_probe: joinProbe.rows ?? joinProbe,
-        // Checkpoint 2 — same query as the real function, run independently in
-        // this same request. If company is present here but absent from
-        // getPortalWorkspace_domainIds below, the bug is AFTER the join
-        // (assembly/pruning logic), not the join itself.
-        domainRowsAfterJoin,
-        // Checkpoint 3 — actual function output
-        getPortalWorkspace_domainIds: workspace?.navigation.domains.map(d => d.id) ?? null,
-        navigationChecksum: workspace?.navigationChecksum ?? null,
-        // Checkpoint 4 — proof of WHICH code the running process is actually
-        // executing for storage.getPortalWorkspace, independent of what git/the
-        // repo checkout says is there. domainRowsAfterJoin (checkpoint 2) proves
-        // the query itself returns company; storage.ts:3588-3610 (re-read live,
-        // verbatim) has no code path capable of dropping a domain from the
-        // top-level list after that point. If those two facts are both true,
-        // the running process must be executing a different function body than
-        // this repo's storage.ts -- a stale build, a shadowed module, or a
-        // different storage instance. This dumps the actual runtime source so
-        // that stops being a guess.
-        getPortalWorkspace_runtime_source: String((storage as any).getPortalWorkspace).slice(0, 6000),
-        getPortalWorkspace_fn_length: String((storage as any).getPortalWorkspace).length,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message, stack: err.stack });
     }
   });
 
