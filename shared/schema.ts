@@ -1426,6 +1426,21 @@ export const companies = pgTable("companies", {
   sippyIAccount:       integer("sippy_i_account"),
   sippyITariff:        integer("sippy_i_tariff"),
   wizardDraft:         text("wizard_draft"),
+  // ── Billing-object provisioning (migration 036) ─────────────────────────────
+  // Written by Company Profile Setup so its Tariff/Service Plan output is durable.
+  // DELIBERATELY separate from provisioningStatus/provisionedAt above, which are the
+  // ACCOUNT provisioning state machine owned by the Account Wizard — the provision
+  // endpoint 409s when provisioningStatus === 'provisioned', so writing it from a
+  // billing action could block account provisioning entirely.
+  // See docs/ACCOUNT-WIZARD-GOVERNANCE-PHASE1.md.
+  sippyIBillingPlan:   integer("sippy_i_billing_plan"),
+  sippyBillingCycle:   integer("sippy_billing_cycle"),
+  sippyTariffCurrency: varchar("sippy_tariff_currency", { length: 8 }),
+  billingProvisionStatus:     varchar("billing_provision_status", { length: 16 }), // success | manual | failed
+  billingProvisionedAt:       timestamp("billing_provisioned_at"),
+  billingProvisionReasonCode: varchar("billing_provision_reason_code", { length: 48 }),
+  billingProvisionError:      text("billing_provision_error"),
+  billingProvisionTraceId:    varchar("billing_provision_trace_id", { length: 64 }),
   // Activation tracking (Sprint A) — set when first rate sheet is sent
   activatedAt:         timestamp("activated_at"),
   activatedBy:         varchar("activated_by",         { length: 255 }),

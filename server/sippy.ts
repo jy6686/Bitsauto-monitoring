@@ -7769,7 +7769,18 @@ export async function createSippyServicePlan(
   description?: string,
   billingCycle?: number,
   adminWebPassword?: string,
-): Promise<{ success: boolean; planId?: number; planName?: string; error?: string; needsManualCreation?: boolean; alreadyExists?: boolean }> {
+): Promise<{
+  success: boolean;
+  planId?: number;
+  planName?: string;
+  error?: string;
+  /** Stable machine-readable classification of a fallback. The caller/UI keys off
+   *  this, never off the wording of `error` — so messages can be reworded or
+   *  localised without breaking presentation logic, and occurrences can be counted. */
+  reasonCode?: 'PROVISIONING_NOT_CONFIGURED' | 'PROVISIONING_LOGIN_FAILED' | 'PROVISIONING_PERMISSION_DENIED' | 'UNKNOWN_ERROR';
+  needsManualCreation?: boolean;
+  alreadyExists?: boolean;
+}> {
   const base = sippyBase(portalUrl);
 
   // ── Step 0: check if a plan already exists via XML-RPC ───────────────────
@@ -7852,6 +7863,7 @@ export async function createSippyServicePlan(
       return {
         success: false,
         needsManualCreation: true,
+        reasonCode: 'PROVISIONING_NOT_CONFIGURED',
         error: 'Provisioning credentials (SIPPY_PROV_USERNAME / SIPPY_PROV_PASSWORD) are not configured. Add a Sippy reseller/admin account to the secrets vault to enable automated service plan creation.',
       };
     }
@@ -7859,6 +7871,7 @@ export async function createSippyServicePlan(
     return {
       success: false,
       needsManualCreation: true,
+      reasonCode: 'PROVISIONING_LOGIN_FAILED',
       error: `Provisioning login failed: ${e?.message}. Check that SIPPY_PROV_USERNAME / SIPPY_PROV_PASSWORD are correct reseller/admin credentials.`,
     };
   }
@@ -7984,6 +7997,7 @@ export async function createSippyServicePlan(
     return {
       success: false,
       needsManualCreation: true,
+      reasonCode: 'PROVISIONING_PERMISSION_DENIED',
       error: `Provisioning account "${process.env.SIPPY_PROV_USERNAME}" authenticated but Sippy rejected the Service Plan INSERT. Ensure the account has reseller or admin privileges in Sippy, then retry.`,
     };
   }

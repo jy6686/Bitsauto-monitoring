@@ -97,7 +97,7 @@ import {
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
 import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
 import { refreshVendorAcds } from "./vendor-acd-cache";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, navigationModules, navigationDomains, portalDomainAssignments } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, navigationModules } from "@shared/schema";
 import { db } from "./db";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, inArray, sql, asc } from "drizzle-orm";
 const sqlExpr = sql;
@@ -1519,82 +1519,6 @@ export async function registerRoutes(
       res.json(nav);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ── TEMPORARY diagnostic — remove once the missing-Clients-domain bug is
-  // resolved. Reports what the RUNNING process's own DB connection sees,
-  // bypassing all guessing about which database a deployment is actually on.
-  app.get('/api/debug/noc-workspace-trace', async (req: any, res) => {
-    if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });
-    try {
-      const dbInfo = await db.execute(sql`SELECT current_database() AS db, inet_server_addr()::text AS host, inet_server_port() AS port`);
-      const rawAssignments = await db.execute(sql`SELECT portal_slug, domain_id, display_order FROM portal_domain_assignments WHERE portal_slug = 'noc' ORDER BY display_order`);
-      const rawDomainRow = await db.execute(sql`SELECT id, label, is_active FROM navigation_domains WHERE id = 'company'`);
-      // Reproduces the EXACT join used by getPortalWorkspace(), but as a LEFT JOIN
-      // with length/byte checks so a silent match failure (whitespace, hidden char,
-      // case) shows up instead of just quietly dropping the row like the real
-      // INNER JOIN does.
-      const joinProbe = await db.execute(sql`
-        SELECT
-          pda.domain_id                                  AS pda_domain_id,
-          nd.id                                           AS nd_id,
-          length(pda.domain_id)                           AS pda_len,
-          length(nd.id)                                   AS nd_len,
-          encode(pda.domain_id::bytea, 'hex')              AS pda_hex,
-          encode(nd.id::bytea, 'hex')                      AS nd_hex,
-          (pda.domain_id = nd.id)                          AS exact_match,
-          nd.is_active                                     AS nd_is_active
-        FROM portal_domain_assignments pda
-        LEFT JOIN navigation_domains nd ON pda.domain_id = nd.id
-        WHERE pda.portal_slug = 'noc'
-        ORDER BY pda.display_order
-      `);
-      // Checkpoint 2 — the EXACT Drizzle query storage.ts:3506-3516 runs to build
-      // domainRows, copy-pasted verbatim (not reproduced from memory) so this
-      // checkpoint can't itself be a source of drift from the real code path.
-      const domainRowsAfterJoin = await db.select({
-        domainId:     portalDomainAssignments.domainId,
-        displayOrder: portalDomainAssignments.displayOrder,
-        label:        navigationDomains.label,
-        iconKey:      navigationDomains.iconKey,
-        colorClass:   navigationDomains.colorClass,
-      })
-      .from(portalDomainAssignments)
-      .innerJoin(navigationDomains, eq(portalDomainAssignments.domainId, navigationDomains.id))
-      .where(eq(portalDomainAssignments.portalSlug, 'noc'))
-      .orderBy(asc(portalDomainAssignments.displayOrder));
-
-      const workspace = await storage.getPortalWorkspace('noc');
-      res.json({
-        connection: dbInfo.rows?.[0] ?? dbInfo,
-        // Checkpoint 1
-        portal_domain_assignments_raw: rawAssignments.rows ?? rawAssignments,
-        navigation_domains_company_row: rawDomainRow.rows ?? rawDomainRow,
-        join_probe: joinProbe.rows ?? joinProbe,
-        // Checkpoint 2 — same query as the real function, run independently in
-        // this same request. If company is present here but absent from
-        // getPortalWorkspace_domainIds below, the bug is AFTER the join
-        // (assembly/pruning logic), not the join itself.
-        domainRowsAfterJoin,
-        // Checkpoint 3 — actual function output
-        getPortalWorkspace_domainIds: workspace?.navigation.domains.map(d => d.id) ?? null,
-        navigationChecksum: workspace?.navigationChecksum ?? null,
-        // Checkpoint 4 — proof of WHICH code the running process is actually
-        // executing for storage.getPortalWorkspace, independent of what git/the
-        // repo checkout says is there. domainRowsAfterJoin (checkpoint 2) proves
-        // the query itself returns company; storage.ts:3588-3610 (re-read live,
-        // verbatim) has no code path capable of dropping a domain from the
-        // top-level list after that point. If those two facts are both true,
-        // the running process must be executing a different function body than
-        // this repo's storage.ts -- a stale build, a shadowed module, or a
-        // different storage instance. This dumps the actual runtime source so
-        // that stops being a guess.
-        getPortalWorkspace_runtime_source: String((storage as any).getPortalWorkspace).slice(0, 6000),
-        getPortalWorkspace_fn_length: String((storage as any).getPortalWorkspace).length,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message, stack: err.stack });
     }
   });
 
@@ -3555,11 +3479,36 @@ export async function registerRoutes(
     async (req, res) => {
       try {
         const settings = await storage.getSettings();
-        const { name, planName, currency, billingCycle } = req.body;
+        const { name, planName, currency, billingCycle, companyId } = req.body;
         if (!name?.trim())     return res.status(400).json({ success: false, error: 'name is required.' });
         if (!currency?.trim()) return res.status(400).json({ success: false, error: 'currency is required.' });
 
         const resolvedPlanName = planName?.trim() || name.trim();
+
+        // ── Optional persistence target (migration 036) ─────────────────────────
+        // When companyId is supplied, the Tariff/Service Plan IDs are persisted to
+        // that company record instead of being returned to the browser and lost.
+        // When omitted, behaviour is byte-identical to before — this endpoint has
+        // always been name-based and callers that don't pass companyId are unaffected.
+        //
+        // Writes ONLY the billing_* / sippy_i_billing_plan columns. Never touches
+        // provisioningStatus / provisionedAt / sippyIAccount — those belong to the
+        // Account Wizard's state machine, which is frozen
+        // (docs/ACCOUNT-WIZARD-GOVERNANCE-PHASE1.md §2).
+        const persistCompanyId = Number.isFinite(Number(companyId)) ? Number(companyId) : null;
+        const persistBilling = async (fields: Record<string, any>) => {
+          if (!persistCompanyId) return;
+          try {
+            await storage.updateCompany(persistCompanyId, {
+              billingProvisionedAt: new Date(),
+              ...fields,
+            } as any);
+          } catch (e: any) {
+            // Never fail the provisioning response because bookkeeping failed —
+            // the Sippy objects may already exist by this point.
+            console.error(`[provisioning] persist to company ${persistCompanyId} failed: ${e?.message}`);
+          }
+        };
 
         const { username, password } = sippyXmlCreds(settings);
         const portalUrl = sippyPortalUrl(settings);
@@ -3584,6 +3533,16 @@ export async function registerRoutes(
 
         // If the plan already existed or was created successfully — full success
         if (planRes.success) {
+          await persistBilling({
+            sippyITariff:               tariffRes.iTariff,
+            sippyIBillingPlan:          planRes.planId ?? null,
+            sippyTariffCurrency:        currency.trim(),
+            sippyBillingCycle:          billingCycle ? Number(billingCycle) : 3,
+            billingProvisionStatus:     'success',
+            billingProvisionReasonCode: null,
+            billingProvisionError:      null,
+            billingProvisionTraceId:    null,
+          });
           return res.json({
             success: true,
             name: name.trim(),
@@ -3591,6 +3550,7 @@ export async function registerRoutes(
             tariffId: tariffRes.iTariff,
             planId: planRes.planId,
             alreadyExists: planRes.alreadyExists,
+            persisted: !!persistCompanyId,
           });
         }
 
@@ -3599,6 +3559,28 @@ export async function registerRoutes(
         if (planRes.needsManualCreation) {
           const sippyBase = portalUrl ? portalUrl.replace(/\/$/, '') : '';
           const sippyPortalLink = sippyBase ? `${sippyBase}/c1/service_plans.php?action=add` : undefined;
+
+          // Correlation ID: logged server-side AND returned to the client, so a
+          // screenshot from an operator can be grepped straight out of the logs.
+          // An ID that only appears in the UI would be decorative.
+          const d = new Date();
+          const correlationId = `SP-${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+          const reasonCode = planRes.reasonCode ?? 'UNKNOWN_ERROR';
+          console.warn(`[provisioning] ${correlationId} service-plan fallback to manual — company="${name.trim()}" plan="${resolvedPlanName}" tariff=${tariffRes.iTariff} reasonCode=${reasonCode} reason="${planRes.error ?? 'unknown'}"`);
+
+          // Tariff DID succeed — persist it, and record why the plan didn't, so the
+          // company record shows exactly what still needs doing and the trace ID
+          // links back to the log line above.
+          await persistBilling({
+            sippyITariff:               tariffRes.iTariff,
+            sippyTariffCurrency:        currency.trim(),
+            sippyBillingCycle:          billingCycle ? Number(billingCycle) : 3,
+            billingProvisionStatus:     'manual',
+            billingProvisionReasonCode: reasonCode,
+            billingProvisionError:      planRes.error ?? null,
+            billingProvisionTraceId:    correlationId,
+          });
+
           return res.json({
             success: true,
             partial: true,
@@ -3607,11 +3589,31 @@ export async function registerRoutes(
             tariffId: tariffRes.iTariff,
             planId: null,
             sippyPortalLink,
+            correlationId,
+            persisted: !!persistCompanyId,
+            // Machine-readable classification — the UI keys off this, never off
+            // the wording of `reason`. Lets messages be reworded/localised and
+            // occurrences counted without touching presentation logic.
+            reasonCode,
+            // Raw technical detail, for the admin-only disclosure. Previously
+            // discarded by this branch entirely, so the actual cause was visible
+            // nowhere but the server log.
+            reason: planRes.error,
             manualStep: `Tariff "${name.trim()}" (ID ${tariffRes.iTariff}) was created successfully.\n\nTo add the Service Plan:\n1. Open Sippy → log in as ssp-root\n2. Go to: Service Plans → Add New\n3. Set Plan Name to "${resolvedPlanName}"\n4. Select Basic Tariff: "${name.trim()}" (ID ${tariffRes.iTariff})\n5. Click Save\n\nOnce saved, click "Create Tariff + Service Plan" again here — the system will auto-detect and link the plan.`,
           });
         }
 
-        res.json({ success: false, error: `Service plan creation failed: ${planRes.error}`, tariffId: tariffRes.iTariff });
+        // Hard failure — tariff exists but the plan errored (not a manual fallback).
+        await persistBilling({
+          sippyITariff:               tariffRes.iTariff,
+          sippyTariffCurrency:        currency.trim(),
+          sippyBillingCycle:          billingCycle ? Number(billingCycle) : 3,
+          billingProvisionStatus:     'failed',
+          billingProvisionReasonCode: planRes.reasonCode ?? 'UNKNOWN_ERROR',
+          billingProvisionError:      planRes.error ?? null,
+          billingProvisionTraceId:    null,
+        });
+        res.json({ success: false, error: `Service plan creation failed: ${planRes.error}`, tariffId: tariffRes.iTariff, persisted: !!persistCompanyId });
       } catch (e: any) {
         res.status(500).json({ success: false, error: e.message });
       }

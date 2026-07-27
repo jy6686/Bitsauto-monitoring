@@ -40,8 +40,37 @@ type CreationResult = {
   alreadyExists?: boolean;
   manualStep?: string;
   sippyPortalLink?: string;
+  /** Why automated Service Plan creation fell back (missing/invalid provisioning
+   *  credentials vs. authenticated-but-INSERT-denied). Diagnostic, not guidance.
+   *  Kept behind a "Technical details" disclosure — raw backend text is for
+   *  admins/support, not for whoever is onboarding a client. */
+  reason?: string;
+  /** Machine-readable classification of the fallback. Presentation keys off this. */
+  reasonCode?: string;
+  /** Same ID written to the server log for this fallback, so a screenshot is
+   *  enough for support to locate the exact log line. */
+  correlationId?: string;
   error?: string;
 };
+
+/** reasonCode → operator-facing wording. Owned entirely by the frontend: the
+ *  server emits a stable code, this decides how to phrase it. Keyed on the code
+ *  rather than on the wording of the technical message, so rephrasing the
+ *  backend string can't silently break the mapping. */
+const PROVISIONING_MESSAGES: Record<string, string> = {
+  PROVISIONING_NOT_CONFIGURED:
+    'Automated provisioning is not configured on this environment. An administrator needs to add Sippy provisioning credentials.',
+  PROVISIONING_LOGIN_FAILED:
+    'The provisioning account could not sign in to Sippy. An administrator needs to check the provisioning credentials.',
+  PROVISIONING_PERMISSION_DENIED:
+    'The provisioning account signed in, but Sippy refused to create the Service Plan. An administrator needs to grant it permission.',
+  UNKNOWN_ERROR:
+    'Billing provisioning requires administrator attention.',
+};
+
+function provisioningSummary(reasonCode?: string): string {
+  return PROVISIONING_MESSAGES[reasonCode ?? ''] ?? PROVISIONING_MESSAGES.UNKNOWN_ERROR;
+}
 
 export default function CompanyProfilePage() {
   const queryClient = useQueryClient();
@@ -65,9 +94,25 @@ export default function CompanyProfilePage() {
   const isConfigured = sippySession?.configured === true || sippySession?.active === true;
   const hasSession   = sippySession?.active === true;
 
-  const { data: allCompaniesData } = useQuery<{ companies: { name: string; shortCode: string; provisioningStatus?: string }[] }>({
+  const { data: allCompaniesData } = useQuery<{ companies: { id: number; name: string; shortCode: string; provisioningStatus?: string }[] }>({
     queryKey: ['/api/companies'],
   });
+
+  // Resolve the company record this setup belongs to, by exact name/shortCode match
+  // against the list already loaded above for the duplicate-name check. When matched,
+  // the setup call sends companyId so the resulting Tariff/Service Plan IDs are
+  // persisted to that record (migration 036) instead of being discarded.
+  // No match (a genuinely new name) => companyId omitted => endpoint behaves exactly
+  // as before. Matching on exact equality only — never fuzzy — so provisioning
+  // results can't be written to the wrong company.
+  const matchedCompanyId = (() => {
+    const n = companyName.trim().toLowerCase();
+    if (!n) return undefined;
+    const hit = (allCompaniesData?.companies ?? []).find(
+      c => c.name?.toLowerCase() === n || c.shortCode?.toLowerCase() === n
+    );
+    return hit?.id;
+  })();
 
   const billingLabel = BILLING_CYCLES.find(c => c.value === billingCycle)?.label ?? 'Monthly';
 
@@ -122,6 +167,8 @@ export default function CompanyProfilePage() {
           name: companyName.trim(),
           currency,
           billingCycle: Number(billingCycle),
+          // Optional — omitted when the name matches no existing company record.
+          ...(matchedCompanyId ? { companyId: matchedCompanyId } : {}),
         }),
       });
       const res: CreationResult = await r.json();
@@ -492,6 +539,41 @@ export default function CompanyProfilePage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Two audiences, two levels of detail. The plain-language summary
+                    is what an account manager needs ("someone else has to act");
+                    the raw backend reason + correlation ID sit behind a disclosure
+                    for admins/support. The server distinguishes "credentials not
+                    configured" (fixable config) from "authenticated but INSERT
+                    denied" (Sippy ACL limitation) — that distinction decides
+                    whether this is a settings change or a workflow redesign. */}
+                {(result.reason || result.correlationId || result.reasonCode) && (
+                  <div className="rounded-md bg-muted/50 border border-border px-4 py-3 text-xs space-y-2">
+                    <p className="text-muted-foreground">{provisioningSummary(result.reasonCode)}</p>
+                    <details className="group">
+                      <summary className="cursor-pointer select-none text-muted-foreground/70 hover:text-muted-foreground">
+                        Technical details
+                      </summary>
+                      <div className="mt-2 space-y-1 pl-1 border-l border-border">
+                        {result.reasonCode && (
+                          <p className="pl-2 font-mono text-[11px] text-muted-foreground/80">
+                            Code: {result.reasonCode}
+                          </p>
+                        )}
+                        {result.reason && (
+                          <p className="pl-2 font-mono text-[11px] leading-relaxed text-muted-foreground/80 break-words">
+                            {result.reason}
+                          </p>
+                        )}
+                        {result.correlationId && (
+                          <p className="pl-2 font-mono text-[11px] text-muted-foreground/60">
+                            Reference: {result.correlationId}
+                          </p>
+                        )}
+                      </div>
+                    </details>
+                  </div>
+                )}
 
                 {result.manualStep && (
                   <div className="rounded-md bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-xs text-amber-300 space-y-2">
