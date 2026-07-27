@@ -4013,6 +4013,56 @@ export const provisioningJobs = pgTable("provisioning_jobs", {
 export type ProvisioningJob       = typeof provisioningJobs.$inferSelect;
 export type InsertProvisioningJob = typeof provisioningJobs.$inferInsert;
 
+// ── Provisioning Orchestration (migration 037) ────────────────────────────────
+// One run per onboarding; many ordered, individually retryable steps.
+//
+// Distinct from provisioningJobs above, which is the LATER-STAGE per-product
+// execution unit (iAccount + productId both NOT NULL, neither available when a
+// run starts). The orchestrator CREATES provisioningJobs rows once a run reaches
+// rate generation, so the existing rate pipeline is reused, not reimplemented.
+export const provisioningRuns = pgTable("provisioning_runs", {
+  id:          serial("id").primaryKey(),
+  runRef:      varchar("run_ref", { length: 32 }).notNull().unique(),
+  companyId:   integer("company_id").notNull(),
+  profileId:   integer("profile_id"),
+  // pending | running | completed | completed_with_warnings | failed | awaiting_ip_approval | cancelled
+  status:      varchar("status", { length: 32 }).notNull().default("pending"),
+  currentStep: varchar("current_step", { length: 48 }),
+  startedAt:   timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  error:       text("error"),
+  /** JSON snapshot of the submitted form, frozen so a retry replays identical input. */
+  input:       text("input"),
+  createdBy:   varchar("created_by", { length: 128 }),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+});
+export type ProvisioningRun       = typeof provisioningRuns.$inferSelect;
+export type InsertProvisioningRun = typeof provisioningRuns.$inferInsert;
+
+export const provisioningSteps = pgTable("provisioning_steps", {
+  id:          serial("id").primaryKey(),
+  runId:       integer("run_id").notNull(),
+  stepKey:     varchar("step_key", { length: 48 }).notNull(),
+  stepOrder:   integer("step_order").notNull(),
+  label:       varchar("label", { length: 128 }),
+  status:      varchar("status", { length: 16 }).notNull().default("pending"),
+  /** false => failure is recorded and the run continues. Data, not code: the
+   *  service_plan step is seeded non-blocking because its feasibility is still
+   *  unknown (governance §6). Flip to true once proven — no code change. */
+  blocking:    boolean("blocking").notNull().default(true),
+  attempt:     integer("attempt").notNull().default(0),
+  startedAt:   timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  /** Same vocabulary as createSippyServicePlan()'s reasonCode. */
+  reasonCode:  varchar("reason_code", { length: 48 }),
+  error:       text("error"),
+  traceId:     varchar("trace_id", { length: 64 }),
+  /** JSON: identifiers this step produced, consumed by later steps on retry. */
+  result:      text("result"),
+});
+export type ProvisioningStep       = typeof provisioningSteps.$inferSelect;
+export type InsertProvisioningStep = typeof provisioningSteps.$inferInsert;
+
 // ── Rate Push Jobs ────────────────────────────────────────────────────────────
 export const ratePushJobs = pgTable("rate_push_jobs", {
   id:                 serial("id").primaryKey(),

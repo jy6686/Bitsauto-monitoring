@@ -7803,26 +7803,47 @@ export async function createSippyServicePlan(
     }
   } catch { /* ignore — continue to portal attempt */ }
 
-  // ── Step 0.5: Try XML-RPC addBillingPlan first (no scraping needed) ─────────
-  // Sippy may expose a billing plan creation method via XML-RPC.
-  // Try multiple method names and both flat/nested param shapes across Sippy versions.
+  // ── Step 0.5: XML-RPC createServicePlan() — the DOCUMENTED method ───────────
+  // Source: Sippy XML-RPC API docs, "Methods to manage Service Plan data"
+  //   https://support.sippysoft.com/support/solutions/articles/107487
+  //   (folder: Sippy XML-RPC API -> XML-RPC API - Service Plan)
+  //
+  // HISTORY — why this was previously missed. This block used to try four
+  // GUESSED names: addBillingPlan, addServicePlan, createBillingPlan and
+  // billing_plan.add. None of them exist. All four correctly returned "unknown
+  // method", the block fell through to portal-form scraping, that failed too,
+  // and the caller reported a manual-creation fallback with a reasonCode
+  // implicating credentials or Sippy ACLs. The real cause was simply that the
+  // documented method name was never called. Diagnosing the fallback before
+  // fixing this would have produced a false root cause.
+  //
+  // AVAILABILITY: createServicePlan() is documented as "available since
+  // Softswitch 2025 / FreightSwitch 2025". On an older deployment it will fault
+  // as an unknown method and the portal fallback below still applies, so this is
+  // strictly an added capability, never a regression.
+  //
+  // Parameters below are exactly as documented. Only `name` is required;
+  // billing_cycle is 1 = weekly, 2 = bi-weekly, 3 = monthly (this is also the
+  // authoritative confirmation of DEFECT-CP-004 — 3 is MONTHLY, not weekly).
   {
     const apiUrl = `${portalUrl.replace(/\/+$/, '')}/xmlapi/xmlapi`;
-    const bpParams = {
+    const bpParams: Record<string, string | number | boolean | null> = {
       name:          planName,
       i_tariff:      iTariff,
       billing_cycle: billingCycle ?? 3,
     };
-    // Flat-params variants
-    const flatMethods = ['addBillingPlan', 'addServicePlan', 'createBillingPlan', 'billing_plan.add'];
-    // Nested variants (billing_plan_info wrapper, common Sippy pattern)
+    if (description) bpParams.description = description;
+
+    // Documented name first. The legacy guesses are retained only as fallbacks
+    // for non-standard builds; they cost one fast "unknown method" fault each.
+    const flatMethods = ['createServicePlan', 'addBillingPlan', 'addServicePlan', 'createBillingPlan', 'billing_plan.add'];
     const nestedKey = 'billing_plan_info';
     for (const method of flatMethods) {
       for (const useNested of [false, true]) {
         try {
           const xml = useNested
-            ? xmlRpcCallNested(method, nestedKey, bpParams as Record<string, string | number | boolean | null>)
-            : xmlRpcCall(method, bpParams as Record<string, string | number | boolean | null>);
+            ? xmlRpcCallNested(method, nestedKey, bpParams)
+            : xmlRpcCall(method, bpParams);
           const r = await sippyPost(apiUrl, xml, adminUser, adminPass, 8000);
           if (r.statusCode !== 200) continue;
           if (r.body.includes('faultCode')) {
@@ -7831,12 +7852,17 @@ export async function createSippyServicePlan(
             console.log(`[Sippy] createSippyServicePlan XML-RPC ${method}: fault "${fault}"`);
             continue;
           }
-          // Success: parse the returned i_billing_plan from the XML response
-          const idMatch = r.body.match(/<int>(\d+)<\/int>/) || r.body.match(/<value><int>(\d+)<\/int>/);
+          // Documented response is a struct: { result: "OK", i_billing_plan: <int> }.
+          // Match the named member first — a bare first-<int> match would silently
+          // pick up any other integer member if the struct order ever changes.
+          const namedMatch = r.body.match(
+            /<name>\s*i_billing_plan\s*<\/name>\s*<value>\s*<(?:int|i4)>\s*(\d+)\s*<\/(?:int|i4)>/i
+          );
+          const idMatch = namedMatch ?? r.body.match(/<(?:int|i4)>(\d+)<\/(?:int|i4)>/);
           if (idMatch) {
             const planId = parseInt(idMatch[1], 10);
             if (planId > 0) {
-              console.log(`[Sippy] createSippyServicePlan: created via XML-RPC ${method} → i_billing_plan=${planId}`);
+              console.log(`[Sippy] createSippyServicePlan: created via XML-RPC ${method} → i_billing_plan=${planId}${namedMatch ? '' : ' (positional parse)'}`);
               for (const k of _bpCache.keys()) { if (k.startsWith(base)) _bpCache.delete(k); }
               return { success: true, planId, planName };
             }
