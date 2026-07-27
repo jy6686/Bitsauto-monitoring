@@ -205,7 +205,59 @@ Until then, the deferred items remain documented and unimplemented.
 
 ---
 
-## 6. Next Action (Phase 1)
+## 6. Next Action (Phase 1) — RESOLVED 2026-07-27
+
+> **RESULT CAPTURED.** The gating question below has been answered from a live
+> run. Findings recorded at the end of this section; the original question is
+> left intact for audit.
+
+### Result (live run, 2026-07-27, company "Jamil", tariff 42)
+
+Two independent blockers confirmed, both **Sippy-side, neither in BitsAuto**:
+
+**1. No XML-RPC method for Service Plan creation on this build.** Every
+candidate returned `UNKNOWN_METHOD`, including the officially documented
+`createServicePlan`:
+
+```
+createServicePlan=UNKNOWN_METHOD | addBillingPlan=UNKNOWN_METHOD
+addServicePlan=UNKNOWN_METHOD | createBillingPlan=UNKNOWN_METHOD
+billing_plan.add=UNKNOWN_METHOD
+```
+
+`createServicePlan` is documented as "available since Softswitch 2025", so this
+deployment predates it. **API-based Service Plan creation is not available**
+until Sippy is upgraded.
+
+**2. Portal INSERT refused.** `reasonCode=PROVISIONING_PERMISSION_DENIED` —
+`ssp-root` authenticates to the portal but Sippy rejects the Service Plan
+INSERT.
+
+Everything else in the pipeline provisions automatically: Company, Tariff
+(ID 42 created in this very run), Account, Routing, Products, Rates, Email.
+Service Plan creation is the single non-automated step.
+
+**Correction for the record.** Commit `04a20873` asserted the root cause "was
+never credentials or permissions". That was wrong. The missing method name was a
+genuine gap, but closing it changed nothing, and the original
+`PROVISIONING_PERMISSION_DENIED` classification was correct throughout.
+
+**This vindicates the `blocking=false` design** for the `service_plan` step in
+migration 037. Had the step been made a hard gate ahead of account creation as
+originally proposed, account provisioning would now be completely broken on this
+deployment.
+
+### Open question this hands off to
+
+Whether **any** Sippy account can create a Service Plan through the portal. If
+one exists, pointing `SIPPY_PROV_USERNAME` at it restores full automation with
+no architectural change. If none does, this is a genuine platform limitation and
+Exit Criterion 3 applies. That question is answerable only inside Sippy, not from
+this codebase.
+
+---
+
+### Original gating question (retained for audit)
 
 > **This policy is not stasis. It has exactly one open action, and it is the
 > gate on its own exit.**
