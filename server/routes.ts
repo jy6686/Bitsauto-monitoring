@@ -3498,6 +3498,14 @@ export async function registerRoutes(
         if (planRes.needsManualCreation) {
           const sippyBase = portalUrl ? portalUrl.replace(/\/$/, '') : '';
           const sippyPortalLink = sippyBase ? `${sippyBase}/c1/service_plans.php?action=add` : undefined;
+
+          // Correlation ID: logged server-side AND returned to the client, so a
+          // screenshot from an operator can be grepped straight out of the logs.
+          // An ID that only appears in the UI would be decorative.
+          const d = new Date();
+          const correlationId = `SP-${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+          console.warn(`[provisioning] ${correlationId} service-plan fallback to manual — company="${name.trim()}" plan="${resolvedPlanName}" tariff=${tariffRes.iTariff} reason="${planRes.error ?? 'unknown'}"`);
+
           return res.json({
             success: true,
             partial: true,
@@ -3506,6 +3514,7 @@ export async function registerRoutes(
             tariffId: tariffRes.iTariff,
             planId: null,
             sippyPortalLink,
+            correlationId,
             // Why automation fell back. createSippyServicePlan() distinguishes
             // three cases (creds not configured / login failed / authenticated
             // but INSERT denied) but this branch previously discarded the

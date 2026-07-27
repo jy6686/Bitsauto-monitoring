@@ -41,10 +41,29 @@ type CreationResult = {
   manualStep?: string;
   sippyPortalLink?: string;
   /** Why automated Service Plan creation fell back (missing/invalid provisioning
-   *  credentials vs. authenticated-but-INSERT-denied). Diagnostic, not guidance. */
+   *  credentials vs. authenticated-but-INSERT-denied). Diagnostic, not guidance.
+   *  Kept behind a "Technical details" disclosure — raw backend text is for
+   *  admins/support, not for whoever is onboarding a client. */
   reason?: string;
+  /** Same ID written to the server log for this fallback, so a screenshot is
+   *  enough for support to locate the exact log line. */
+  correlationId?: string;
   error?: string;
 };
+
+/** Maps the backend's raw reason to a short, audience-appropriate summary.
+ *  Deliberately does not restate the raw text — that lives under the
+ *  "Technical details" disclosure for admins. */
+function provisioningSummary(reason?: string): string {
+  if (!reason) return 'Billing provisioning requires administrator attention.';
+  if (/not configured/i.test(reason))
+    return 'Automated provisioning is not configured on this environment. An administrator needs to add Sippy provisioning credentials.';
+  if (/login failed/i.test(reason))
+    return 'The provisioning account could not sign in to Sippy. An administrator needs to check the provisioning credentials.';
+  if (/rejected|permission/i.test(reason))
+    return 'The provisioning account signed in, but Sippy refused to create the Service Plan. An administrator needs to grant it permission.';
+  return 'Billing provisioning requires administrator attention.';
+}
 
 export default function CompanyProfilePage() {
   const queryClient = useQueryClient();
@@ -485,15 +504,33 @@ export default function CompanyProfilePage() {
                   </div>
                 </div>
 
-                {/* Why automation fell back. The server distinguishes "provisioning
-                    credentials not configured" from "authenticated but Sippy denied
-                    the INSERT" — the first is a fixable settings problem, the second
-                    is a Sippy permission limitation. Surfacing it here so the cause
-                    is diagnosable without reading server logs. */}
-                {result.reason && (
-                  <div className="rounded-md bg-muted/50 border border-border px-4 py-3 text-xs space-y-1">
-                    <p className="font-semibold text-muted-foreground">Why automation did not complete:</p>
-                    <p className="text-muted-foreground/90">{result.reason}</p>
+                {/* Two audiences, two levels of detail. The plain-language summary
+                    is what an account manager needs ("someone else has to act");
+                    the raw backend reason + correlation ID sit behind a disclosure
+                    for admins/support. The server distinguishes "credentials not
+                    configured" (fixable config) from "authenticated but INSERT
+                    denied" (Sippy ACL limitation) — that distinction decides
+                    whether this is a settings change or a workflow redesign. */}
+                {(result.reason || result.correlationId) && (
+                  <div className="rounded-md bg-muted/50 border border-border px-4 py-3 text-xs space-y-2">
+                    <p className="text-muted-foreground">{provisioningSummary(result.reason)}</p>
+                    <details className="group">
+                      <summary className="cursor-pointer select-none text-muted-foreground/70 hover:text-muted-foreground">
+                        Technical details
+                      </summary>
+                      <div className="mt-2 space-y-1 pl-1 border-l border-border">
+                        {result.reason && (
+                          <p className="pl-2 font-mono text-[11px] leading-relaxed text-muted-foreground/80 break-words">
+                            {result.reason}
+                          </p>
+                        )}
+                        {result.correlationId && (
+                          <p className="pl-2 font-mono text-[11px] text-muted-foreground/60">
+                            Reference: {result.correlationId}
+                          </p>
+                        )}
+                      </div>
+                    </details>
                   </div>
                 )}
 
