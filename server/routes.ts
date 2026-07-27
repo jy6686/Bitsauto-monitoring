@@ -3578,6 +3578,12 @@ export async function registerRoutes(
             // the PORTAL attempt; this shows what createServicePlan() itself did,
             // which is the question that decides the provisioning architecture.
             xmlrpcAttempts: planRes.xmlrpcAttempts,
+            // Per-session PORTAL outcomes. The reasonCode is DERIVED from these, so
+            // without them the classification has to be taken on trust — which is
+            // exactly the position that made "permission denied" look like a finding
+            // when it was an assumption. Shipping the reasonCode without its evidence
+            // reintroduces the problem the reasonCode was added to solve.
+            portalAttempts: planRes.portalAttempts,
             // Operator-facing. Names no Sippy account: which credential the
             // platform provisions with is an implementation detail, and per
             // CAP-003's layering rule the UI carries business concepts only.
