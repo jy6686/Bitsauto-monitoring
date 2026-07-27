@@ -3599,6 +3599,10 @@ export async function registerRoutes(
             // discarded by this branch entirely, so the actual cause was visible
             // nowhere but the server log.
             reason: planRes.error,
+            // Per-method XML-RPC outcomes. The reasonCode above classifies only
+            // the PORTAL attempt; this shows what createServicePlan() itself did,
+            // which is the question that decides the provisioning architecture.
+            xmlrpcAttempts: planRes.xmlrpcAttempts,
             manualStep: `Tariff "${name.trim()}" (ID ${tariffRes.iTariff}) was created successfully.\n\nTo add the Service Plan:\n1. Open Sippy → log in as ssp-root\n2. Go to: Service Plans → Add New\n3. Set Plan Name to "${resolvedPlanName}"\n4. Select Basic Tariff: "${name.trim()}" (ID ${tariffRes.iTariff})\n5. Click Save\n\nOnce saved, click "Create Tariff + Service Plan" again here — the system will auto-detect and link the plan.`,
           });
         }

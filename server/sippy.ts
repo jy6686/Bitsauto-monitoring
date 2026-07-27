@@ -7778,6 +7778,13 @@ export async function createSippyServicePlan(
    *  this, never off the wording of `error` — so messages can be reworded or
    *  localised without breaking presentation logic, and occurrences can be counted. */
   reasonCode?: 'PROVISIONING_NOT_CONFIGURED' | 'PROVISIONING_LOGIN_FAILED' | 'PROVISIONING_PERMISSION_DENIED' | 'UNKNOWN_ERROR';
+  /** Per-method outcome of the XML-RPC attempt sequence, e.g.
+   *  ["createServicePlan=UNKNOWN_METHOD", "addBillingPlan=UNKNOWN_METHOD"].
+   *  Returned rather than only logged because this platform's log stream is
+   *  saturated with AMI events, making a single line impractical to find.
+   *  Distinguishes "method absent on this build" from "method exists but
+   *  rejected the call" -- conclusions that imply opposite architectures. */
+  xmlrpcAttempts?: string[];
   needsManualCreation?: boolean;
   alreadyExists?: boolean;
 }> {
@@ -7825,6 +7832,10 @@ export async function createSippyServicePlan(
   // Parameters below are exactly as documented. Only `name` is required;
   // billing_cycle is 1 = weekly, 2 = bi-weekly, 3 = monthly (this is also the
   // authoritative confirmation of DEFECT-CP-004 — 3 is MONTHLY, not weekly).
+  // Hoisted so the outcome can be RETURNED, not just logged. This platform emits
+  // continuous AMI/call-governance events, so a single diagnostic line is
+  // effectively unfindable in the log stream — the data has to reach the caller.
+  const xmlrpcAttempts: string[] = [];
   {
     const apiUrl = `${portalUrl.replace(/\/+$/, '')}/xmlapi/xmlapi`;
     const bpParams: Record<string, string | number | boolean | null> = {
@@ -7843,7 +7854,6 @@ export async function createSippyServicePlan(
     // that lacks createServicePlan and one that rejects it on permissions produced
     // byte-identical output (nothing), making the two impossible to tell apart from
     // the logs. That ambiguity is the whole question, so it must be visible.
-    const attempts: string[] = [];
     for (const method of flatMethods) {
       for (const useNested of [false, true]) {
         const shape = useNested ? 'nested' : 'flat';
@@ -7852,15 +7862,15 @@ export async function createSippyServicePlan(
             ? xmlRpcCallNested(method, nestedKey, bpParams)
             : xmlRpcCall(method, bpParams);
           const r = await sippyPost(apiUrl, xml, adminUser, adminPass, 8000);
-          if (r.statusCode !== 200) { attempts.push(`${method}/${shape}=HTTP${r.statusCode}`); continue; }
+          if (r.statusCode !== 200) { xmlrpcAttempts.push(`${method}/${shape}=HTTP${r.statusCode}`); continue; }
           if (r.body.includes('faultCode')) {
             const fault = extractFaultString(r.body) ?? '';
             if (/unknown method|not found|not supported|no method/i.test(fault)) {
               // Method absent on this build — stop trying param shapes for it.
-              attempts.push(`${method}=UNKNOWN_METHOD`);
+              xmlrpcAttempts.push(`${method}=UNKNOWN_METHOD`);
               break;
             }
-            attempts.push(`${method}/${shape}=fault:${fault}`);
+            xmlrpcAttempts.push(`${method}/${shape}=fault:${fault}`);
             console.log(`[Sippy] createSippyServicePlan XML-RPC ${method}: fault "${fault}"`);
             continue;
           }
@@ -7879,10 +7889,10 @@ export async function createSippyServicePlan(
               return { success: true, planId, planName };
             }
           }
-          attempts.push(`${method}/${shape}=OK_NO_ID`);
+          xmlrpcAttempts.push(`${method}/${shape}=OK_NO_ID`);
           console.log(`[Sippy] createSippyServicePlan XML-RPC ${method} OK but no plan ID in response`);
         } catch (e: any) {
-          attempts.push(`${method}/${shape}=threw:${e?.message ?? 'unknown'}`);
+          xmlrpcAttempts.push(`${method}/${shape}=threw:${e?.message ?? 'unknown'}`);
         }
       }
     }
@@ -7891,7 +7901,7 @@ export async function createSippyServicePlan(
     // option. If createServicePlan reports a fault instead, the method EXISTS and
     // the fault text is the real problem — permissions, params, or trusted-mode
     // i_customer — which is a fundamentally different conclusion.
-    console.warn(`[Sippy] createSippyServicePlan XML-RPC exhausted — attempts: ${attempts.join(' | ') || '(none executed)'}`);
+    console.warn(`[Sippy] createSippyServicePlan XML-RPC exhausted — attempts: ${xmlrpcAttempts.join(' | ') || '(none executed)'}`);
   }
 
   // ── Step 1: obtain a provisioning session via the isolated write plane ────────
@@ -7911,6 +7921,7 @@ export async function createSippyServicePlan(
         success: false,
         needsManualCreation: true,
         reasonCode: 'PROVISIONING_NOT_CONFIGURED',
+        xmlrpcAttempts,
         error: 'Provisioning credentials (SIPPY_PROV_USERNAME / SIPPY_PROV_PASSWORD) are not configured. Add a Sippy reseller/admin account to the secrets vault to enable automated service plan creation.',
       };
     }
@@ -7919,6 +7930,7 @@ export async function createSippyServicePlan(
       success: false,
       needsManualCreation: true,
       reasonCode: 'PROVISIONING_LOGIN_FAILED',
+      xmlrpcAttempts,
       error: `Provisioning login failed: ${e?.message}. Check that SIPPY_PROV_USERNAME / SIPPY_PROV_PASSWORD are correct reseller/admin credentials.`,
     };
   }
@@ -8045,6 +8057,7 @@ export async function createSippyServicePlan(
       success: false,
       needsManualCreation: true,
       reasonCode: 'PROVISIONING_PERMISSION_DENIED',
+      xmlrpcAttempts,
       error: `Provisioning account "${process.env.SIPPY_PROV_USERNAME}" authenticated but Sippy rejected the Service Plan INSERT. Ensure the account has reseller or admin privileges in Sippy, then retry.`,
     };
   }

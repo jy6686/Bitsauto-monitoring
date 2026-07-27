@@ -47,6 +47,10 @@ type CreationResult = {
   reason?: string;
   /** Machine-readable classification of the fallback. Presentation keys off this. */
   reasonCode?: string;
+  /** Per-method XML-RPC outcomes, e.g. ["createServicePlan=UNKNOWN_METHOD", ...].
+   *  reasonCode describes the PORTAL attempt only; this shows what the XML-RPC
+   *  layer did, which is what actually determines whether automation is possible. */
+  xmlrpcAttempts?: string[];
   /** Same ID written to the server log for this fallback, so a screenshot is
    *  enough for support to locate the exact log line. */
   correlationId?: string;
@@ -569,6 +573,19 @@ export default function CompanyProfilePage() {
                           <p className="pl-2 font-mono text-[11px] text-muted-foreground/60">
                             Reference: {result.correlationId}
                           </p>
+                        )}
+                        {/* XML-RPC attempt outcomes. The summary above reports the
+                            PORTAL result; these show what the API layer did. All
+                            UNKNOWN_METHOD => this Sippy predates createServicePlan.
+                            A fault against createServicePlan => it exists, and the
+                            fault text is the real problem. */}
+                        {result.xmlrpcAttempts && result.xmlrpcAttempts.length > 0 && (
+                          <div className="pl-2 pt-1 space-y-0.5">
+                            <p className="font-mono text-[11px] text-muted-foreground/60">XML-RPC attempts:</p>
+                            {result.xmlrpcAttempts.map((a, i) => (
+                              <p key={i} className="font-mono text-[11px] text-muted-foreground/80 break-all">• {a}</p>
+                            ))}
+                          </div>
                         )}
                       </div>
                     </details>
