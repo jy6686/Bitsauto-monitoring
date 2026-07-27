@@ -979,6 +979,24 @@ export async function runSafeMigrations(): Promise<void> {
       ON CONFLICT (portal_id, module_id) DO UPDATE
         SET is_home = true, display_order = 0
     `);
+    // ── NOC portal: add Clients (company) domain assignment (migration 035) ─────
+    // Idempotent — ON CONFLICT DO NOTHING. Also hides the 3 modules that are not
+    // part of the live main-platform Clients cascade (client-portal, reseller, dids).
+    await client.query(`
+      INSERT INTO portal_domain_assignments (portal_slug, domain_id, display_order)
+      VALUES ('noc', 'company', 7)
+      ON CONFLICT (portal_slug, domain_id) DO NOTHING
+    `);
+    await client.query(`
+      INSERT INTO portal_module_overrides (portal_slug, module_key, visibility, reason) VALUES
+        ('noc', 'client-portal', 'hidden', 'Not part of the live main-platform Clients cascade'),
+        ('noc', 'reseller',      'hidden', 'Not part of the live main-platform Clients cascade'),
+        ('noc', 'dids',          'hidden', 'Not part of the live main-platform Clients cascade')
+      ON CONFLICT (portal_slug, module_key) DO UPDATE SET
+        visibility = EXCLUDED.visibility,
+        reason     = EXCLUDED.reason
+    `);
+
     console.log('[db] Safe migrations applied.');
   } catch (err: any) {
     console.error('[db] Safe migration warning (non-fatal):', err.message);
