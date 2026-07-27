@@ -7838,17 +7838,29 @@ export async function createSippyServicePlan(
     // for non-standard builds; they cost one fast "unknown method" fault each.
     const flatMethods = ['createServicePlan', 'addBillingPlan', 'addServicePlan', 'createBillingPlan', 'billing_plan.add'];
     const nestedKey = 'billing_plan_info';
+    // Every attempt's outcome is recorded and logged as one summary line. Without
+    // this, the "unknown method" branch below `break`s SILENTLY — so a Sippy build
+    // that lacks createServicePlan and one that rejects it on permissions produced
+    // byte-identical output (nothing), making the two impossible to tell apart from
+    // the logs. That ambiguity is the whole question, so it must be visible.
+    const attempts: string[] = [];
     for (const method of flatMethods) {
       for (const useNested of [false, true]) {
+        const shape = useNested ? 'nested' : 'flat';
         try {
           const xml = useNested
             ? xmlRpcCallNested(method, nestedKey, bpParams)
             : xmlRpcCall(method, bpParams);
           const r = await sippyPost(apiUrl, xml, adminUser, adminPass, 8000);
-          if (r.statusCode !== 200) continue;
+          if (r.statusCode !== 200) { attempts.push(`${method}/${shape}=HTTP${r.statusCode}`); continue; }
           if (r.body.includes('faultCode')) {
             const fault = extractFaultString(r.body) ?? '';
-            if (/unknown method|not found|not supported|no method/i.test(fault)) break; // try next method
+            if (/unknown method|not found|not supported|no method/i.test(fault)) {
+              // Method absent on this build — stop trying param shapes for it.
+              attempts.push(`${method}=UNKNOWN_METHOD`);
+              break;
+            }
+            attempts.push(`${method}/${shape}=fault:${fault}`);
             console.log(`[Sippy] createSippyServicePlan XML-RPC ${method}: fault "${fault}"`);
             continue;
           }
@@ -7867,10 +7879,19 @@ export async function createSippyServicePlan(
               return { success: true, planId, planName };
             }
           }
+          attempts.push(`${method}/${shape}=OK_NO_ID`);
           console.log(`[Sippy] createSippyServicePlan XML-RPC ${method} OK but no plan ID in response`);
-        } catch { /* next */ }
+        } catch (e: any) {
+          attempts.push(`${method}/${shape}=threw:${e?.message ?? 'unknown'}`);
+        }
       }
     }
+    // Single decisive line. If every entry is UNKNOWN_METHOD, this Sippy build
+    // predates createServicePlan (Softswitch 2025) and the portal path is the only
+    // option. If createServicePlan reports a fault instead, the method EXISTS and
+    // the fault text is the real problem — permissions, params, or trusted-mode
+    // i_customer — which is a fundamentally different conclusion.
+    console.warn(`[Sippy] createSippyServicePlan XML-RPC exhausted — attempts: ${attempts.join(' | ') || '(none executed)'}`);
   }
 
   // ── Step 1: obtain a provisioning session via the isolated write plane ────────
