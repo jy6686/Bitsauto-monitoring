@@ -88,6 +88,34 @@ Same pattern serves rate push, routing, DIDs, and every future provisioning step
 composes with the provisioning engine: a step's `validate()` consults the profile and can
 skip or downgrade itself before doing any network work.
 
+> **Unknown is an acceptable state; incorrect certainty is not.**
+>
+> The governing principle of this design. In telecom provisioning an incorrectly cached
+> capability silently disables automation that has actually become available — a failure
+> that looks like nothing at all. Every rule below follows from preferring an honest
+> `UNKNOWN` over a confident guess.
+
+## Three scopes, three lifecycles (frozen)
+
+Capabilities are not uniform; classify them by **who owns the fact**:
+
+| Scope | Examples | Invalidated by |
+|---|---|---|
+| **Switch** | XML-RPC methods, portal availability, rate-upload support, API version | version change · revision change · licence/module change |
+| **Provisioning account** | Service Plan INSERT, rate-upload permission, tariff-management permission | change of provisioning account · role change · permission change |
+| **Runtime attempt** | session expired, CSRF invalid, validation error, timeout | **never cached** — exists only for that execution |
+
+Worked example of why the scopes must not be merged:
+
+```
+XMLRPC_SERVICEPLAN_CREATE = UNSUPPORTED   (switch)
+  → SURVIVES a change of provisioning account. The switch did not change.
+
+PORTAL_SERVICEPLAN_INSERT = DENIED        (account)
+  → becomes UNKNOWN the instant the provisioning account changes.
+     That evidence described the previous identity only.
+```
+
 ## Capability ≠ Attempt (frozen separation)
 
 **Portal diagnostics are not capabilities.** They have different lifecycles and must live in
@@ -214,7 +242,30 @@ when any of these change:
 | **Provisioning account changes** | **only account-scoped permission entries** |
 | Administrator requests a rescan | whatever the rescan covers |
 
-The fourth row is the one a naive implementation gets wrong. Changing
+### Verification runs are immutable history (registry holds only current state)
+
+The registry answers "what is true now"; it cannot answer "when did this change, and why".
+Give every verification run its own append-only record:
+
+```
+Verification Run
+  Run ID:      CAP-20260727-001
+  Switch:      SIPPY-PROD-01
+  Account:     <provisioning account>
+  Started:     2026-07-27T16:20Z
+  Completed:   2026-07-27T16:22Z
+  Result:      SUCCESS
+  Observations:
+    XMLRPC_SERVICEPLAN_CREATE  = UNKNOWN_METHOD
+    PORTAL_SERVICEPLAN_INSERT  = DENIED
+    XMLRPC_TARIFF_CREATE       = SUPPORTED
+```
+
+Runs are never edited or deleted; the registry is derived from the latest run per scope.
+This pays off precisely at the moments that matter — after an upgrade or a permission
+change, "this used to work" becomes a diffable fact rather than a recollection.
+
+The fourth row of the table above is the one a naive implementation gets wrong. Changing
 `SIPPY_PROV_USERNAME` says nothing about whether the switch exposes `createServicePlan` —
 that is a property of the build. Wiping switch-scoped capabilities on a credential change
 would discard hard-won runtime evidence and trigger a pointless full rescan; conversely,
