@@ -91,9 +91,25 @@ export default function CompanyProfilePage() {
   });
   const hasSession = sippySession?.active === true;
 
-  const { data: allCompaniesData } = useQuery<{ companies: { name: string; shortCode: string; provisioningStatus?: string }[] }>({
+  const { data: allCompaniesData } = useQuery<{ companies: { id: number; name: string; shortCode: string; provisioningStatus?: string }[] }>({
     queryKey: ['/api/companies'],
   });
+
+  // Resolve the company record this setup belongs to, by exact name/shortCode match
+  // against the list already loaded above for the duplicate-name check. When matched,
+  // the setup call sends companyId so the resulting Tariff/Service Plan IDs are
+  // persisted to that record (migration 036) instead of being discarded.
+  // No match (a genuinely new name) => companyId omitted => endpoint behaves exactly
+  // as before. Matching on exact equality only — never fuzzy — so provisioning
+  // results can't be written to the wrong company.
+  const matchedCompanyId = (() => {
+    const n = companyName.trim().toLowerCase();
+    if (!n) return undefined;
+    const hit = (allCompaniesData?.companies ?? []).find(
+      c => c.name?.toLowerCase() === n || c.shortCode?.toLowerCase() === n
+    );
+    return hit?.id;
+  })();
 
   const billingLabel = BILLING_CYCLES.find(c => c.value === billingCycle)?.label ?? 'Monthly';
 
@@ -148,6 +164,8 @@ export default function CompanyProfilePage() {
           name: companyName.trim(),
           currency,
           billingCycle: Number(billingCycle),
+          // Optional — omitted when the name matches no existing company record.
+          ...(matchedCompanyId ? { companyId: matchedCompanyId } : {}),
         }),
       });
       const res: CreationResult = await r.json();

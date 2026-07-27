@@ -3454,11 +3454,36 @@ export async function registerRoutes(
     async (req, res) => {
       try {
         const settings = await storage.getSettings();
-        const { name, planName, currency, billingCycle } = req.body;
+        const { name, planName, currency, billingCycle, companyId } = req.body;
         if (!name?.trim())     return res.status(400).json({ success: false, error: 'name is required.' });
         if (!currency?.trim()) return res.status(400).json({ success: false, error: 'currency is required.' });
 
         const resolvedPlanName = planName?.trim() || name.trim();
+
+        // ── Optional persistence target (migration 036) ─────────────────────────
+        // When companyId is supplied, the Tariff/Service Plan IDs are persisted to
+        // that company record instead of being returned to the browser and lost.
+        // When omitted, behaviour is byte-identical to before — this endpoint has
+        // always been name-based and callers that don't pass companyId are unaffected.
+        //
+        // Writes ONLY the billing_* / sippy_i_billing_plan columns. Never touches
+        // provisioningStatus / provisionedAt / sippyIAccount — those belong to the
+        // Account Wizard's state machine, which is frozen
+        // (docs/ACCOUNT-WIZARD-GOVERNANCE-PHASE1.md §2).
+        const persistCompanyId = Number.isFinite(Number(companyId)) ? Number(companyId) : null;
+        const persistBilling = async (fields: Record<string, any>) => {
+          if (!persistCompanyId) return;
+          try {
+            await storage.updateCompany(persistCompanyId, {
+              billingProvisionedAt: new Date(),
+              ...fields,
+            } as any);
+          } catch (e: any) {
+            // Never fail the provisioning response because bookkeeping failed —
+            // the Sippy objects may already exist by this point.
+            console.error(`[provisioning] persist to company ${persistCompanyId} failed: ${e?.message}`);
+          }
+        };
 
         const { username, password } = sippyXmlCreds(settings);
         const portalUrl = sippyPortalUrl(settings);
@@ -3483,6 +3508,16 @@ export async function registerRoutes(
 
         // If the plan already existed or was created successfully — full success
         if (planRes.success) {
+          await persistBilling({
+            sippyITariff:               tariffRes.iTariff,
+            sippyIBillingPlan:          planRes.planId ?? null,
+            sippyTariffCurrency:        currency.trim(),
+            sippyBillingCycle:          billingCycle ? Number(billingCycle) : 3,
+            billingProvisionStatus:     'success',
+            billingProvisionReasonCode: null,
+            billingProvisionError:      null,
+            billingProvisionTraceId:    null,
+          });
           return res.json({
             success: true,
             name: name.trim(),
@@ -3490,6 +3525,7 @@ export async function registerRoutes(
             tariffId: tariffRes.iTariff,
             planId: planRes.planId,
             alreadyExists: planRes.alreadyExists,
+            persisted: !!persistCompanyId,
           });
         }
 
@@ -3507,6 +3543,19 @@ export async function registerRoutes(
           const reasonCode = planRes.reasonCode ?? 'UNKNOWN_ERROR';
           console.warn(`[provisioning] ${correlationId} service-plan fallback to manual — company="${name.trim()}" plan="${resolvedPlanName}" tariff=${tariffRes.iTariff} reasonCode=${reasonCode} reason="${planRes.error ?? 'unknown'}"`);
 
+          // Tariff DID succeed — persist it, and record why the plan didn't, so the
+          // company record shows exactly what still needs doing and the trace ID
+          // links back to the log line above.
+          await persistBilling({
+            sippyITariff:               tariffRes.iTariff,
+            sippyTariffCurrency:        currency.trim(),
+            sippyBillingCycle:          billingCycle ? Number(billingCycle) : 3,
+            billingProvisionStatus:     'manual',
+            billingProvisionReasonCode: reasonCode,
+            billingProvisionError:      planRes.error ?? null,
+            billingProvisionTraceId:    correlationId,
+          });
+
           return res.json({
             success: true,
             partial: true,
@@ -3516,6 +3565,7 @@ export async function registerRoutes(
             planId: null,
             sippyPortalLink,
             correlationId,
+            persisted: !!persistCompanyId,
             // Machine-readable classification — the UI keys off this, never off
             // the wording of `reason`. Lets messages be reworded/localised and
             // occurrences counted without touching presentation logic.
@@ -3528,7 +3578,17 @@ export async function registerRoutes(
           });
         }
 
-        res.json({ success: false, error: `Service plan creation failed: ${planRes.error}`, tariffId: tariffRes.iTariff });
+        // Hard failure — tariff exists but the plan errored (not a manual fallback).
+        await persistBilling({
+          sippyITariff:               tariffRes.iTariff,
+          sippyTariffCurrency:        currency.trim(),
+          sippyBillingCycle:          billingCycle ? Number(billingCycle) : 3,
+          billingProvisionStatus:     'failed',
+          billingProvisionReasonCode: planRes.reasonCode ?? 'UNKNOWN_ERROR',
+          billingProvisionError:      planRes.error ?? null,
+          billingProvisionTraceId:    null,
+        });
+        res.json({ success: false, error: `Service plan creation failed: ${planRes.error}`, tariffId: tariffRes.iTariff, persisted: !!persistCompanyId });
       } catch (e: any) {
         res.status(500).json({ success: false, error: e.message });
       }
