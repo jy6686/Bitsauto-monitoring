@@ -9,12 +9,17 @@ alongside, in the same spirit as the provisioning engine (`server/services/provi
 
 ## The observation that motivates it
 
-Two independent investigations reached the same wall on the same switch:
+Two independent investigations reached the same wall on the same switch
+(**Sippy Softswitch 2024, rev 8.485**):
 
 | Workstream | Symptom | Date |
 |---|---|---|
 | Service Plan provisioning | `createServicePlan`, `addBillingPlan`, `addServicePlan`, `createBillingPlan`, `billing_plan.add` → all `UNKNOWN_METHOD` | 2026-07-27 |
 | Tariff-33 rate push | 9 guessed rate-add method names, all fail | 2026-07-15 |
+
+These are **runtime observations of this switch** — the strongest evidence class available,
+and the basis for every capability verdict recorded here. Documentation surveys (below)
+rank lower and never override them.
 
 This is not two bugs. It is **one platform characteristic**: this Sippy build predates the
 modern XML-RPC surface. Each workstream rediscovered it independently, at cost.
@@ -138,21 +143,41 @@ boolean cache. Today's evidence shows **two different failures on the same featu
 "verified absent", and the tempting shortcut `timeout → mark unsupported` becomes
 representable. With `UNKNOWN` as the initial state, it is not.
 
-**Store evidence, not just a verdict.** A bare boolean is unmaintainable six months later;
-the record must justify itself:
+**Store evidence AND confidence, not just a verdict.** A bare boolean is unmaintainable six
+months later, and — more importantly — a documentation-derived guess must never be
+indistinguishable from a runtime-proven fact:
+
+| Confidence | Meaning |
+|---|---|
+| `CONFIRMED` | Observed directly against this switch at runtime |
+| `MANUAL` | Verified by a human in the Sippy UI |
+| `NEEDS_RUNTIME_VERIFICATION` | Derived from documentation/release notes; **not yet observed** |
+| `UNKNOWN` | Never tested |
 
 ```
 Capability:  XMLRPC_SERVICEPLAN_CREATE
 Status:      UNSUPPORTED
-Evidence:    XML-RPC fault -32601 "Unknown method createServicePlan"
+Evidence:    runtime — XML-RPC fault "Unknown method createServicePlan" (×5 names)
+Confidence:  CONFIRMED
+Switch:      Sippy Softswitch 2024 rev 8.485
 Verified:    2026-07-27 18:42 UTC   By: Capability Analyzer v1
+
+Capability:  RATE_UPLOAD_API
+Status:      SUPPORTED (claimed)
+Evidence:    documentation — v5.x release notes mention a file-upload rate call
+Confidence:  NEEDS_RUNTIME_VERIFICATION      ← must not drive behaviour yet
 
 Capability:  PORTAL_SERVICEPLAN_INSERT
 Status:      DENIED
 Scope:       account (not switch)
 Evidence:    HTTP 200, portal response "Cannot insert"
+Confidence:  MANUAL / CONFIRMED (per verification run)
 Verified:    2026-07-27            Account: <provisioning account>
 ```
+
+**Rule:** only `CONFIRMED` and `MANUAL` entries may drive execution decisions. A
+`NEEDS_RUNTIME_VERIFICATION` entry is a hypothesis with a place to live — it can prioritise
+what to test next, but it must never route a provisioning step.
 
 Consequences that must be designed in:
 
@@ -199,18 +224,20 @@ Customers · Payments · Trunks management · Invoice related methods · Manage 
 Test Dialplan · Manipulate Low Balances · Applying Service Plan Charges · Miscellaneous ·
 Examples · Caveats.
 
-Two findings that matter:
+Two leads — **neither is a finding**. Both are absence-or-presence signals from an index,
+and an index that cannot return article bodies cannot establish what is or is not
+documented:
 
-1. **No documented XML-RPC method for *creating* a service plan.** The service-plan-related
-   documented surface is about *applying* charges (`billingRun()`) and *reading*
-   (`getAccountMinutePlans()`). This is independent corroboration of the runtime
-   `UNKNOWN_METHOD` evidence, and it supports the architectural conclusion: on this
-   deployment the **portal is the authoritative provisioning interface for Service Plans**,
-   and portal automation is the correct long-term path rather than a workaround.
-2. **Rate upload via API appears to be documented** — release-note material describes an
-   XML-RPC call that uploads a file to the switch and processes the rates. If accurate,
-   that is the documented mechanism for the tariff-33 rate-push defect, and it confirms
-   that hunting for a 10th `addRate*` method name is the wrong direction.
+1. **No *evidence* of a documented XML-RPC service-plan creation method was found.** The
+   service-plan material that did surface concerns *applying* charges (`billingRun()`) and
+   *reading* (`getAccountMinutePlans()`). This is **not** proof that no such method is
+   documented — only that the search index did not reveal one. It is weak supporting
+   material for the runtime evidence, nothing more. **The capability verdict for
+   `XMLRPC_SERVICEPLAN_CREATE` rests on the runtime `UNKNOWN_METHOD` responses, which are
+   direct observations of this switch — not on this survey.**
+2. **Release-note material appears to describe an XML-RPC file-upload rate-processing
+   call.** Unverified. If it holds up it is a strong lead for the tariff-33 rate-push
+   defect; it should be treated as `Needs Runtime Verification`, never as a capability.
 
 Owner action (has portal access): open [XML-RPC API](https://support.sippysoft.com/support/solutions/107132)
 and [Manipulating Accounts](https://support.sippysoft.com/support/solutions/folders/176717)
