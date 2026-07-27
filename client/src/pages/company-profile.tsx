@@ -45,24 +45,31 @@ type CreationResult = {
    *  Kept behind a "Technical details" disclosure — raw backend text is for
    *  admins/support, not for whoever is onboarding a client. */
   reason?: string;
+  /** Machine-readable classification of the fallback. Presentation keys off this. */
+  reasonCode?: string;
   /** Same ID written to the server log for this fallback, so a screenshot is
    *  enough for support to locate the exact log line. */
   correlationId?: string;
   error?: string;
 };
 
-/** Maps the backend's raw reason to a short, audience-appropriate summary.
- *  Deliberately does not restate the raw text — that lives under the
- *  "Technical details" disclosure for admins. */
-function provisioningSummary(reason?: string): string {
-  if (!reason) return 'Billing provisioning requires administrator attention.';
-  if (/not configured/i.test(reason))
-    return 'Automated provisioning is not configured on this environment. An administrator needs to add Sippy provisioning credentials.';
-  if (/login failed/i.test(reason))
-    return 'The provisioning account could not sign in to Sippy. An administrator needs to check the provisioning credentials.';
-  if (/rejected|permission/i.test(reason))
-    return 'The provisioning account signed in, but Sippy refused to create the Service Plan. An administrator needs to grant it permission.';
-  return 'Billing provisioning requires administrator attention.';
+/** reasonCode → operator-facing wording. Owned entirely by the frontend: the
+ *  server emits a stable code, this decides how to phrase it. Keyed on the code
+ *  rather than on the wording of the technical message, so rephrasing the
+ *  backend string can't silently break the mapping. */
+const PROVISIONING_MESSAGES: Record<string, string> = {
+  PROVISIONING_NOT_CONFIGURED:
+    'Automated provisioning is not configured on this environment. An administrator needs to add Sippy provisioning credentials.',
+  PROVISIONING_LOGIN_FAILED:
+    'The provisioning account could not sign in to Sippy. An administrator needs to check the provisioning credentials.',
+  PROVISIONING_PERMISSION_DENIED:
+    'The provisioning account signed in, but Sippy refused to create the Service Plan. An administrator needs to grant it permission.',
+  UNKNOWN_ERROR:
+    'Billing provisioning requires administrator attention.',
+};
+
+function provisioningSummary(reasonCode?: string): string {
+  return PROVISIONING_MESSAGES[reasonCode ?? ''] ?? PROVISIONING_MESSAGES.UNKNOWN_ERROR;
 }
 
 export default function CompanyProfilePage() {
@@ -511,14 +518,19 @@ export default function CompanyProfilePage() {
                     configured" (fixable config) from "authenticated but INSERT
                     denied" (Sippy ACL limitation) — that distinction decides
                     whether this is a settings change or a workflow redesign. */}
-                {(result.reason || result.correlationId) && (
+                {(result.reason || result.correlationId || result.reasonCode) && (
                   <div className="rounded-md bg-muted/50 border border-border px-4 py-3 text-xs space-y-2">
-                    <p className="text-muted-foreground">{provisioningSummary(result.reason)}</p>
+                    <p className="text-muted-foreground">{provisioningSummary(result.reasonCode)}</p>
                     <details className="group">
                       <summary className="cursor-pointer select-none text-muted-foreground/70 hover:text-muted-foreground">
                         Technical details
                       </summary>
                       <div className="mt-2 space-y-1 pl-1 border-l border-border">
+                        {result.reasonCode && (
+                          <p className="pl-2 font-mono text-[11px] text-muted-foreground/80">
+                            Code: {result.reasonCode}
+                          </p>
+                        )}
                         {result.reason && (
                           <p className="pl-2 font-mono text-[11px] leading-relaxed text-muted-foreground/80 break-words">
                             {result.reason}

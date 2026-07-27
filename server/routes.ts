@@ -3504,7 +3504,8 @@ export async function registerRoutes(
           // An ID that only appears in the UI would be decorative.
           const d = new Date();
           const correlationId = `SP-${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-          console.warn(`[provisioning] ${correlationId} service-plan fallback to manual — company="${name.trim()}" plan="${resolvedPlanName}" tariff=${tariffRes.iTariff} reason="${planRes.error ?? 'unknown'}"`);
+          const reasonCode = planRes.reasonCode ?? 'UNKNOWN_ERROR';
+          console.warn(`[provisioning] ${correlationId} service-plan fallback to manual — company="${name.trim()}" plan="${resolvedPlanName}" tariff=${tariffRes.iTariff} reasonCode=${reasonCode} reason="${planRes.error ?? 'unknown'}"`);
 
           return res.json({
             success: true,
@@ -3515,13 +3516,13 @@ export async function registerRoutes(
             planId: null,
             sippyPortalLink,
             correlationId,
-            // Why automation fell back. createSippyServicePlan() distinguishes
-            // three cases (creds not configured / login failed / authenticated
-            // but INSERT denied) but this branch previously discarded the
-            // message, so the UI could only show generic manual instructions
-            // and the actual cause was visible nowhere but the server log.
-            // Surfacing it is what tells us whether this is a fixable config
-            // problem or a real Sippy ACL limitation.
+            // Machine-readable classification — the UI keys off this, never off
+            // the wording of `reason`. Lets messages be reworded/localised and
+            // occurrences counted without touching presentation logic.
+            reasonCode,
+            // Raw technical detail, for the admin-only disclosure. Previously
+            // discarded by this branch entirely, so the actual cause was visible
+            // nowhere but the server log.
             reason: planRes.error,
             manualStep: `Tariff "${name.trim()}" (ID ${tariffRes.iTariff}) was created successfully.\n\nTo add the Service Plan:\n1. Open Sippy → log in as ssp-root\n2. Go to: Service Plans → Add New\n3. Set Plan Name to "${resolvedPlanName}"\n4. Select Basic Tariff: "${name.trim()}" (ID ${tariffRes.iTariff})\n5. Click Save\n\nOnce saved, click "Create Tariff + Service Plan" again here — the system will auto-detect and link the plan.`,
           });
