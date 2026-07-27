@@ -7777,7 +7777,7 @@ export async function createSippyServicePlan(
   /** Stable machine-readable classification of a fallback. The caller/UI keys off
    *  this, never off the wording of `error` — so messages can be reworded or
    *  localised without breaking presentation logic, and occurrences can be counted. */
-  reasonCode?: 'PROVISIONING_NOT_CONFIGURED' | 'PROVISIONING_LOGIN_FAILED' | 'PROVISIONING_PERMISSION_DENIED' | 'PROVISIONING_SESSION_REJECTED' | 'PROVISIONING_PORTAL_ERROR' | 'UNKNOWN_ERROR';
+  reasonCode?: 'PROVISIONING_NOT_CONFIGURED' | 'PROVISIONING_LOGIN_FAILED' | 'PROVISIONING_PERMISSION_DENIED' | 'PROVISIONING_SESSION_REJECTED' | 'PROVISIONING_VALIDATION_ERROR' | 'PROVISIONING_PORTAL_ERROR' | 'UNKNOWN_ERROR';
   /** Per-method outcome of the XML-RPC attempt sequence, e.g.
    *  ["createServicePlan=UNKNOWN_METHOD", "addBillingPlan=UNKNOWN_METHOD"].
    *  Returned rather than only logged because this platform's log stream is
@@ -8103,9 +8103,9 @@ export async function createSippyServicePlan(
     const errMatch = resp.body.match(/class="err(?:or)?[^"]*"[^>]*>([\s\S]{0,300}?)<\/[^>]+>/i);
     const errMsg = errMatch ? errMatch[1].replace(/<[^>]+>/g, '').trim() : 'Sippy returned a validation error.';
     // A validation complaint means the form REACHED Sippy and was evaluated — the
-    // opposite conclusion from a permission block. Carry the evidence so the two
-    // are distinguishable downstream.
-    return { success: false, error: errMsg, reasonCode: 'PROVISIONING_PORTAL_ERROR', xmlrpcAttempts, portalAttempts };
+    // opposite conclusion from a permission block, and the only class in this set
+    // that is ours to fix (a missing or mis-valued field, not a Sippy limitation).
+    return { success: false, error: errMsg, reasonCode: 'PROVISIONING_VALIDATION_ERROR', xmlrpcAttempts, portalAttempts };
   }
 
   // After "Save & Close", Sippy redirects to the edit page containing the new plan ID.

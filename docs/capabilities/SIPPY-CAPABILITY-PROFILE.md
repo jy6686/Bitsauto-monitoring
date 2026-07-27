@@ -83,6 +83,45 @@ Same pattern serves rate push, routing, DIDs, and every future provisioning step
 composes with the provisioning engine: a step's `validate()` consults the profile and can
 skip or downgrade itself before doing any network work.
 
+## Capability ≠ Attempt (frozen separation)
+
+**Portal diagnostics are not capabilities.** They have different lifecycles and must live in
+different places:
+
+| | **Capability Registry** | **Provisioning Attempt** |
+|---|---|---|
+| Answers | what this switch *supports* | what happened *this time* |
+| Changes on | upgrade, licence, module install | every request |
+| Examples | `supportsCreateServicePlan=false`, `supportsRateUpload=true`, API version | validation failed, session expired, CSRF invalid, permission denied, timeout |
+| Written by | a deliberate verification run **only** | every provisioning execution |
+
+```
+Capability Registry            Provisioning Attempt
+  Switch                         Attempt
+   ├── XML-RPC                    ├── XML-RPC tries
+   ├── Portal                     ├── Portal tries
+   ├── Rate upload                ├── Response body / hidden fields / cookies
+   ├── API version                ├── Status code
+   └── Supported features         ├── Trace ID
+                                  └── Final reason
+```
+
+**Resolution of the account-permission case** (it looks like it belongs to both): an
+observed permission denial during a business operation is an **attempt outcome** and never
+writes the registry. A permission *state* may be stored — keyed by switch **+ account** —
+but only as the result of a deliberate "Verify Switch Capabilities" run. One writer, one
+lifecycle: business traffic records attempts; verification records capabilities.
+
+This also improves the provisioning engine's step records, which can then read:
+
+```
+SERVICE_PLAN
+  Capability: portal supported
+  Execution:  session OK → validation error → retry → success
+```
+
+instead of a bare `permission denied`.
+
 ## The design trap — three distinct failure classes must not collapse into one
 
 This is the part that will bite an implementation that treats the profile as a simple
@@ -148,6 +187,34 @@ between them are currently invisible: an operation that works on one may silentl
 on another with no record of why. A stored per-switch profile makes that difference explicit
 and diagnosable, and gives a single answer to "would upgrading this switch help?" — today
 that question requires re-running failed provisioning by hand.
+
+## Vendor documentation survey (2026-07-27)
+
+Searched Sippy's public support portal. **Article bodies were not readable from this
+environment** (DNS blocked; search index only) — so the following is folder/index-level
+evidence and should be confirmed by opening the articles directly.
+
+Documented XML-RPC folders found: Manipulating Accounts (21 articles) · Manipulate
+Customers · Payments · Trunks management · Invoice related methods · Manage Active Calls ·
+Test Dialplan · Manipulate Low Balances · Applying Service Plan Charges · Miscellaneous ·
+Examples · Caveats.
+
+Two findings that matter:
+
+1. **No documented XML-RPC method for *creating* a service plan.** The service-plan-related
+   documented surface is about *applying* charges (`billingRun()`) and *reading*
+   (`getAccountMinutePlans()`). This is independent corroboration of the runtime
+   `UNKNOWN_METHOD` evidence, and it supports the architectural conclusion: on this
+   deployment the **portal is the authoritative provisioning interface for Service Plans**,
+   and portal automation is the correct long-term path rather than a workaround.
+2. **Rate upload via API appears to be documented** — release-note material describes an
+   XML-RPC call that uploads a file to the switch and processes the rates. If accurate,
+   that is the documented mechanism for the tariff-33 rate-push defect, and it confirms
+   that hunting for a 10th `addRate*` method name is the wrong direction.
+
+Owner action (has portal access): open [XML-RPC API](https://support.sippysoft.com/support/solutions/107132)
+and [Manipulating Accounts](https://support.sippysoft.com/support/solutions/folders/176717)
+to confirm (1), and the v5.1/v5.2 release notes for the rate-processing call in (2).
 
 ## Related
 
