@@ -179,6 +179,49 @@ Verified:    2026-07-27            Account: <provisioning account>
 `NEEDS_RUNTIME_VERIFICATION` entry is a hypothesis with a place to live — it can prioritise
 what to test next, but it must never route a provisioning step.
 
+### Version the record, not just the switch
+
+A verdict is only meaningful against the build that produced it. Every record carries the
+identity it was verified against, so "why does the platform believe this?" is answerable
+months later without re-running anything:
+
+```
+Switch:           <host from the switches table>
+Product:          Sippy Softswitch
+Version:          2024-PRODUCTION
+Revision:         8.485
+
+Capability:       XMLRPC_SERVICEPLAN_CREATE
+Status:           UNSUPPORTED
+Confidence:       CONFIRMED
+Evidence:         runtime — UNKNOWN_METHOD (×5 method names)
+Observed:         2026-07-27T16:23:21Z
+Verified against: 2024-PRODUCTION rev.8.485      ← the record's own version stamp
+Last verified:    2026-07-27
+Reverify on:      version change · revision change · licence/module change · manual rescan
+```
+
+### Cache invalidation (a profile must not live forever)
+
+Re-verification is **required** — the entry drops to `UNKNOWN`, not to a guessed value —
+when any of these change:
+
+| Trigger | Invalidates |
+|---|---|
+| Sippy version changes | all switch-scoped capabilities |
+| Revision / build changes | all switch-scoped capabilities |
+| Licence or module change | all switch-scoped capabilities |
+| **Provisioning account changes** | **only account-scoped permission entries** |
+| Administrator requests a rescan | whatever the rescan covers |
+
+The fourth row is the one a naive implementation gets wrong. Changing
+`SIPPY_PROV_USERNAME` says nothing about whether the switch exposes `createServicePlan` —
+that is a property of the build. Wiping switch-scoped capabilities on a credential change
+would discard hard-won runtime evidence and trigger a pointless full rescan; conversely,
+*keeping* a stale `PORTAL_SERVICEPLAN_INSERT = DENIED` after repointing at a privileged
+account would suppress a path that now works. Scope the invalidation exactly as scoped
+the entry.
+
 Consequences that must be designed in:
 
 1. **Never cache a transient failure as "unsupported."** A capability may only be marked
