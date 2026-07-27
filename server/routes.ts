@@ -3506,6 +3506,14 @@ export async function registerRoutes(
             tariffId: tariffRes.iTariff,
             planId: null,
             sippyPortalLink,
+            // Why automation fell back. createSippyServicePlan() distinguishes
+            // three cases (creds not configured / login failed / authenticated
+            // but INSERT denied) but this branch previously discarded the
+            // message, so the UI could only show generic manual instructions
+            // and the actual cause was visible nowhere but the server log.
+            // Surfacing it is what tells us whether this is a fixable config
+            // problem or a real Sippy ACL limitation.
+            reason: planRes.error,
             manualStep: `Tariff "${name.trim()}" (ID ${tariffRes.iTariff}) was created successfully.\n\nTo add the Service Plan:\n1. Open Sippy → log in as ssp-root\n2. Go to: Service Plans → Add New\n3. Set Plan Name to "${resolvedPlanName}"\n4. Select Basic Tariff: "${name.trim()}" (ID ${tariffRes.iTariff})\n5. Click Save\n\nOnce saved, click "Create Tariff + Service Plan" again here — the system will auto-detect and link the plan.`,
           });
         }

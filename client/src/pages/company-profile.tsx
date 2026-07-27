@@ -40,6 +40,9 @@ type CreationResult = {
   alreadyExists?: boolean;
   manualStep?: string;
   sippyPortalLink?: string;
+  /** Why automated Service Plan creation fell back (missing/invalid provisioning
+   *  credentials vs. authenticated-but-INSERT-denied). Diagnostic, not guidance. */
+  reason?: string;
   error?: string;
 };
 
@@ -481,6 +484,18 @@ export default function CompanyProfilePage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Why automation fell back. The server distinguishes "provisioning
+                    credentials not configured" from "authenticated but Sippy denied
+                    the INSERT" — the first is a fixable settings problem, the second
+                    is a Sippy permission limitation. Surfacing it here so the cause
+                    is diagnosable without reading server logs. */}
+                {result.reason && (
+                  <div className="rounded-md bg-muted/50 border border-border px-4 py-3 text-xs space-y-1">
+                    <p className="font-semibold text-muted-foreground">Why automation did not complete:</p>
+                    <p className="text-muted-foreground/90">{result.reason}</p>
+                  </div>
+                )}
 
                 {result.manualStep && (
                   <div className="rounded-md bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-xs text-amber-300 space-y-2">
