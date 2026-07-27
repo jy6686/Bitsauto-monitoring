@@ -1,0 +1,154 @@
+I reviewed the attached notes carefully.
+
+I think there is one fundamental architectural issue that has been mixed together:
+
+Where Service Plans belong in the UI (Account Configuration)
+How Service Plans are created in Sippy (Provisioning)
+
+These are two different problems.
+
+I agree with this part
+
+Service Plan should not be a standalone BitsAuto module.
+
+It belongs inside:
+
+Client
+   └── Account Configuration
+          ├── General
+          ├── Rating
+          ├── Routing
+          ├── Service Plan
+          ├── Billing
+          ├── Limits
+          └── Security
+
+That matches Sippy's data model and your onboarding workflow.
+
+I do NOT agree with accepting permanent manual creation
+
+This is where I think the previous discussion took the wrong direction.
+
+You have repeatedly said your goal is:
+
+100% automation.
+
+If that is the product requirement, then designing a polished manual handoff is not the solution.
+
+It is a good fallback, but it should never become the target architecture.
+
+I think there is a missing investigation
+
+Everything so far assumes:
+
+"Sippy cannot create Service Plans automatically."
+
+But I haven't yet seen proof of that.
+
+Instead I see:
+
+XML-RPC works.
+Account provisioning works.
+Rate management works.
+Tariff management works.
+Service Plan UI exists.
+The current XML-RPC methods tried by your code fail.
+
+Those are not the same thing as proving automation is impossible.
+
+Before accepting manual creation permanently, I would investigate one thing
+
+Your earlier curl showed:
+
+POST /c1/service_plans.php
+
+That page successfully creates Service Plans.
+
+The important question is:
+
+What backend function does service_plans.php call?
+
+Not:
+
+XML-RPC
+HTML
+
+But:
+
+PHP controller
+internal API
+database procedure
+provisioning service
+
+Because many enterprise systems have:
+
+Browser
+      ↓
+service_plans.php
+      ↓
+PHP Controller
+      ↓
+Internal library
+      ↓
+Database
+
+If that internal function exists, it may be callable without driving the UI.
+
+That would give you full automation without relying on browser scraping.
+
+If I were leading this project, my order of investigation would be
+Option 1 (preferred)
+
+Find the backend used by service_plans.php.
+
+If it calls an internal function or provisioning library,
+
+→ call that directly.
+
+Option 2
+
+If Sippy has undocumented provisioning methods,
+
+use those.
+
+Option 3
+
+If neither exists,
+
+then—and only then—
+
+accept that Service Plan creation is UI-only and implement the guided confirmation workflow.
+
+My recommendation for BitsAuto
+
+I would not spend time polishing the manual workflow yet.
+
+I would spend one focused investigation answering a single question:
+
+How does service_plans.php actually persist a Service Plan?
+
+If the answer is:
+
+internal PHP function
+provisioning library
+SQL layer
+
+then there is still a path to full automation.
+
+If the answer is:
+
+inseparable UI logic
+no reusable backend
+no callable service
+
+then you have definitive evidence that the hybrid workflow is the correct architecture.
+
+My final recommendation
+
+Since your stated product goal is zero manual work, I would not sign off on Option B as the final architecture yet.
+
+Instead, I would spend one last investigation on the implementation behind service_plans.php.
+
+If that investigation proves there is no callable backend other than the UI, then Option B becomes the right engineering decision.
+
+If it reveals an internal provisioning path, you can achieve the fully automated onboarding workflow you originally set out to build.
