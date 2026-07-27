@@ -369,6 +369,22 @@ Owner action (has portal access): open [XML-RPC API](https://support.sippysoft.c
 and [Manipulating Accounts](https://support.sippysoft.com/support/solutions/folders/176717)
 to confirm (1), and the v5.1/v5.2 release notes for the rate-processing call in (2).
 
+## Migration strategy (frozen — do NOT big-bang the probe sites)
+
+The 12+ probe loops are the *motivation*, not the first task. Prove the model on one path
+before anything depends on it:
+
+1. Implement the Capability Registry.
+2. Integrate it into **one** provisioning path — Service Plan.
+3. Prove it in production.
+4. Only then migrate the remaining probe sites, progressively.
+
+Replacing all 12+ sites before step 3 would make an unproven model a platform-wide
+dependency, and a defect in it would surface simultaneously across every Sippy integration.
+
+**This document is closed for design.** Further changes should come from runtime evidence,
+not from additional architecture.
+
 ## Related
 
 - [Account Wizard governance](../ACCOUNT-WIZARD-GOVERNANCE-PHASE1.md) §6 — the run that
