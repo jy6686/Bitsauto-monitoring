@@ -23,7 +23,11 @@ export const moduleRegistry: Record<string, ModuleComponent> = {
   // ── Core (shared across portals) ─────────────────────────────────────────────
   // The main platform Dashboard reused in any portal that assigns the "dashboard"
   // module key. One component, one API set, zero synchronisation burden.
-  "dashboard":     lazy(() => import("@/pages/dashboard")),
+  // Wrapped in PortalAwareDashboard (same click-interception technique as
+  // PortalAwareNocDashboard below) so hardcoded main-platform links inside it
+  // (e.g. "/calls", "/alerts") resolve to their /noc/... equivalents instead of
+  // escaping the portal namespace. DashboardPage itself is not modified.
+  "dashboard":     lazy(() => import("@/portals/noc/PortalAwareDashboard")),
 
   // ── NOC (Phase 1) ────────────────────────────────────────────────────────────
   "live-calls":    lazy(() => import("@/pages/calls-list")),
