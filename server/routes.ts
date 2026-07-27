@@ -1575,6 +1575,18 @@ export async function registerRoutes(
         // Checkpoint 3 — actual function output
         getPortalWorkspace_domainIds: workspace?.navigation.domains.map(d => d.id) ?? null,
         navigationChecksum: workspace?.navigationChecksum ?? null,
+        // Checkpoint 4 — proof of WHICH code the running process is actually
+        // executing for storage.getPortalWorkspace, independent of what git/the
+        // repo checkout says is there. domainRowsAfterJoin (checkpoint 2) proves
+        // the query itself returns company; storage.ts:3588-3610 (re-read live,
+        // verbatim) has no code path capable of dropping a domain from the
+        // top-level list after that point. If those two facts are both true,
+        // the running process must be executing a different function body than
+        // this repo's storage.ts -- a stale build, a shadowed module, or a
+        // different storage instance. This dumps the actual runtime source so
+        // that stops being a guess.
+        getPortalWorkspace_runtime_source: String((storage as any).getPortalWorkspace).slice(0, 6000),
+        getPortalWorkspace_fn_length: String((storage as any).getPortalWorkspace).length,
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message, stack: err.stack });
