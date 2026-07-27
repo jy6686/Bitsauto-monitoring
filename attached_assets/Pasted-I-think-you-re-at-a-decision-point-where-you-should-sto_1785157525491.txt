@@ -1,0 +1,89 @@
+I think you're at a decision point where you should stop debating architecture and gather one piece of evidence. The discussion has split into two separate questions:
+
+Can your deployment fully automate Service Plan creation?
+If not, what should the operator experience be?
+
+Those should be answered in that order.
+
+My recommendation
+Phase 1: Determine whether this is a configuration issue or a platform limitation
+
+From your screenshot we know:
+
+✅ Tariff creation succeeded.
+✅ XML-RPC connectivity is working.
+❌ Service Plan creation fell back.
+
+That does not tell us why it fell back.
+
+The next step is not to redesign the UI yet.
+
+It is to inspect the log from the attempt.
+
+Specifically, the log around createSippyServicePlan() should tell you whether the fallback was caused by:
+
+PROVISIONING_NOT_CONFIGURED
+provisioning login failure
+permission denied
+another unexpected error
+
+If your code already distinguishes those cases, then the log is the authoritative source.
+
+Phase 2: Make the architectural decision based on the result
+
+If the logs show:
+
+Case A — Missing provisioning credentials
+
+PROVISIONING_NOT_CONFIGURED
+
+Then this is a deployment/configuration problem, not an architectural one.
+
+In that case I would not redesign onboarding. Fix the provisioning credentials first and verify whether automation works.
+
+Case B — Provisioning login rejected
+
+Then fix the account or credentials and retest.
+
+Case C — Authenticated but no permission to create Service Plans
+
+If the provisioning account logs in successfully but Sippy refuses the operation, then you have much stronger evidence that your deployment does not permit automated Service Plan creation through the supported interfaces.
+
+Only then would I move to designing a fallback workflow.
+
+I also agree with one important UX observation
+
+Even if you eventually need a fallback, the current screen should not be customer-facing.
+
+Showing:
+
+Tariff ID
+ssp-root
+Sippy navigation instructions
+
+is exposing implementation details.
+
+Those belong in:
+
+an Admin Portal
+an Operations Portal
+or an internal provisioning workflow
+
+—not in the normal client onboarding wizard.
+
+What I would do today
+
+I would not build the Provisioning Queue yet.
+
+I would:
+
+Inspect the createSippyServicePlan() log.
+Classify the failure.
+Fix configuration if it's a configuration issue.
+Only if it is confirmed to be a permission/platform limitation would I redesign the workflow.
+
+That sequence minimizes unnecessary work and avoids turning a potentially fixable automation issue into a permanent manual process.
+
+So my recommendation is:
+
+Get the Replit log output from the failed Service Plan creation first. If it says the provisioning credentials are missing or invalid, fix that before investing in a new provisioning UX. If it clearly shows authenticated-but-denied permissions, then you have strong evidence to justify designing a controlled fallback workflow.
