@@ -56,11 +56,14 @@ export default function CompanyProfilePage() {
   const [result, setResult]     = useState<CreationResult | null>(null);
   const [nameCheck, setNameCheck] = useState<{ loading: boolean; conflict?: string; message?: string } | null>(null);
 
-  const { data: sippySession } = useQuery<{ active: boolean; username?: string }>({
+  const { data: sippySession } = useQuery<{ active: boolean; configured?: boolean; username?: string }>({
     queryKey: ['/api/sippy/session'],
     refetchInterval: 30_000,
   });
-  const hasSession = sippySession?.active === true;
+  // `configured` = Sippy settings exist in DB; `active` = live session established.
+  // The wizard works as long as settings are configured — the live session is optional.
+  const isConfigured = sippySession?.configured === true || sippySession?.active === true;
+  const hasSession   = sippySession?.active === true;
 
   const { data: allCompaniesData } = useQuery<{ companies: { name: string; shortCode: string; provisioningStatus?: string }[] }>({
     queryKey: ['/api/companies'],
@@ -159,8 +162,8 @@ export default function CompanyProfilePage() {
         </p>
       </div>
 
-      {/* ── Sippy session guard ─────────────────────────────────────────────── */}
-      {!hasSession && (
+      {/* ── Sippy connection guard ─────────────────────────────────────────── */}
+      {!isConfigured && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/[0.07] px-4 py-3 flex items-center gap-3">
           <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
           <span className="text-sm text-amber-300">
@@ -168,6 +171,14 @@ export default function CompanyProfilePage() {
             <Link href="/settings">
               <a className="underline hover:text-amber-200">Settings → Sippy API</a>
             </Link>.
+          </span>
+        </div>
+      )}
+      {isConfigured && !hasSession && (
+        <div className="rounded-lg border border-blue-500/20 bg-blue-500/[0.05] px-4 py-3 flex items-center gap-3">
+          <Settings className="w-4 h-4 text-blue-400 shrink-0" />
+          <span className="text-sm text-blue-300">
+            Sippy is configured — live session inactive but setup will proceed normally.
           </span>
         </div>
       )}

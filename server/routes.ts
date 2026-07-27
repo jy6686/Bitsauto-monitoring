@@ -1169,7 +1169,7 @@ export async function registerRoutes(
   // are updated in Settings without requiring a server restart.
   setInterval(async () => {
     try {
-      if (sippy.getSippySessionStatus().connected) return; // already connected
+      if (sippy.getSippySessionStatus().active) return; // already connected
       const s = await storage.getSettings();
       const url      = sippyPortalUrl(s);
       const { username, password } = sippyXmlCreds(s);
@@ -3518,8 +3518,24 @@ export async function registerRoutes(
   });
 
   // GET /api/sippy/session — current Sippy session status
-  app.get('/api/sippy/session', (_req, res) => {
-    res.json(sippy.getSippySessionStatus());
+  // Returns `configured: true` when Sippy settings exist in the DB, even if the live
+  // session hasn't been established yet (e.g. transient startup failure).
+  app.get('/api/sippy/session', async (_req, res) => {
+    try {
+      const sessionStatus = sippy.getSippySessionStatus();
+      let configured = sessionStatus.active; // if active, definitely configured
+      if (!configured) {
+        try {
+          const s = await storage.getSettings();
+          const url = sippyPortalUrl(s);
+          const { username } = sippyXmlCreds(s);
+          configured = !!(url && username);
+        } catch { /* ignore — treat as not configured */ }
+      }
+      res.json({ ...sessionStatus, configured });
+    } catch (e: any) {
+      res.json({ active: false, configured: false });
+    }
   });
 
   // POST /api/sippy/circuit-reset — admin-only: force-clear the XML-RPC circuit breaker
@@ -10398,7 +10414,13 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
   // Fetches listAccounts() + getLowBalance() per account in parallel for a unified monitor view.
   app.get('/api/sippy/balance-monitor', async (req: any, res) => {
     try {
-      const settings = await storage.getSippySettings();
+      let settings: any;
+      try {
+        settings = await storage.getSippySettings();
+      } catch (dbErr: any) {
+        // DB transient failure — return a structured error the UI can display gracefully
+        return res.status(503).json({ success: false, error: 'Database temporarily unavailable — please refresh in a moment.', transient: true });
+      }
       if (!settings) return res.status(503).json({ success: false, error: 'Sippy not configured.' });
       const portalUrl = sippyPortalUrl(settings);
       // Use credential-pair retry so swapped apiAdmin/portal fields don't cause 401

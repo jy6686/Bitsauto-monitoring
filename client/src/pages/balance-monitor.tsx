@@ -1784,9 +1784,21 @@ export default function BalanceMonitorPage() {
 
       {/* Error */}
       {!isLoading && error && (
-        <div className="flex items-center gap-3 p-4 rounded-xl border border-rose-500/25 bg-rose-500/8 text-rose-300 text-sm">
-          <XCircle className="w-4 h-4 flex-shrink-0" />
-          <span>{(error as any)?.message ?? "Failed to load balance data."}</span>
+        <div className="flex items-center justify-between gap-3 p-4 rounded-xl border border-rose-500/25 bg-rose-500/8 text-rose-300 text-sm">
+          <div className="flex items-center gap-3">
+            <XCircle className="w-4 h-4 flex-shrink-0" />
+            <span>
+              {(error as any)?.message === 'Failed to fetch'
+                ? 'Unable to load balance data — the server may be briefly busy. Click Refresh to retry.'
+                : ((error as any)?.message ?? 'Failed to load balance data.')}
+            </span>
+          </div>
+          <button
+            onClick={() => qc.invalidateQueries({ queryKey: ['/api/sippy/balance-monitor'] })}
+            className="text-xs px-3 py-1 rounded-md border border-rose-500/30 hover:bg-rose-500/10 transition-colors shrink-0"
+          >
+            Refresh
+          </button>
         </div>
       )}
 
