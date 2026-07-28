@@ -1425,6 +1425,14 @@ export const companies = pgTable("companies", {
    *  default — provisioned with the standard sheet · custom — negotiated card assigned
    *  via Rate Manager · pending — card prepared but not yet pushed to Sippy. */
   rateStatus:          varchar("rate_status",          { length: 16 }).notNull().default('default'),
+  // ── Preparation package (migration 044) ────────────────────────────────────
+  // Resolved from company_type at creation and COPIED, so editing a default later cannot
+  // retroactively change a live customer's routing or notifications.
+  provisioningProfileId:  integer("provisioning_profile_id"),
+  routingPackageId:       integer("routing_package_id"),
+  notificationProfileId:  integer("notification_profile_id"),
+  ratePolicy:             varchar("rate_policy", { length: 64 }),
+  preparedAt:             timestamp("prepared_at"),
   provisionedAt:       timestamp("provisioned_at"),
   provisionedBy:       varchar("provisioned_by",       { length: 255 }),
   sippyIAccount:       integer("sippy_i_account"),

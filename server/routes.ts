@@ -27506,6 +27506,31 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const { basic, billing, contacts = [], bankAccounts = [] } = req.body ?? {};
       if (!basic?.name?.trim()) return res.status(400).json({ message: 'Company name is required' });
       if (!basic?.shortCode?.trim()) return res.status(400).json({ message: 'Short code is required' });
+
+      // ── Automatic preparation (migration 044) ────────────────────────────
+      // Resolve the provisioning profile from company type and COPY its routing,
+      // notification and rate references onto the company. Copied rather than read
+      // through, so editing a default later cannot retroactively change a live
+      // customer's routing — the same reasoning as company_provisioning_snapshot.
+      //
+      // Commercial defaults come from the profile too, but only where the caller did not
+      // supply a value: an operator's explicit choice always wins over a default.
+      //
+      // Nothing here touches Sippy. Preparation is entirely BitsAuto-side.
+      const companyType = basic.companyType || 'retail';
+      let prep: any = null;
+      try {
+        const { provisioningProfiles } = await import('@shared/schema');
+        const profiles = await db.select().from(provisioningProfiles);
+        prep = profiles.find((p: any) => p.active && p.companyType === companyType)
+            ?? profiles.find((p: any) => p.active && p.isDefault)
+            ?? null;
+      } catch (e: any) {
+        // Preparation is additive: if the configuration layer is unavailable the company
+        // must still be created, just unprepared. Failing the create would be worse.
+        console.warn('[companies] preparation profile lookup failed:', e?.message);
+      }
+
       const company = await storage.createCompany({
         name: basic.name.trim(),
         shortCode: basic.shortCode.trim().toUpperCase(),
@@ -27523,18 +27548,39 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         vendorGracePeriod: billing?.vendorGracePeriod ?? 3,
         vendorCreditLimit: billing?.vendorCreditLimit ?? 0,
         disputeOverPct: billing?.disputeOverPct ?? 0,
-        clientBillingCycle: billing?.clientBillingCycle || 'weekly_cutoff',
-        clientGracePeriod: billing?.clientGracePeriod ?? 3,
+        // Commercial defaults from the profile where the caller supplied nothing.
+        clientBillingCycle: billing?.clientBillingCycle || prep?.billingCycle || 'weekly_cutoff',
+        clientGracePeriod: billing?.clientGracePeriod ?? prep?.gracePeriodDays ?? 3,
         clientCreditLimit: billing?.clientCreditLimit ?? 0,
-        disputeOverVal: billing?.disputeOverVal ?? 0,
-        paymentTerm: billing?.paymentTerm || 'prepaid',
+        disputeOverVal: billing?.disputeOverVal ?? (prep?.disputeValue != null ? Number(prep.disputeValue) : 0),
+        paymentTerm: billing?.paymentTerm || prep?.paymentTerm || 'prepaid',
         legalNameCi: billing?.legalNameCi || null,
         legalNameVen: billing?.legalNameVen || null,
         invoiceEmail: billing?.invoiceEmail || null,
         notes: null,
         createdBy: (req as any).user?.claims?.sub || null,
-      }, contacts, bankAccounts);
-      res.json({ company });
+        // Preparation package — the links that make the configuration layer real.
+        provisioningProfileId: prep?.id ?? null,
+        routingPackageId:      prep?.routingPackageId ?? null,
+        notificationProfileId: prep?.notificationProfileId ?? null,
+        ratePolicy:            prep?.ratePolicy ?? null,
+        preparedAt:            prep ? new Date() : null,
+      } as any, contacts, bankAccounts);
+
+      if (prep) {
+        void writeAudit({
+          category: 'operational', action: 'company.prepared',
+          actor: req.user?.email ?? req.user?.claims?.email, actorType: 'user',
+          targetType: 'company', targetId: String((company as any)?.id), targetName: (company as any)?.name,
+          metadata: {
+            profile: prep.name, companyType,
+            routingPackageId: prep.routingPackageId,
+            notificationProfileId: prep.notificationProfileId,
+            ratePolicy: prep.ratePolicy,
+          },
+        });
+      }
+      res.json({ company, prepared: !!prep });
     } catch (e: any) {
       const msg = e.message || '';
       if (msg.includes('unique') || msg.includes('duplicate')) return res.status(409).json({ message: 'Company name or short code already exists' });
