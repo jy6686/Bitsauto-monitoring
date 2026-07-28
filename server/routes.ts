@@ -27717,6 +27717,53 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // GET /api/companies/:id/prepared-configuration — the resolved configuration with NAMES.
+  // One lookup, many consumers: wizard, company page, preflight, provision dashboard.
+  // Without it each consumer either shows raw ids or invents its own name resolution,
+  // which is the duplication this whole program has been removing.
+  app.get('/api/companies/:id/prepared-configuration', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+      const company: any = await storage.getCompany(id);
+      if (!company) return res.status(404).json({ message: 'Company not found' });
+
+      const { provisioningProfiles, routingPackages, notificationProfiles, rateCards } = await import('@shared/schema');
+      const one = async (tbl: any, col: any, val: any) =>
+        val == null ? null : (await db.select().from(tbl).where(eq(col, val)))[0] ?? null;
+
+      const [profile, routing, notif] = await Promise.all([
+        one(provisioningProfiles, provisioningProfiles.id, company.provisioningProfileId),
+        one(routingPackages,      routingPackages.id,      company.routingPackageId),
+        one(notificationProfiles, notificationProfiles.id, company.notificationProfileId),
+      ]);
+      // Rate policy resolves by NAME to a client rate card (migrations 041/042).
+      const rateCard = company.ratePolicy
+        ? (await db.select().from(rateCards).where(eq(rateCards.name, company.ratePolicy)))
+            .find((c: any) => c.cardType === 'client') ?? null
+        : null;
+
+      // Tariff and service plan have ids but no local name row — they live in Sippy and
+      // are named after the company. Reported as such rather than left null, which would
+      // read as "not prepared".
+      res.json({
+        companyId: id,
+        companyName: company.name,
+        preparedAt: company.preparedAt ?? null,
+        tariff:              company.sippyITariff      ? { id: company.sippyITariff,      name: company.name } : null,
+        servicePlan:         company.sippyIBillingPlan ? { id: company.sippyIBillingPlan, name: company.name } : null,
+        provisioningProfile: profile  ? { id: profile.id,  name: profile.name }  : null,
+        routingPackage:      routing  ? { id: routing.id,  name: routing.name }  : null,
+        notificationProfile: notif    ? { id: notif.id,    name: notif.name }    : null,
+        ratePolicy:          company.ratePolicy
+          ? { id: rateCard?.id ?? null, name: company.ratePolicy, entryCount: rateCard?.entryCount ?? 0 }
+          : null,
+        capacity: { maxCps: profile?.maxCps ?? null, maxSessions: profile?.maxSessions ?? null },
+        media:    { codec: profile?.codecPreference ?? null, mediaRelay: profile?.mediaRelay ?? null },
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // GET /api/companies/:id/preflight — automatic pre-provision validation + the summary
   // an admin reads before a production-changing action. Read-only: it refuses nothing and
   // changes nothing, it only reports whether provisioning may proceed.

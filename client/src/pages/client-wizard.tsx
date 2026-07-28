@@ -264,22 +264,27 @@ export default function ClientWizardPage() {
   // the provisioning profile from company type and copies its routing package,
   // notification profile and rate policy onto the company, and creates the tariff and
   // service plan in Sippy. One source of truth, read here and by the provision engine.
+  // Single shared lookup — the same endpoint the company page, preflight and the
+  // provision dashboard use. No consumer resolves names for itself.
+  const { data: prepared } = useQuery<any>({
+    queryKey: [`/api/companies/${s1.companyId}/prepared-configuration`],
+    enabled: !!s1.companyId,
+  });
+
   const preparedCompany = useMemo(() => {
-    const c: any = (companiesData?.companies ?? []).find((x: any) => String(x.id) === s1.companyId);
-    if (!c) return null;
+    if (!s1.companyId || !prepared) return null;
     return {
-      name: c.name,
-      sippyITariff: c.sippyITariff ?? null,
-      sippyIBillingPlan: c.sippyIBillingPlan ?? null,
-      ratePolicy: c.ratePolicy ?? null,
-      // Names are not on the company row (it stores ids). Shown as ids until an endpoint
-      // exposes the names — deliberately not a second lookup path invented here.
-      routingPackageName: c.routingPackageId ? `#${c.routingPackageId}` : null,
-      notificationProfileName: c.notificationProfileId ? `#${c.notificationProfileId}` : null,
-      maxCps: c.maxCps ?? null,
-      maxSessions: c.maxSessions ?? null,
+      name: prepared.companyName,
+      sippyITariff: prepared.tariff?.id ?? null,
+      sippyIBillingPlan: prepared.servicePlan?.id ?? null,
+      ratePolicy: prepared.ratePolicy?.name ?? null,
+      routingPackageName: prepared.routingPackage?.name ?? null,
+      notificationProfileName: prepared.notificationProfile?.name ?? null,
+      // Capacity comes from the PROFILE, which is where the platform default lives.
+      maxCps: prepared.capacity?.maxCps ?? null,
+      maxSessions: prepared.capacity?.maxSessions ?? null,
     };
-  }, [companiesData, s1.companyId]);
+  }, [prepared, s1.companyId]);
 
   // Seed capacity from the prepared company once per selection, so the operator sees the
   // profile's values rather than the form's own defaults. Still editable — NOC adjusts
