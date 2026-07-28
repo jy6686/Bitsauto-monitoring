@@ -8135,6 +8135,11 @@ export async function createSippyServicePlan(
         i_tariff:      String(iTariff),
         description:   description ?? '',
         billing_cycle: String(billingCycle ?? hiddenFields.billing_cycle ?? 3),
+        // Calls Duration. The form's own default is 0 (Round); this platform bills
+        // Round-Up, so it is a business decision and must be stated, not inherited.
+        // It was previously hardcoded here and was silently lost when form values
+        // began (correctly) winning over constants — plans came out as Round.
+        round_up:      '1',
         action:        'add',
         save_and_close: 'Save & Close',
       };
