@@ -252,9 +252,13 @@ export async function executeRun(
     }
   }
 
+  // A SKIPPED stage is also a warning, not a clean pass. "Provision complete" while
+  // capacity was silently skipped tells an operator the customer is fully configured
+  // when Sippy defaults are still in force — the summary must say so.
+  const sawSkipped = summary.some(s => s.status === 'skipped');
   const finalStatus = halted
     ? 'failed'
-    : sawNonBlockingFailure ? 'completed_with_warnings' : 'completed';
+    : (sawNonBlockingFailure || sawSkipped) ? 'completed_with_warnings' : 'completed';
 
   await db.update(provisioningRuns).set({
     status: finalStatus,
