@@ -9,8 +9,30 @@ in-flight adjustment.
 
 1. **One source of truth** — BitsAuto is master. Wizard → draft → admin provision → Sippy.
    Nothing exists in Sippy until Provision.
-2. **The wizard prepares, it never writes to Sippy.** KAM, NOC and Commercial can all run
-   it; only Admin changes the production switch.
+2. **Only LIVE CUSTOMER resources require Admin approval.** *(Amended 2026-07-28,
+   superseding "nothing is written to Sippy until Provision".)*
+
+   | Created automatically on company creation | Admin-only, at Provision |
+   |---|---|
+   | Tariff · Service Plan | Customer account · Authentication · Routing · IP authorisation · Traffic activation |
+
+   A tariff and a service plan are shared commercial objects that carry no traffic and
+   expose no network. Creating them early gives the company a stable commercial identity
+   from day one without any live exposure. What stays gated is everything that can carry
+   a call.
+
+   The original rule was cleaner to state but wrong at the boundary: it treated a price
+   list and a live account as the same risk. Consequence to accept — **company creation
+   now touches Sippy, and KAM/NOC/Commercial can create companies.** That is deliberate
+   under this rule, not an oversight.
+
+   Two safeguards this obliges:
+   - **Orphan cleanup.** Deleting a company before provisioning must delete the tariff and
+     service plan it created. Otherwise abandoned onboarding silently accumulates objects
+     in the switch.
+   - **Sippy failure must not block company creation.** If the switch is unreachable the
+     company is still created, marked unprepared, and the objects are created on retry.
+     An outage must not stop the commercial team recording a customer.
 3. **Everything becomes defaults** — one backend profile, not 50 exposed telecom fields.
 4. **Routing is a package**, not hardcoded countries in provisioning logic.
 5. **Provision is a logged pipeline** with per-stage status and retry-from-stage.

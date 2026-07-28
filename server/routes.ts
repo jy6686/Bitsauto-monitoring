@@ -27567,6 +27567,59 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         preparedAt:            prep ? new Date() : null,
       } as any, contacts, bankAccounts);
 
+      // ── Commercial objects in Sippy (frozen principle 2, amended 2026-07-28) ──
+      // Tariff and Service Plan are SHARED COMMERCIAL objects: they carry no traffic and
+      // expose no network, so they are created here rather than gated behind Provision.
+      // Everything that can carry a call — account, authentication, routing, IP
+      // authorisation, traffic — remains admin-only at Provision.
+      //
+      // Deliberately NON-FATAL. A Sippy outage must not stop the commercial team
+      // recording a customer; the company is created unprepared and the objects are made
+      // on retry. Failing the create would trade a recoverable gap for a lost customer.
+      let commercialObjs: { iTariff?: number; planId?: number; error?: string } = {};
+      try {
+        const settings: any = await storage.getSettings();
+        const { username, password } = sippyXmlCreds(settings);
+        const portalUrl = sippyPortalUrl(settings);
+        const name = basic.name.trim();
+
+        const tariffRes = await sippy.createSippyTariff(
+          username, password, { name, currency: basic.currency || 'USD' }, portalUrl);
+
+        if (tariffRes.success && tariffRes.iTariff) {
+          commercialObjs.iTariff = tariffRes.iTariff;
+          const planRes = await sippy.createSippyServicePlan(
+            portalUrl,
+            settings?.apiAdminUsername || settings?.portalUsername || '',
+            settings?.apiAdminPassword || settings?.portalPassword || '',
+            settings?.portalUsername || '',
+            settings?.portalPassword || '',
+            name, tariffRes.iTariff, undefined,
+            prep?.billingCycleDays === 7 ? 1 : 3,
+            settings?.adminWebPassword || undefined,
+          );
+          if (planRes.success && planRes.planId) commercialObjs.planId = planRes.planId;
+          else commercialObjs.error = planRes.error ?? 'service plan not created';
+        } else {
+          commercialObjs.error = tariffRes.message ?? 'tariff not created';
+        }
+
+        if (commercialObjs.iTariff || commercialObjs.planId) {
+          await storage.updateCompany((company as any).id, {
+            sippyITariff:        commercialObjs.iTariff ?? null,
+            sippyIBillingPlan:   commercialObjs.planId  ?? null,
+            billingProvisionedAt: new Date(),
+          } as any);
+        }
+      } catch (e: any) {
+        commercialObjs.error = e?.message ?? 'unknown error';
+        console.warn('[companies] commercial object creation failed:', commercialObjs.error);
+      }
+
+      if (commercialObjs.error) {
+        console.warn(`[companies] "${basic.name}" created WITHOUT commercial objects: ${commercialObjs.error}`);
+      }
+
       if (prep) {
         void writeAudit({
           category: 'operational', action: 'company.prepared',
@@ -27577,10 +27630,18 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             routingPackageId: prep.routingPackageId,
             notificationProfileId: prep.notificationProfileId,
             ratePolicy: prep.ratePolicy,
+            sippyITariff: commercialObjs.iTariff ?? null,
+            sippyIBillingPlan: commercialObjs.planId ?? null,
+            commercialObjectsError: commercialObjs.error ?? null,
           },
         });
       }
-      res.json({ company, prepared: !!prep });
+      res.json({
+        company,
+        prepared: !!prep,
+        // Surfaced so the UI can show what actually happened rather than implying success.
+        commercial: { tariffId: commercialObjs.iTariff ?? null, servicePlanId: commercialObjs.planId ?? null, error: commercialObjs.error ?? null },
+      });
     } catch (e: any) {
       const msg = e.message || '';
       if (msg.includes('unique') || msg.includes('duplicate')) return res.status(409).json({ message: 'Company name or short code already exists' });
@@ -27644,8 +27705,46 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+
+      // ── Orphan cleanup (obliged by frozen principle 2, amended 2026-07-28) ──
+      // Company creation now makes a tariff and service plan in Sippy. Deleting an
+      // unprovisioned company must remove them, or abandoned onboarding silently
+      // accumulates objects in the switch — which is how the switch reached 50 tariffs
+      // with names like "3tre" and "4rttr" during one afternoon of testing.
+      //
+      // Only for UNPROVISIONED companies: once an account exists, the tariff may be
+      // carrying live calls and deleting it is a traffic-affecting act, not cleanup.
+      const existing: any = await storage.getCompany(id);
+      const cleanup: Record<string, unknown> = {};
+      if (existing && !existing.sippyIAccount && existing.provisioningStatus !== 'provisioned') {
+        if (existing.sippyITariff) {
+          try {
+            const settings: any = await storage.getSettings();
+            const { username, password } = sippyXmlCreds(settings);
+            const r = await sippy.deleteSippyTariff(username, password, existing.sippyITariff, sippyPortalUrl(settings));
+            cleanup.tariff = r?.success ? `deleted ${existing.sippyITariff}` : `failed: ${r?.message}`;
+          } catch (e: any) { cleanup.tariff = `failed: ${e?.message}`; }
+        }
+        // No delete API exists for service plans on this build — record it rather than
+        // implying it was removed. An untrue cleanup claim is worse than a known gap.
+        if (existing.sippyIBillingPlan) {
+          cleanup.servicePlan = `orphaned ${existing.sippyIBillingPlan} — no delete API on this Sippy build; remove manually`;
+        }
+      } else if (existing?.sippyIAccount) {
+        cleanup.skipped = 'company is provisioned — Sippy objects left intact (may be carrying traffic)';
+      }
+
       await storage.deleteCompany(id);
-      res.json({ success: true });
+
+      void writeAudit({
+        category: 'operational', action: 'company.deleted',
+        actor: req.user?.email ?? req.user?.claims?.email, actorType: 'user',
+        targetType: 'company', targetId: String(id), targetName: existing?.name,
+        severity: 'warning',
+        metadata: { cleanup, wasProvisioned: !!existing?.sippyIAccount },
+      });
+
+      res.json({ success: true, cleanup });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
