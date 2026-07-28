@@ -207,7 +207,7 @@ export default function CompanyProfilePage() {
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
           Creates a matching <strong>Tariff</strong> and <strong>Service Plan</strong> in Sippy,
-          then guides you to the New Sippy Account wizard.
+          then continues into company onboarding.
         </p>
       </div>
 
@@ -494,18 +494,23 @@ export default function CompanyProfilePage() {
                   </div>
                 </div>
 
-                {/* Next step: open account wizard */}
+                {/* Next step: continue the company the operator actually started.
+                    The tariff and service plan are provisioning detail that has
+                    already succeeded — the user's task is still "create a company",
+                    so the journey continues there rather than switching context to
+                    a Sippy account. The name carries over; it is never typed twice. */}
                 <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-                  <p className="text-sm font-medium">Next step: Create a Sippy Account</p>
+                  <p className="text-sm font-medium">Next step: Continue creating {result.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    The tariff and service plan are ready. You can now open the New Sippy Account wizard to create a customer account that uses this service plan.
+                    The Sippy tariff and service plan are ready. Continue with the company details —
+                    billing, contacts and bank — to finish onboarding.
                   </p>
-                  <Link href="/client-wizard">
+                  <Link href={`/company/create?name=${encodeURIComponent(result.name ?? '')}`}>
                     <a
                       data-testid="link-open-wizard"
                       className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
                     >
-                      New Sippy Account
+                      Continue Company Creation
                       <ArrowRight className="w-4 h-4" />
                     </a>
                   </Link>
