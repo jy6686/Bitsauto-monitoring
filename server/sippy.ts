@@ -7777,7 +7777,7 @@ export async function createSippyServicePlan(
   /** Stable machine-readable classification of a fallback. The caller/UI keys off
    *  this, never off the wording of `error` — so messages can be reworded or
    *  localised without breaking presentation logic, and occurrences can be counted. */
-  reasonCode?: 'PROVISIONING_NOT_CONFIGURED' | 'PROVISIONING_LOGIN_FAILED' | 'PROVISIONING_PERMISSION_DENIED' | 'UNKNOWN_ERROR';
+  reasonCode?: 'PROVISIONING_NOT_CONFIGURED' | 'PROVISIONING_LOGIN_FAILED' | 'PROVISIONING_PERMISSION_DENIED' | 'PROVISIONING_SESSION_REJECTED' | 'PROVISIONING_VALIDATION_ERROR' | 'PROVISIONING_PORTAL_ERROR' | 'UNKNOWN_ERROR';
   /** Per-method outcome of the XML-RPC attempt sequence, e.g.
    *  ["createServicePlan=UNKNOWN_METHOD", "addBillingPlan=UNKNOWN_METHOD"].
    *  Returned rather than only logged because this platform's log stream is
@@ -7785,6 +7785,15 @@ export async function createSippyServicePlan(
    *  Distinguishes "method absent on this build" from "method exists but
    *  rejected the call" -- conclusions that imply opposite architectures. */
   xmlrpcAttempts?: string[];
+  /** Per-session outcome of the portal POST sequence, e.g.
+   *  ["prov:acct=HTTP200 cannot-insert", "prov:acct=HTTP302 login-bounce"].
+   *  The portal path previously collapsed THREE distinct failures — session
+   *  bounced to login, Sippy refused the INSERT, and request threw — into the
+   *  single reasonCode PROVISIONING_PERMISSION_DENIED. Only the middle one is
+   *  actually a permission fact; the others imply different fixes entirely.
+   *  Evidence is returned, not just logged, so the classification can be
+   *  checked rather than trusted. */
+  portalAttempts?: string[];
   needsManualCreation?: boolean;
   alreadyExists?: boolean;
 }> {
@@ -7986,6 +7995,9 @@ export async function createSippyServicePlan(
 
   let resp!: Awaited<ReturnType<typeof rawRequest>>;
   let usedSession = '';
+  // Evidence for each session attempt. Recorded so the caller can see WHY the
+  // portal path failed instead of inferring it from a single collapsed code.
+  const portalAttempts: string[] = [];
   for (const { cookies, label, iCustomer } of allSessions) {
     try {
       // Service plans live under /c1/ (customer self-care portal), not root.
@@ -8037,6 +8049,18 @@ export async function createSippyServicePlan(
       console.log(`[Sippy] createSippyServicePlan POST (${label}) → HTTP ${r.statusCode}, body: ${r.body.length}B, snippet: ${r.body.slice(0, 200).replace(/\s+/g, ' ')}`);
       const isLoginPage    = r.body.includes('value="Login"') || r.body.includes("value='Login'");
       const hasInsertError = /alert\(['"][^'"]*Cannot insert[^'"]*['"]\)/i.test(r.body);
+      // Any portal-rendered message, whichever way this attempt went. A validation
+      // complaint ("required field", "already exists") is NOT a permission problem,
+      // and previously produced the same reasonCode as one.
+      const portalMsg =
+        r.body.match(/alert\(['"]([^'"]{0,200})['"]\)/i)?.[1] ??
+        r.body.match(/class="err(?:or)?[^"]*"[^>]*>([\s\S]{0,200}?)<\//i)?.[1]?.replace(/<[^>]+>/g, '').trim() ??
+        '';
+      const verdict = isLoginPage ? 'login-bounce'
+                    : hasInsertError ? 'cannot-insert'
+                    : 'accepted';
+      portalAttempts.push(
+        `${label}=HTTP${r.statusCode} ${verdict} ${r.body.length}B${portalMsg ? ` msg:"${portalMsg}"` : ''}`);
       if (!isLoginPage && !hasInsertError) {
         resp = r;
         usedSession = label;
@@ -8045,21 +8069,29 @@ export async function createSippyServicePlan(
       if (isLoginPage)    console.log(`[Sippy] createSippyServicePlan: ${label} → session rejected (login page)`);
       if (hasInsertError) console.log(`[Sippy] createSippyServicePlan: ${label} → "Cannot insert" (no permission)`);
     } catch (e: any) {
+      portalAttempts.push(`${label}=threw:${e?.message ?? 'unknown'}`);
       console.log(`[Sippy] createSippyServicePlan: ${label} → error: ${e?.message}`);
     }
   }
 
-  // POST failed — provisioning session authenticated but Sippy rejected the write.
-  // This means SIPPY_PROV_USERNAME does not have reseller/admin INSERT permission on this Sippy build.
+  // POST failed. Classify from the RECORDED evidence rather than assuming permissions:
+  // a session bounced back to the login form, a refused INSERT, and a thrown request
+  // are three different problems with three different fixes. Only "Cannot insert"
+  // actually evidences a permission limitation.
   if (!resp) {
-    console.log('[Sippy] createSippyServicePlan: provisioning session POST rejected (no INSERT permission) — manual creation needed');
-    return {
-      success: false,
-      needsManualCreation: true,
-      reasonCode: 'PROVISIONING_PERMISSION_DENIED',
-      xmlrpcAttempts,
-      error: `Provisioning account "${process.env.SIPPY_PROV_USERNAME}" authenticated but Sippy rejected the Service Plan INSERT. Ensure the account has reseller or admin privileges in Sippy, then retry.`,
-    };
+    const sawCannotInsert = portalAttempts.some(a => a.includes('cannot-insert'));
+    const sawLoginBounce  = portalAttempts.some(a => a.includes('login-bounce'));
+    const reasonCode = sawCannotInsert ? 'PROVISIONING_PERMISSION_DENIED' as const
+                     : sawLoginBounce  ? 'PROVISIONING_SESSION_REJECTED'  as const
+                     :                   'PROVISIONING_PORTAL_ERROR'      as const;
+    const error =
+      sawCannotInsert
+        ? 'The provisioning account authenticated, but Sippy refused to insert the Service Plan. Sign in to Sippy with an account permitted to manage Service Plans, or grant that privilege to the provisioning account, then retry.'
+        : sawLoginBounce
+        ? 'The provisioning session was returned to the Sippy login form when submitting the Service Plan, so the write was never evaluated. This is a session/authentication problem, not a permission limitation — verify the provisioning credentials and that the portal accepts a non-interactive session.'
+        : `The Service Plan form submission did not complete and Sippy returned no recognisable outcome. Attempts: ${portalAttempts.join(' | ') || '(none executed)'}`;
+    console.log(`[Sippy] createSippyServicePlan: portal path failed → ${reasonCode}; attempts: ${portalAttempts.join(' | ') || '(none)'}`);
+    return { success: false, needsManualCreation: true, reasonCode, xmlrpcAttempts, portalAttempts, error };
   }
 
   // Check for Sippy validation errors in the response HTML
@@ -8070,7 +8102,10 @@ export async function createSippyServicePlan(
   if (hasError) {
     const errMatch = resp.body.match(/class="err(?:or)?[^"]*"[^>]*>([\s\S]{0,300}?)<\/[^>]+>/i);
     const errMsg = errMatch ? errMatch[1].replace(/<[^>]+>/g, '').trim() : 'Sippy returned a validation error.';
-    return { success: false, error: errMsg };
+    // A validation complaint means the form REACHED Sippy and was evaluated — the
+    // opposite conclusion from a permission block, and the only class in this set
+    // that is ours to fix (a missing or mis-valued field, not a Sippy limitation).
+    return { success: false, error: errMsg, reasonCode: 'PROVISIONING_VALIDATION_ERROR', xmlrpcAttempts, portalAttempts };
   }
 
   // After "Save & Close", Sippy redirects to the edit page containing the new plan ID.

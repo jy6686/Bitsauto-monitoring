@@ -51,6 +51,7 @@ type CreationResult = {
    *  reasonCode describes the PORTAL attempt only; this shows what the XML-RPC
    *  layer did, which is what actually determines whether automation is possible. */
   xmlrpcAttempts?: string[];
+  portalAttempts?: string[];
   /** Same ID written to the server log for this fallback, so a screenshot is
    *  enough for support to locate the exact log line. */
   correlationId?: string;
@@ -583,6 +584,19 @@ export default function CompanyProfilePage() {
                           <div className="pl-2 pt-1 space-y-0.5">
                             <p className="font-mono text-[11px] text-muted-foreground/60">XML-RPC attempts:</p>
                             {result.xmlrpcAttempts.map((a, i) => (
+                              <p key={i} className="font-mono text-[11px] text-muted-foreground/80 break-all">• {a}</p>
+                            ))}
+                          </div>
+                        )}
+                        {/* Portal attempt outcomes — the evidence the reasonCode is
+                            derived from. HTTP status + verdict + any portal-rendered
+                            message, per session tried. login-bounce, cannot-insert and
+                            a validation complaint are three different engineering
+                            tasks; the code alone cannot be checked without these. */}
+                        {result.portalAttempts && result.portalAttempts.length > 0 && (
+                          <div className="pl-2 pt-1 space-y-0.5">
+                            <p className="font-mono text-[11px] text-muted-foreground/60">Portal attempts:</p>
+                            {result.portalAttempts.map((a, i) => (
                               <p key={i} className="font-mono text-[11px] text-muted-foreground/80 break-all">• {a}</p>
                             ))}
                           </div>
