@@ -150,6 +150,45 @@ export default function ClientWizardV2Page() {
   const { data: companies = [] } = useQuery<any[]>({ queryKey: ["/api/companies"] });
   const selected = companies.find((c: any) => String(c.id) === company.companyId);
 
+  // Step 3 — commercial terms. These are COMPANY columns; the wizard is another view of
+  // them, never a second copy. Edits save through PUT /api/companies/:id, so there is one
+  // database column, one source of truth, and no context switch to a different screen.
+  const [terms, setTerms] = useState({
+    paymentTerm: "", clientBillingCycle: "", clientGracePeriod: 3,
+    disputeOverVal: 100, currency: "USD",
+  });
+  const [termsLoadedFor, setTermsLoadedFor] = useState<string>("");
+
+  // Load the selected company's real values once per selection. Payment term falls back to
+  // the company-type rule rather than a blank, so the default is visible and overridable.
+  if (selected && termsLoadedFor !== company.companyId) {
+    setTermsLoadedFor(company.companyId);
+    setTerms({
+      paymentTerm:        selected.paymentTerm        ?? (company.department === "wholesale" ? "postpaid" : "prepaid"),
+      clientBillingCycle: selected.clientBillingCycle ?? "weekly_cutoff",
+      clientGracePeriod:  selected.clientGracePeriod  ?? 3,
+      disputeOverVal:     selected.disputeOverVal     ?? 100,
+      currency:           selected.currency           ?? "USD",
+    });
+  }
+
+  const termsDirty = !!selected && (
+    terms.paymentTerm        !== (selected.paymentTerm        ?? terms.paymentTerm) ||
+    terms.clientBillingCycle !== (selected.clientBillingCycle ?? terms.clientBillingCycle) ||
+    terms.clientGracePeriod  !== (selected.clientGracePeriod  ?? terms.clientGracePeriod) ||
+    terms.disputeOverVal     !== (selected.disputeOverVal     ?? terms.disputeOverVal) ||
+    terms.currency           !== (selected.currency           ?? terms.currency)
+  );
+
+  const saveTermsMutation = useMutation({
+    mutationFn: () => apiRequest("PUT", `/api/companies/${company.companyId}`, terms),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      toast({ title: "Commercial terms saved to the company" });
+    },
+    onError: (e: any) => toast({ title: e.message || "Could not save terms", variant: "destructive" }),
+  });
+
   const submitMutation = useMutation({
     mutationFn: (payload: any) => apiRequest("POST", "/api/client-wizard/submit", payload),
     onSuccess: () => {
@@ -348,27 +387,52 @@ export default function ClientWizardV2Page() {
             ) : (
               <>
                 <p className="text-xs text-muted-foreground">
-                  These are the company's agreed terms. They are edited on the company record so
-                  there is one authoritative copy — the same reason credit limit lives in Finance.
+                  Edited here and saved onto the company record itself — the wizard is another
+                  view of the same fields, not a second copy of them.
                 </p>
-                <div className="rounded-lg border border-border divide-y divide-border/50">
-                  {[
-                    ["Payment term",  selected.paymentTerm ?? (company.department === "wholesale" ? "postpaid" : "prepaid")],
-                    ["Billing cycle", selected.clientBillingCycle ?? "weekly_cutoff"],
-                    ["Grace period",  `${selected.clientGracePeriod ?? 3} days`],
-                    ["Dispute value", selected.disputeOverVal != null ? `USD ${selected.disputeOverVal}` : "USD 100 or 1%"],
-                    ["Currency",      selected.currency ?? "USD"],
-                  ].map(([k, v]) => (
-                    <div key={String(k)} className="flex items-center justify-between px-4 py-2.5">
-                      <span className="text-sm text-muted-foreground">{k}</span>
-                      <span className="text-sm font-medium">{String(v)}</span>
-                    </div>
-                  ))}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Field label="Payment Term" hint="Defaults from company type — Wholesale postpaid, Retail prepaid">
+                    <select className={inputCls} value={terms.paymentTerm}
+                      onChange={e => setTerms(p => ({ ...p, paymentTerm: e.target.value }))}>
+                      <option value="prepaid">Prepaid</option>
+                      <option value="postpaid">Postpaid</option>
+                    </select>
+                  </Field>
+                  <Field label="Billing Cycle">
+                    <select className={inputCls} value={terms.clientBillingCycle}
+                      onChange={e => setTerms(p => ({ ...p, clientBillingCycle: e.target.value }))}>
+                      <option value="weekly_cutoff">Weekly (7 days)</option>
+                      <option value="biweekly_cutoff">Bi-Weekly (14 days)</option>
+                      <option value="monthly_cutoff">Monthly</option>
+                    </select>
+                  </Field>
+                  <Field label="Grace Period (days)">
+                    <input className={inputCls} type="number" min={0} value={terms.clientGracePeriod}
+                      onChange={e => setTerms(p => ({ ...p, clientGracePeriod: Number(e.target.value) }))} />
+                  </Field>
+                  <Field label="Dispute Value (USD)" hint="Policy is USD 100 or 1%, whichever governs">
+                    <input className={inputCls} type="number" min={0} step="0.01" value={terms.disputeOverVal}
+                      onChange={e => setTerms(p => ({ ...p, disputeOverVal: Number(e.target.value) }))} />
+                  </Field>
+                  <Field label="Currency">
+                    <select className={inputCls} value={terms.currency}
+                      onChange={e => setTerms(p => ({ ...p, currency: e.target.value }))}>
+                      {["USD", "AED", "EUR", "GBP"].map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </Field>
                 </div>
-                <button type="button" onClick={() => navigate(`/company/edit/${selected.id}`)}
-                  className="text-xs text-primary hover:underline">
-                  Edit commercial terms on the company →
-                </button>
+                <div className="flex items-center justify-between pt-1">
+                  <p className="text-[11px] text-muted-foreground">
+                    Credit limit is not here — Finance owns it in Balance Management.
+                  </p>
+                  {termsDirty && (
+                    <button type="button" disabled={saveTermsMutation.isPending}
+                      onClick={() => saveTermsMutation.mutate()}
+                      className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium disabled:opacity-40">
+                      {saveTermsMutation.isPending ? "Saving…" : "Save terms"}
+                    </button>
+                  )}
+                </div>
               </>
             )}
           </>
@@ -430,7 +494,8 @@ export default function ClientWizardV2Page() {
             <div className="rounded-lg border border-border px-4 py-2">
               <ReadinessRow ok={readiness.company}    label="Company"        detail={readiness.company ? "Complete" : "Incomplete"} />
               <ReadinessRow ok={readiness.contacts}   label="Contacts"       detail={readiness.contacts ? "Complete" : "Primary contact required"} />
-              <ReadinessRow ok={readiness.commercial} label="Commercial"     detail={readiness.commercial ? "Complete" : "Select a company"} />
+              <ReadinessRow ok={readiness.commercial} label="Commercial"
+                detail={!readiness.commercial ? "Select a company" : termsDirty ? "Unsaved edits — saved on submit" : "Complete"} />
               <ReadinessRow ok={readiness.auth}       label="Authentication" detail={readiness.auth ? "Complete" : "At least one IP required"} />
             </div>
             <div className={`rounded-lg px-4 py-3 text-sm font-medium ${
@@ -458,10 +523,19 @@ export default function ClientWizardV2Page() {
             Next <ChevronRight className="w-4 h-4" />
           </button>
         ) : (
-          <button type="button" disabled={!ready || submitMutation.isPending}
-            onClick={() => submitMutation.mutate(buildPayload())}
+          <button type="button" disabled={!ready || submitMutation.isPending || saveTermsMutation.isPending}
+            onClick={async () => {
+              // Persist any unsaved commercial edits to the company FIRST. Without this an
+              // operator who edits terms and goes straight to Save silently loses them —
+              // they live on the company, not in the draft payload.
+              if (termsDirty) {
+                try { await saveTermsMutation.mutateAsync(); }
+                catch { return; }   // error already surfaced; don't submit a half-saved customer
+              }
+              submitMutation.mutate(buildPayload());
+            }}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-40">
-            {submitMutation.isPending ? "Saving…" : "Save — Ready for Provision"}
+            {submitMutation.isPending || saveTermsMutation.isPending ? "Saving…" : "Save — Ready for Provision"}
           </button>
         )}
       </div>
