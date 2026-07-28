@@ -16,13 +16,29 @@ import ClientWizardPage from "@/pages/client-wizard";
 import ClientWizardV2Page from "@/pages/client-wizard-v2";
 
 interface PlatformFlag { key: string; enabled: boolean }
+/** GET /api/platform/flags returns { flags: [...] }, not a bare array. */
+interface FlagsResponse { flags?: PlatformFlag[] }
 
 export default function ClientWizardSwitch() {
-  const { data: flags } = useQuery<PlatformFlag[]>({
+  const { data } = useQuery<FlagsResponse>({
     queryKey: ["/api/platform/flags"],
     staleTime: 5 * 60_000,
+    retry: false,   // a 403 for a role that cannot read flags is an answer, not a failure
   });
 
-  const v2 = flags?.find(f => f.key === "customer_preparation_wizard_v2")?.enabled === true;
+  // Defensive rather than trusting the shape: this switch stands in front of a live
+  // onboarding workflow, and a malformed or unauthorised response must degrade to the
+  // certified wizard, never to a crashed page.
+  //
+  // But degrade LOUDLY. A silent fallback is indistinguishable from "the flag is off",
+  // which is precisely how the original shape mismatch stayed invisible until it crashed
+  // the page. `data === undefined` is normal (loading, or a 403 for a role that cannot
+  // read flags); a defined response that is not the expected shape is not.
+  if (data !== undefined && !Array.isArray(data?.flags)) {
+    console.warn("[wizard-switch] Unexpected /api/platform/flags shape — falling back to legacy wizard:", data);
+  }
+  const list = Array.isArray(data?.flags) ? data.flags : [];
+  const v2 = list.find(f => f.key === "customer_preparation_wizard_v2")?.enabled === true;
+
   return v2 ? <ClientWizardV2Page /> : <ClientWizardPage />;
 }

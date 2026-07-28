@@ -22032,8 +22032,13 @@ let _snapBusy = false;
   // ── Platform Feature Flags API ────────────────────────────────────────────────
   // GET  /api/platform/flags — return all flags (admin/super_admin/destination_manager)
   // PATCH /api/platform/flags/:key — toggle a flag (admin/super_admin only; audited)
+  // READ is broader than write: 'management' is added because the wizard route itself
+  // allows ['admin','management'], and a user who may use the wizard must be able to read
+  // which wizard to show. Without this a non-admin silently gets the legacy wizard even
+  // when the flag is on — the rollout would appear to work for whoever enabled it and
+  // nobody else. Writing flags remains admin/super_admin on the PATCH below.
   app.get('/api/platform/flags', (req: any, res: any, next: any) =>
-    requireRole(['admin', 'super_admin', 'destination_manager'], req, res, next),
+    requireRole(['admin', 'super_admin', 'destination_manager', 'management'], req, res, next),
     async (_req: any, res: any) => {
       try {
         const { db: flagDb } = await import('./db');
