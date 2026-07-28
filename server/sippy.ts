@@ -856,7 +856,10 @@ async function portalLogin(
 // Throws "PROVISIONING_NOT_CONFIGURED" if credentials are absent — callers must
 // catch this and surface the manual-fallback UI card.  The returned session is
 // function-scoped and must NEVER be cached globally or reused across calls.
-async function provisioningLogin(base: string, timeoutMs = 20000): Promise<CookieJar> {
+// `attempts` (optional) collects one evidence line per acct_type tried, so a caller
+// can report WHY login failed instead of only that it did. The login transaction was
+// the last step with no browser-visible evidence.
+async function provisioningLogin(base: string, timeoutMs = 20000, attempts?: string[]): Promise<CookieJar> {
   const provUser = process.env.SIPPY_PROV_USERNAME?.trim() ?? '';
   const provPass = process.env.SIPPY_PROV_PASSWORD?.trim() ?? '';
 
@@ -916,12 +919,19 @@ async function provisioningLogin(base: string, timeoutMs = 20000): Promise<Cooki
           const bouncedToLogin  = /\/(index|main|login)\.php/i.test(landed);
           if (verifyResp.statusCode === 200 && looksLikePortal && !hasLoginForm && !bouncedToLogin) {
             console.log(`[Sippy] provisioningLogin: verified session as ${provUser}/${acctType} → ${loc} (service_plans.php rendered)`);
+            attempts?.push(`${acctType}=OK login:HTTP${statusCode}→${loc ?? '?'} verify:HTTP200 rendered`);
             return resp.cookies;
           }
           console.log(`[Sippy] provisioningLogin: ${acctType} cookies obtained but session INVALID — HTTP ${verifyResp.statusCode}, landed ${landed || '?'}, portalChrome=${looksLikePortal}, loginForm=${hasLoginForm}`);
+          attempts?.push(
+            `${acctType}=INVALID login:HTTP${statusCode}→${loc ?? '?'} cookies:${resp.cookies.size}` +
+            ` verify:HTTP${verifyResp.statusCode} landed:${landed || '?'} chrome:${looksLikePortal} loginForm:${hasLoginForm}`);
         } catch (ve: any) {
           console.log(`[Sippy] provisioningLogin: session verify GET failed (${acctType}): ${ve?.message}`);
+          attempts?.push(`${acctType}=VERIFY_THREW ${ve?.message ?? 'unknown'}`);
         }
+      } else {
+        attempts?.push(`${acctType}=NO_SESSION login:HTTP${statusCode}→${loc ?? 'none'} cookies:${resp.cookies.size}`);
       }
       // Also accept a direct 200 with portal content (no redirect on some builds)
       if (statusCode === 200 && hasCookies) {
@@ -930,11 +940,13 @@ async function provisioningLogin(base: string, timeoutMs = 20000): Promise<Cooki
         const hasLoginForm = resp.body.includes('value="Login"') || resp.body.includes("value='Login'");
         if (hasPortal && !hasLoginForm) {
           console.log(`[Sippy] provisioningLogin: captured session as ${provUser}/${acctType} via 200+portal`);
+          attempts?.push(`${acctType}=OK via 200+portal`);
           return resp.cookies;
         }
       }
     } catch (e: any) {
       console.log(`[Sippy] provisioningLogin error (${acctType}): ${e?.message}`);
+      attempts?.push(`${acctType}=THREW ${e?.message ?? 'unknown'}`);
     }
   }
 
@@ -7937,8 +7949,12 @@ export async function createSippyServicePlan(
   // Session is function-scoped: discarded automatically when this function returns.
   type SessionCandidate = { cookies: CookieJar; label: string; iCustomer?: string };
   const allSessions: SessionCandidate[] = [];
+  // Per-acct_type login evidence, surfaced with the failure. Without it a login
+  // failure reports only that it happened, not which of the four account types
+  // were tried, what Sippy answered, or where the verification landed.
+  const loginAttempts: string[] = [];
   try {
-    const provCookies = await provisioningLogin(base);
+    const provCookies = await provisioningLogin(base, 20000, loginAttempts);
     console.log('[Sippy] createSippyServicePlan: provisioning session obtained');
     allSessions.push({ cookies: provCookies, label: `prov:${process.env.SIPPY_PROV_USERNAME}`, iCustomer: '1' });
   } catch (e: any) {
@@ -7958,7 +7974,8 @@ export async function createSippyServicePlan(
       needsManualCreation: true,
       reasonCode: 'PROVISIONING_LOGIN_FAILED',
       xmlrpcAttempts,
-      error: `Provisioning login failed: ${e?.message}. Check that SIPPY_PROV_USERNAME / SIPPY_PROV_PASSWORD are correct reseller/admin credentials.`,
+      portalAttempts: loginAttempts,
+      error: `The provisioning account could not establish a Sippy portal session (${e?.message}). No account type produced a session that renders the portal — see the attempt detail for what Sippy answered.`,
     };
   }
   console.log(`[Sippy] createSippyServicePlan: using provisioning session: ${allSessions.map(s => s.label).join(', ')}`);
@@ -8015,7 +8032,9 @@ export async function createSippyServicePlan(
   let usedSession = '';
   // Evidence for each session attempt. Recorded so the caller can see WHY the
   // portal path failed instead of inferring it from a single collapsed code.
-  const portalAttempts: string[] = [];
+  // Seeded with the login evidence so the browser shows the whole portal
+  // transaction in order: login → pre-GET → POST.
+  const portalAttempts: string[] = loginAttempts.map(a => `login/${a}`);
   // Path+query only — the host is already known and would just crowd the line.
   const shortUrl = (u?: string) => { try { const p = new URL(u ?? ''); return p.pathname + p.search; } catch { return u ?? '?'; } };
   // Sippy distinguishes rejection paths in the <title> even when the pages are
