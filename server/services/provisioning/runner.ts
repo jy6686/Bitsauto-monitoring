@@ -182,7 +182,43 @@ export async function executeRun(
         continue;
       }
 
-      const outcome = await def.execute(ctx);
+      let outcome = await def.execute(ctx);
+
+      // ── Read-back verification ────────────────────────────────────────────
+      // A step that reports success has not proved anything until the object is
+      // read back from Sippy. This platform has twice been misled by a return
+      // value: the Tariff-33 restore reported success on a tariff with no rates,
+      // and Service Plan creation reported PERMISSION_DENIED for a plan it had
+      // actually created. Both were only caught by reading the switch after.
+      //
+      // A verify failure DOWNGRADES a successful execute to failed. That is the
+      // point — "we asked and it said yes" is not evidence.
+      if (outcome.status === 'success' && def.verify) {
+        try {
+          const reason = await def.verify(ctx, outcome.result ?? {});
+          if (reason) {
+            outcome = {
+              ...outcome,
+              status: 'failed',
+              reasonCode: outcome.reasonCode ?? 'VERIFY_FAILED',
+              error: `Executed but read-back failed: ${reason}`,
+              detail: [...(outcome.detail ?? []), `read-back: ${reason}`],
+            };
+          } else {
+            outcome = { ...outcome, detail: [...(outcome.detail ?? []), 'read-back: verified'] };
+          }
+        } catch (ve: any) {
+          // An unreadable object is NOT a pass. Treating a failed check as
+          // success is precisely the assumption this whole mechanism exists to
+          // remove.
+          outcome = {
+            ...outcome,
+            status: 'failed',
+            reasonCode: 'VERIFY_THREW',
+            error: `Executed but read-back could not complete: ${ve?.message ?? 'unknown error'}`,
+          };
+        }
+      }
 
       await db.update(provisioningSteps).set({
         status:      outcome.status,

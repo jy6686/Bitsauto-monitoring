@@ -14,6 +14,7 @@
 import type { ProvisioningStep } from "./types";
 import { tariffStep } from "./steps/tariff.step";
 import { servicePlanStep } from "./steps/service-plan.step";
+import { accountStep } from "./steps/account.step";
 
 export * from "./types";
 export { createRun, executeRun, getRun } from "./runner";
@@ -24,7 +25,7 @@ export { createRun, executeRun, getRun } from "./runner";
  *
  *   10 tariff        ✅ implemented — proven working on the live deployment
  *   20 service_plan  ✅ implemented — blocked by the Sippy deployment, non-blocking
- *   30 account          → wrap sippy.pushAccountToSippy()
+ *   30 account       ✅ implemented — idempotent + read-back verified
  *   40 assign_plan      → link plan to account
  *   50 products         → customer_product_assignments
  *   60 rates            → generate customer rates
@@ -37,6 +38,7 @@ export { createRun, executeRun, getRun } from "./runner";
 export const PROVISIONING_STEPS: ProvisioningStep[] = [
   tariffStep,
   servicePlanStep,
+  accountStep,
 ];
 
 /** Look up a single step definition by its stable key. */
