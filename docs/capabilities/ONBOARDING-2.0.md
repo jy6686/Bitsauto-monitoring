@@ -22,30 +22,139 @@ Service Plan automation was proven end to end on 2026-07-28 (tariff + service pl
 via the portal path, id read back from Sippy's own redirect). That was the last unproven
 link. Everything else in the chain already exists as working code — see §5.
 
-## 3. The wizard
+## 3. Two phases, one engine
 
-Replaces "Company Profile Setup" (name it **Create New Customer**). Every step carries the
-company name forward; it is typed once.
+**Phase 1 — Client Wizard 2.0.** Keep the wizard operators already know; automate what sits
+behind it. Improving a production workflow, not replacing it.
 
-| # | Step | Contents | Side effects |
+**Phase 2 — AI one-page onboarding.** Only after the engine is proven. The wizard then
+becomes the manual fallback.
+
+Both surfaces produce the **same Provisioning Draft**, so there is one engine to maintain:
+
+```
+Client Wizard  ─┐
+                ├─→  Provisioning Draft  →  Provisioning Engine  →  Sippy
+AI One-Pager   ─┘
+```
+
+**Governance rule for phase 2:** the AI interprets input and populates a draft. It never
+touches the switch. The engine stays deterministic and rule-based, so provisioning remains
+auditable and reproducible — an AI that could vary the switch configuration between
+identical inputs is not something we can certify.
+
+### 3.1 Phase 1 — the wizard PREPARES, it does not provision
+
+**The wizard is a Customer Preparation Wizard. It performs zero writes to Sippy.**
+
+This is the load-bearing rule. KAM, NOC and Commercial can all run the wizard (§6), so if
+any wizard step created a tariff or a service plan, those roles would be writing to the
+production switch — which the permission matrix forbids. Preparation and execution must be
+cleanly separated, or the admin-only gate is theatre.
+
+```
+KAM / NOC / Commercial          ADMIN ONLY
+   prepare customer      →      Provision      →   Completed
+   (no Sippy writes)            (all Sippy writes)
+```
+
+Same five steps, same navigation, same UX. **What changes is the backend behind each step**
+and what the operator is asked.
+
+| Step | Remove from UI | Operator still enters | Backend does (no Sippy) |
 |---|---|---|---|
-| 1 | Customer | name, short code, country, currency, company type, contract type, KAM, department | validate uniqueness · **create tariff + service plan (invisible)** |
-| 2 | Corporate | address, phone, fax, website, primary contact + designation + mobile + email, billing contact + email | draft only |
-| 3 | Technical | Internet/MPLS, softswitch, gateway, SIP IP, backup IP, tech prefix, dial pattern, SIP port, codec, fax support, RFC2833, DTMF, protocol, transport | draft only |
-| 4 | Routing | routing template, inbound/outbound, products (First Class / Business / Special Bravo / Special Charlie), destination package (Top 3 / Top 5 / custom) | draft only |
-| 5 | Authentication | username, password, IP auth, registration, prefix, capacity, max calls — **generated, operator reviews** | draft only |
-| 6 | Testing | per-destination test grid (Pakistan, India, Bangladesh, UK, USA, …) with Pass / Fail / Retest | draft only |
-| 7 | Review | full summary of everything above | draft only |
-| 8 | Finish | — | **runs the provisioning pipeline (§4)** |
+| 1 Company | **Tariff · Service Plan · Billing Package** | name, short code, type, department, country, currency, KAM | validate uniqueness, reserve name, open draft |
+| 2 Commercial | most billing fields | overrides only | apply payment term from company type + profile defaults |
+| 3 Technical | codec, media relay, CPS, sessions | IPs, SIP port, transport, auth mode | generate authentication / routing / security profile |
+| 4 Products & Routing | per-group routing assignment | product choice if overriding | resolve product + routing package, stage IP registration and notifications |
+| 5 Review | — | — | show **provision readiness**, not entered values |
 
-**Step 1 behaviour.** On Next, provisioning runs silently. On success the wizard advances
-with no interstitial screen. On failure it offers **Retry** or **Continue in manual mode** —
-it never dead-ends the operator.
+Step 5 reads as a readiness check — `✓ Company · ✓ Commercial · ✓ Technical · ✓ Routing ·
+✓ Products · ✓ Notifications · ✓ Validation → **READY FOR PROVISION**` — and the Provision
+button is visible only to admins.
 
-**Draft-until-finish.** Steps 1–7 write only to a draft. Company, auth, products, rates and
-notifications are created at **Finish**. An abandoned wizard leaves no half-built customer.
-(Exception: the Sippy tariff and service plan from step 1 already exist — they are
-idempotent and reused by name on a later run.)
+**Tariff, Service Plan and Billing Package leave the UI entirely.** They are provisioning
+objects, not business objects. This also removes a control that invited a choice with no
+logic behind it — DEFECT-CP-002 exists precisely because "Auto-select" had no selection
+rule.
+
+**Tariff, Service Plan and Billing Package leave the UI entirely.** They are provisioning
+objects, not business objects; the operator should not know they exist. This is also what
+makes the wizard honest — those dropdowns currently invite a choice that the platform is
+better placed to make, and DEFECT-CP-002 exists precisely because a "choose one" control
+had no selection logic behind it.
+
+**Step 5 shows intent, not input.** `Company ✓ · Tariff ✓ auto · Service Plan ✓ auto ·
+Authentication ✓ · Routing ✓ · Products ALL · Email ✓ · Traffic BLOCKED until provision`.
+
+**Draft-until-finish.** Steps write only to a draft; records are created at provision time,
+so an abandoned wizard leaves no half-built customer. (Tariff and service plan from step 1
+are the exception — they exist already and are idempotent, reused by name on a later run.)
+
+## 3.2 Provisioning Profile (backend, DB-stored — not hardcoded)
+
+The engine loads a profile and overrides only the few fields the operator supplied.
+Changing the standard credit limit is then one row, not a code change.
+
+**Standard profile (owner-specified 2026-07-28):**
+
+| Setting | Default |
+|---|---|
+| Trunk / product package | **ALL** |
+| Credit limit | USD 2.00 |
+| Billing cycle | Weekly (7 days) |
+| Grace period | 3 days |
+| Dispute value | USD 100 or 1% |
+| Payment term | **derived from company type** — Wholesale → Postpaid · Retail → Prepaid |
+| Codec preference | Auto |
+| Media relay | Default |
+| Max CPS | 10 |
+| Max sessions | 10 |
+| Invoice template | Default |
+
+**Routing package:**
+
+| Country | Products |
+|---|---|
+| Pakistan | First Class · Business Class · Special Bravo · Special Charlie |
+| India | First Class · Business Class · Special Bravo · Special Charlie |
+| Bangladesh | First Class · Business Class · Special Bravo · Special Charlie |
+
+Extends to the full destination catalogue later; the operator still sees a business-level
+choice, or none at all when ALL is standard.
+
+**Never asked again, in any surface:** tariff id, service plan id, billing plan id, parent
+customer id, Sippy customer id, routing rule ids, codec ids, product ids, database ids,
+internal UUIDs, XML-RPC ids. These are for the engine to resolve.
+
+## 3.3 Provisioning Matrix — the automation contract
+
+One authoritative table for what is automatic, what has a default, what may be overridden,
+and **when it is applied**. Write this before any code; disagreements surface here cheaply
+and in the implementation expensively.
+
+| Item | Source | Default | Override | Applied at |
+|---|---|---|---|---|
+| Tariff | Backend | auto-create | ❌ | **Provision** |
+| Service Plan | Backend | auto-create | ❌ | **Provision** |
+| Sippy account | Backend | auto-create | ❌ | **Provision** |
+| Product package | Provisioning Profile | ALL | ✅ | Provision |
+| Payment term | Company type | Wholesale → Postpaid · Retail → Prepaid | ✅ | Provision |
+| Credit limit | Provisioning Profile | USD 2.00 | ✅ | Provision |
+| Billing cycle | Provisioning Profile | Weekly (7 days) | ✅ | Provision |
+| Grace period | Provisioning Profile | 3 days | ✅ | Provision |
+| Dispute value | Provisioning Profile | USD 100 or 1% | ✅ | Provision |
+| Codec | Provisioning Profile | Auto | ✅ | Provision |
+| Media relay | Provisioning Profile | Default | ✅ | Provision |
+| Max CPS | Provisioning Profile | 10 | ✅ | Provision |
+| Max sessions | Provisioning Profile | 10 | ✅ | Provision |
+| Invoice template | Provisioning Profile | Default | ✅ | Provision |
+| Routing package | Provisioning Profile | PK / IN / BD × FC·BC·SB·SC | ✅ | Provision |
+| Authentication (IP rules) | Wizard input | — | ✅ | **IP approval** |
+| Traffic enable | Policy | blocked | ❌ | **IP approval, admin only** |
+
+Every row's "Applied at" is Provision or later. **Nothing in this matrix is applied during
+the wizard** — that is the same rule as §3.1, stated per field so it cannot drift.
 
 ## 4. The provisioning pipeline
 
@@ -138,18 +247,28 @@ Today the Interconnect Form is an Excel file a human fills and emails. Under 2.0
 holds that data and **generates** the Interconnect Form as a PDF for customer signature.
 The spreadsheet stops being a data-entry step.
 
-## 9. Milestones
+## 9. Milestones (owner sequence)
 
-1. **Wizard shell** — 8 steps, draft model, name carried through, provisioning invisible at step 1.
-2. **Validation** — name/email/IP uniqueness + internal whitelist, with the conflicting record named.
-3. **Pipeline** — stages 1–8 against `provisioning_jobs`, retry-from-stage, per-stage UI.
-4. **Routing templates** — schema fields, CRUD, Settings UI, one seeded default.
-5. **Email + documents** — onboarding template, recipients (customer / CC KAM + NOC), generated Interconnect Form.
-6. **Permissions** — server-side admin gate on approve/provision/retry/delete; role-aware company cards.
+**0. Provisioning Matrix** (§3.3) agreed and frozen — the contract everything else builds to.
 
-Sequence note: milestones 1–2 are safe alongside current operations. Milestone 3 changes
-live provisioning behaviour and should follow the governed-change route used for
-`createSippyServicePlan` (see [ACCOUNT-WIZARD-GOVERNANCE-PHASE1](../ACCOUNT-WIZARD-GOVERNANCE-PHASE1.md)).
+**1. Backend defaults.** Create the Provisioning Profile table + seed the standard profile.
+Remove Tariff / Service Plan / Billing Package from the wizard UI. Apply defaults in the
+backend. *No change to how provisioning executes.*
+
+**2. Wizard automation.** Wizard UI, steps and navigation unchanged; the backend behind each
+step now produces a complete **Ready for Provision** draft. Add name/email/IP validation
+with the internal whitelist bypass, naming the conflicting record.
+
+**3. Admin provision engine.** Admin-only. Executes the full pipeline (§4) end to end with
+per-stage status in `provisioning_jobs` and retry-from-stage. No manual Sippy work remains.
+
+**4. AI one-page onboarding.** Reuses the same engine. Replaces the wizard as the primary
+surface only once the engine is proven; the wizard stays as manual fallback.
+
+Milestones 0–2 are safe alongside current operations — they change what the wizard *asks*
+and *stores*, not what it *does to Sippy*. **Milestone 3 changes live provisioning
+behaviour** and takes the governed-change route used for `createSippyServicePlan`
+(see [ACCOUNT-WIZARD-GOVERNANCE-PHASE1](../ACCOUNT-WIZARD-GOVERNANCE-PHASE1.md)).
 
 ## 10. Open — needed before milestone 1 is final
 
