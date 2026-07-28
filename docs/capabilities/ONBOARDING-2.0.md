@@ -405,11 +405,41 @@ increment on the split flow.
 **Maker–checker.** Operational teams prepare customers; only admins touch the production
 switch.
 
-**Governing rule (amended 2026-07-28): ONE OWNER PER CUSTOMER.**
+**FINAL (2026-07-28): NOC owns preparation · KAM is read-only · Admin provisions.**
 
-Preparation is owned by a **named person**, not a department. That owner is KAM *or* NOC —
-never both for the same onboarding — and completes everything required. Admin then performs
-one action: Provision.
+| Action | KAM | NOC | Admin |
+|---|:--:|:--:|:--:|
+| View company, status, commercial info | ✅ | ✅ | ✅ |
+| Create company · edit before provision | ❌ | ✅ | ✅ |
+| Add/edit IPs · contacts · commercial terms | ❌ | ✅ | ✅ |
+| Submit for provision | ❌ | ✅ | ✅ |
+| **Approve · Provision · Re-sync · Delete provisioned** | ❌ | ❌ | ✅ |
+| Operations after provision (§3.1.3) | read-only | ✅ | ✅ |
+
+**Lifecycle:** `Draft → Prepared → Ready for Provision → Provisioning (Admin) → Active`
+
+**Traffic policy — one decision, applied consistently: Provision = Ready for Traffic.**
+A successful provision leaves the customer `ACTIVE` with traffic **enabled**. If a
+particular customer must be tested first, that is an *optional operational action* (suspend
+via the Operations Panel), not a built-in provisioning state. This supersedes the earlier
+"traffic blocked until IP approval".
+
+**The separate IP-approval workflow is removed.** The owner supplies the IPs, Admin reviews
+everything before pressing Provision, and provisioning pushes them to Sippy — a second
+approve-IP step is redundant. IPs are edited afterwards through the Operations Panel, with
+every change audited and re-sync remaining Admin-only.
+
+> ⚠️ **What must NOT be removed with it: IP conflict validation.** Approval and conflict
+> checking are different controls that happened to live in the same workflow. Approval was
+> a human gate; conflict detection answers "is this IP already authorised for another
+> customer?" — and two customers sharing an IP is a live routing fault, not a process
+> preference. The conflict check (with the internal-whitelist bypass, §7) must move into
+> pre-provision validation, not disappear alongside the approval step.
+
+**Owner is a user reference, not a role snapshot:** `owner_user_id` plus an optional
+`owner_department` for display. Storing the role would go stale the moment that user's
+permissions change; RBAC already knows their role. `companies.kam` cannot express
+"Ali (NOC) owns this", which is why a new field is needed.
 
 ```
 Owner (KAM or NOC)                    ADMIN
@@ -499,6 +529,17 @@ with the internal whitelist bypass, naming the conflicting record.
 
 **3. Admin provision engine.** Admin-only. Executes the full pipeline (§4) end to end with
 per-stage status in `provisioning_jobs` and retry-from-stage. No manual Sippy work remains.
+
+**3.1 Provision Engine — frozen scope.** Input: prepared company · profile · routing package
+· notification profile · rate policy · tariff id · service plan id (the last two already
+exist from company creation). Stages: validate prerequisites → create Sippy account →
+authentication → authorised IPs → routing → assign service plan → rate policy → media
+(codec, relay) → capacity (CPS, sessions) → enable traffic → **verify by read-back** →
+audit → mark Active.
+
+Read-back is not optional. This platform has twice reported success for operations that
+never happened — the Tariff-33 restore and Service Plan creation — and both were caught
+only by verifying the external system afterwards rather than trusting the call.
 
 **4. AI one-page onboarding.** Reuses the same engine. Replaces the wizard as the primary
 surface only once the engine is proven; the wizard stays as manual fallback.
