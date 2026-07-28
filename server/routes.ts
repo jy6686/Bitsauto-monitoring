@@ -27649,6 +27649,39 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // ── Provisioning engine — Sprint 2.3A vertical slice ────────────────────────
+  // Deliberately a SEPARATE path from POST /api/companies/:id/provision, which is frozen
+  // (docs/ACCOUNT-WIZARD-GOVERNANCE-PHASE1.md §2). The legacy endpoint keeps working
+  // unchanged; this one runs the new engine.
+  //
+  // Admin-only, enforced here rather than by hiding a button: this creates a live customer
+  // account on the production switch.
+  app.post('/api/provisioning/companies/:id/run', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+
+      // Default TRUE. An operator who omits the flag gets a plan, not a live account —
+      // the destructive direction should require an explicit choice.
+      const dryRun = req.body?.dryRun !== false;
+      const actor = req.user?.email ?? req.user?.claims?.email ?? 'admin';
+
+      const { provisionSlice } = await import('./services/provisioning/slice');
+      const result = await provisionSlice({ companyId: id, actor, dryRun });
+
+      if (!dryRun) {
+        void writeAudit({
+          category: 'sippy', action: 'provisioning.run',
+          actor, actorType: 'user',
+          targetType: 'company', targetId: String(id), targetName: result.preflight.companyName,
+          severity: result.status === 'failed' ? 'critical' : 'info',
+          metadata: { runRef: result.runRef, status: result.status, steps: result.steps },
+        });
+      }
+      res.json(result);
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // GET /api/companies/:id/preflight — automatic pre-provision validation + the summary
   // an admin reads before a production-changing action. Read-only: it refuses nothing and
   // changes nothing, it only reports whether provisioning may proceed.
