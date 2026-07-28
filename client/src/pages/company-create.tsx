@@ -57,7 +57,12 @@ export default function CompanyCreatePage() {
   const [errors, setErrors] = useState<Record<string,string>>({});
   const [populated, setPopulated] = useState(false);
 
-  const [basic, setBasic] = useState(defaultBasic());
+  // Company Profile Setup hands the name over as ?name=… so it is never typed
+  // twice. Editable afterwards — it is a starting value, not a lock.
+  const [basic, setBasic] = useState(() => {
+    const prefill = new URLSearchParams(window.location.search).get("name")?.trim() ?? "";
+    return prefill ? { ...defaultBasic(), name: prefill } : defaultBasic();
+  });
   const [billing, setBilling] = useState(defaultBilling());
   const [contacts, setContacts] = useState<Record<string,Contact[]>>(defaultContacts());
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
@@ -204,7 +209,14 @@ export default function CompanyCreatePage() {
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div className="flex items-center gap-2">
         <Building2 className="h-5 w-5 text-blue-400" />
-        <h1 className="text-xl font-semibold">{isEdit ? "Edit Company" : "Create New Company"}</h1>
+        {/* Name the company being created, so the subject is never ambiguous
+            once the wizard is several steps deep. */}
+        <h1 className="text-xl font-semibold">
+          {isEdit ? "Edit Company" : "Create New Company"}
+          {!isEdit && basic.name.trim() && (
+            <span className="text-muted-foreground font-normal">: {basic.name.trim()}</span>
+          )}
+        </h1>
         {isEdit && <Badge variant="outline" className="text-[10px] text-blue-400 border-blue-500/30 bg-blue-500/10">Editing #{companyId}</Badge>}
       </div>
 

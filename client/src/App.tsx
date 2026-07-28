@@ -216,6 +216,8 @@ import CompanyListPage from "@/pages/company-list";
 import CompanyCreatePage from "@/pages/company-create";
 import CompanyOnboardingPage from "@/pages/company-onboarding";
 import ClientWizardPage from "@/pages/client-wizard";
+import ClientWizardV2Page from "@/pages/client-wizard-v2";
+import ClientWizardSwitch from "@/pages/client-wizard-switch";
 import ClientConfigPage from "@/pages/client-config";
 import RevenueHeatmapPage from "@/pages/revenue-heatmap";
 import CodecAnalyticsPage from "@/pages/codec-analytics";
@@ -961,8 +963,16 @@ function Router() {
       <Route path="/client/wizard">
         {() => <ProtectedRoute component={ClientWizardPage} requiredRoles={['admin','management']} mgmtFeature="account_management" />}
       </Route>
+      {/* Flag-switched: v2 when customer_preparation_wizard_v2 is on, legacy otherwise.
+          Both stay directly reachable so the two can be compared without toggling. */}
       <Route path="/client-wizard">
+        {() => <ProtectedRoute component={ClientWizardSwitch} requiredRoles={['admin','management']} mgmtFeature="account_management" />}
+      </Route>
+      <Route path="/client-wizard-legacy">
         {() => <ProtectedRoute component={ClientWizardPage} requiredRoles={['admin','management']} mgmtFeature="account_management" />}
+      </Route>
+      <Route path="/client-wizard-v2">
+        {() => <ProtectedRoute component={ClientWizardV2Page} requiredRoles={['admin','management']} mgmtFeature="account_management" />}
       </Route>
       <Route path="/client/config">
         {() => <ProtectedRoute component={ClientConfigPage} requiredRoles={['admin','management']} mgmtFeature="account_management" />}

@@ -17776,10 +17776,18 @@ let _snapBusy = false;
       if (c.callStatus === 'connected') connectedCount++;
       else routingCount++;
 
-      const vendor = c.vendor || c.connection || 'Unknown';
+      // Resolve through the name caches, as every other consumer of this data does
+      // (see the CDR and live-call endpoints). This summary was reading the raw
+      // fields only, so it rendered the numeric iVendor from activecalls.php as the
+      // vendor "name" and fell straight to Acct.<id> for clients even when the
+      // cache held the real name.
+      const rawVendor = String(c.vendor ?? c.connection ?? '');
+      const vendor = connectionVendorCache.get(rawVendor) || rawVendor || 'Unknown';
       vendorMap.set(vendor, (vendorMap.get(vendor) ?? 0) + 1);
 
-      const client = c.clientName || (c.accountId ? `Acct.${c.accountId}` : 'Unknown');
+      const client = c.clientName
+        || accountNameCache.get(String(c.accountId ?? ''))
+        || (c.accountId ? `Acct.${c.accountId}` : 'Unknown');
       clientMap.set(client, (clientMap.get(client) ?? 0) + 1);
 
       const dest = c.destCountry || c.destFull || (c.callee ?? '').replace(/^\+/, '').slice(0, 3) || 'UNK';
@@ -27576,7 +27584,40 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
-      const updated = await storage.updateCompany(id, req.body);
+
+      // Read before writing so the audit records what actually changed, not just the
+      // submitted payload. Commercial terms are now editable from two surfaces (company
+      // editor and the preparation wizard), so "who changed the billing cycle, from what,
+      // when" has to be answerable without diffing backups.
+      // __source is audit provenance, not a column — strip it before the write reaches
+      // Drizzle, which would otherwise try to set a field that does not exist.
+      const { __source, ...patch } = (req.body ?? {}) as Record<string, unknown>;
+
+      const before: any = await storage.getCompany(id);
+      const updated = await storage.updateCompany(id, patch);
+
+      const changed: Record<string, { from: unknown; to: unknown }> = {};
+      for (const k of Object.keys(patch)) {
+        if (before && before[k] !== (updated as any)?.[k]) {
+          changed[k] = { from: before[k], to: (updated as any)?.[k] };
+        }
+      }
+      // Silent when nothing actually differed — a no-op save should not create noise that
+      // buries the real changes.
+      if (Object.keys(changed).length > 0) {
+        void writeAudit({
+          category:   'operational',
+          action:     'company.updated',
+          actor:      req.user?.email ?? req.user?.claims?.email,
+          actorType:  'user',
+          targetType: 'company',
+          targetId:   String(id),
+          targetName: (updated as any)?.name ?? before?.name,
+          metadata:   { changed, source: __source ?? 'company-editor' },
+          ip:         req.ip,
+        });
+      }
+
       res.json({ company: updated });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
