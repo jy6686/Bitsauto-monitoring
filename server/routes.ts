@@ -17743,10 +17743,18 @@ let _snapBusy = false;
       if (c.callStatus === 'connected') connectedCount++;
       else routingCount++;
 
-      const vendor = c.vendor || c.connection || 'Unknown';
+      // Resolve through the name caches, as every other consumer of this data does
+      // (see the CDR and live-call endpoints). This summary was reading the raw
+      // fields only, so it rendered the numeric iVendor from activecalls.php as the
+      // vendor "name" and fell straight to Acct.<id> for clients even when the
+      // cache held the real name.
+      const rawVendor = String(c.vendor ?? c.connection ?? '');
+      const vendor = connectionVendorCache.get(rawVendor) || rawVendor || 'Unknown';
       vendorMap.set(vendor, (vendorMap.get(vendor) ?? 0) + 1);
 
-      const client = c.clientName || (c.accountId ? `Acct.${c.accountId}` : 'Unknown');
+      const client = c.clientName
+        || accountNameCache.get(String(c.accountId ?? ''))
+        || (c.accountId ? `Acct.${c.accountId}` : 'Unknown');
       clientMap.set(client, (clientMap.get(client) ?? 0) + 1);
 
       const dest = c.destCountry || c.destFull || (c.callee ?? '').replace(/^\+/, '').slice(0, 3) || 'UNK';
