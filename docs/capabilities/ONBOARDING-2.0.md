@@ -178,6 +178,20 @@ Changes to a provisioned company queue an update to Sippy and write an audit ent
 are validated before dispatch — the platform must not send a session limit it has not
 checked.
 
+**Sprint 2.2 sections (frozen):**
+
+| Section | Contents |
+|---|---|
+| Network | authentication, approved IPs, add/remove IP, authentication status |
+| Capacity | max CPS, max sessions (current/peak usage later) |
+| Media | codec, media relay |
+| Routing | routing package (view), routing override if supported, traffic status |
+| Actions | suspend / resume traffic, test authentication, view audit log |
+| Admin only | re-sync to Sippy, provision to Sippy |
+
+**Permissions — settled, not to be re-opened** absent a new business requirement:
+view = KAM read-only / NOC / Admin · modify = NOC + Admin · re-sync and provision = Admin.
+
 ### 3.1.2 Notification recipients — a matrix, not a field per type
 
 Separate fields for invoice email, balance alert email, traffic trend email and rate
