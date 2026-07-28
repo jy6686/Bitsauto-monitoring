@@ -4061,6 +4061,59 @@ export const provisioningProfiles = pgTable("provisioning_profiles", {
 export type ProvisioningProfile       = typeof provisioningProfiles.$inferSelect;
 export type InsertProvisioningProfile = typeof provisioningProfiles.$inferInsert;
 
+// ── Communication routing + provisioning audit (migration 039) ───────────────
+// Sender identities are smtp_sender_profiles (already exists) — NOT redefined here.
+
+/** Per-customer recipient × notification matrix. Rows, so a new notification type is
+ *  data rather than a schema change and never a new column per type. */
+export const companyNotificationRecipients = pgTable("company_notification_recipients", {
+  id:               serial("id").primaryKey(),
+  companyId:        integer("company_id").notNull(),
+  email:            varchar("email", { length: 256 }).notNull(),
+  notificationType: varchar("notification_type", { length: 64 }).notNull(),
+  enabled:          boolean("enabled").notNull().default(true),
+  createdBy:        varchar("created_by", { length: 128 }),
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+}, (t) => ({
+  uqCompanyEmailType: uniqueIndex("uq_company_notification_recipient").on(t.companyId, t.email, t.notificationType),
+}));
+export type CompanyNotificationRecipient       = typeof companyNotificationRecipients.$inferSelect;
+export type InsertCompanyNotificationRecipient = typeof companyNotificationRecipients.$inferInsert;
+
+/** Business event → communication_type. Deliberately NOT event → mailbox: the address
+ *  lives in smtp_sender_profiles with its credentials, so changing it touches one row
+ *  and no routing. The provisioning engine raises events and never sees an address. */
+export const notificationEventRouting = pgTable("notification_event_routing", {
+  id:                serial("id").primaryKey(),
+  eventKey:          varchar("event_key", { length: 64 }).notNull().unique(),
+  communicationType: varchar("communication_type", { length: 64 }).notNull(),
+  description:       text("description"),
+  active:            boolean("active").notNull().default(true),
+  createdAt:         timestamp("created_at").defaultNow().notNull(),
+});
+export type NotificationEventRoute       = typeof notificationEventRouting.$inferSelect;
+export type InsertNotificationEventRoute = typeof notificationEventRouting.$inferInsert;
+
+/** The configuration actually applied at provision time. Profiles change; this does not.
+ *  Without it, "why does this customer have a USD 2 credit limit?" becomes unanswerable
+ *  once the default moves, and reprovision/clone would apply today's defaults to
+ *  yesterday's customer. */
+export const companyProvisioningSnapshot = pgTable("company_provisioning_snapshot", {
+  id:                    serial("id").primaryKey(),
+  companyId:             integer("company_id").notNull(),
+  profileId:             integer("profile_id").references(() => provisioningProfiles.id),
+  routingPackageId:      integer("routing_package_id").references(() => routingPackages.id),
+  notificationProfileId: integer("notification_profile_id").references(() => notificationProfiles.id),
+  profileVersion:        integer("profile_version"),
+  routingVersion:        integer("routing_version"),
+  /** Full resolved config, so the record survives deletion of the source rows. */
+  snapshotJson:          text("snapshot_json").notNull(),
+  createdAt:             timestamp("created_at").defaultNow().notNull(),
+  createdBy:             varchar("created_by", { length: 128 }),
+});
+export type CompanyProvisioningSnapshot       = typeof companyProvisioningSnapshot.$inferSelect;
+export type InsertCompanyProvisioningSnapshot = typeof companyProvisioningSnapshot.$inferInsert;
+
 // ── Pricing Templates ─────────────────────────────────────────────────────────
 export const pricingTemplates = pgTable("pricing_templates", {
   id:          serial("id").primaryKey(),
