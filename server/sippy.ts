@@ -8014,9 +8014,11 @@ export async function createSippyServicePlan(
     try {
       // Service plans live under /c1/ (customer self-care portal), not root.
       // Root /service_plans.php requires an admin-panel session which we cannot obtain.
-      const postUrl = iCustomer
-        ? `${base}/c1/service_plans.php?i_customer=${iCustomer}`
-        : `${base}/c1/service_plans.php`;
+      // The portal's own create form posts to the BARE page:
+      //   <form method='POST' enctype="multipart/form-data" action='service_plans.php'>
+      // It carries no i_customer — that parameter was invented by this code and is
+      // what the portal rejected. Confirmed against the live page source.
+      const postUrl = `${base}/c1/service_plans.php`;
 
       // ── Pre-GET: fetch the Add New form to extract CSRF/hidden tokens ───────
       // Sippy generates hidden form tokens on the GET that must be echoed in the POST.
@@ -8025,9 +8027,12 @@ export async function createSippyServicePlan(
       const hiddenFields: Record<string, string> = {};
       let postCookies = cookies; // default: use login cookies; overwritten if pre-GET succeeds
       try {
-        const getUrl = iCustomer
-          ? `${base}/c1/service_plans.php?action=add&i_customer=${iCustomer}`
-          : `${base}/c1/service_plans.php?action=add`;
+        // The "Add New" button on service_plans.php is a GET form whose only field is:
+        //   <input type="hidden" name="action" value="show_add">
+        // `show_add` RENDERS the form; `add` is the POST action that CREATES a plan.
+        // Issuing `add` as a GET was never "open the form" — it was a malformed
+        // create, which is why the form (and every hidden field in it) never arrived.
+        const getUrl = `${base}/c1/service_plans.php?action=show_add`;
         const getResp = await rawRequest('GET', getUrl, null, { 'User-Agent': PORTAL_USER_AGENT }, cookies, 3);
         const preGetSnippet = getResp.body.slice(0, 400).replace(/\s+/g, ' ');
         const hasLoginFormGet = getResp.body.includes('value="Login"') || getResp.body.includes("value='Login'");
@@ -8042,16 +8047,34 @@ export async function createSippyServicePlan(
         if (getResp.statusCode === 200 && !hasLoginFormGet) {
           // Use cookies from the GET response (session may be refreshed)
           postCookies = getResp.cookies;
-          // Extract all <input type="hidden" name="..." value="..."> fields
-          const hiddenRe = /<input[^>]+type=["']?hidden["']?[^>]*>/gi;
+          // Serialise the form the way a browser would, rather than reconstructing
+          // it from hardcoded constants. Sippy generates state on this page —
+          // i_billing_plan is a PRE-ALLOCATED id (not empty), and select defaults
+          // may change between builds. Reading them is version-proof; guessing
+          // them is not.
+          // <input> — hidden and text. Unchecked checkboxes are correctly omitted,
+          // exactly as a browser omits them.
+          const inputRe = /<input\b[^>]*>/gi;
           let m: RegExpExecArray | null;
-          while ((m = hiddenRe.exec(getResp.body)) !== null) {
-            const tag = m[0];
-            const nameM  = tag.match(/name=["']([^"']+)["']/i);
-            const valueM = tag.match(/value=["']([^"']*)["']/i);
-            if (nameM && valueM) hiddenFields[nameM[1]] = valueM[1];
+          while ((m = inputRe.exec(getResp.body)) !== null) {
+            const tag  = m[0];
+            const name = tag.match(/\bname=["']?([^"'\s>]+)/i)?.[1];
+            if (!name) continue;
+            const type = (tag.match(/\btype=["']?([a-z]+)/i)?.[1] ?? 'text').toLowerCase();
+            if (type === 'submit' || type === 'button' || type === 'file') continue;
+            if ((type === 'checkbox' || type === 'radio') && !/\bchecked\b/i.test(tag)) continue;
+            hiddenFields[name] = tag.match(/\bvalue=["']([^"']*)["']/i)?.[1] ?? '';
           }
-          console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): extracted ${Object.keys(hiddenFields).length} hidden fields: ${Object.keys(hiddenFields).join(', ')}, cookies updated=${getResp.cookies.size}`);
+          // <select> — take the option marked `selected`, else the first option,
+          // matching browser behaviour.
+          const selectRe = /<select\b[^>]*\bname=["']?([^"'\s>]+)[^>]*>([\s\S]*?)<\/select>/gi;
+          while ((m = selectRe.exec(getResp.body)) !== null) {
+            const [, name, inner] = m;
+            const selected = inner.match(/<option[^>]*\bvalue=["']?([^"'\s>]*)["']?[^>]*\bselected\b[^>]*>/i)
+                          ?? inner.match(/<option[^>]*\bvalue=["']?([^"'\s>]*)/i);
+            if (selected) hiddenFields[name] = selected[1];
+          }
+          console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): serialised ${Object.keys(hiddenFields).length} form fields: ${Object.keys(hiddenFields).join(', ')}, cookies updated=${getResp.cookies.size}`);
         } else {
           console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): skipped — loginForm=${hasLoginFormGet} status=${getResp.statusCode}`);
         }
@@ -8059,8 +8082,28 @@ export async function createSippyServicePlan(
         console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): error ${ge?.message} — proceeding without tokens`);
       }
 
-      // Merge hidden fields first so our explicit fields take precedence
-      const postFields = { ...hiddenFields, ...basePostFields, ...(iCustomer ? { i_customer: iCustomer } : {}) };
+      // Submit the portal's own form, overriding only the business fields. The
+      // previous order let hardcoded constants overwrite Sippy-generated state —
+      // notably i_billing_plan, whose pre-allocated id was replaced with a blank.
+      //
+      // Precedence, lowest to highest:
+      //   basePostFields  fallback only, for when the pre-GET failed and for the
+      //                   few fields ExtJS creates client-side (i_billing_day)
+      //   hiddenFields    the live form as the browser would submit it
+      //   business        the three values this call actually decides
+      const gotForm  = Object.keys(hiddenFields).length > 0;
+      const business = {
+        bp_name:       planName,
+        i_tariff:      String(iTariff),
+        description:   description ?? '',
+        billing_cycle: String(billingCycle ?? hiddenFields.billing_cycle ?? 3),
+        action:        'add',
+        save_and_close: 'Save & Close',
+      };
+      const postFields: Record<string, string> = gotForm
+        ? { ...basePostFields, ...hiddenFields, ...business }
+        : { ...basePostFields };
+      console.log(`[Sippy] createSippyServicePlan POST (${label}): ${gotForm ? 'form-derived' : 'FALLBACK constructed'} body, ${Object.keys(postFields).length} fields, i_billing_plan=${postFields.i_billing_plan ?? '(none)'}`);
       const postBody   = encodeForm(postFields);
       // Use redirectsLeft=5 so a successful POST that redirects to the edit page is followed
       // Use postCookies (updated after pre-GET) so any refreshed session tokens are included
