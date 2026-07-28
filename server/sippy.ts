@@ -8210,6 +8210,20 @@ export async function createSippyServicePlan(
     return { success: false, error: errMsg, reasonCode: 'PROVISIONING_VALIDATION_ERROR', xmlrpcAttempts, portalAttempts };
   }
 
+  // Sippy's own redirect is the authoritative answer: a successful save lands on
+  //   service_plans.php?i_billing_plan=19&action=edit
+  // Read the id from there before parsing any HTML — no lookup, no scrape, no
+  // guessing which row is ours.
+  const urlIdMatch = (resp.finalUrl ?? '').match(/[?&]i_billing_plan=(\d+)/i);
+  if (urlIdMatch) {
+    const planId = parseInt(urlIdMatch[1], 10);
+    if (planId > 0) {
+      console.log(`[Sippy] createSippyServicePlan: plan "${planName}" created → i_billing_plan=${planId} (from redirect ${resp.finalUrl})`);
+      for (const k of _bpCache.keys()) { if (k.startsWith(base)) _bpCache.delete(k); }
+      return { success: true, planId, planName };
+    }
+  }
+
   // After "Save & Close", Sippy redirects to the edit page containing the new plan ID.
   const planIdMatch =
     resp.body.match(/name=["']i_billing_plan["'][^>]*value=["'](\d+)["']/i) ||
@@ -8228,13 +8242,22 @@ export async function createSippyServicePlan(
   try {
     const listResp = await rawRequest('GET', `${base}/c1/service_plans.php`, null, { 'User-Agent': PORTAL_USER_AGENT }, resp.cookies);
     if (!listResp.body.includes('value="Login"')) {
-      const linkRe = /service_plans\.php\?[^"']*i_billing_plan=(\d+)/gi;
+      // The list page links each plan as a BARE query string — no filename:
+      //   <a href="?i_billing_plan=12&action=edit&n=0&name=&name_clause=">Asterisk</a>
+      // The previous pattern required "service_plans.php?" before the id, so it
+      // never matched a single row and every creation fell through to
+      // "ID could not be confirmed" even when the plan existed.
+      //
+      // Match the anchor and compare its TEXT to the plan name. The link text is
+      // the name itself, which is exact — the old ±200-character window around the
+      // href could just as easily have matched a neighbouring row.
+      const rowRe = /<a\b[^>]*href=["'][^"']*[?&]i_billing_plan=(\d+)[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi;
       let m: RegExpExecArray | null;
-      const nameEscaped = planName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      while ((m = linkRe.exec(listResp.body)) !== null) {
+      const want = planName.trim().toLowerCase();
+      while ((m = rowRe.exec(listResp.body)) !== null) {
         const planId = parseInt(m[1], 10);
-        const snippet = listResp.body.slice(Math.max(0, m.index - 200), m.index + 200);
-        if (new RegExp(nameEscaped, 'i').test(snippet) && planId > 0) {
+        const text   = m[2].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim().toLowerCase();
+        if (planId > 0 && text === want) {
           console.log(`[Sippy] createSippyServicePlan: found "${planName}" via list scrape → i_billing_plan=${planId}`);
           for (const k of _bpCache.keys()) { if (k.startsWith(base)) _bpCache.delete(k); }
           return { success: true, planId, planName };
@@ -8243,11 +8266,20 @@ export async function createSippyServicePlan(
     }
   } catch { /* ignore */ }
 
-  // Could not confirm the ID — treat as needing manual verification
+  // Submitted, accepted, but the id could not be read back.
+  //
+  // needsManualCreation is deliberately FALSE. Sippy accepted the POST without a
+  // validation complaint and without refusing the insert, so a plan very likely
+  // exists — instructing the operator to "add a Service Plan" would have them
+  // create a second one. Ask for confirmation instead of asserting absence.
+  console.log(`[Sippy] createSippyServicePlan: submitted but id unreadable — landed ${resp.finalUrl ?? '?'}`);
   return {
     success: false,
-    needsManualCreation: true,
-    error: 'Service plan was submitted but the ID could not be confirmed. Check Sippy portal → Billing → Service Plans.',
+    needsManualCreation: false,
+    reasonCode: 'PROVISIONING_PORTAL_ERROR',
+    xmlrpcAttempts,
+    portalAttempts,
+    error: `The Service Plan "${planName}" was submitted and Sippy accepted it, but its ID could not be read back — so it has not been linked here yet. Confirm it appears under Service Plans in Sippy; do not create it a second time.`,
   };
 }
 
