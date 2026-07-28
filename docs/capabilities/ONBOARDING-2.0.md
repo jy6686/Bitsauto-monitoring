@@ -102,8 +102,10 @@ complexity; keep business information.
 |---|---|---|
 | **A** | **Required by the business** — company name, customer type, KAM, authentication type, customer IP(s), primary / technical / billing contacts | **Keep in UI** |
 | **B** | **Required by the process** — department, sales/CRM reference, account status (draft/ready/active), internal notes, testing contact, time zone | **Keep in UI** |
-| **C** | **Commercial terms** — payment term, billing cycle, credit limit, grace period, dispute policy, currency | **Keep in UI, pre-filled from the profile, editable** |
-| **D** | **Provisioning objects** — tariff, service plan, product package, routing package, codec, media relay, max CPS, max sessions, authentication defaults, notification profile | **Remove — profile-only, never in the UI** |
+| **C1** | **Commercial contract** — payment term, billing cycle, grace period, dispute policy, currency | **Keep in UI, pre-filled from the profile, editable** |
+| **C2** | **Financial controls** — credit limit, balance, threshold, auto-recharge, credit adjustments | **Remove — owned by Finance / Balance Management** |
+| **D** | **Provisioning objects** — tariff, service plan, product package, routing package, notification profile | **Remove — profile-only, never in the UI** |
+| **E** | **Operational network controls** — codec, media relay, max CPS, max sessions, routing group, traffic status, authentication | **Remove from wizard — NOC/Admin manage these post-provision (§3.1.3)** |
 
 ### The line between C and D
 
@@ -115,14 +117,21 @@ spreadsheets — which is the practice this program exists to end.
 
 So the profile **pre-fills** them and the operator **may override**:
 
-| Field | Default | Editable |
+| Field | Default | Editable in wizard |
 |---|---|---|
 | Payment term | derived from company type (Wholesale → Postpaid · Retail → Prepaid) | ✅ |
 | Billing cycle | Weekly (7 days) — also **Bi-Weekly (14)** and **Monthly** | ✅ |
-| Credit limit | USD 2.00 | ✅ |
 | Grace period | 3 days | ✅ |
 | Dispute policy | USD 100.00 or 1% | ✅ |
 | Currency | company default | ✅ |
+| **Credit limit** | USD 2.00 applied by the profile | ❌ **Finance only** |
+
+**Credit limit is deliberately not editable here.** Balance Management already owns credit
+limit, balance, threshold, alerts, recharge and adjustments. Exposing it in the wizard as
+well would create two places to change one number, and the first question after any
+discrepancy is "which one is real?". The profile applies the default at provision; Finance
+changes it thereafter. The company card may *display* it with a link to Balance
+Management, but never edit it.
 
 Category D stays profile-only. Changing a codec or a routing package for one customer is a
 platform decision made by editing the profile — not a per-customer choice, because the
@@ -141,6 +150,33 @@ field is unused.
 
 Removing category C also deletes a control that invited a choice with no logic behind it —
 DEFECT-CP-002 exists precisely because "Auto-select" had no selection rule.
+
+### 3.1.3 Operations panel — post-provision, on the company card
+
+Category E settings change *after* onboarding and have nothing to do with the commercial
+agreement: a customer upgrades 10 → 20 CPS, buys 100 concurrent ports, needs a codec
+changed for interoperability, or media relay adjusted for NAT. None of that should require
+re-running the onboarding wizard, and none of it is a sales decision.
+
+The **Company List becomes the operational control centre.** Each card gains a focused
+Operations surface rather than sending operators back through the wizard:
+
+```
+Operations                     Manage ▾
+  Approved IPs      2            · Manage IPs
+  Max CPS          10            · Traffic limits (CPS / sessions)
+  Max sessions     10            · Authentication
+  Routing          Wholesale Default   · Routing
+  Traffic          🟢 Enabled     · Suspend / Resume traffic
+  Auth             IP             · Re-sync to Sippy   (Admin)
+                                  · Provision          (Admin)
+Finance
+  Credit limit     USD 2.00      → Open Balance Management   (no edit here)
+```
+
+Changes to a provisioned company queue an update to Sippy and write an audit entry. Values
+are validated before dispatch — the platform must not send a session limit it has not
+checked.
 
 ### 3.1.2 Notification recipients — a matrix, not a field per type
 
@@ -333,21 +369,42 @@ increment on the split flow.
 **Maker–checker.** Operational teams prepare customers; only admins touch the production
 switch.
 
+**Governing rule:** *KAM prepares and monitors; NOC operates the live account; Admin alone
+touches production provisioning.* KAM's authority ends when the company is created — after
+that they have **read-only** visibility, which is what they need to answer a customer's
+question without being able to change live service behaviour.
+
+**Preparation — before the company exists**
+
 | Function | Admin | NOC | KAM | Commercial | Finance |
 |---|:--:|:--:|:--:|:--:|:--:|
-| Create / edit company | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Run the wizard, save draft | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Create tariff / service plan | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Submit IP request | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Run pre-provision checks | ✅ | ✅ | ✅ | ✅ | ❌ |
-| View provision status | ✅ | ✅ | ✅ | ✅ | ✅ |
-| **Approve IP** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Provision to Sippy** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Retry failed provision** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Delete live Sippy account** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Create company · run wizard · save draft | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Edit company (pre-provision) | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Manage contacts · upload/assign rates | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Submit IP request · run pre-provision checks | ✅ | ✅ | ✅ | ✅ | ❌ |
 
-NOC has the same preparation rights as KAM — they onboard during 24×7 operations — but no
-activation authority.
+**Operations — after the company exists (§3.1.3)**
+
+| Function | Admin | NOC | KAM |
+|---|:--:|:--:|:--:|
+| View technical settings, IPs, routing, limits | ✅ | ✅ | ✅ **read-only** |
+| Manage approved IPs | ✅ | ✅ | ❌ |
+| Change max CPS · max sessions | ✅ | ✅ | ❌ |
+| Change codec · media relay · authentication · routing | ✅ | ✅ | ❌ |
+| Suspend / resume traffic · reset SIP password | ✅ | ✅ | ❌ |
+| Change billing cycle · payment term · grace period | ✅ | ✅ | ❌ |
+| Change notification contacts | ✅ | ✅ | ❌ |
+| **Approve IP** | ✅ | ❌ | ❌ |
+| **Provision to Sippy** | ✅ | ❌ | ❌ |
+| **Re-sync to Sippy** | ✅ | ❌ | ❌ |
+| **Retry failed provision · delete live account** | ✅ | ❌ | ❌ |
+
+Credit limit appears in neither table — it is Finance's, via Balance Management.
+
+NOC has the same *preparation* rights as KAM because they onboard during 24×7 operations,
+and broader *operational* rights afterwards; neither has activation authority. Re-sync is
+admin-only alongside provision: both push local state onto the production switch, and the
+distinction between them is invisible from the switch's side.
 
 **Enforced server-side, not by hiding buttons.** `POST /api/companies/:id/provision` and the
 IP-approval endpoint must reject non-admin callers even when the endpoint is called
