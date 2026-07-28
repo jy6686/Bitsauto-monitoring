@@ -26,16 +26,16 @@ import { tariffStep } from "./steps/tariff.step";
 import { servicePlanStep } from "./steps/service-plan.step";
 import { accountStep } from "./steps/account.step";
 import { authenticationStep } from "./steps/authentication.step";
+import { capacityStep } from "./steps/capacity.step";
 import type { ProvisioningStep } from "./types";
 
 /** Stages this slice executes. Extended one at a time per Sprint 2.3B..2.3F. */
-export const SLICE_STEPS: ProvisioningStep[] = [tariffStep, servicePlanStep, accountStep, authenticationStep];
+export const SLICE_STEPS: ProvisioningStep[] = [tariffStep, servicePlanStep, accountStep, authenticationStep, capacityStep];
 
 /** Stages written but not yet in the pipeline — shown in the dry-run plan so an operator
  *  sees what is NOT yet automated rather than assuming full coverage. */
 const NOT_YET_AUTOMATED = [
-  "Service plan assignment", "Routing", "Products",
-  "Rates", "Capacity & media", "Traffic activation",
+  "Routing", "Products", "Rates", "Media (codec / relay)", "Traffic activation",
 ];
 
 export interface SliceResult {

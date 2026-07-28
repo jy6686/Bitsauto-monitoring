@@ -16,6 +16,7 @@ import { tariffStep } from "./steps/tariff.step";
 import { servicePlanStep } from "./steps/service-plan.step";
 import { accountStep } from "./steps/account.step";
 import { authenticationStep } from "./steps/authentication.step";
+import { capacityStep } from "./steps/capacity.step";
 
 export * from "./types";
 export { createRun, executeRun, getRun } from "./runner";
@@ -28,12 +29,14 @@ export { createRun, executeRun, getRun } from "./runner";
  *   20 service_plan  ✅ implemented — blocked by the Sippy deployment, non-blocking
  *   30 account       ✅ implemented — idempotent + read-back verified
  *   40 authentication ✅ implemented — SIP auth + IP authorisation (ONE stage in Sippy)
- *   50 assign_plan      → link plan to account
+ *   50 assign_plan   ✅ N/A — i_billing_plan is REQUIRED at account creation (Sippy v1.8+),
+ *                        so the account stage already assigns it. Not a separate stage.
  *   55 products         → customer_product_assignments
  *   60 rates            → generate customer rates
  *   70 rate_push        → create provisioning_jobs rows; reuse the existing worker
  *   80 routing          → wrap addRoutingGroup() + addRoutingGroupMember()
- *   90 credentials      → generate; never persist the password
+ *   90 capacity      ✅ implemented — account limits, read-back verified
+ *   95 credentials      → generate; never persist the password
  *  100 email            → onboarding email via sendViaProfile()
  *  110 await_ip         → traffic stays blocked until IP approval
  */
@@ -42,6 +45,7 @@ export const PROVISIONING_STEPS: ProvisioningStep[] = [
   servicePlanStep,
   accountStep,
   authenticationStep,
+  capacityStep,
 ];
 
 /** Look up a single step definition by its stable key. */
