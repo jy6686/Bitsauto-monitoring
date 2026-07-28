@@ -1,7 +1,22 @@
 # Onboarding 2.0 — Automated Customer Onboarding
 
-**Status:** SPEC — awaiting owner sign-off. No code written.
+**Status:** DESIGN FROZEN (owner, 2026-07-28). No code written. Implementation follows the
+milestones in §9; changes to the principles below need a fresh owner decision, not an
+in-flight adjustment.
 **Date:** 2026-07-28
+
+## 0. Frozen principles
+
+1. **One source of truth** — BitsAuto is master. Wizard → draft → admin provision → Sippy.
+   Nothing exists in Sippy until Provision.
+2. **The wizard prepares, it never writes to Sippy.** KAM, NOC and Commercial can all run
+   it; only Admin changes the production switch.
+3. **Everything becomes defaults** — one backend profile, not 50 exposed telecom fields.
+4. **Routing is a package**, not hardcoded countries in provisioning logic.
+5. **Provision is a logged pipeline** with per-stage status and retry-from-stage.
+6. **No manual Sippy work after Provision** — any remaining human step is automated or
+   explicitly documented as a platform limitation.
+7. **The Provisioning Matrix (§3.3) is the automation contract**, written before code.
 **Supersedes (on completion):** the split flow of Company Profile Setup → Company Create → Client Wizard → manual provision.
 
 ## 1. The principle
@@ -91,12 +106,38 @@ Authentication ✓ · Routing ✓ · Products ALL · Email ✓ · Traffic BLOCKE
 so an abandoned wizard leaves no half-built customer. (Tariff and service plan from step 1
 are the exception — they exist already and are idempotent, reused by name on a later run.)
 
-## 3.2 Provisioning Profile (backend, DB-stored — not hardcoded)
+## 3.2 Configuration-driven engine — three tables, not scattered constants
 
-The engine loads a profile and overrides only the few fields the operator supplied.
-Changing the standard credit limit is then one row, not a code change.
+Defaults live in the database, never in provisioning code. The engine is
+configuration-driven: change a business default by editing a row, not by touching the
+pipeline.
 
-**Standard profile (owner-specified 2026-07-28):**
+**Three separate tables**, because they vary independently — a routing package is reused
+across several provisioning profiles, and duplicating it per profile would guarantee drift:
+
+```
+Customer
+   │
+   ▼
+Provisioning Profile ──┬── billing defaults          (Standard Wholesale / Retail / Carrier / Enterprise)
+                       ├──→ Routing Package          (Default Wholesale / Premium / Retail / Carrier)
+                       ├──→ Notification Profile     (Welcome / Billing / Low Balance / Technical)
+                       └── product package
+   │
+   ▼
+Admin Provision Engine  →  Sippy
+```
+
+| Table | Holds | Example rows |
+|---|---|---|
+| `provisioning_profiles` | billing + technical defaults, FK to routing package and notification profile | Standard Wholesale · Standard Retail · Carrier · Enterprise |
+| `routing_packages` | country → product routing sets | Default Wholesale · Premium Wholesale · Retail · Carrier |
+| `notification_profiles` | which emails fire and their templates | Welcome · Billing · Low Balance · Technical Alerts |
+
+Countries are **never hardcoded in provisioning logic** — adding Sri Lanka to the default
+package is a routing-package edit, not an engine change.
+
+**Standard Wholesale profile (owner-specified 2026-07-28):**
 
 | Setting | Default |
 |---|---|
@@ -178,12 +219,26 @@ authentication, routing, rates, products — while the customer still cannot pas
 traffic. Enforced in Sippy (`max_sessions=0`) rather than only in BitsAuto state, so the
 block is real on the switch. Traffic is enabled **only** when an admin approves the IP.
 
+**Every stage logs** to `provisioning_jobs`: started · completed · failed · retry count ·
+duration · result. Without duration and retry count, a stage that succeeds on the third
+attempt after 40 seconds is indistinguishable from one that succeeded immediately — and
+that difference is exactly what predicts the next production incident.
+
 Failure display is per stage, not a single verdict:
 
 ```
 Authentication ✓   Routing ✓   Products ✓   Rates ✗   Email —   Traffic Blocked
                                                    [ Retry from Rates ]
 ```
+
+### No manual Sippy work — and no silent gaps
+
+After Provision, nothing may require a human in Sippy: not tariff, service plan,
+authentication, routing, product assignment, rate upload, or traffic enablement.
+
+**Any step that still needs a human is either automated or explicitly recorded here as a
+platform limitation.** It is never left as an undocumented manual habit — that is precisely
+how the Service Plan step stayed manual for weeks while appearing to be "how it works".
 
 ## 5. Foundation — verified 2026-07-28, not assumed
 
