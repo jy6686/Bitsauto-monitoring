@@ -1421,6 +1421,10 @@ export const companies = pgTable("companies", {
   createdAt:           timestamp("created_at").defaultNow().notNull(),
   createdBy:           varchar("created_by",           { length: 255 }),
   provisioningStatus:  varchar("provisioning_status",  { length: 32 }).notNull().default('draft'),
+  /** Pricing state, visible instead of asking "were rates uploaded?" (migration 041):
+   *  default — provisioned with the standard sheet · custom — negotiated card assigned
+   *  via Rate Manager · pending — card prepared but not yet pushed to Sippy. */
+  rateStatus:          varchar("rate_status",          { length: 16 }).notNull().default('default'),
   provisionedAt:       timestamp("provisioned_at"),
   provisionedBy:       varchar("provisioned_by",       { length: 255 }),
   sippyIAccount:       integer("sippy_i_account"),
@@ -4059,6 +4063,10 @@ export const provisioningProfiles = pgTable("provisioning_profiles", {
 
   routingPackageId:      integer("routing_package_id").references(() => routingPackages.id),
   notificationProfileId: integer("notification_profile_id").references(() => notificationProfiles.id),
+  /** Policy NAME, not a rate-card id — resolved to whichever card is current at provision
+   *  time, so replacing the standard rates never touches the profile or the engine. */
+  ratePolicy:            varchar("rate_policy",        { length: 64 }),
+  vendorRatePolicy:      varchar("vendor_rate_policy", { length: 64 }),
 
   createdAt:        timestamp("created_at").defaultNow().notNull(),
   updatedAt:        timestamp("updated_at").defaultNow().notNull(),
