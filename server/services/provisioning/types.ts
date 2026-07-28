@@ -87,6 +87,23 @@ export interface ProvisioningStep {
 
   execute(ctx: StepContext): Promise<StepOutcome>;
 
+  /**
+   * Read-back verification. Re-reads the object FROM SIPPY and confirms it is in
+   * the expected state. Return null when verified, or a reason string when not.
+   *
+   * Mandatory in spirit, optional in type only so a step with genuinely nothing
+   * to read back need not fake one. A step that changes Sippy and declares no
+   * verify() is asserting that its own return value is proof — which this
+   * platform has twice shown it is not: the Tariff-33 restore reported success
+   * on an empty tariff, and Service Plan creation reported a permission failure
+   * for a plan that had in fact been created. Both were caught only by reading
+   * the switch afterwards.
+   *
+   * Runs AFTER execute() succeeds. A verify failure marks the step failed even
+   * though execute() returned success — that is the entire point.
+   */
+  verify?(ctx: StepContext, result: Record<string, unknown>): Promise<string | null>;
+
   /** Optional pre-flight. Return an error string to fail fast without side
    *  effects; return null to proceed. */
   validate?(ctx: StepContext): Promise<string | null>;

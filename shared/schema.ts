@@ -1425,6 +1425,27 @@ export const companies = pgTable("companies", {
    *  default — provisioned with the standard sheet · custom — negotiated card assigned
    *  via Rate Manager · pending — card prepared but not yet pushed to Sippy. */
   rateStatus:          varchar("rate_status",          { length: 16 }).notNull().default('default'),
+  // ── Preparation package (migration 044) ────────────────────────────────────
+  // Resolved from company_type at creation and COPIED, so editing a default later cannot
+  // retroactively change a live customer's routing or notifications.
+  provisioningProfileId:  integer("provisioning_profile_id"),
+  routingPackageId:       integer("routing_package_id"),
+  notificationProfileId:  integer("notification_profile_id"),
+  ratePolicy:             varchar("rate_policy", { length: 64 }),
+  preparedAt:             timestamp("prepared_at"),
+  /** Account-level capacity and media (migration 047). Seeded from the provisioning
+   *  profile at creation; the COMPANY row is authoritative thereafter. Deliberately not
+   *  per-trunk: a customer has one capacity agreement, and three trunks each claiming a
+   *  CPS value leaves the engine guessing which is real. */
+  maxCps:                 integer("max_cps"),
+  maxSessions:            integer("max_sessions"),
+  codec:                  varchar("codec",       { length: 32 }),
+  mediaRelay:             varchar("media_relay", { length: 16 }),
+  /** The single accountable owner of preparation (migration 045). A user reference, never
+   *  a role snapshot — authorisation always comes from RBAC, not from these columns. */
+  ownerUserId:            varchar("owner_user_id",    { length: 255 }),
+  /** Display/reporting only. MUST NOT drive permission decisions. */
+  ownerDepartment:        varchar("owner_department", { length: 64 }),
   provisionedAt:       timestamp("provisioned_at"),
   provisionedBy:       varchar("provisioned_by",       { length: 255 }),
   sippyIAccount:       integer("sippy_i_account"),

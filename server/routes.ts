@@ -27539,6 +27539,31 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const { basic, billing, contacts = [], bankAccounts = [] } = req.body ?? {};
       if (!basic?.name?.trim()) return res.status(400).json({ message: 'Company name is required' });
       if (!basic?.shortCode?.trim()) return res.status(400).json({ message: 'Short code is required' });
+
+      // ── Automatic preparation (migration 044) ────────────────────────────
+      // Resolve the provisioning profile from company type and COPY its routing,
+      // notification and rate references onto the company. Copied rather than read
+      // through, so editing a default later cannot retroactively change a live
+      // customer's routing — the same reasoning as company_provisioning_snapshot.
+      //
+      // Commercial defaults come from the profile too, but only where the caller did not
+      // supply a value: an operator's explicit choice always wins over a default.
+      //
+      // Nothing here touches Sippy. Preparation is entirely BitsAuto-side.
+      const companyType = basic.companyType || 'retail';
+      let prep: any = null;
+      try {
+        const { provisioningProfiles } = await import('@shared/schema');
+        const profiles = await db.select().from(provisioningProfiles);
+        prep = profiles.find((p: any) => p.active && p.companyType === companyType)
+            ?? profiles.find((p: any) => p.active && p.isDefault)
+            ?? null;
+      } catch (e: any) {
+        // Preparation is additive: if the configuration layer is unavailable the company
+        // must still be created, just unprepared. Failing the create would be worse.
+        console.warn('[companies] preparation profile lookup failed:', e?.message);
+      }
+
       const company = await storage.createCompany({
         name: basic.name.trim(),
         shortCode: basic.shortCode.trim().toUpperCase(),
@@ -27556,23 +27581,250 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         vendorGracePeriod: billing?.vendorGracePeriod ?? 3,
         vendorCreditLimit: billing?.vendorCreditLimit ?? 0,
         disputeOverPct: billing?.disputeOverPct ?? 0,
-        clientBillingCycle: billing?.clientBillingCycle || 'weekly_cutoff',
-        clientGracePeriod: billing?.clientGracePeriod ?? 3,
+        // Commercial defaults from the profile where the caller supplied nothing.
+        clientBillingCycle: billing?.clientBillingCycle || prep?.billingCycle || 'weekly_cutoff',
+        clientGracePeriod: billing?.clientGracePeriod ?? prep?.gracePeriodDays ?? 3,
         clientCreditLimit: billing?.clientCreditLimit ?? 0,
-        disputeOverVal: billing?.disputeOverVal ?? 0,
-        paymentTerm: billing?.paymentTerm || 'prepaid',
+        disputeOverVal: billing?.disputeOverVal ?? (prep?.disputeValue != null ? Number(prep.disputeValue) : 0),
+        paymentTerm: billing?.paymentTerm || prep?.paymentTerm || 'prepaid',
         legalNameCi: billing?.legalNameCi || null,
         legalNameVen: billing?.legalNameVen || null,
         invoiceEmail: billing?.invoiceEmail || null,
         notes: null,
         createdBy: (req as any).user?.claims?.sub || null,
-      }, contacts, bankAccounts);
-      res.json({ company });
+        // Preparation package — the links that make the configuration layer real.
+        provisioningProfileId: prep?.id ?? null,
+        routingPackageId:      prep?.routingPackageId ?? null,
+        notificationProfileId: prep?.notificationProfileId ?? null,
+        ratePolicy:            prep?.ratePolicy ?? null,
+        // Account-level capacity/media seeded from the profile (migration 047). The
+        // company row is authoritative from here — a later profile edit must not change
+        // an existing customer's limits.
+        maxCps:                prep?.maxCps ?? null,
+        maxSessions:           prep?.maxSessions ?? null,
+        codec:                 prep?.codecPreference ?? null,
+        mediaRelay:            prep?.mediaRelay ?? null,
+        preparedAt:            prep ? new Date() : null,
+      } as any, contacts, bankAccounts);
+
+      // ── Commercial objects in Sippy (frozen principle 2, amended 2026-07-28) ──
+      // Tariff and Service Plan are SHARED COMMERCIAL objects: they carry no traffic and
+      // expose no network, so they are created here rather than gated behind Provision.
+      // Everything that can carry a call — account, authentication, routing, IP
+      // authorisation, traffic — remains admin-only at Provision.
+      //
+      // Deliberately NON-FATAL. A Sippy outage must not stop the commercial team
+      // recording a customer; the company is created unprepared and the objects are made
+      // on retry. Failing the create would trade a recoverable gap for a lost customer.
+      let commercialObjs: { iTariff?: number; planId?: number; error?: string } = {};
+      try {
+        const settings: any = await storage.getSettings();
+        const { username, password } = sippyXmlCreds(settings);
+        const portalUrl = sippyPortalUrl(settings);
+        const name = basic.name.trim();
+
+        const tariffRes = await sippy.createSippyTariff(
+          username, password, { name, currency: basic.currency || 'USD' }, portalUrl);
+
+        if (tariffRes.success && tariffRes.iTariff) {
+          commercialObjs.iTariff = tariffRes.iTariff;
+          const planRes = await sippy.createSippyServicePlan(
+            portalUrl,
+            settings?.apiAdminUsername || settings?.portalUsername || '',
+            settings?.apiAdminPassword || settings?.portalPassword || '',
+            settings?.portalUsername || '',
+            settings?.portalPassword || '',
+            name, tariffRes.iTariff, undefined,
+            prep?.billingCycleDays === 7 ? 1 : 3,
+            settings?.adminWebPassword || undefined,
+          );
+          if (planRes.success && planRes.planId) commercialObjs.planId = planRes.planId;
+          else commercialObjs.error = planRes.error ?? 'service plan not created';
+        } else {
+          commercialObjs.error = tariffRes.message ?? 'tariff not created';
+        }
+
+        if (commercialObjs.iTariff || commercialObjs.planId) {
+          await storage.updateCompany((company as any).id, {
+            sippyITariff:        commercialObjs.iTariff ?? null,
+            sippyIBillingPlan:   commercialObjs.planId  ?? null,
+            billingProvisionedAt: new Date(),
+          } as any);
+        }
+      } catch (e: any) {
+        commercialObjs.error = e?.message ?? 'unknown error';
+        console.warn('[companies] commercial object creation failed:', commercialObjs.error);
+      }
+
+      if (commercialObjs.error) {
+        console.warn(`[companies] "${basic.name}" created WITHOUT commercial objects: ${commercialObjs.error}`);
+      }
+
+      if (prep) {
+        void writeAudit({
+          category: 'operational', action: 'company.prepared',
+          actor: req.user?.email ?? req.user?.claims?.email, actorType: 'user',
+          targetType: 'company', targetId: String((company as any)?.id), targetName: (company as any)?.name,
+          metadata: {
+            profile: prep.name, companyType,
+            routingPackageId: prep.routingPackageId,
+            notificationProfileId: prep.notificationProfileId,
+            ratePolicy: prep.ratePolicy,
+            sippyITariff: commercialObjs.iTariff ?? null,
+            sippyIBillingPlan: commercialObjs.planId ?? null,
+            commercialObjectsError: commercialObjs.error ?? null,
+          },
+        });
+      }
+      res.json({
+        company,
+        prepared: !!prep,
+        // Surfaced so the UI can show what actually happened rather than implying success.
+        commercial: { tariffId: commercialObjs.iTariff ?? null, servicePlanId: commercialObjs.planId ?? null, error: commercialObjs.error ?? null },
+      });
     } catch (e: any) {
       const msg = e.message || '';
       if (msg.includes('unique') || msg.includes('duplicate')) return res.status(409).json({ message: 'Company name or short code already exists' });
       res.status(500).json({ message: msg });
     }
+  });
+
+  // ── Provisioning engine — Sprint 2.3A vertical slice ────────────────────────
+  // Deliberately a SEPARATE path from POST /api/companies/:id/provision, which is frozen
+  // (docs/ACCOUNT-WIZARD-GOVERNANCE-PHASE1.md §2). The legacy endpoint keeps working
+  // unchanged; this one runs the new engine.
+  //
+  // Admin-only, enforced here rather than by hiding a button: this creates a live customer
+  // account on the production switch.
+  // Jobs, not a long-running request. A dry run answers immediately (it only validates);
+  // a real run returns a job id and the caller polls. Provisioning retries, waits on
+  // Sippy and will grow to a dozen stages — that does not belong in one HTTP round trip.
+  app.post('/api/provisioning/companies/:id/jobs', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+
+      // Default TRUE. An operator who omits the flag gets a plan, not a live account —
+      // the destructive direction should require an explicit choice.
+      const dryRun = req.body?.dryRun !== false;
+      const actor = req.user?.email ?? req.user?.claims?.email ?? 'admin';
+
+      const { provisionSlice } = await import('./services/provisioning/slice');
+      const result = await provisionSlice({ companyId: id, actor, dryRun });
+
+      if (!dryRun) {
+        // Audited at START, not on completion: the job outlives this request, and an
+        // audit trail that only records finished runs loses exactly the ones that hung.
+        void writeAudit({
+          category: 'sippy', action: 'provisioning.job.started',
+          actor, actorType: 'user',
+          targetType: 'company', targetId: String(id), targetName: result.preflight.companyName,
+          metadata: { runRef: result.runRef, jobId: result.runId },
+        });
+      }
+      res.status(dryRun ? 200 : 202).json({ ...result, jobId: result.runId ?? null });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Progress for a provisioning job. Poll this after a non-dry-run POST.
+  app.get('/api/provisioning/jobs/:jobId', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const jobId = parseInt(req.params.jobId, 10);
+      if (isNaN(jobId)) return res.status(400).json({ message: 'Invalid job id' });
+      const { getRun } = await import('./services/provisioning/runner');
+      const data = await getRun(jobId);
+      if (!data) return res.status(404).json({ message: 'Job not found' });
+
+      const steps = data.steps.map((s: any) => ({
+        key: s.stepKey, label: s.label, status: s.status,
+        startedAt: s.startedAt, completedAt: s.completedAt,
+        attempt: s.attempt, reasonCode: s.reasonCode, error: s.error,
+        // Elapsed per stage: a step that succeeded after 40s is a different signal from
+        // one that succeeded instantly, and only timing distinguishes them.
+        elapsedMs: s.startedAt && s.completedAt
+          ? new Date(s.completedAt).getTime() - new Date(s.startedAt).getTime() : null,
+      }));
+      const current = steps.find((s: any) => s.status === 'running')
+                   ?? steps.find((s: any) => s.status === 'pending');
+
+      res.json({
+        jobId, runRef: data.run.runRef, status: data.run.status,
+        companyId: data.run.companyId,
+        startedAt: data.run.startedAt, completedAt: data.run.completedAt,
+        currentStage: current?.label ?? null,
+        steps,
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/companies/:id/prepared-configuration — the resolved configuration with NAMES.
+  // One lookup, many consumers: wizard, company page, preflight, provision dashboard.
+  // Without it each consumer either shows raw ids or invents its own name resolution,
+  // which is the duplication this whole program has been removing.
+  app.get('/api/companies/:id/prepared-configuration', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+      const company: any = await storage.getCompany(id);
+      if (!company) return res.status(404).json({ message: 'Company not found' });
+
+      const { provisioningProfiles, routingPackages, notificationProfiles, rateCards } = await import('@shared/schema');
+      const one = async (tbl: any, col: any, val: any) =>
+        val == null ? null : (await db.select().from(tbl).where(eq(col, val)))[0] ?? null;
+
+      const [profile, routing, notif] = await Promise.all([
+        one(provisioningProfiles, provisioningProfiles.id, company.provisioningProfileId),
+        one(routingPackages,      routingPackages.id,      company.routingPackageId),
+        one(notificationProfiles, notificationProfiles.id, company.notificationProfileId),
+      ]);
+      // Rate policy resolves by NAME to a client rate card (migrations 041/042).
+      const rateCard = company.ratePolicy
+        ? (await db.select().from(rateCards).where(eq(rateCards.name, company.ratePolicy)))
+            .find((c: any) => c.cardType === 'client') ?? null
+        : null;
+
+      // Tariff and service plan have ids but no local name row — they live in Sippy and
+      // are named after the company. Reported as such rather than left null, which would
+      // read as "not prepared".
+      res.json({
+        companyId: id,
+        companyName: company.name,
+        preparedAt: company.preparedAt ?? null,
+        tariff:              company.sippyITariff      ? { id: company.sippyITariff,      name: company.name } : null,
+        servicePlan:         company.sippyIBillingPlan ? { id: company.sippyIBillingPlan, name: company.name } : null,
+        provisioningProfile: profile  ? { id: profile.id,  name: profile.name }  : null,
+        routingPackage:      routing  ? { id: routing.id,  name: routing.name }  : null,
+        notificationProfile: notif    ? { id: notif.id,    name: notif.name }    : null,
+        ratePolicy:          company.ratePolicy
+          ? { id: rateCard?.id ?? null, name: company.ratePolicy, entryCount: rateCard?.entryCount ?? 0 }
+          : null,
+        // COMPANY row is authoritative; the profile only supplied the seed. Reading these
+        // from the profile would show a stale platform default after NOC adjusts a
+        // customer's limits — two sources of truth for one number.
+        capacity: {
+          maxCps:      company.maxCps      ?? profile?.maxCps      ?? null,
+          maxSessions: company.maxSessions ?? profile?.maxSessions ?? null,
+          source:      company.maxCps != null ? 'company' : 'profile-default',
+        },
+        media: {
+          codec:      company.codec      ?? profile?.codecPreference ?? null,
+          mediaRelay: company.mediaRelay ?? profile?.mediaRelay      ?? null,
+        },
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // GET /api/companies/:id/preflight — automatic pre-provision validation + the summary
+  // an admin reads before a production-changing action. Read-only: it refuses nothing and
+  // changes nothing, it only reports whether provisioning may proceed.
+  // Admin-only, matching who may act on the result.
+  app.get('/api/companies/:id/preflight', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+      const { runPreflight } = await import('./services/provisioning/preflight');
+      res.json(await runPreflight(id));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
   app.get('/api/companies/:id', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
@@ -27631,8 +27883,46 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+
+      // ── Orphan cleanup (obliged by frozen principle 2, amended 2026-07-28) ──
+      // Company creation now makes a tariff and service plan in Sippy. Deleting an
+      // unprovisioned company must remove them, or abandoned onboarding silently
+      // accumulates objects in the switch — which is how the switch reached 50 tariffs
+      // with names like "3tre" and "4rttr" during one afternoon of testing.
+      //
+      // Only for UNPROVISIONED companies: once an account exists, the tariff may be
+      // carrying live calls and deleting it is a traffic-affecting act, not cleanup.
+      const existing: any = await storage.getCompany(id);
+      const cleanup: Record<string, unknown> = {};
+      if (existing && !existing.sippyIAccount && existing.provisioningStatus !== 'provisioned') {
+        if (existing.sippyITariff) {
+          try {
+            const settings: any = await storage.getSettings();
+            const { username, password } = sippyXmlCreds(settings);
+            const r = await sippy.deleteSippyTariff(username, password, existing.sippyITariff, sippyPortalUrl(settings));
+            cleanup.tariff = r?.success ? `deleted ${existing.sippyITariff}` : `failed: ${r?.message}`;
+          } catch (e: any) { cleanup.tariff = `failed: ${e?.message}`; }
+        }
+        // No delete API exists for service plans on this build — record it rather than
+        // implying it was removed. An untrue cleanup claim is worse than a known gap.
+        if (existing.sippyIBillingPlan) {
+          cleanup.servicePlan = `orphaned ${existing.sippyIBillingPlan} — no delete API on this Sippy build; remove manually`;
+        }
+      } else if (existing?.sippyIAccount) {
+        cleanup.skipped = 'company is provisioned — Sippy objects left intact (may be carrying traffic)';
+      }
+
       await storage.deleteCompany(id);
-      res.json({ success: true });
+
+      void writeAudit({
+        category: 'operational', action: 'company.deleted',
+        actor: req.user?.email ?? req.user?.claims?.email, actorType: 'user',
+        targetType: 'company', targetId: String(id), targetName: existing?.name,
+        severity: 'warning',
+        metadata: { cleanup, wasProvisioned: !!existing?.sippyIAccount },
+      });
+
+      res.json({ success: true, cleanup });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

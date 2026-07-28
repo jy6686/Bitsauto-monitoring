@@ -9,8 +9,30 @@ in-flight adjustment.
 
 1. **One source of truth** — BitsAuto is master. Wizard → draft → admin provision → Sippy.
    Nothing exists in Sippy until Provision.
-2. **The wizard prepares, it never writes to Sippy.** KAM, NOC and Commercial can all run
-   it; only Admin changes the production switch.
+2. **Only LIVE CUSTOMER resources require Admin approval.** *(Amended 2026-07-28,
+   superseding "nothing is written to Sippy until Provision".)*
+
+   | Created automatically on company creation | Admin-only, at Provision |
+   |---|---|
+   | Tariff · Service Plan | Customer account · Authentication · Routing · IP authorisation · Traffic activation |
+
+   A tariff and a service plan are shared commercial objects that carry no traffic and
+   expose no network. Creating them early gives the company a stable commercial identity
+   from day one without any live exposure. What stays gated is everything that can carry
+   a call.
+
+   The original rule was cleaner to state but wrong at the boundary: it treated a price
+   list and a live account as the same risk. Consequence to accept — **company creation
+   now touches Sippy, and KAM/NOC/Commercial can create companies.** That is deliberate
+   under this rule, not an oversight.
+
+   Two safeguards this obliges:
+   - **Orphan cleanup.** Deleting a company before provisioning must delete the tariff and
+     service plan it created. Otherwise abandoned onboarding silently accumulates objects
+     in the switch.
+   - **Sippy failure must not block company creation.** If the switch is unreachable the
+     company is still created, marked unprepared, and the objects are created on retry.
+     An outage must not stop the commercial team recording a customer.
 3. **Everything becomes defaults** — one backend profile, not 50 exposed telecom fields.
 4. **Routing is a package**, not hardcoded countries in provisioning logic.
 5. **Provision is a logged pipeline** with per-stage status and retry-from-stage.
@@ -383,10 +405,60 @@ increment on the split flow.
 **Maker–checker.** Operational teams prepare customers; only admins touch the production
 switch.
 
-**Governing rule:** *KAM prepares and monitors; NOC operates the live account; Admin alone
-touches production provisioning.* KAM's authority ends when the company is created — after
-that they have **read-only** visibility, which is what they need to answer a customer's
-question without being able to change live service behaviour.
+**FINAL (2026-07-28): NOC owns preparation · KAM is read-only · Admin provisions.**
+
+| Action | KAM | NOC | Admin |
+|---|:--:|:--:|:--:|
+| View company, status, commercial info | ✅ | ✅ | ✅ |
+| Create company · edit before provision | ❌ | ✅ | ✅ |
+| Add/edit IPs · contacts · commercial terms | ❌ | ✅ | ✅ |
+| Submit for provision | ❌ | ✅ | ✅ |
+| **Approve · Provision · Re-sync · Delete provisioned** | ❌ | ❌ | ✅ |
+| Operations after provision (§3.1.3) | read-only | ✅ | ✅ |
+
+**Lifecycle:** `Draft → Prepared → Ready for Provision → Provisioning (Admin) → Active`
+
+**Traffic policy — one decision, applied consistently: Provision = Ready for Traffic.**
+A successful provision leaves the customer `ACTIVE` with traffic **enabled**. If a
+particular customer must be tested first, that is an *optional operational action* (suspend
+via the Operations Panel), not a built-in provisioning state. This supersedes the earlier
+"traffic blocked until IP approval".
+
+**The separate IP-approval workflow is removed.** The owner supplies the IPs, Admin reviews
+everything before pressing Provision, and provisioning pushes them to Sippy — a second
+approve-IP step is redundant. IPs are edited afterwards through the Operations Panel, with
+every change audited and re-sync remaining Admin-only.
+
+> ⚠️ **What must NOT be removed with it: IP conflict validation.** Approval and conflict
+> checking are different controls that happened to live in the same workflow. Approval was
+> a human gate; conflict detection answers "is this IP already authorised for another
+> customer?" — and two customers sharing an IP is a live routing fault, not a process
+> preference. The conflict check (with the internal-whitelist bypass, §7) must move into
+> pre-provision validation, not disappear alongside the approval step.
+
+**Owner is a user reference, not a role snapshot:** `owner_user_id` plus an optional
+`owner_department` for display. Storing the role would go stale the moment that user's
+permissions change; RBAC already knows their role. `companies.kam` cannot express
+"Ali (NOC) owns this", which is why a new field is needed.
+
+```
+Owner (KAM or NOC)                    ADMIN
+  name · type · IPs · contacts   →    Provision   →   ACTIVE / READY FOR TRAFFIC
+  everything else automatic           (all Sippy work)
+```
+
+**The point is eliminating handoffs, not dividing labour.** The earlier model had KAM
+prepare commercially and NOC prepare technically, which meant every onboarding waited on
+two departments. One accountable owner removes the queue while Admin still gates
+activation.
+
+Implication for the company record: it needs an **owner** (person + their role), which
+`companies.kam` alone cannot express — that field cannot say "Ali (NOC) owns this". When
+the owner marks preparation done, status becomes `READY FOR PROVISION` and Admin is
+notified.
+
+After provisioning, operational authority follows §3.1.3: NOC and Admin modify, KAM is
+read-only, Admin alone re-syncs or provisions.
 
 **Preparation — before the company exists**
 
@@ -457,6 +529,17 @@ with the internal whitelist bypass, naming the conflicting record.
 
 **3. Admin provision engine.** Admin-only. Executes the full pipeline (§4) end to end with
 per-stage status in `provisioning_jobs` and retry-from-stage. No manual Sippy work remains.
+
+**3.1 Provision Engine — frozen scope.** Input: prepared company · profile · routing package
+· notification profile · rate policy · tariff id · service plan id (the last two already
+exist from company creation). Stages: validate prerequisites → create Sippy account →
+authentication → authorised IPs → routing → assign service plan → rate policy → media
+(codec, relay) → capacity (CPS, sessions) → enable traffic → **verify by read-back** →
+audit → mark Active.
+
+Read-back is not optional. This platform has twice reported success for operations that
+never happened — the Tariff-33 restore and Service Plan creation — and both were caught
+only by verifying the external system afterwards rather than trusting the call.
 
 **4. AI one-page onboarding.** Reuses the same engine. Replaces the wizard as the primary
 surface only once the engine is proven; the wizard stays as manual fallback.
