@@ -27564,6 +27564,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         routingPackageId:      prep?.routingPackageId ?? null,
         notificationProfileId: prep?.notificationProfileId ?? null,
         ratePolicy:            prep?.ratePolicy ?? null,
+        // Account-level capacity/media seeded from the profile (migration 047). The
+        // company row is authoritative from here — a later profile edit must not change
+        // an existing customer's limits.
+        maxCps:                prep?.maxCps ?? null,
+        maxSessions:           prep?.maxSessions ?? null,
+        codec:                 prep?.codecPreference ?? null,
+        mediaRelay:            prep?.mediaRelay ?? null,
         preparedAt:            prep ? new Date() : null,
       } as any, contacts, bankAccounts);
 
@@ -27758,8 +27765,18 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         ratePolicy:          company.ratePolicy
           ? { id: rateCard?.id ?? null, name: company.ratePolicy, entryCount: rateCard?.entryCount ?? 0 }
           : null,
-        capacity: { maxCps: profile?.maxCps ?? null, maxSessions: profile?.maxSessions ?? null },
-        media:    { codec: profile?.codecPreference ?? null, mediaRelay: profile?.mediaRelay ?? null },
+        // COMPANY row is authoritative; the profile only supplied the seed. Reading these
+        // from the profile would show a stale platform default after NOC adjusts a
+        // customer's limits — two sources of truth for one number.
+        capacity: {
+          maxCps:      company.maxCps      ?? profile?.maxCps      ?? null,
+          maxSessions: company.maxSessions ?? profile?.maxSessions ?? null,
+          source:      company.maxCps != null ? 'company' : 'profile-default',
+        },
+        media: {
+          codec:      company.codec      ?? profile?.codecPreference ?? null,
+          mediaRelay: company.mediaRelay ?? profile?.mediaRelay      ?? null,
+        },
       });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });

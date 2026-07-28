@@ -1433,6 +1433,14 @@ export const companies = pgTable("companies", {
   notificationProfileId:  integer("notification_profile_id"),
   ratePolicy:             varchar("rate_policy", { length: 64 }),
   preparedAt:             timestamp("prepared_at"),
+  /** Account-level capacity and media (migration 047). Seeded from the provisioning
+   *  profile at creation; the COMPANY row is authoritative thereafter. Deliberately not
+   *  per-trunk: a customer has one capacity agreement, and three trunks each claiming a
+   *  CPS value leaves the engine guessing which is real. */
+  maxCps:                 integer("max_cps"),
+  maxSessions:            integer("max_sessions"),
+  codec:                  varchar("codec",       { length: 32 }),
+  mediaRelay:             varchar("media_relay", { length: 16 }),
   /** The single accountable owner of preparation (migration 045). A user reference, never
    *  a role snapshot — authorisation always comes from RBAC, not from these columns. */
   ownerUserId:            varchar("owner_user_id",    { length: 255 }),
