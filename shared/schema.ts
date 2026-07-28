@@ -3969,6 +3969,98 @@ export const routingTemplateVendors = pgTable("routing_template_vendors", {
 export type RoutingTemplateVendor       = typeof routingTemplateVendors.$inferSelect;
 export type InsertRoutingTemplateVendor = typeof routingTemplateVendors.$inferInsert;
 
+// ── Onboarding 2.0 — provisioning configuration (migration 038) ───────────────
+// Three concerns, three tables. A routing package is shared across profiles, so it is
+// NOT nested inside one — see docs/capabilities/ONBOARDING-2.0.md §3.2.
+// These definitions must mirror migration 038 exactly: a drizzle-push database that
+// disagrees with the migration is what made migration 029 roll back silently.
+
+export const routingPackages = pgTable("routing_packages", {
+  id:          serial("id").primaryKey(),
+  name:        varchar("name", { length: 128 }).notNull().unique(),
+  description: text("description"),
+  isDefault:   boolean("is_default").notNull().default(false),
+  active:      boolean("active").notNull().default(true),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+});
+export type RoutingPackage       = typeof routingPackages.$inferSelect;
+export type InsertRoutingPackage = typeof routingPackages.$inferInsert;
+
+/** One row per country×product. Countries live here, never in provisioning code. */
+export const routingPackageEntries = pgTable("routing_package_entries", {
+  id:        serial("id").primaryKey(),
+  packageId: integer("package_id").notNull().references(() => routingPackages.id, { onDelete: "cascade" }),
+  country:   varchar("country", { length: 64 }).notNull(),
+  product:   varchar("product", { length: 64 }).notNull(),
+  priority:  integer("priority").notNull().default(0),
+  active:    boolean("active").notNull().default(true),
+}, (t) => ({
+  uqPackageCountryProduct: uniqueIndex("uq_routing_package_entry").on(t.packageId, t.country, t.product),
+}));
+export type RoutingPackageEntry       = typeof routingPackageEntries.$inferSelect;
+export type InsertRoutingPackageEntry = typeof routingPackageEntries.$inferInsert;
+
+export const notificationProfiles = pgTable("notification_profiles", {
+  id:          serial("id").primaryKey(),
+  name:        varchar("name", { length: 128 }).notNull().unique(),
+  description: text("description"),
+  isDefault:   boolean("is_default").notNull().default(false),
+  active:      boolean("active").notNull().default(true),
+  createdAt:   timestamp("created_at").defaultNow().notNull(),
+});
+export type NotificationProfile       = typeof notificationProfiles.$inferSelect;
+export type InsertNotificationProfile = typeof notificationProfiles.$inferInsert;
+
+export const notificationProfileEvents = pgTable("notification_profile_events", {
+  id:        serial("id").primaryKey(),
+  profileId: integer("profile_id").notNull().references(() => notificationProfiles.id, { onDelete: "cascade" }),
+  eventKey:  varchar("event_key", { length: 64 }).notNull(),
+  enabled:   boolean("enabled").notNull().default(true),
+}, (t) => ({
+  uqProfileEvent: uniqueIndex("uq_notification_profile_event").on(t.profileId, t.eventKey),
+}));
+export type NotificationProfileEvent       = typeof notificationProfileEvents.$inferSelect;
+export type InsertNotificationProfileEvent = typeof notificationProfileEvents.$inferInsert;
+
+/**
+ * Business + technical defaults the provisioning engine applies. The operator supplies
+ * a handful of fields in the wizard; everything here comes from the profile, so changing
+ * a business default is a data update rather than a deployment.
+ */
+export const provisioningProfiles = pgTable("provisioning_profiles", {
+  id:               serial("id").primaryKey(),
+  name:             varchar("name", { length: 128 }).notNull().unique(),
+  /** wholesale | retail | carrier | enterprise — payment term is DERIVED from this. */
+  companyType:      varchar("company_type", { length: 32 }).notNull(),
+  description:      text("description"),
+  isDefault:        boolean("is_default").notNull().default(false),
+  active:           boolean("active").notNull().default(true),
+
+  productPackage:   varchar("product_package", { length: 32 }).notNull().default('ALL'),
+  creditLimit:      numeric("credit_limit", { precision: 12, scale: 4 }).notNull().default('2.0000'),
+  billingCycle:     varchar("billing_cycle", { length: 32 }).notNull().default('weekly'),
+  billingCycleDays: integer("billing_cycle_days").notNull().default(7),
+  paymentTerm:      varchar("payment_term", { length: 16 }).notNull().default('postpaid'),
+  gracePeriodDays:  integer("grace_period_days").notNull().default(3),
+  /** "USD 100 or 1%" — both halves stored; the engine applies the governance rule. */
+  disputeValue:     numeric("dispute_value", { precision: 12, scale: 2 }).notNull().default('100.00'),
+  disputePct:       numeric("dispute_pct",   { precision: 5,  scale: 2 }).notNull().default('1.00'),
+
+  codecPreference:  varchar("codec_preference", { length: 32 }).notNull().default('auto'),
+  mediaRelay:       varchar("media_relay", { length: 16 }).notNull().default('default'),
+  maxCps:           integer("max_cps").notNull().default(10),
+  maxSessions:      integer("max_sessions").notNull().default(10),
+  invoiceTemplate:  varchar("invoice_template", { length: 64 }).notNull().default('default'),
+
+  routingPackageId:      integer("routing_package_id").references(() => routingPackages.id),
+  notificationProfileId: integer("notification_profile_id").references(() => notificationProfiles.id),
+
+  createdAt:        timestamp("created_at").defaultNow().notNull(),
+  updatedAt:        timestamp("updated_at").defaultNow().notNull(),
+});
+export type ProvisioningProfile       = typeof provisioningProfiles.$inferSelect;
+export type InsertProvisioningProfile = typeof provisioningProfiles.$inferInsert;
+
 // ── Pricing Templates ─────────────────────────────────────────────────────────
 export const pricingTemplates = pgTable("pricing_templates", {
   id:          serial("id").primaryKey(),
