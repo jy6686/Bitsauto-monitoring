@@ -667,7 +667,11 @@ function rawRequest(
   jar: CookieJar,
   redirectsLeft = 5,
   timeoutMs = 20000,
-): Promise<{ statusCode: number; body: string; cookies: CookieJar; location?: string }> {
+  // finalUrl: the URL that actually produced this response. Redirects are followed
+  // internally, so `location` is empty on the final hop and the landing URL was
+  // previously unrecoverable by callers — which is exactly the fact needed to tell
+  // "bounced to the login page" apart from "bounced somewhere else".
+): Promise<{ statusCode: number; body: string; cookies: CookieJar; location?: string; finalUrl?: string }> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const isHttps = parsed.protocol === 'https:';
@@ -704,7 +708,7 @@ function rawRequest(
       }
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => resolve({ statusCode: sc, body: data, cookies: newJar, location: locationHeader }));
+      res.on('end', () => resolve({ statusCode: sc, body: data, cookies: newJar, location: locationHeader, finalUrl: url }));
     });
 
     req.on('error', reject);
@@ -7998,6 +8002,14 @@ export async function createSippyServicePlan(
   // Evidence for each session attempt. Recorded so the caller can see WHY the
   // portal path failed instead of inferring it from a single collapsed code.
   const portalAttempts: string[] = [];
+  // Path+query only — the host is already known and would just crowd the line.
+  const shortUrl = (u?: string) => { try { const p = new URL(u ?? ''); return p.pathname + p.search; } catch { return u ?? '?'; } };
+  // Sippy distinguishes rejection paths in the <title> even when the pages are
+  // byte-identical in length, so the title separates cases the size cannot.
+  const titleOf = (html: string) => {
+    const t = html.match(/<title[^>]*>([\s\S]{0,80}?)<\/title>/i)?.[1]?.replace(/\s+/g, ' ').trim();
+    return t ? ` title:"${t}"` : '';
+  };
   for (const { cookies, label, iCustomer } of allSessions) {
     try {
       // Service plans live under /c1/ (customer self-care portal), not root.
@@ -8025,7 +8037,8 @@ export async function createSippyServicePlan(
         // session was never valid for this page in the first place. Those are
         // different faults and the POST evidence cannot distinguish them.
         portalAttempts.push(
-          `${label}/pre-GET=HTTP${getResp.statusCode} ${hasLoginFormGet ? 'login-bounce' : 'ok'} ${getResp.body.length}B`);
+          `${label}/pre-GET=HTTP${getResp.statusCode} ${hasLoginFormGet ? 'login-bounce' : 'ok'} ${getResp.body.length}B` +
+          ` url:${shortUrl(getUrl)} →${shortUrl(getResp.finalUrl)}${titleOf(getResp.body)}`);
         if (getResp.statusCode === 200 && !hasLoginFormGet) {
           // Use cookies from the GET response (session may be refreshed)
           postCookies = getResp.cookies;
@@ -8066,7 +8079,9 @@ export async function createSippyServicePlan(
                     : hasInsertError ? 'cannot-insert'
                     : 'accepted';
       portalAttempts.push(
-        `${label}=HTTP${r.statusCode} ${verdict} ${r.body.length}B${portalMsg ? ` msg:"${portalMsg}"` : ''}`);
+        `${label}=HTTP${r.statusCode} ${verdict} ${r.body.length}B` +
+        ` url:${shortUrl(postUrl)} →${shortUrl(r.finalUrl)}${titleOf(r.body)}` +
+        `${portalMsg ? ` msg:"${portalMsg}"` : ''}`);
       if (!isLoginPage && !hasInsertError) {
         resp = r;
         usedSession = label;
