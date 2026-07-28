@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -258,16 +258,50 @@ export default function ClientWizardPage() {
 
   // ── Data fetching ───────────────────────────────────────────────────────────
   const { data: companiesData } = useQuery<{ companies: Company[] }>({ queryKey: ["/api/companies"] });
+
+  // ── Prepared configuration for the selected company ────────────────────────
+  // The wizard CONSUMES this; it does not decide any of it. Company creation resolves
+  // the provisioning profile from company type and copies its routing package,
+  // notification profile and rate policy onto the company, and creates the tariff and
+  // service plan in Sippy. One source of truth, read here and by the provision engine.
+  const preparedCompany = useMemo(() => {
+    const c: any = (companiesData?.companies ?? []).find((x: any) => String(x.id) === s1.companyId);
+    if (!c) return null;
+    return {
+      name: c.name,
+      sippyITariff: c.sippyITariff ?? null,
+      sippyIBillingPlan: c.sippyIBillingPlan ?? null,
+      ratePolicy: c.ratePolicy ?? null,
+      // Names are not on the company row (it stores ids). Shown as ids until an endpoint
+      // exposes the names — deliberately not a second lookup path invented here.
+      routingPackageName: c.routingPackageId ? `#${c.routingPackageId}` : null,
+      notificationProfileName: c.notificationProfileId ? `#${c.notificationProfileId}` : null,
+      maxCps: c.maxCps ?? null,
+      maxSessions: c.maxSessions ?? null,
+    };
+  }, [companiesData, s1.companyId]);
+
+  // Seed capacity from the prepared company once per selection, so the operator sees the
+  // profile's values rather than the form's own defaults. Still editable — NOC adjusts
+  // capacity for a customer without changing the platform default. Only seeds a trunk
+  // that has not been touched, so a deliberate edit is never overwritten by a re-render.
+  const [capacitySeededFor, setCapacitySeededFor] = useState<string>("");
+  useEffect(() => {
+    if (!preparedCompany || capacitySeededFor === s1.companyId) return;
+    const cps = preparedCompany.maxCps, sess = preparedCompany.maxSessions;
+    if (cps == null && sess == null) return;
+    setCapacitySeededFor(s1.companyId);
+    setTrunks(prev => prev.map(t =>
+      (t.maxCps === "" && t.maxSessions === "0")
+        ? { ...t, maxCps: cps != null ? String(cps) : t.maxCps,
+                  maxSessions: sess != null ? String(sess) : t.maxSessions }
+        : t));
+  }, [preparedCompany, s1.companyId, capacitySeededFor]);
   const { data: routingData }   = useQuery<{ groups: { id: number; name: string }[] }>({
     queryKey: ["/api/sippy/routing-groups"], retry: false,
   });
-  const { data: billingPlansData } = useQuery<{ plans: { id: number; name: string }[]; error?: string }>({
-    queryKey: ["/api/sippy/billing-plans"], retry: false,
-  });
-
   const companies      = companiesData?.companies ?? [];
   const routingGroups  = routingData?.groups ?? [];
-  const billingPlans   = billingPlansData?.plans ?? [];
   const selectedCompany = companies.find(c => String(c.id) === s1.companyId);
 
   // Filter companies by department
@@ -815,36 +849,46 @@ export default function ClientWizardPage() {
                 </p>
               </div>
 
-              {/* Billing Package — selects an existing Sippy Service Plan */}
+              {/* ── Prepared configuration — read-only ──────────────────────────
+                  These are resolved when the company is created: the tariff and service
+                  plan are made in Sippy, and the routing package, notification profile
+                  and rate policy come from the provisioning profile for the company type.
+
+                  They were previously operator choices. The Billing Package dropdown in
+                  particular offered "— Auto-select during provisioning —", which had no
+                  selection logic behind it: it took plans[0], an unrelated plan, and
+                  suppressed creation of the dedicated one (DEFECT-CP-002/003). A control
+                  that offers a choice the platform is better placed to make is worse than
+                  no control. */}
               <div className="space-y-2">
-                <Label className="text-xs">Billing Package (Sippy Service Plan)</Label>
-                {billingPlans.length === 0 ? (
-                  <div className="flex items-center gap-2 text-[10px] text-amber-400 border border-amber-500/30 rounded-lg px-3 py-2 bg-amber-500/5">
-                    <AlertTriangle className="h-3 w-3 shrink-0" />
-                    {billingPlansData?.error
-                      ? `Could not load plans: ${billingPlansData.error}. Provision will auto-select.`
-                      : "Loading billing plans from Sippy…"}
+                <Label className="text-xs">Prepared configuration</Label>
+                {!preparedCompany ? (
+                  <div className="text-[10px] text-muted-foreground border border-border rounded-lg px-3 py-2">
+                    Select a company in Step 1 to load its prepared configuration.
                   </div>
                 ) : (
-                  <Select
-                    value={s2.servicePlanId}
-                    onValueChange={v => setS2(p => ({ ...p, servicePlanId: v }))}
-                  >
-                    <SelectTrigger className="h-8 text-xs" data-testid="select-billing-package">
-                      <SelectValue placeholder="— Auto-select during provisioning —" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="_auto">— Auto-select during provisioning —</SelectItem>
-                      {billingPlans.map(bp => (
-                        <SelectItem key={bp.id} value={String(bp.id)}>
-                          {bp.name} <span className="text-muted-foreground">(#{bp.id})</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="rounded-lg border border-border divide-y divide-border/50">
+                    {[
+                      ["Tariff",               preparedCompany.sippyITariff      ? `#${preparedCompany.sippyITariff}` : null],
+                      ["Service Plan",         preparedCompany.sippyIBillingPlan ? `#${preparedCompany.sippyIBillingPlan}` : null],
+                      ["Rate policy",          preparedCompany.ratePolicy],
+                      ["Routing package",      preparedCompany.routingPackageName],
+                      ["Notification profile", preparedCompany.notificationProfileName],
+                    ].map(([label, value]) => (
+                      <div key={String(label)} className="flex items-center justify-between px-3 py-1.5">
+                        <span className="text-[11px] text-muted-foreground">{label}</span>
+                        {value
+                          ? <span className="text-[11px] font-medium">{String(value)}</span>
+                          : <span className="text-[11px] text-amber-400 flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3" /> not prepared
+                            </span>}
+                      </div>
+                    ))}
+                  </div>
                 )}
                 <p className="text-[10px] text-muted-foreground">
-                  Selects the Sippy billing plan assigned to this account. Choose one that matches the client's product tier, or leave blank to auto-detect.
+                  Prepared automatically when the company was created. Anything marked
+                  “not prepared” will be reported by pre-provision validation.
                 </p>
               </div>
             </div>
@@ -1341,7 +1385,13 @@ export default function ClientWizardPage() {
                     ["Formats",         s2.ratesheetFormats.join(", ") || "None selected"],
                     ["Dialcode Format", s2.dialcodeFormat],
                     ["Prefix Style",    s2.prefixStyle.replace("_", " ")],
-                    ["Billing Package", s2.servicePlanId ? (billingPlans.find(b => String(b.id) === s2.servicePlanId)?.name ?? `Plan #${s2.servicePlanId}`) : "Auto-select"],
+                    // Prepared configuration, not operator choices. "Auto-select" used to
+                    // appear here for the billing package and was doubly misleading:
+                    // nothing selected it, and what provisioning actually did was take an
+                    // unrelated plan (DEFECT-CP-002).
+                    ["Tariff",          preparedCompany?.sippyITariff      ? `#${preparedCompany.sippyITariff}` : "not prepared"],
+                    ["Service Plan",    preparedCompany?.sippyIBillingPlan ? `#${preparedCompany.sippyIBillingPlan}` : "not prepared"],
+                    ["Rate Policy",     preparedCompany?.ratePolicy ?? "not prepared"],
                   ]
                 },
               ].map(section => (
