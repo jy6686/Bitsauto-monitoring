@@ -15,6 +15,7 @@ import type { ProvisioningStep } from "./types";
 import { tariffStep } from "./steps/tariff.step";
 import { servicePlanStep } from "./steps/service-plan.step";
 import { accountStep } from "./steps/account.step";
+import { authenticationStep } from "./steps/authentication.step";
 
 export * from "./types";
 export { createRun, executeRun, getRun } from "./runner";
@@ -26,8 +27,9 @@ export { createRun, executeRun, getRun } from "./runner";
  *   10 tariff        ✅ implemented — proven working on the live deployment
  *   20 service_plan  ✅ implemented — blocked by the Sippy deployment, non-blocking
  *   30 account       ✅ implemented — idempotent + read-back verified
- *   40 assign_plan      → link plan to account
- *   50 products         → customer_product_assignments
+ *   40 authentication ✅ implemented — SIP auth + IP authorisation (ONE stage in Sippy)
+ *   50 assign_plan      → link plan to account
+ *   55 products         → customer_product_assignments
  *   60 rates            → generate customer rates
  *   70 rate_push        → create provisioning_jobs rows; reuse the existing worker
  *   80 routing          → wrap addRoutingGroup() + addRoutingGroupMember()
@@ -39,6 +41,7 @@ export const PROVISIONING_STEPS: ProvisioningStep[] = [
   tariffStep,
   servicePlanStep,
   accountStep,
+  authenticationStep,
 ];
 
 /** Look up a single step definition by its stable key. */
