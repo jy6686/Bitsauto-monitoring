@@ -100,9 +100,37 @@ complexity; keep business information.
 
 | | Category | Disposition |
 |---|---|---|
-| **A** | **Required by the business** — company name, customer type, KAM, authentication type, customer IP(s), primary / technical / billing contacts, notification emails | **Keep in UI** |
+| **A** | **Required by the business** — company name, customer type, KAM, authentication type, customer IP(s), primary / technical / billing contacts | **Keep in UI** |
 | **B** | **Required by the process** — department, sales/CRM reference, account status (draft/ready/active), internal notes, testing contact, time zone | **Keep in UI** |
-| **C** | **Provisioning objects** — tariff, service plan, billing package, routing groups, product assignment, codec, media relay, max CPS, max sessions, grace period, credit limit, billing cycle, payment term | **Remove — comes from the Provisioning Profile** |
+| **C** | **Commercial terms** — payment term, billing cycle, credit limit, grace period, dispute policy, currency | **Keep in UI, pre-filled from the profile, editable** |
+| **D** | **Provisioning objects** — tariff, service plan, product package, routing package, codec, media relay, max CPS, max sessions, authentication defaults, notification profile | **Remove — profile-only, never in the UI** |
+
+### The line between C and D
+
+**Commercial terms are contract terms, not switch settings.** They legitimately vary per
+customer: one wholesale customer invoices weekly and another monthly; a trusted carrier
+carries a USD 10,000 credit limit rather than USD 2; a retail customer is prepaid with no
+credit at all. Removing them would force those agreements into side channels — email and
+spreadsheets — which is the practice this program exists to end.
+
+So the profile **pre-fills** them and the operator **may override**:
+
+| Field | Default | Editable |
+|---|---|---|
+| Payment term | derived from company type (Wholesale → Postpaid · Retail → Prepaid) | ✅ |
+| Billing cycle | Weekly (7 days) — also **Bi-Weekly (14)** and **Monthly** | ✅ |
+| Credit limit | USD 2.00 | ✅ |
+| Grace period | 3 days | ✅ |
+| Dispute policy | USD 100.00 or 1% | ✅ |
+| Currency | company default | ✅ |
+
+Category D stays profile-only. Changing a codec or a routing package for one customer is a
+platform decision made by editing the profile — not a per-customer choice, because the
+operator has no basis on which to make it and DEFECT-CP-002 shows what happens when a
+control offers a choice with no logic behind it.
+
+**Rule of thumb:** if a salesperson could negotiate it, it belongs in the wizard. If only an
+engineer could justify it, it belongs in the profile.
 
 **Why category A is not shrunk to four fields.** The day a customer reports a problem,
 KAM, Finance and NOC each ask: who is the billing contact, who receives invoices, who
@@ -221,11 +249,12 @@ and in the implementation expensively.
 | Service Plan | Backend | auto-create | ❌ | **Provision** |
 | Sippy account | Backend | auto-create | ❌ | **Provision** |
 | Product package | Provisioning Profile | ALL | ✅ | Provision |
-| Payment term | Company type | Wholesale → Postpaid · Retail → Prepaid | ✅ | Provision |
-| Credit limit | Provisioning Profile | USD 2.00 | ✅ | Provision |
-| Billing cycle | Provisioning Profile | Weekly (7 days) | ✅ | Provision |
-| Grace period | Provisioning Profile | 3 days | ✅ | Provision |
-| Dispute value | Provisioning Profile | USD 100 or 1% | ✅ | Provision |
+| Payment term | Company type | Wholesale → Postpaid · Retail → Prepaid | ✅ **in wizard** | Provision |
+| Credit limit | Provisioning Profile | USD 2.00 | ✅ **in wizard** | Provision |
+| Billing cycle | Provisioning Profile | Weekly (7) · Bi-Weekly (14) · Monthly | ✅ **in wizard** | Provision |
+| Grace period | Provisioning Profile | 3 days | ✅ **in wizard** | Provision |
+| Dispute value | Provisioning Profile | USD 100 or 1% | ✅ **in wizard** | Provision |
+| Currency | Company | company default | ✅ **in wizard** | Provision |
 | Codec | Provisioning Profile | Auto | ✅ | Provision |
 | Media relay | Provisioning Profile | Default | ✅ | Provision |
 | Max CPS | Provisioning Profile | 10 | ✅ | Provision |
@@ -365,6 +394,29 @@ Milestones 0–2 are safe alongside current operations — they change what the 
 and *stores*, not what it *does to Sippy*. **Milestone 3 changes live provisioning
 behaviour** and takes the governed-change route used for `createSippyServicePlan`
 (see [ACCOUNT-WIZARD-GOVERNANCE-PHASE1](../ACCOUNT-WIZARD-GOVERNANCE-PHASE1.md)).
+
+## 9.1 Configuration layers — frozen at four
+
+Configure the platform once; configure a customer only when they are an exception.
+
+| Layer | Object | Configured by | In the wizard? |
+|---|---|---|---|
+| 1 | **Provisioning Profile** — business + technical defaults | Admin, once | ❌ (commercial fields pre-filled from it) |
+| 2 | **Routing Package** — country × product | Admin, once | ❌ |
+| 3 | **Notification Profile** — event → sender + contact roles | Admin, once | ❌ |
+| 4 | **Customer** — company, contacts, authentication, commercial terms | Operator, per customer | ✅ |
+
+Plus `company_notification_recipients` for exceptions and `company_provisioning_snapshot`
+for the audit record.
+
+**No further configuration tables** until Sprints 2 and 3 are running and operational
+experience shows a need. Authentication Profile and Fraud Profile are plausible fifth and
+sixth layers and are deliberately **not** built now — adding them before the engine runs
+would be designing against speculation rather than usage.
+
+This is also what makes the phase-2 AI tractable: it never needs to understand 200 Sippy
+settings, only to select the right profiles. Wholesale → Standard Wholesale + Wholesale
+Default + Standard Notifications. Deterministic, auditable, explainable.
 
 ## 10. Open — needed before milestone 1 is final
 
