@@ -88,10 +88,51 @@ Step 5 reads as a readiness check — `✓ Company · ✓ Commercial · ✓ Tech
 ✓ Products · ✓ Notifications · ✓ Validation → **READY FOR PROVISION**` — and the Provision
 button is visible only to admins.
 
-**Tariff, Service Plan and Billing Package leave the UI entirely.** They are provisioning
-objects, not business objects. This also removes a control that invited a choice with no
-logic behind it — DEFECT-CP-002 exists precisely because "Auto-select" had no selection
-rule.
+### 3.1.1 Sprint 2 objective — stated precisely
+
+> **Replace every Sippy-specific field in the wizard with backend defaults, while
+> preserving the business information required to operate the customer after
+> provisioning.**
+
+The goal is **zero manual Sippy work**, *not* minimal fields. Those are different
+objectives and conflating them loses data the business needs. Remove technical
+complexity; keep business information.
+
+| | Category | Disposition |
+|---|---|---|
+| **A** | **Required by the business** — company name, customer type, KAM, authentication type, customer IP(s), primary / technical / billing contacts, notification emails | **Keep in UI** |
+| **B** | **Required by the process** — department, sales/CRM reference, account status (draft/ready/active), internal notes, testing contact, time zone | **Keep in UI** |
+| **C** | **Provisioning objects** — tariff, service plan, billing package, routing groups, product assignment, codec, media relay, max CPS, max sessions, grace period, credit limit, billing cycle, payment term | **Remove — comes from the Provisioning Profile** |
+
+**Why category A is not shrunk to four fields.** The day a customer reports a problem,
+KAM, Finance and NOC each ask: who is the billing contact, who receives invoices, who
+receives rate changes, who is the technical contact, who owns the account. Information not
+captured at onboarding gets recollected later by email and spreadsheet — which is the
+practice this program exists to end. Shrink further only with real usage data showing a
+field is unused.
+
+Removing category C also deletes a control that invited a choice with no logic behind it —
+DEFECT-CP-002 exists precisely because "Auto-select" had no selection rule.
+
+### 3.1.2 Notification recipients — a matrix, not a field per type
+
+Separate fields for invoice email, balance alert email, traffic trend email and rate
+notification email mean a schema change every time a notification type is added. Model it
+as recipients × subscriptions:
+
+```
+Email                Notifications
+noc@abc.com          ☑ traffic_trend  ☑ fraud_alert
+billing@abc.com      ☑ invoice        ☑ balance_alert
+kam@abc.com          ☑ rate_notification  ☑ welcome
+tech@abc.com         ☑ system
+```
+
+**Schema note (first Sprint 2 item):** `notification_profiles` from migration 038 holds the
+*platform default* set of events. Per-customer recipients are different data and need a
+`company_notification_recipients` table — `(company_id, email, event_key)`. The profile
+says which events exist and default on; the recipient rows say who receives them for a
+given customer. Both are required; neither substitutes for the other.
 
 **Tariff, Service Plan and Billing Package leave the UI entirely.** They are provisioning
 objects, not business objects; the operator should not know they exist. This is also what
