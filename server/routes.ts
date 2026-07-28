@@ -27656,7 +27656,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   //
   // Admin-only, enforced here rather than by hiding a button: this creates a live customer
   // account on the production switch.
-  app.post('/api/provisioning/companies/:id/run', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+  // Jobs, not a long-running request. A dry run answers immediately (it only validates);
+  // a real run returns a job id and the caller polls. Provisioning retries, waits on
+  // Sippy and will grow to a dozen stages — that does not belong in one HTTP round trip.
+  app.post('/api/provisioning/companies/:id/jobs', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
@@ -27670,15 +27673,47 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const result = await provisionSlice({ companyId: id, actor, dryRun });
 
       if (!dryRun) {
+        // Audited at START, not on completion: the job outlives this request, and an
+        // audit trail that only records finished runs loses exactly the ones that hung.
         void writeAudit({
-          category: 'sippy', action: 'provisioning.run',
+          category: 'sippy', action: 'provisioning.job.started',
           actor, actorType: 'user',
           targetType: 'company', targetId: String(id), targetName: result.preflight.companyName,
-          severity: result.status === 'failed' ? 'critical' : 'info',
-          metadata: { runRef: result.runRef, status: result.status, steps: result.steps },
+          metadata: { runRef: result.runRef, jobId: result.runId },
         });
       }
-      res.json(result);
+      res.status(dryRun ? 200 : 202).json({ ...result, jobId: result.runId ?? null });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // Progress for a provisioning job. Poll this after a non-dry-run POST.
+  app.get('/api/provisioning/jobs/:jobId', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
+    try {
+      const jobId = parseInt(req.params.jobId, 10);
+      if (isNaN(jobId)) return res.status(400).json({ message: 'Invalid job id' });
+      const { getRun } = await import('./services/provisioning/runner');
+      const data = await getRun(jobId);
+      if (!data) return res.status(404).json({ message: 'Job not found' });
+
+      const steps = data.steps.map((s: any) => ({
+        key: s.stepKey, label: s.label, status: s.status,
+        startedAt: s.startedAt, completedAt: s.completedAt,
+        attempt: s.attempt, reasonCode: s.reasonCode, error: s.error,
+        // Elapsed per stage: a step that succeeded after 40s is a different signal from
+        // one that succeeded instantly, and only timing distinguishes them.
+        elapsedMs: s.startedAt && s.completedAt
+          ? new Date(s.completedAt).getTime() - new Date(s.startedAt).getTime() : null,
+      }));
+      const current = steps.find((s: any) => s.status === 'running')
+                   ?? steps.find((s: any) => s.status === 'pending');
+
+      res.json({
+        jobId, runRef: data.run.runRef, status: data.run.status,
+        companyId: data.run.companyId,
+        startedAt: data.run.startedAt, completedAt: data.run.completedAt,
+        currentStage: current?.label ?? null,
+        steps,
+      });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

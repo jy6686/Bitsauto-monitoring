@@ -42,9 +42,9 @@ export interface SliceResult {
   preflight: PreflightResult;
   plan?: { willRun: string[]; notYetAutomated: string[] };
   runRef?: string;
+  /** Poll GET /api/provisioning/jobs/:jobId for progress. */
   runId?: number;
   status?: string;
-  steps?: Array<{ key: string; status: string; error?: string }>;
 }
 
 export async function provisionSlice(opts: {
@@ -98,7 +98,16 @@ export async function provisionSlice(opts: {
 
   // The runner resolves Sippy credentials itself from settings — one place that knows how
   // to authenticate, rather than each caller assembling its own credential bundle.
-  const outcome = await executeRun(runId, SLICE_STEPS, { actor: opts.actor });
+  // ── Fire and forget ───────────────────────────────────────────────────────
+  // The caller gets a job id immediately and polls. Provisioning is not a 2-second
+  // request: it retries, waits on Sippy, and will grow to a dozen stages — holding an
+  // HTTP connection open for that is a design that fails on the first slow switch call.
+  //
+  // Errors are swallowed into the run record rather than escaping: an unhandled rejection
+  // from a detached promise would take the process down, and the failure is already
+  // durable in provisioning_steps.
+  void executeRun(runId, SLICE_STEPS, { actor: opts.actor })
+    .catch(e => console.error(`[provisioning] ${runRef} run failed outside step handling:`, e?.message));
 
-  return { dryRun: false, preflight, runRef, runId, status: outcome.status, steps: outcome.steps };
+  return { dryRun: false, preflight, runRef, runId, status: 'queued' };
 }
