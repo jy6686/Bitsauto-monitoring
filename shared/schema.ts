@@ -1433,6 +1433,11 @@ export const companies = pgTable("companies", {
   notificationProfileId:  integer("notification_profile_id"),
   ratePolicy:             varchar("rate_policy", { length: 64 }),
   preparedAt:             timestamp("prepared_at"),
+  /** The single accountable owner of preparation (migration 045). A user reference, never
+   *  a role snapshot — authorisation always comes from RBAC, not from these columns. */
+  ownerUserId:            varchar("owner_user_id",    { length: 255 }),
+  /** Display/reporting only. MUST NOT drive permission decisions. */
+  ownerDepartment:        varchar("owner_department", { length: 64 }),
   provisionedAt:       timestamp("provisioned_at"),
   provisionedBy:       varchar("provisioned_by",       { length: 255 }),
   sippyIAccount:       integer("sippy_i_account"),

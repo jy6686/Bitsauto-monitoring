@@ -27649,6 +27649,19 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // GET /api/companies/:id/preflight — automatic pre-provision validation + the summary
+  // an admin reads before a production-changing action. Read-only: it refuses nothing and
+  // changes nothing, it only reports whether provisioning may proceed.
+  // Admin-only, matching who may act on the result.
+  app.get('/api/companies/:id/preflight', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+      const { runPreflight } = await import('./services/provisioning/preflight');
+      res.json(await runPreflight(id));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   app.get('/api/companies/:id', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
     try {
       const id = parseInt(req.params.id, 10);

@@ -1,0 +1,183 @@
+/**
+ * Pre-provision validation — Onboarding 2.0, Sprint 2.3 task 2.
+ *
+ * Validation is AUTOMATIC and is not an approval step. It asks nobody for a decision; it
+ * refuses to provision when the prerequisites are not satisfied. Admin approval is the
+ * separate, human act of clicking Provision after reading the summary this produces.
+ *
+ * The IP conflict check is the load-bearing one. When the IP-approval workflow was removed
+ * it took a human gate with it — but conflict detection is a different control that merely
+ * shared that workflow. Two customers authorised on the same IP is a live routing fault:
+ * calls authenticate against the wrong account and bill the wrong customer. That check
+ * therefore moves here rather than disappearing.
+ */
+import { db } from "../../db";
+import { companies, clientIpRequests, ipSharingApprovals,
+         provisioningProfiles, routingPackages, routingPackageEntries,
+         notificationProfiles, rateCards } from "@shared/schema";
+import { eq, and, ne } from "drizzle-orm";
+
+export type CheckStatus = "pass" | "fail" | "warn";
+
+export interface PreflightCheck {
+  key: string;
+  label: string;
+  status: CheckStatus;
+  detail: string;
+  /** Present on failure: what the operator must do. Never a bare "invalid". */
+  remedy?: string;
+}
+
+export interface PreflightResult {
+  companyId: number;
+  companyName: string;
+  canProvision: boolean;
+  checks: PreflightCheck[];
+  /** The pre-flight summary an admin reads before a production-changing action. */
+  summary: {
+    tariffId: number | null;
+    servicePlanId: number | null;
+    ipCount: number;
+    routeCount: number;
+    ratePolicy: string | null;
+    routingPackage: string | null;
+    notificationProfile: string | null;
+    trafficOnCompletion: "enabled";
+  };
+}
+
+const pass = (key: string, label: string, detail: string): PreflightCheck =>
+  ({ key, label, status: "pass", detail });
+const fail = (key: string, label: string, detail: string, remedy: string): PreflightCheck =>
+  ({ key, label, status: "fail", detail, remedy });
+
+export async function runPreflight(companyId: number): Promise<PreflightResult> {
+  const [company]: any[] = await db.select().from(companies).where(eq(companies.id, companyId));
+  if (!company) throw new Error(`Company ${companyId} not found`);
+
+  const checks: PreflightCheck[] = [];
+
+  // ── Company completeness ──────────────────────────────────────────────────
+  checks.push(company.name?.trim() && company.shortCode?.trim()
+    ? pass("company", "Company details", `${company.name} (${company.shortCode})`)
+    : fail("company", "Company details", "Name or short code missing",
+           "Edit the company and supply both a name and a short code."));
+
+  // ── Commercial objects (created at company creation) ──────────────────────
+  checks.push(company.sippyITariff
+    ? pass("tariff", "Tariff", `Sippy tariff ${company.sippyITariff}`)
+    : fail("tariff", "Tariff", "No Sippy tariff linked to this company",
+           "The tariff is created when the company is created. Re-run preparation, or check the Sippy connection."));
+
+  checks.push(company.sippyIBillingPlan
+    ? pass("service_plan", "Service Plan", `Sippy plan ${company.sippyIBillingPlan}`)
+    : fail("service_plan", "Service Plan", "No Sippy service plan linked to this company",
+           "The service plan is created with the company. Re-run preparation, or check the Sippy connection."));
+
+  // ── Preparation package ───────────────────────────────────────────────────
+  let routingPackageName: string | null = null;
+  let routeCount = 0;
+  if (company.routingPackageId) {
+    const [rp]: any[] = await db.select().from(routingPackages).where(eq(routingPackages.id, company.routingPackageId));
+    const entries = await db.select().from(routingPackageEntries).where(eq(routingPackageEntries.packageId, company.routingPackageId));
+    routingPackageName = rp?.name ?? null;
+    routeCount = entries.length;
+    // An assigned but EMPTY package would provision a customer with no routes and report
+    // success — the same silent-partial-success shape this platform keeps producing.
+    checks.push(routeCount > 0
+      ? pass("routing", "Routing package", `${rp?.name} — ${routeCount} routes`)
+      : fail("routing", "Routing package", `${rp?.name} contains no routes`,
+             "Add country/product entries to the routing package, or assign a different one."));
+  } else {
+    checks.push(fail("routing", "Routing package", "No routing package assigned",
+                     "Assign a provisioning profile to the company so its routing package resolves."));
+  }
+
+  let notificationProfileName: string | null = null;
+  if (company.notificationProfileId) {
+    const [np]: any[] = await db.select().from(notificationProfiles).where(eq(notificationProfiles.id, company.notificationProfileId));
+    notificationProfileName = np?.name ?? null;
+    checks.push(pass("notifications", "Notification profile", np?.name ?? "assigned"));
+  } else {
+    checks.push(fail("notifications", "Notification profile", "None assigned",
+                     "Assign a provisioning profile so the notification profile resolves."));
+  }
+
+  if (company.provisioningProfileId) {
+    const [pp]: any[] = await db.select().from(provisioningProfiles).where(eq(provisioningProfiles.id, company.provisioningProfileId));
+    checks.push(pass("profile", "Provisioning profile", pp?.name ?? "assigned"));
+  } else {
+    checks.push(fail("profile", "Provisioning profile", "None assigned",
+                     "Company was created before preparation existed — re-run preparation."));
+  }
+
+  // Rate policy resolves to a card by name (migration 041/042).
+  if (company.ratePolicy) {
+    const cards = await db.select().from(rateCards).where(eq(rateCards.name, company.ratePolicy));
+    const card = cards.find((c: any) => c.cardType === "client") ?? cards[0];
+    checks.push(card
+      ? pass("rates", "Rate policy", `${company.ratePolicy} — ${card.entryCount ?? 0} rates`)
+      : fail("rates", "Rate policy", `Policy "${company.ratePolicy}" resolves to no rate card`,
+             `Create a client rate card named "${company.ratePolicy}", or change the policy on the provisioning profile.`));
+  } else {
+    checks.push(fail("rates", "Rate policy", "No rate policy assigned",
+                     "Assign a provisioning profile so the rate policy resolves."));
+  }
+
+  // ── IPs + conflict detection ──────────────────────────────────────────────
+  const ips = await db.select().from(clientIpRequests).where(eq(clientIpRequests.companyId, companyId));
+  const ipList = ips.map((r: any) => String(r.ipAddress).trim()).filter(Boolean);
+
+  if (ipList.length === 0) {
+    checks.push(fail("ips", "Authorised IPs", "No IP addresses recorded",
+                     "Add at least one IP address for this customer."));
+  } else {
+    // Whitelisted IPs are deliberately shared (internal platforms) and skip the check.
+    const whitelist = await db.select().from(ipSharingApprovals);
+    const shared = new Set(
+      whitelist.filter((w: any) => w.status === "approved" || w.status === "internal")
+               .map((w: any) => String(w.ipAddress).trim()));
+
+    // Conflicts are checked against OTHER companies' IPs. Anything already authorised
+    // elsewhere would mean two customers authenticating on one address.
+    const others = await db.select().from(clientIpRequests).where(ne(clientIpRequests.companyId, companyId));
+    const otherCompanyIds = Array.from(new Set(others.map((o: any) => o.companyId).filter(Boolean)));
+    const otherCompanies: any[] = otherCompanyIds.length
+      ? await db.select().from(companies)
+      : [];
+    const nameOf = (id: number) => otherCompanies.find((c: any) => c.id === id)?.name ?? `company ${id}`;
+
+    const conflicts = ipList.flatMap(ip => {
+      if (shared.has(ip)) return [];
+      return others
+        .filter((o: any) => String(o.ipAddress).trim() === ip)
+        .map((o: any) => `${ip} → ${nameOf(o.companyId)}`);
+    });
+
+    checks.push(conflicts.length === 0
+      ? pass("ips", "Authorised IPs", `${ipList.length} IP${ipList.length === 1 ? "" : "s"}, no conflicts`)
+      : fail("ips", "IP conflict", conflicts.join(" · "),
+             "Two customers cannot be authorised on the same IP — calls would authenticate against the wrong account. Change the IP, or add it to the internal shared-IP list if the overlap is intentional."));
+  }
+
+  const canProvision = checks.every(c => c.status !== "fail");
+
+  return {
+    companyId,
+    companyName: company.name,
+    canProvision,
+    checks,
+    summary: {
+      tariffId: company.sippyITariff ?? null,
+      servicePlanId: company.sippyIBillingPlan ?? null,
+      ipCount: ipList.length,
+      routeCount,
+      ratePolicy: company.ratePolicy ?? null,
+      routingPackage: routingPackageName,
+      notificationProfile: notificationProfileName,
+      // Stated explicitly on the confirmation screen: after this action the customer can
+      // carry live calls. An admin should not have to infer that.
+      trafficOnCompletion: "enabled",
+    },
+  };
+}
