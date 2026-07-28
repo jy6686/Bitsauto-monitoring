@@ -19,7 +19,7 @@
  * Served at /client-wizard only when platform flag `customer_preparation_wizard_v2` is on;
  * otherwise the legacy wizard renders. Legacy stays reachable at /client-wizard-legacy.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -109,16 +109,31 @@ const inputCls =
   "w-full px-3 py-2 text-sm rounded-lg bg-background border border-border " +
   "focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors";
 
-function ReadinessRow({ ok, label, detail }: { ok: boolean; label: string; detail: string }) {
+/**
+ * A readiness row is actionable, not decorative: when a check fails it names the specific
+ * reason and offers a jump to the step that fixes it. "✗ Authentication" alone makes the
+ * operator hunt for what is wrong.
+ */
+function ReadinessRow({ ok, label, detail, onFix }: {
+  ok: boolean; label: string; detail: string; onFix?: () => void;
+}) {
   return (
-    <div className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
-      <div className="flex items-center gap-2">
+    <div className="flex items-center justify-between py-2 border-b border-border/50 last:border-0 gap-3">
+      <div className="flex items-center gap-2 min-w-0">
         {ok
           ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           : <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />}
-        <span className="text-sm">{label}</span>
+        <span className="text-sm shrink-0">{label}</span>
+        {!ok && <span className="text-xs text-amber-400/90 truncate">— {detail}</span>}
       </div>
-      <span className={`text-xs ${ok ? "text-emerald-400" : "text-amber-400"}`}>{detail}</span>
+      {ok
+        ? <span className="text-xs text-emerald-400 shrink-0">{detail}</span>
+        : onFix && (
+          <button type="button" onClick={onFix}
+            className="text-xs text-primary hover:underline shrink-0 whitespace-nowrap">
+            Fix →
+          </button>
+        )}
     </div>
   );
 }
@@ -181,7 +196,9 @@ export default function ClientWizardV2Page() {
   );
 
   const saveTermsMutation = useMutation({
-    mutationFn: () => apiRequest("PUT", `/api/companies/${company.companyId}`, terms),
+    // __source tags the audit entry so a later reader can tell a wizard edit from a
+    // company-editor edit without inferring it from timing.
+    mutationFn: () => apiRequest("PUT", `/api/companies/${company.companyId}`, { ...terms, __source: "preparation-wizard" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       toast({ title: "Commercial terms saved to the company" });
@@ -229,13 +246,49 @@ export default function ClientWizardV2Page() {
   });
 
   // ── Readiness ───────────────────────────────────────────────────────────────
-  const readiness = {
-    company: !!company.companyId && !!company.displayName.trim() && !!company.userId.trim(),
-    contacts: !!contacts.primary.email.trim(),
-    commercial: !!selected,
-    auth: authType === "registration" || ips.some(i => i.ip.trim()),
-  };
-  const ready = Object.values(readiness).every(Boolean);
+  // Each check names the SPECIFIC reason it fails and which step fixes it, so Review is
+  // an actionable checklist rather than a verdict the operator has to interpret.
+  const checks = [
+    {
+      key: "company", step: 1, label: "Company",
+      ok: !!company.companyId && !!company.displayName.trim() && !!company.userId.trim(),
+      why: !company.companyId ? "No company selected"
+         : !company.displayName.trim() ? "Display name is empty"
+         : "Account username is empty",
+    },
+    {
+      key: "contacts", step: 2, label: "Contacts",
+      ok: !!contacts.primary.email.trim(),
+      why: "Primary contact email is required — it receives the welcome notification",
+    },
+    {
+      key: "commercial", step: 3, label: "Commercial",
+      ok: !!selected,
+      why: "Select a company in Step 1 to load its terms",
+    },
+    {
+      key: "auth", step: 4, label: "Authentication",
+      ok: authType === "registration" || ips.some(i => i.ip.trim()),
+      why: "No IP address added — IP authentication needs at least one",
+    },
+  ];
+  const ready = checks.every(c => c.ok);
+
+  // ── Unsaved-work guard ──────────────────────────────────────────────────────
+  // Any entered work counts, not only the commercial terms: losing a half-filled wizard to
+  // a stray refresh is the kind of small loss that pushes operators back to spreadsheets.
+  const hasUnsavedWork = !submitted && (
+    !!company.companyId || !!company.displayName.trim() || !!company.userId.trim() ||
+    CONTACT_ROLES.some(r => contacts[r.key].name || contacts[r.key].email || contacts[r.key].phone) ||
+    ips.some(i => i.ip.trim()) || termsDirty
+  );
+
+  useEffect(() => {
+    if (!hasUnsavedWork) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasUnsavedWork]);
 
   const setContact = (role: ContactRole, k: keyof Contact, v: string) =>
     setContacts(p => ({ ...p, [role]: { ...p[role], [k]: v } }));
@@ -492,11 +545,13 @@ export default function ClientWizardV2Page() {
           <>
             <h2 className="text-sm font-semibold">Provision Readiness</h2>
             <div className="rounded-lg border border-border px-4 py-2">
-              <ReadinessRow ok={readiness.company}    label="Company"        detail={readiness.company ? "Complete" : "Incomplete"} />
-              <ReadinessRow ok={readiness.contacts}   label="Contacts"       detail={readiness.contacts ? "Complete" : "Primary contact required"} />
-              <ReadinessRow ok={readiness.commercial} label="Commercial"
-                detail={!readiness.commercial ? "Select a company" : termsDirty ? "Unsaved edits — saved on submit" : "Complete"} />
-              <ReadinessRow ok={readiness.auth}       label="Authentication" detail={readiness.auth ? "Complete" : "At least one IP required"} />
+              {checks.map(c => (
+                <ReadinessRow key={c.key} ok={c.ok} label={c.label}
+                  detail={c.ok
+                    ? (c.key === "commercial" && termsDirty ? "Unsaved edits — saved on submit" : "Complete")
+                    : c.why}
+                  onFix={() => setStep(c.step)} />
+              ))}
             </div>
             <div className={`rounded-lg px-4 py-3 text-sm font-medium ${
               ready ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-300"
