@@ -884,27 +884,41 @@ async function provisioningLogin(base: string, timeoutMs = 20000): Promise<Cooki
       console.log(`[Sippy] provisioningLogin (${provUser}/${acctType}): HTTP ${statusCode}, Location: ${loc ?? 'none'}, cookies: ${resp.cookies.size}`);
 
       // ── Determine whether this is a success or failure redirect ─────────────
-      // On many Sippy builds (including ssp-root accounts) a successful login
-      // redirects to /index.php — this is NOT a failure. We must not assume
-      // /index.php means "login rejected". Instead we verify the session by
-      // performing a follow-up GET to a portal-only page.
-      const isBackToLogin = !loc || (loc.endsWith('/main.php') && !loc.includes('?'));
+      // The redirect target alone is NOT decisive on this build, so we do not
+      // reject on it here — the verification GET below is what decides, and it
+      // now requires the portal page to actually render. (Historical note: this
+      // used to accept anything that was not /main.php, which is how a failed
+      // login became a "verified" session.)
+      const isBackToLogin = !loc;
       const is3xx = statusCode === 301 || statusCode === 302 || statusCode === 303;
 
       if (is3xx && hasCookies && !isBackToLogin) {
-        // Got a 302 with cookies — verify the session with a quick GET
+        // Got a 302 with cookies — verify the session with a quick GET.
+        //
+        // Verification demands POSITIVE proof the page rendered, rather than the
+        // absence of two known-bad signals. The previous test looked for a login
+        // form (never present in a redirect's empty body) and for a redirect to
+        // /main.php only — while this build bounces to **/index.php**, which
+        // portalLogin() above already documents as "auth FAILED". So every failed
+        // login satisfied "not a login form, not /main.php" and was returned as a
+        // verified session. Every downstream request then bounced, and the failure
+        // surfaced far from its cause.
         try {
+          // Follow redirects so a bounce lands on the real login page and is visible.
           const verifyResp = await rawRequest('GET', `${base}/c1/service_plans.php`, null,
-            { 'User-Agent': PORTAL_USER_AGENT }, resp.cookies, 0);
+            { 'User-Agent': PORTAL_USER_AGENT }, resp.cookies, 3);
           const body = verifyResp.body;
+          const landed = verifyResp.finalUrl ?? '';
           const hasLoginForm = body.includes('value="Login"') || body.includes("value='Login'");
-          const isLoginPage  = verifyResp.statusCode === 302 &&
-            ((verifyResp as any).location ?? '').includes('/main.php');
-          if (!hasLoginForm && !isLoginPage) {
-            console.log(`[Sippy] provisioningLogin: verified session as ${provUser}/${acctType} → ${loc} (service_plans.php reachable)`);
+          // The genuine page carries the portal chrome: a logout link and the
+          // Service Plans nav entry. A login page carries neither.
+          const looksLikePortal = /logout\.php/i.test(body) && /service_plans\.php/i.test(body);
+          const bouncedToLogin  = /\/(index|main|login)\.php/i.test(landed);
+          if (verifyResp.statusCode === 200 && looksLikePortal && !hasLoginForm && !bouncedToLogin) {
+            console.log(`[Sippy] provisioningLogin: verified session as ${provUser}/${acctType} → ${loc} (service_plans.php rendered)`);
             return resp.cookies;
           }
-          console.log(`[Sippy] provisioningLogin: ${acctType} cookies obtained but session invalid (login form detected)`);
+          console.log(`[Sippy] provisioningLogin: ${acctType} cookies obtained but session INVALID — HTTP ${verifyResp.statusCode}, landed ${landed || '?'}, portalChrome=${looksLikePortal}, loginForm=${hasLoginForm}`);
         } catch (ve: any) {
           console.log(`[Sippy] provisioningLogin: session verify GET failed (${acctType}): ${ve?.message}`);
         }
