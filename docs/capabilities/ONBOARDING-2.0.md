@@ -405,10 +405,30 @@ increment on the split flow.
 **Maker–checker.** Operational teams prepare customers; only admins touch the production
 switch.
 
-**Governing rule:** *KAM prepares and monitors; NOC operates the live account; Admin alone
-touches production provisioning.* KAM's authority ends when the company is created — after
-that they have **read-only** visibility, which is what they need to answer a customer's
-question without being able to change live service behaviour.
+**Governing rule (amended 2026-07-28): ONE OWNER PER CUSTOMER.**
+
+Preparation is owned by a **named person**, not a department. That owner is KAM *or* NOC —
+never both for the same onboarding — and completes everything required. Admin then performs
+one action: Provision.
+
+```
+Owner (KAM or NOC)                    ADMIN
+  name · type · IPs · contacts   →    Provision   →   ACTIVE / READY FOR TRAFFIC
+  everything else automatic           (all Sippy work)
+```
+
+**The point is eliminating handoffs, not dividing labour.** The earlier model had KAM
+prepare commercially and NOC prepare technically, which meant every onboarding waited on
+two departments. One accountable owner removes the queue while Admin still gates
+activation.
+
+Implication for the company record: it needs an **owner** (person + their role), which
+`companies.kam` alone cannot express — that field cannot say "Ali (NOC) owns this". When
+the owner marks preparation done, status becomes `READY FOR PROVISION` and Admin is
+notified.
+
+After provisioning, operational authority follows §3.1.3: NOC and Admin modify, KAM is
+read-only, Admin alone re-syncs or provisions.
 
 **Preparation — before the company exists**
 
