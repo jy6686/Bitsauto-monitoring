@@ -4016,6 +4016,11 @@ export const notificationProfileEvents = pgTable("notification_profile_events", 
   profileId: integer("profile_id").notNull().references(() => notificationProfiles.id, { onDelete: "cascade" }),
   eventKey:  varchar("event_key", { length: 64 }).notNull(),
   enabled:   boolean("enabled").notNull().default(true),
+  /** Comma-separated contact ROLES, not addresses:
+   *  primary_contact | technical_contact | billing_contact | kam | noc.
+   *  Configured once by admin; resolved against the company's contacts at send time,
+   *  so onboarding never re-specifies who receives what (migration 040). */
+  recipientRoles: varchar("recipient_roles", { length: 256 }).notNull().default('primary_contact'),
 }, (t) => ({
   uqProfileEvent: uniqueIndex("uq_notification_profile_event").on(t.profileId, t.eventKey),
 }));
@@ -4064,14 +4069,17 @@ export type InsertProvisioningProfile = typeof provisioningProfiles.$inferInsert
 // ── Communication routing + provisioning audit (migration 039) ───────────────
 // Sender identities are smtp_sender_profiles (already exists) — NOT redefined here.
 
-/** Per-customer recipient × notification matrix. Rows, so a new notification type is
- *  data rather than a schema change and never a new column per type. */
+/** EXCEPTIONS ONLY (migration 040). Normal recipients are resolved from
+ *  notificationProfileEvents.recipientRoles against the company's contacts — the wizard
+ *  never configures a per-customer matrix. A row here overrides the resolved set for one
+ *  company + event, e.g. "invoices to finance@ instead of the billing contact". */
 export const companyNotificationRecipients = pgTable("company_notification_recipients", {
   id:               serial("id").primaryKey(),
   companyId:        integer("company_id").notNull(),
   email:            varchar("email", { length: 256 }).notNull(),
   notificationType: varchar("notification_type", { length: 64 }).notNull(),
   enabled:          boolean("enabled").notNull().default(true),
+  overrideReason:   text("override_reason"),
   createdBy:        varchar("created_by", { length: 128 }),
   createdAt:        timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({
@@ -4106,6 +4114,11 @@ export const companyProvisioningSnapshot = pgTable("company_provisioning_snapsho
   notificationProfileId: integer("notification_profile_id").references(() => notificationProfiles.id),
   profileVersion:        integer("profile_version"),
   routingVersion:        integer("routing_version"),
+  notificationVersion:   integer("notification_version"),
+  /** Platform versions in force at provision time — "why was this customer provisioned
+   *  differently" needs the profile versions AND the software that applied them. */
+  sippyVersion:          varchar("sippy_version",    { length: 64 }),
+  bitsautoVersion:       varchar("bitsauto_version", { length: 64 }),
   /** Full resolved config, so the record survives deletion of the source rows. */
   snapshotJson:          text("snapshot_json").notNull(),
   createdAt:             timestamp("created_at").defaultNow().notNull(),
