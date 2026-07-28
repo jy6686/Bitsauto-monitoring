@@ -8020,6 +8020,12 @@ export async function createSippyServicePlan(
         const preGetSnippet = getResp.body.slice(0, 400).replace(/\s+/g, ' ');
         const hasLoginFormGet = getResp.body.includes('value="Login"') || getResp.body.includes("value='Login'");
         console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): HTTP ${getResp.statusCode}, ${getResp.body.length}B, loginForm=${hasLoginFormGet}, snippet: ${preGetSnippet}`);
+        // Record the pre-GET alongside the POST. A login-bounce on the POST alone
+        // means something about the POST was rejected; a bounce on BOTH means the
+        // session was never valid for this page in the first place. Those are
+        // different faults and the POST evidence cannot distinguish them.
+        portalAttempts.push(
+          `${label}/pre-GET=HTTP${getResp.statusCode} ${hasLoginFormGet ? 'login-bounce' : 'ok'} ${getResp.body.length}B`);
         if (getResp.statusCode === 200 && !hasLoginFormGet) {
           // Use cookies from the GET response (session may be refreshed)
           postCookies = getResp.cookies;
