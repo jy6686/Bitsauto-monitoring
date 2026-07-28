@@ -8041,9 +8041,9 @@ export async function createSippyServicePlan(
         // means something about the POST was rejected; a bounce on BOTH means the
         // session was never valid for this page in the first place. Those are
         // different faults and the POST evidence cannot distinguish them.
-        portalAttempts.push(
+        const preGetIdx = portalAttempts.push(
           `${label}/pre-GET=HTTP${getResp.statusCode} ${hasLoginFormGet ? 'login-bounce' : 'ok'} ${getResp.body.length}B` +
-          ` url:${shortUrl(getUrl)} →${shortUrl(getResp.finalUrl)}${titleOf(getResp.body)}`);
+          ` url:${shortUrl(getUrl)} →${shortUrl(getResp.finalUrl)}${titleOf(getResp.body)}`) - 1;
         if (getResp.statusCode === 200 && !hasLoginFormGet) {
           // Use cookies from the GET response (session may be refreshed)
           postCookies = getResp.cookies;
@@ -8075,6 +8075,11 @@ export async function createSippyServicePlan(
             if (selected) hiddenFields[name] = selected[1];
           }
           console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): serialised ${Object.keys(hiddenFields).length} form fields: ${Object.keys(hiddenFields).join(', ')}, cookies updated=${getResp.cookies.size}`);
+          // Surface the parse result in the browser-visible evidence too. "ok" with
+          // fields:0 would mean the page loaded but the form was not recognised —
+          // a different failure from the page not loading at all.
+          portalAttempts[preGetIdx] +=
+            ` fields:${Object.keys(hiddenFields).length} i_billing_plan:${hiddenFields.i_billing_plan ?? '(absent)'}`;
         } else {
           console.log(`[Sippy] createSippyServicePlan pre-GET (${label}): skipped — loginForm=${hasLoginFormGet} status=${getResp.statusCode}`);
         }
