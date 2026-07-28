@@ -7824,6 +7824,11 @@ export async function createSippyServicePlan(
    *  Evidence is returned, not just logged, so the classification can be
    *  checked rather than trusted. */
   portalAttempts?: string[];
+  /** How the plan id was established. Recorded because the verification chain has
+   *  several independent legs (Sippy's redirect, the returned form, the list page)
+   *  and knowing which one answered is the difference between "still working as
+   *  designed" and "the primary path broke and a fallback quietly covered it". */
+  verificationMethod?: 'xmlrpc' | 'existing-name' | 'existing-tariff' | 'redirect' | 'form' | 'list';
   needsManualCreation?: boolean;
   alreadyExists?: boolean;
 }> {
@@ -7838,14 +7843,14 @@ export async function createSippyServicePlan(
     const nameMatch = existing.plans.find(p => p.name.trim().toLowerCase() === planName.trim().toLowerCase());
     if (nameMatch) {
       console.log(`[Sippy] createSippyServicePlan: reusing existing plan by name "${nameMatch.name}" id=${nameMatch.id}`);
-      return { success: true, planId: nameMatch.id, planName: nameMatch.name, alreadyExists: true };
+      return { success: true, planId: nameMatch.id, planName: nameMatch.name, alreadyExists: true, verificationMethod: 'existing-name' };
     }
     // Secondary: tariff-ID match — finds a service plan linked to the same tariff even if
     // the plan was created manually with a slightly different name.
     const tariffMatch = existing.plans.find(p => p.iTariff === iTariff);
     if (tariffMatch) {
       console.log(`[Sippy] createSippyServicePlan: reusing existing plan by tariff match "${tariffMatch.name}" id=${tariffMatch.id} (i_tariff=${iTariff})`);
-      return { success: true, planId: tariffMatch.id, planName: tariffMatch.name, alreadyExists: true };
+      return { success: true, planId: tariffMatch.id, planName: tariffMatch.name, alreadyExists: true, verificationMethod: 'existing-tariff' };
     }
   } catch { /* ignore — continue to portal attempt */ }
 
@@ -7925,7 +7930,7 @@ export async function createSippyServicePlan(
             if (planId > 0) {
               console.log(`[Sippy] createSippyServicePlan: created via XML-RPC ${method} → i_billing_plan=${planId}${namedMatch ? '' : ' (positional parse)'}`);
               for (const k of _bpCache.keys()) { if (k.startsWith(base)) _bpCache.delete(k); }
-              return { success: true, planId, planName };
+              return { success: true, planId, planName, verificationMethod: 'xmlrpc' };
             }
           }
           xmlrpcAttempts.push(`${method}/${shape}=OK_NO_ID`);
@@ -8225,7 +8230,7 @@ export async function createSippyServicePlan(
     if (planId > 0) {
       console.log(`[Sippy] createSippyServicePlan: plan "${planName}" created → i_billing_plan=${planId} (from redirect ${resp.finalUrl})`);
       for (const k of _bpCache.keys()) { if (k.startsWith(base)) _bpCache.delete(k); }
-      return { success: true, planId, planName };
+      return { success: true, planId, planName, verificationMethod: 'redirect' };
     }
   }
 
@@ -8239,7 +8244,7 @@ export async function createSippyServicePlan(
     if (planId > 0) {
       console.log(`[Sippy] createSippyServicePlan: plan "${planName}" created → i_billing_plan=${planId}`);
       for (const k of _bpCache.keys()) { if (k.startsWith(base)) _bpCache.delete(k); }
-      return { success: true, planId, planName };
+      return { success: true, planId, planName, verificationMethod: 'form' };
     }
   }
 
@@ -8265,7 +8270,7 @@ export async function createSippyServicePlan(
         if (planId > 0 && text === want) {
           console.log(`[Sippy] createSippyServicePlan: found "${planName}" via list scrape → i_billing_plan=${planId}`);
           for (const k of _bpCache.keys()) { if (k.startsWith(base)) _bpCache.delete(k); }
-          return { success: true, planId, planName };
+          return { success: true, planId, planName, verificationMethod: 'list' };
         }
       }
     }
