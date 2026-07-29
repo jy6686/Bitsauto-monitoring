@@ -308,6 +308,18 @@ export async function runFileMigrations(pool: Pool): Promise<MigrationOutcome> {
   const files = readdirSync(dir).filter((f) => MIGRATION_FILE.test(f)).sort();
   const client = await pool.connect();
 
+  // Surface RAISE NOTICE. Migrations report what their backfills actually did through
+  // NOTICE — which rows were adopted, which were skipped, which company needs a human.
+  // node-postgres emits those as a client event and drops them if nobody listens, so
+  // 049 could report "3 conflicts, 2 unresolved" into silence and the run still looked
+  // clean. Removed in finally: pooled clients are reused, and a listener left attached
+  // accumulates one per boot.
+  const onNotice = (n: any) => {
+    const msg = (n?.message ?? "").trim();
+    if (msg) console.log(`[migrate:sql] ${msg}`);
+  };
+  (client as any).on?.("notice", onNotice);
+
   try {
     await client.query(`
       CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -417,6 +429,7 @@ export async function runFileMigrations(pool: Pool): Promise<MigrationOutcome> {
     outcome.failed = outcome.failed ?? { file: "(runner)", error: err?.message ?? "unknown error" };
     console.error("[migrate] runner error:", err?.message ?? err);
   } finally {
+    (client as any).removeListener?.("notice", onNotice);
     client.release();
   }
 
