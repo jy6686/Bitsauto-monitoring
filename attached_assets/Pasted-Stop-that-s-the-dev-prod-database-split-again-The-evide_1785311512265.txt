@@ -1,0 +1,25 @@
+Stop — that's the dev/prod database split again.
+
+The evidence is conclusive and doesn't depend on the name:
+
+Shell DB (helium)	24 companies, no company 43
+Deployed app UI	33 companies, including 43
+They're different databases. The shell's DATABASE_URL points at helium; the deployed app writes somewhere else.
+
+Which means migrations 038–047 went to the wrong database. Everything we verified an hour ago — profiles seeded, capacity backfilled, flags retired — was verified against a database the running app doesn't use. This is the same failure that produced the "0 modules" saga: correct code, correct migrations, wrong target.
+
+It also explains the earlier confusion: those 24 companies with acct: 683 and status: draft are stale dev rows, not what the app is serving.
+
+Find the app's actual database. In the Replit UI, check the deployment's secrets — the deployed app's DATABASE_URL will differ from the shell's. Then:
+
+read -rs APP_DB          # paste the deployment's DATABASE_URL at the silent prompt
+MIGRATE_DATABASE_URL="$APP_DB" node -e "import('pg').then(async({default:pg})=>{const c=new pg.Client({connectionString:process.env.MIGRATE_DATABASE_URL,ssl:{rejectUnauthorized:false}});await c.connect();const n=await c.query('SELECT COUNT(*)::int n FROM companies');console.log('companies:',n.rows[0].n);const t=await c.query(\"SELECT COUNT(*)::int n FROM information_schema.tables WHERE table_name='provisioning_profiles'\");console.log('provisioning_profiles exists:',t.rows[0].n===1);await c.end()})"
+Expect 33 companies and provisioning_profiles exists: false — that combination confirms it's the app's database and that none of this week's migrations are there.
+
+Then re-apply 038–047 against it:
+
+for f in 038_provisioning_configuration 039_notification_routing_and_snapshot 040_role_based_notification_recipients 041_default_rate_policy_and_sender_split 042_rename_welcome_rates_event 043_wizard_v2_feature_flag 044_company_preparation_links 045_company_owner 046_retire_wizard_v2_flag 047_company_capacity_and_media; do
+  MIGRATE_DATABASE_URL="$APP_DB" node scripts/apply-migration.mjs "migrations/$f.sql" || break
+done
+unset APP_DB
+One thing this tells us that's genuinely good news: company 43 was created without the new columns existing — so the preparation code degraded rather than crashing, exactly as the "preparation is additive" guard intended. It just did nothing.
