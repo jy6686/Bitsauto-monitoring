@@ -14,51 +14,55 @@
 
 BEGIN;
 
--- ── 1. Pre-flight: the target group must exist ────────────────────────────────
+-- ── THIS MIGRATION MUST NEVER HALT THE RUNNER ─────────────────────────────────
+-- It adds a NAVIGATION MENU ROW. It originally raised when the target nav group was
+-- absent, and on 2026-07-29 that took production down: the runner halts on first failure
+-- by design (never apply 045 over a failed 044), so 048 raising meant 049 never added
+-- companies.account_prefix — a column the deployed code selects on every request. Result:
+-- GET /api/companies returned 500 and the company list rendered empty.
+--
+-- A cosmetic migration blocking a structural one is an ordering fault, not a data
+-- problem. Everything here is now conditional: if the workspace nav is not seeded (031
+-- never ran on this database), the menu entry is skipped with a NOTICE and the run
+-- continues. The page still works at /schema-migrations — the route exists in App.tsx
+-- independently of this row.
 DO $$
+DECLARE gid INTEGER;
 BEGIN
-  IF (SELECT COUNT(*) FROM navigation_groups
-        WHERE domain_id = 'operations' AND label = 'Diagnostics') <> 1 THEN
-    RAISE EXCEPTION 'missing navigation_groups row: operations / Diagnostics — run 031 first';
+  -- Table-existence guard as well as row-existence: a database that never received the
+  -- portal workspace model has no navigation_groups at all, and an unguarded SELECT
+  -- against a missing relation raises exactly the way this migration must not.
+  IF to_regclass('public.navigation_groups') IS NULL
+     OR to_regclass('public.navigation_modules') IS NULL THEN
+    RAISE NOTICE 'portal navigation tables absent — skipping the Schema Migrations menu entry.';
+    RETURN;
   END IF;
-END $$;
 
--- ── 2. The module ─────────────────────────────────────────────────────────────
--- Kebab key, per the canonical identity established by 032. is_system = TRUE: this is
--- platform infrastructure, not a module an operator should be able to move or remove.
-INSERT INTO navigation_modules (module_key, title, icon, route, category, is_system, sort_order, group_id)
-VALUES (
-  'schema-migrations', 'Schema Migrations', 'database', '/schema-migrations', 'operations', TRUE, 90,
-  (SELECT id FROM navigation_groups WHERE domain_id = 'operations' AND label = 'Diagnostics')
-)
-ON CONFLICT (module_key) DO UPDATE SET
-  title      = EXCLUDED.title,
-  icon       = EXCLUDED.icon,
-  route      = EXCLUDED.route,
-  group_id   = EXCLUDED.group_id,
-  is_system  = EXCLUDED.is_system;
+  SELECT id INTO gid FROM navigation_groups
+   WHERE domain_id = 'operations' AND label = 'Diagnostics' LIMIT 1;
 
--- ── 3. Hide it from the NOC portal ────────────────────────────────────────────
--- Migration state is an admin concern. NOC operators run the network; showing them a
--- page they cannot act on adds noise to a workspace that was deliberately curated.
-INSERT INTO portal_module_overrides (portal_slug, module_key, visibility, reason) VALUES
-  ('noc', 'schema-migrations', 'hidden', 'Platform administration — not NOC scope')
-ON CONFLICT (portal_slug, module_key) DO UPDATE SET
-  visibility = EXCLUDED.visibility,
-  reason     = EXCLUDED.reason;
-
--- ── 4. Verify ─────────────────────────────────────────────────────────────────
-DO $$
-DECLARE grouped INTEGER;
-BEGIN
-  SELECT COUNT(*) INTO grouped
-    FROM navigation_modules m
-    JOIN navigation_groups g ON g.id = m.group_id
-   WHERE m.module_key = 'schema-migrations'
-     AND g.domain_id = 'operations';
-  IF grouped <> 1 THEN
-    RAISE EXCEPTION 'schema-migrations module not attached to the operations domain';
+  IF gid IS NULL THEN
+    RAISE NOTICE 'navigation_groups "operations / Diagnostics" not present (migration 031 not seeded here) — skipping the Schema Migrations menu entry. The page remains reachable at /schema-migrations.';
+    RETURN;
   END IF;
+
+  -- Kebab key, per the canonical identity established by 032. is_system = TRUE: platform
+  -- infrastructure, not a module an operator should be able to move or remove.
+  INSERT INTO navigation_modules (module_key, title, icon, route, category, is_system, sort_order, group_id)
+  VALUES ('schema-migrations', 'Schema Migrations', 'database', '/schema-migrations', 'operations', TRUE, 90, gid)
+  ON CONFLICT (module_key) DO UPDATE SET
+    title = EXCLUDED.title, icon = EXCLUDED.icon, route = EXCLUDED.route,
+    group_id = EXCLUDED.group_id, is_system = EXCLUDED.is_system;
+
+  -- Migration state is an admin concern; NOC operators cannot act on it.
+  BEGIN
+    INSERT INTO portal_module_overrides (portal_slug, module_key, visibility, reason)
+    VALUES ('noc', 'schema-migrations', 'hidden', 'Platform administration — not NOC scope')
+    ON CONFLICT (portal_slug, module_key) DO UPDATE SET
+      visibility = EXCLUDED.visibility, reason = EXCLUDED.reason;
+  EXCEPTION WHEN others THEN
+    RAISE NOTICE 'portal_module_overrides not available — NOC visibility override skipped (%)', SQLERRM;
+  END;
 END $$;
 
 COMMIT;
