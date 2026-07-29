@@ -27828,6 +27828,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             sippyITariff:        commercialObjs.iTariff ?? null,
             sippyIBillingPlan:   commercialObjs.planId  ?? null,
             billingProvisionedAt: new Date(),
+            billingProvisionStatus:     'success',
+            billingProvisionReasonCode: null,
+            billingProvisionError:      null,
           } as any);
         }
       } catch (e: any) {
@@ -27837,6 +27840,34 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
       if (commercialObjs.error) {
         console.warn(`[companies] "${basic.name}" created WITHOUT commercial objects: ${commercialObjs.error}`);
+
+        // PERSIST the failure, do not only return it. This block is deliberately
+        // non-fatal — a Sippy outage must not cost us a customer record — but until now
+        // the reason existed solely in the create response, which the operator has
+        // already navigated away from by the time they look at the company list. The
+        // company then read as ordinary while its tariff and service plan were never
+        // made in Sippy, and the only trace was a console line in a log stream saturated
+        // with AMI events. Provisioning cannot succeed without the tariff, so this is a
+        // blocker the list has to show, not a detail to rediscover.
+        //
+        // Columns are the ones migration 036 already defined for exactly this outcome.
+        const raw = commercialObjs.error;
+        const reasonCode =
+          /\b401\b|unauthor/i.test(raw)             ? 'SIPPY_AUTH_REJECTED'
+          : /\b403\b|not authorized|forbidden/i.test(raw) ? 'SIPPY_PERMISSION_DENIED'
+          : /circuit-open/i.test(raw)               ? 'SIPPY_CIRCUIT_OPEN'
+          : /timed out|ETIMEDOUT|ECONNREFUSED|ENOTFOUND/i.test(raw) ? 'SIPPY_UNREACHABLE'
+          : 'SIPPY_OBJECT_CREATE_FAILED';
+        try {
+          await storage.updateCompany((company as any).id, {
+            billingProvisionStatus:     'failed',
+            billingProvisionReasonCode: reasonCode,
+            billingProvisionError:      raw.slice(0, 500),
+          } as any);
+        } catch (e: any) {
+          // Recording the failure must never become a second failure.
+          console.warn('[companies] could not persist commercial-object error:', e?.message);
+        }
       }
 
       if (prep) {
