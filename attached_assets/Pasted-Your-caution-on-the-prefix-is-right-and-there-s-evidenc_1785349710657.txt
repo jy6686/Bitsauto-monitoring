@@ -1,0 +1,25 @@
+Your caution on the prefix is right, and there's evidence that settles it — 049 itself rules out the explanation the agent gave.
+
+049's verify block cannot pass while flash is NULL. From migrations/049:
+
+SELECT COUNT(*) INTO unprovisioned_missing
+  FROM companies WHERE account_prefix IS NULL AND sippy_i_account IS NULL;
+IF unprovisioned_missing > 0 THEN
+  RAISE EXCEPTION '% unprovisioned companies have no account_prefix after backfill', ...
+flash has no provisioned badge on its card — calling and internal-ptcl do, it doesn't — so sippy_i_account IS NULL. Pass 2 allocates a fresh prefix for exactly that population, and the verify raises if any is left. If 049 had completed on the production database, flash would have a prefix. It doesn't.
+
+So 049 has not completed there — which contradicts "migration 049 ran on some startup." The most likely shape, given production has the column but not the backfill: the runner is deployed, and it halted at 042 exactly as it did on helium. The column came from the db.ts recovery guard (ADD COLUMN IF NOT EXISTS, no backfill), which is why the company list renders while every prefix is NULL. 042's fix is in 91ce33d6 and has never been republished.
+
+That makes the answer to your question 2 most likely (3), but not a bug in the allocator — the migration simply never ran there.
+
+Which is why I'd hold off on the Assign Account Prefix action. If 049 completes on the next deploy, flash gets a prefix automatically and the whole item disappears. Building an admin assignment flow now would be work for a problem that resolves itself — and it's precisely what the freeze is for.
+
+The action is eventually needed, but for a narrower case than the agent described: after 049 runs correctly, the only companies that can legitimately stay NULL are already-provisioned ones whose legacy prefix collided or couldn't be parsed. Those genuinely need a human to read the value from Sippy's auth rules. flash isn't one of them. So: revisit after the deploy, scoped to provisioned-and-NULL only.
+
+Two corrections to the agent's list:
+
+The toast is already fixed — 6938d41e, pulled into your workspace. It now reads "flash — cannot provision (4 blocking issues)" and names them. Not still-to-do.
+Its account-prefix row assumes a backfill that didn't run.
+Rate policy and routing matrix are both correct and both real configuration work, independent of all this.
+
+Next step is the republish, which now carries the 042 fix and the [migrate:sql] notice logging. That single action tests the diagnosis and likely clears blocker 2. The [migrate] block in the deploy log will show whether 042 clears and what 049's backfill actually did.
