@@ -54,6 +54,35 @@ export const db = drizzle(pool, { schema });
 // and then it is deleted (Phase 3).
 export async function runSafeMigrations(): Promise<void> {
   const client = await pool.connect();
+
+  // ── TEMPORARY OUTAGE RECOVERY (2026-07-29) — REMOVE AFTER VERIFICATION ──────
+  // These three columns belong to migration 049. On 2026-07-29 the file runner halted
+  // before reaching it, so they never existed in production — while the deployed Drizzle
+  // schema selects them on every query. GET /api/companies returned 500 and the company
+  // list rendered empty. No data was lost: the query failed before touching a row.
+  //
+  // Schema does NOT belong in this function (docs/MIGRATIONS.md) and this is the single
+  // exception, placed FIRST and in its OWN try/catch on purpose — the block below shares
+  // one catch across ~950 lines, so anything appended to it is skipped once an earlier
+  // statement fails, which is exactly the position we cannot afford for an outage fix.
+  //
+  // Migration 049 stays authoritative: its ADD COLUMN clauses no-op after this, and its
+  // backfill still adopts and allocates the prefixes — which this block deliberately does
+  // NOT attempt, because guessing a customer's live prefix is worse than leaving it null.
+  //
+  // REMOVE once /schema-migrations shows 049 applied in every deployed environment.
+  try {
+    await client.query(`
+      ALTER TABLE companies
+        ADD COLUMN IF NOT EXISTS account_prefix     VARCHAR(4),
+        ADD COLUMN IF NOT EXISTS routing_group_id   INTEGER,
+        ADD COLUMN IF NOT EXISTS routing_group_name VARCHAR(128)
+    `);
+    console.log('[db] identity columns ensured (049 recovery guard).');
+  } catch (err: any) {
+    console.error('[db] CRITICAL: could not ensure companies identity columns —', err.message);
+  }
+
   try {
     // Add admin_web_password to switches (added 2026-04-17)
     await client.query(`
