@@ -1,0 +1,106 @@
+I agree. Based on your final workflow, the Client Wizard should no longer be part of normal onboarding.
+
+Target Workflow
+New Company
+      │
+      ▼
+Fill Company Information
+      │
+      ├── Company Details
+      ├── Contact Emails
+      ├── SIP IP(s)        ← NEW FIELD
+      └── Save
+             │
+             ▼
+BitsAuto automatically creates:
+   ✓ Tariff in Sippy
+   ✓ Service Plan in Sippy
+             │
+             ▼
+Company appears in Company List
+             │
+             ▼
+Admin approves SIP IP(s)
+             │
+             ▼
+Provision to Sippy
+             │
+             ▼
+Automatically:
+   ✓ Create Sippy Account
+   ✓ Allocate Account Prefix
+   ✓ Create Authentication Rules
+   ✓ Apply Routing Groups
+   ✓ Verify Configuration
+   ✓ Send Welcome Email
+New Company should contain
+Company Information
+Billing Information
+Contact Emails
+SIP IP Address(es) ← New field
+Products
+Currency
+Payment Terms
+
+Nothing else.
+
+No Client Wizard.
+
+After clicking Save
+
+BitsAuto should automatically:
+
+Create Company
+Create Tariff in Sippy
+Create Service Plan in Sippy
+Save submitted IP(s) as Pending Approval
+Show the company in the Company List
+Company Card
+
+Immediately after creation:
+
+Test-789
+
+Tariff           ✓ Created
+Service Plan     ✓ Created
+
+IP Approval
+-------------
+145.239.9.179    Pending Approval
+
+Waiting for Admin approval...
+
+No message about:
+
+❌ Complete Client Wizard
+❌ Wizard Required
+Provision Button
+
+Once Admin approves at least one IP:
+
+Provision to Sippy
+
+Clicking it performs everything automatically:
+
+✓ Create Sippy Account
+✓ Apply Service Plan
+✓ Allocate Account Prefix
+✓ Generate Authentication Rules
+✓ Push Authentication to Sippy
+✓ Assign Routing Groups
+✓ Verify Everything
+✓ Send Welcome Email (Support + Commercial contacts only)
+What should be removed
+
+The following should be removed from the standard onboarding flow:
+
+Client Wizard
+Wizard Required badge
+"Complete Client Wizard" message
+Any wizardCompleted or wizardDraft checks that block provisioning
+
+The Configuration page can remain in the system as an advanced configuration tool for administrators, but it should not be required to onboard a new customer.
+
+This results in a much cleaner business process:
+
+Create Company → Auto-create Tariff & Service Plan → Admin approves IP → Provision → Customer is ready for testing.
