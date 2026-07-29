@@ -328,12 +328,19 @@ function ProvisioningPanel({ company }: { company: Company }) {
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
 
-      if (data?.preflight && data.preflight.ok === false) {
-        const issues: any[] = data.preflight.issues ?? data.preflight.failures ?? [];
+      // Field names must match PreflightResult exactly. This read `preflight.ok` and
+      // `preflight.issues[].message`; the engine returns `canProvision` and
+      // `checks[]{status,label,detail}`. Nothing matched, so a refusal fell through to
+      // the runId branch below and surfaced as "No provisioning job was created" — a
+      // message that describes an engine defect, for the engine correctly declining to
+      // build a half-configured customer. The operator was told the wrong thing about
+      // the right outcome.
+      if (data?.preflight && data.preflight.canProvision === false) {
+        const failed: any[] = (data.preflight.checks ?? []).filter((c: any) => c.status === 'fail');
         toast({
-          title: `${company.name} — pre-provision checks failed`,
-          description: issues.length
-            ? issues.map((i: any) => i.message ?? i.reason ?? String(i)).slice(0, 3).join(' · ')
+          title: `${company.name} — cannot provision (${failed.length} blocking issue${failed.length !== 1 ? 's' : ''})`,
+          description: failed.length
+            ? `${failed.slice(0, 3).map((c: any) => c.label).join(' · ')}${failed.length > 3 ? ` · +${failed.length - 3} more` : ''} — see Pre-Provision Checks for the remedy. Nothing was sent to Sippy.`
             : 'Preflight refused the run. Nothing was sent to Sippy.',
           variant: "destructive",
         });
