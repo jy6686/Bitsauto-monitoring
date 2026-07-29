@@ -21,7 +21,7 @@ Phase 3 content is sealed. The exact SQL is at the bottom of this file.
 | # | Domain ID | Label | Decision | Rationale |
 |---|---|---|---|---|
 | 1 | `live-network` | Live Network | ✅ KEEP | Core NOC domain — live calls, alerting, command centre, infra health |
-| 2 | `company` | Clients | 🚫 REMOVE | Client account management; KAM/Sales scope, not NOC |
+| 2 | `company` | Clients | 🚫 REMOVE *(superseded 2026-07-26 — see Architecture Change Notice below)* | Client account management; KAM/Sales scope, not NOC |
 | 3 | `operations` | Operations | ✅ KEEP | Carrier monitoring, routing diagnostics, SIP trace — all NOC-daily |
 | 4 | `telemetry` | BitsEye | ✅ KEEP | Primary telemetry platform; NOC lives in BitsEye for quality monitoring |
 | 5 | `analytics` | Analytics | ✅ KEEP (partial) | Traffic analytics + CDR lookup needed; finance-flavored reports excluded |
@@ -42,6 +42,47 @@ Phase 3 content is sealed. The exact SQL is at the bottom of this file.
 | Already assigned | `analytics` | 4 |
 | **ADD** | `intelligence` | 5 |
 | **ADD** | `security` | 6 |
+| **ADD (2026-07-26 addendum)** | `company` | 7 |
+
+---
+
+## Architecture Change Notice — 2026-07-26
+
+Following owner approval, the Clients domain (`company`) is now assigned to the
+NOC portal. This supersedes the original exclusion in Test 1 above (row #2).
+The sealed 2026-07-24 specification and its rationale are left intact above,
+unedited, for audit trail — this notice is the record of the change, not a
+rewrite of the original decision.
+
+**Scope of this change:** only the Clients domain assignment. The 23
+`portal_module_overrides` rows sealed in migration 034 (Auth Studio, Compliance,
+STIR/SHAKEN, Approvals & Access, Executive Reports, etc.) were **not** revisited
+and remain excluded as originally decided.
+
+Submenu scope: matched to the live main-platform Clients cascade (verified via
+screenshot of the actual rendered menu, not the full `DOMAINS[]` source list) —
+8 of the 11 `company`-domain modules. 3 modules exist in `navigation_modules`
+but are not part of the live main-platform cascade and are hidden for NOC:
+
+| Group | `module_key` | Label | Visibility |
+|---|---|---|---|
+| Account Management | `clients` | Accounts | operational |
+| Account Management | `client_identity` | Client Identity | operational |
+| Account Management | `kam_dashboard` | KAM Dashboard | operational |
+| Account Management | `company_list` | Company List | operational |
+| Onboarding | `client_wizard` | Account Wizard | operational |
+| Onboarding | `company_onboarding` | Onboarding Wizard | operational |
+| Onboarding | `company_profile` | Org Management | operational |
+| Assets & Numbers | `account_names` | Account Names | operational |
+| Account Management | `client_portal` | Client Portal | **hidden** — not in live main-platform cascade |
+| Account Management | `reseller` | Resellers | **hidden** — not in live main-platform cascade |
+| Assets & Numbers | `dids` | DID Management | **hidden** — not in live main-platform cascade |
+
+Delivered via migration `035_noc_clients_domain.sql` (domain assignment + 3
+`portal_module_overrides` hidden rows). Registry bindings for all 11 module
+keys added to `module-registry.ts` (verified against `App.tsx` route bindings)
+— the 3 hidden ones stay registered but unreachable via nav/search, consistent
+with how other hidden modules are handled elsewhere in this spec.
 
 ---
 

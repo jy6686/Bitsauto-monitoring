@@ -166,6 +166,11 @@ export default function AuthStudioPage() {
     queryKey: ["/api/sippy/accounts", selectedAcct?.iAccount, "auth-rules"],
     enabled: !!selectedAcct,
   });
+  // Advisory only — this console stays fully editable. See the endpoint's note.
+  const { data: managed } = useQuery<{ managed: boolean; companyName: string | null; accountPrefix: string | null }>({
+    queryKey: [`/api/provisioning/managed-account/${selectedAcct?.iAccount}`],
+    enabled: !!selectedAcct,
+  });
 
   // ── Derived ──────────────────────────────────────────────────────────────
   const accounts  = acctData?.accounts ?? [];
@@ -485,6 +490,27 @@ export default function AuthStudioPage() {
           </div>
         )}
       </div>
+
+      {/* Advisory banner — this console stays fully editable. The risk is not that an
+          engineer edits a managed customer; it is that they edit an incoming CLD, which
+          the engine's (remote_ip, incoming_cld) reuse key will not recognise on the next
+          run, leaving the edited rule in place and creating a second one beside it. */}
+      {managed?.managed && (
+        <div className="mx-4 mb-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+          <div className="text-xs leading-relaxed">
+            <span className="text-amber-400 font-medium">
+              Managed by the Provisioning Engine{managed.companyName ? ` — ${managed.companyName}` : ""}
+              {managed.accountPrefix ? ` (prefix ${managed.accountPrefix})` : ""}.
+            </span>{" "}
+            <span className="text-muted-foreground">
+              Manual changes may be overwritten when this customer is re-provisioned. Editing an
+              incoming CLD will not be recognised on the next run and will leave a duplicate rule —
+              delete and re-push instead of editing in place.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* ── Main 2-panel body ── */}
       {!selectedAcct ? (

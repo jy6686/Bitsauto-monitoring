@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +14,7 @@ import {
   Building2, Plus, Search, Pencil, Trash2, Users, Globe, CreditCard,
   Zap, Loader2, Clock, CheckCircle2, XCircle, ShieldCheck, AlertTriangle,
   PlusCircle, ShieldPlus, Tag, Package, MapPin, DollarSign, Cpu, ExternalLink,
-  RefreshCw, Play, AlertCircle, Server, Upload, List, Trash, ShieldAlert,
+  RefreshCw, Play, AlertCircle, Server, Upload, List, Trash, ShieldAlert, Sliders,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -240,7 +240,7 @@ function CompanyInfoDialog({ company, open, onClose }: {
             {!isProvisioned && (
               <Link href={`/client-wizard`}>
                 <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-amber-500/30 text-amber-400 hover:bg-amber-500/10" onClick={onClose}>
-                  <Zap className="h-3 w-3" /> Client Wizard
+                  <Sliders className="h-3 w-3" /> Configuration
                 </Button>
               </Link>
             )}
@@ -267,7 +267,6 @@ function InfoRow({ icon, label, children }: { icon: React.ReactNode; label: stri
 function ProvisioningPanel({ company }: { company: Company }) {
   const { toast } = useToast();
   const companyAny = company as any;
-  const hasWizardDraft = !!companyAny.wizardDraft;
 
   const [showAddIp, setShowAddIp] = useState(false);
   const [newIp, setNewIp] = useState("");
@@ -309,47 +308,83 @@ function ProvisioningPanel({ company }: { company: Company }) {
     onError: (e: any) => toast({ title: "Reject failed", description: e.message, variant: "destructive" }),
   });
 
+  // ── Provisioning: the ENGINE, not the legacy endpoint ──────────────────────
+  // Was POST /api/companies/:id/provision — a single synchronous call that returned one
+  // flat result. That endpoint still exists and is deliberately left in place as a
+  // rollback path; nothing references it. It should not be removed until several real
+  // customers have provisioned through the engine.
+  //
+  // The engine returns a job id immediately and runs stages in the background, so the
+  // card polls for per-stage progress rather than blocking on one request. Preflight can
+  // also refuse before any job is created — that is a distinct outcome from a job that
+  // ran and failed, and the two are reported differently below.
+  const [jobId, setJobId] = useState<number | null>(null);
+
   const provisionMutation = useMutation({
-    mutationFn: () => apiRequest("POST", `/api/companies/${company.id}/provision`),
-    onSuccess: async (res: any) => {
+    // dryRun MUST be explicit: the endpoint defaults it to TRUE, so omitting it would
+    // silently plan instead of provision and report success having changed nothing.
+    mutationFn: () => apiRequest("POST", `/api/provisioning/companies/${company.id}/jobs`, { dryRun: false })
+      .then(r => r.json()),
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
-      let data: any = {};
-      try { data = typeof res?.json === 'function' ? await res.json() : res; } catch {}
-      const authErrors: string[] = data?.authErrors ?? [];
-      const spNote: string = data?.servicePlanNote ?? '';
-      const tariffNote: string = data?.tariffNote ?? '';
-      const iTariff: number | undefined = data?.iTariff;
-      const tariffCreated: boolean = data?.tariffCreated ?? false;
 
-      const noteParts: string[] = [];
-      if (tariffNote) noteParts.push(tariffNote);
-      if (spNote)     noteParts.push(spNote);
-      const fullNote = noteParts.join(' · ');
-
-      if (authErrors.length > 0) {
+      if (data?.preflight && data.preflight.ok === false) {
+        const issues: any[] = data.preflight.issues ?? data.preflight.failures ?? [];
         toast({
-          title: `${company.name} provisioned — IP auth failed`,
-          description: `Auth rule error(s): ${authErrors.join('; ')}${fullNote ? '\n' + fullNote : ''}`,
+          title: `${company.name} — pre-provision checks failed`,
+          description: issues.length
+            ? issues.map((i: any) => i.message ?? i.reason ?? String(i)).slice(0, 3).join(' · ')
+            : 'Preflight refused the run. Nothing was sent to Sippy.',
           variant: "destructive",
         });
-      } else if (tariffCreated && iTariff) {
-        toast({
-          title: `${company.name} provisioned to Sippy`,
-          description: `Tariff created (i_tariff=${iTariff})${spNote ? ' · ' + spNote : ''}`,
-          variant: "default",
-        });
-      } else if (fullNote) {
-        toast({
-          title: `${company.name} provisioned to Sippy`,
-          description: fullNote,
-          variant: "default",
-        });
+        return;
+      }
+
+      if (typeof data?.runId === 'number') {
+        setJobId(data.runId);
+        toast({ title: `Provisioning ${company.name}`, description: `Job ${data.runRef ?? data.runId} started.` });
       } else {
-        toast({ title: `${company.name} provisioned to Sippy` });
+        toast({
+          title: "No provisioning job was created",
+          description: "The engine accepted the request but returned no job id.",
+          variant: "destructive",
+        });
       }
     },
     onError: (e: any) => toast({ title: "Provisioning failed", description: e.message, variant: "destructive" }),
   });
+
+  // Poll while the job is live. Stops on a terminal status so a finished card is not
+  // re-fetching every two seconds for the rest of the session.
+  const job = useQuery<any>({
+    queryKey: [`/api/provisioning/jobs/${jobId}`],
+    enabled: jobId != null,
+    refetchInterval: (q: any) => {
+      const s = q?.state?.data?.status;
+      return s && ['completed', 'completed_with_warnings', 'failed'].includes(s) ? false : 2000;
+    },
+  });
+
+  const terminal = job.data?.status;
+  const jobRunning = jobId != null && !['completed', 'completed_with_warnings', 'failed'].includes(terminal ?? '');
+
+  // Announce the terminal outcome once, and refresh the card's own state with it.
+  useEffect(() => {
+    if (!terminal || !['completed', 'completed_with_warnings', 'failed'].includes(terminal)) return;
+    queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+    const failed = (job.data?.steps ?? []).filter((s: any) => s.status === 'failed');
+    if (terminal === 'completed') {
+      toast({ title: `${company.name} provisioned`, description: 'All stages verified against Sippy.' });
+    } else if (terminal === 'completed_with_warnings') {
+      toast({ title: `${company.name} provisioned with warnings`, description: 'Some stages were skipped or non-blocking. Review the stages on the card.' });
+    } else {
+      toast({
+        title: `${company.name} — provisioning failed`,
+        description: failed.length ? `${failed[0].label}: ${failed[0].error ?? failed[0].reasonCode ?? 'no detail'}` : 'See the stage list on the card.',
+        variant: "destructive",
+      });
+    }
+  }, [terminal]);
 
   const handleAddIp = () => {
     const ip = newIp.trim();
@@ -433,7 +468,16 @@ function ProvisioningPanel({ company }: { company: Company }) {
   const pendingIps = allRequests.filter(r => r.status === "pending");
   const approvedIps = allRequests.filter(r => r.status === "approved");
   const rejectedIps = allRequests.filter(r => r.status === "rejected");
-  const canProvision = hasWizardDraft && pendingIps.length === 0 && approvedIps.length > 0;
+  // The wizard is NO LONGER a gate. wizardDraft is written only by the wizard, so gating on
+  // it left every company created through New Company permanently "wizard required" — even
+  // with its tariff and service plan already live in Sippy. Two states that cannot both be
+  // true were both being shown.
+  //
+  // The gate is now the operator's own responsibility: IPs submitted and approved. Whether
+  // the CONFIGURATION is complete (prefix, routing package, routing matrix) is the
+  // platform's responsibility, and preflight reports that per-item when Provision is
+  // pressed — with reasons — rather than hiding the button behind a boolean.
+  const canProvision = pendingIps.length === 0 && approvedIps.length > 0;
 
   if (ipsLoading) {
     return (
@@ -550,14 +594,31 @@ function ProvisioningPanel({ company }: { company: Company }) {
         </p>
       )}
 
-      {!hasWizardDraft && (
-        <p className="text-[10px] text-blue-400 flex items-center gap-1 bg-blue-500/5 border border-blue-500/20 rounded px-2 py-1.5">
-          <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
-          Complete the Client Wizard to enable provisioning.
-        </p>
-      )}
+      {/* One line saying where this company actually is. "Complete the Client Wizard" used
+          to sit here and never cleared, because company creation does not write a wizard
+          draft — a company with its tariff and service plan already in Sippy still read as
+          un-started. These are the states a company genuinely moves through. */}
+      {(() => {
+        const st =
+          jobRunning                                   ? { tone: 'blue',    icon: <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" />, text: job.data?.currentStage ? `Provisioning — ${job.data.currentStage}` : 'Provisioning…' }
+          : isProvisioned                              ? { tone: 'emerald', icon: <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />,        text: 'Provisioned' }
+          : pendingIps.length > 0                      ? { tone: 'amber',   icon: <Clock className="h-2.5 w-2.5 shrink-0" />,               text: `${pendingIps.length} IP${pendingIps.length !== 1 ? 's' : ''} pending admin approval` }
+          : approvedIps.length > 0                     ? { tone: 'emerald', icon: <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />,        text: 'Ready to provision' }
+          :                                              { tone: 'blue',    icon: <AlertTriangle className="h-2.5 w-2.5 shrink-0" />,       text: "No SIP IP submitted — add the customer's IP(s) for admin approval" };
+        const tones: Record<string, string> = {
+          blue:    'text-blue-400 bg-blue-500/5 border-blue-500/20',
+          amber:   'text-amber-400 bg-amber-500/5 border-amber-500/20',
+          emerald: 'text-emerald-400 bg-emerald-500/5 border-emerald-500/20',
+        };
+        return (
+          <p className={`text-[10px] flex items-center gap-1 border rounded px-2 py-1.5 ${tones[st.tone]}`}>
+            {st.icon}{st.text}
+          </p>
+        );
+      })()}
 
-      {hasWizardDraft && <PreProvisionChecks company={company} />}
+      <PreProvisionChecks company={company} />
+      {isProvisioned && <ProvisionHistory companyId={company.id} />}
 
       {canProvision ? (
         <Button
@@ -565,13 +626,16 @@ function ProvisioningPanel({ company }: { company: Company }) {
           size="sm"
           className="w-full h-7 text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
           onClick={() => {
-            if (confirm(`Provision "${company.name}" to Sippy?\n\nThis will create the Sippy account and push ${approvedIps.length} auth rule(s).`))
+            // Deliberately does not promise a rule count: the set is IPs x routing cells,
+            // so one IP against the default package is twelve rules, not one. Naming a
+            // number here would be wrong more often than right.
+            if (confirm(`Provision "${company.name}" to Sippy?\n\nCreates the tariff, service plan and account, then pushes the full authentication matrix for ${approvedIps.length} approved IP(s) and verifies every stage against Sippy.`))
               provisionMutation.mutate();
           }}
-          disabled={provisionMutation.isPending}
+          disabled={provisionMutation.isPending || jobRunning}
         >
-          {provisionMutation.isPending
-            ? <><Loader2 className="h-3 w-3 animate-spin" /> Provisioning…</>
+          {provisionMutation.isPending || jobRunning
+            ? <><Loader2 className="h-3 w-3 animate-spin" /> {job.data?.currentStage ?? "Provisioning…"}</>
             : <><Zap className="h-3 w-3" /> Provision to Sippy ({approvedIps.length} IP{approvedIps.length !== 1 ? "s" : ""})</>
           }
         </Button>
@@ -585,9 +649,45 @@ function ProvisioningPanel({ company }: { company: Company }) {
         >
           <Zap className="h-3 w-3" />
           Provision to Sippy
-          {pendingIps.length > 0 && <Badge variant="outline" className="ml-1 text-[9px] text-amber-400 border-amber-500/30">{pendingIps.length} pending</Badge>}
-          {!hasWizardDraft && <Badge variant="outline" className="ml-1 text-[9px] text-blue-400 border-blue-500/30">wizard required</Badge>}
+          {pendingIps.length > 0 && <Badge variant="outline" className="ml-1 text-[9px] text-amber-400 border-amber-500/30">{pendingIps.length} pending approval</Badge>}
+          {approvedIps.length === 0 && pendingIps.length === 0 && <Badge variant="outline" className="ml-1 text-[9px] text-blue-400 border-blue-500/30">no IP yet</Badge>}
         </Button>
+      )}
+
+      {/* Per-stage progress. A toast disappears; a customer left half-provisioned does
+          not. The stage that failed, and its reason, stay on the card until the next run. */}
+      {job.data?.steps?.length > 0 && (
+        <div className="mt-2 rounded-md border border-border/60 bg-muted/20 p-2 space-y-1">
+          <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-muted-foreground">
+            <span>Provisioning · {job.data.runRef ?? `job ${jobId}`}</span>
+            <span className={
+              job.data.status === 'failed' ? 'text-red-400'
+              : job.data.status === 'completed' ? 'text-emerald-400'
+              : job.data.status === 'completed_with_warnings' ? 'text-amber-400'
+              : 'text-muted-foreground'
+            }>{job.data.status}</span>
+          </div>
+          {job.data.steps.map((s: any) => (
+            <div key={s.key} className="flex items-start gap-1.5 text-[11px]">
+              <span className="mt-[3px] shrink-0">
+                {s.status === 'success' ? <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                 : s.status === 'failed' ? <XCircle className="h-3 w-3 text-red-400" />
+                 : s.status === 'running' ? <Loader2 className="h-3 w-3 animate-spin text-blue-400" />
+                 : s.status === 'skipped' ? <AlertTriangle className="h-3 w-3 text-amber-400" />
+                 : <Clock className="h-3 w-3 text-muted-foreground" />}
+              </span>
+              <span className="flex-1">
+                <span className={s.status === 'failed' ? 'text-red-400' : 'text-foreground/80'}>{s.label}</span>
+                {s.elapsedMs != null && s.status === 'success' && (
+                  <span className="text-muted-foreground"> · {Math.round(s.elapsedMs / 100) / 10}s</span>
+                )}
+                {s.status === 'failed' && s.error && (
+                  <div className="text-[10px] text-red-400/90 mt-0.5 break-words">{s.error}</div>
+                )}
+              </span>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* ── Rate Push Panel (only when provisioned with tariff) ─────────────── */}
@@ -807,22 +907,97 @@ function CheckStatusIcon({ status }: { status: CheckStatus }) {
   return <XCircle className="h-3 w-3 text-rose-400 shrink-0" />;
 }
 
+/**
+ * Provisioning history — what actually happened, from provisioning_runs. Shown only for
+ * provisioned companies, and only on demand: a company with no runs (provisioned before
+ * the engine existed, or imported from Sippy) renders nothing rather than an empty panel
+ * implying something is missing.
+ */
+function ProvisionHistory({ companyId }: { companyId: number }) {
+  const [open, setOpen] = useState(false);
+  const { data } = useQuery<{ runs: any[] }>({
+    queryKey: [`/api/companies/${companyId}/provisioning-runs`],
+    enabled: open,
+  });
+  const runs = data?.runs ?? [];
+
+  return (
+    <div className="border-t border-border/40 pt-2">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="text-[10px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+      >
+        <Clock className="h-2.5 w-2.5" /> Provisioning history {open ? "▾" : "▸"}
+      </button>
+      {open && (
+        runs.length === 0 ? (
+          <p className="text-[10px] text-muted-foreground/60 mt-1.5">
+            No engine runs recorded — this account predates the provisioning engine or was imported from Sippy.
+          </p>
+        ) : (
+          <div className="mt-1.5 space-y-1.5">
+            {runs.map((r: any) => {
+              const ok = r.status === 'completed';
+              const warnState = r.status === 'completed_with_warnings';
+              return (
+                <div key={r.id} className="rounded border border-border/50 bg-muted/20 px-2 py-1.5">
+                  <div className="flex items-center justify-between text-[10px]">
+                    <span className="font-mono text-foreground/80">{r.run_ref}</span>
+                    <span className={ok ? 'text-emerald-400' : warnState ? 'text-amber-400' : 'text-rose-400'}>
+                      {r.status}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">
+                    {r.completed_at ? new Date(r.completed_at).toLocaleString() : 'in progress'}
+                    {r.created_by ? ` · ${r.created_by}` : ''}
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {(r.steps ?? []).map((s: any) => (
+                      <span key={s.key}
+                        title={s.error ?? s.status}
+                        className={`text-[9px] rounded px-1 py-0.5 border ${
+                          s.status === 'success' ? 'border-emerald-500/30 text-emerald-400'
+                          : s.status === 'failed' ? 'border-rose-500/30 text-rose-400'
+                          : s.status === 'skipped' ? 'border-amber-500/30 text-amber-400'
+                          : 'border-border text-muted-foreground'}`}>
+                        {s.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+/** One check as the provisioning engine reports it. */
+type PreflightCheck = { key: string; label: string; status: 'pass' | 'fail' | 'warn'; detail: string; remedy?: string };
+
 function PreProvisionChecks({ company }: { company: Company }) {
+  // Reads the ENGINE's preflight, not the legacy /api/sippy/pre-provision-check.
+  // Two preflights disagreeing is worse than none: the card would show green while the
+  // engine refused the run. This is the same function the engine calls before it starts,
+  // so what the operator sees here IS the verdict.
   const { data, isFetching, error, refetch } = useQuery<{
-    checks: ProvCheck[];
-    summary: { errors: number; warnings: number; total: number };
+    checks: PreflightCheck[];
+    canProvision: boolean;
   }>({
-    queryKey: ['/api/sippy/pre-provision-check', company.id],
-    queryFn: () =>
-      fetch(`/api/sippy/pre-provision-check?companyId=${company.id}`, { credentials: 'include' })
-        .then(r => r.json()),
+    queryKey: [`/api/companies/${company.id}/preflight`],
+    // Manual: one preflight per card on every list render would be dozens of Sippy-adjacent
+    // queries for a page nobody is provisioning from yet. The status line above gives the
+    // at-a-glance state; this gives the reasons.
     enabled: false,
     staleTime: 0,
     retry: false,
   });
 
-  const checks  = data?.checks ?? [];
-  const summary = data?.summary;
+  const checks   = data?.checks ?? [];
+  const failed   = checks.filter(c => c.status === 'fail');
+  const warned   = checks.filter(c => c.status === 'warn');
 
   return (
     <div className="border-t border-border/40 pt-2 space-y-1.5">
@@ -852,42 +1027,52 @@ function PreProvisionChecks({ company }: { company: Company }) {
       {checks.length > 0 && (
         <>
           <div className="space-y-1">
-            {checks.map((c, i) => (
-              <button
-                key={i}
-                data-testid={`check-item-${company.id}-${c.field}`}
-                onClick={() => refetch()}
-                title="Click to re-run checks"
-                className={`w-full text-left flex items-start gap-1.5 px-2 py-1.5 rounded text-[10px] border cursor-pointer hover:opacity-80 transition-opacity ${
-                  c.status === 'ok'
+            {checks.map((c) => (
+              <div
+                key={c.key}
+                data-testid={`check-item-${company.id}-${c.key}`}
+                className={`w-full text-left flex items-start gap-1.5 px-2 py-1.5 rounded text-[10px] border ${
+                  c.status === 'pass'
                     ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300'
-                    : c.status === 'warning'
+                    : c.status === 'warn'
                     ? 'bg-amber-500/5 border-amber-500/20 text-amber-300'
                     : 'bg-rose-500/5 border-rose-500/20 text-rose-300'
                 }`}
               >
-                <CheckStatusIcon status={c.status} />
-                <span className="leading-relaxed">{c.message}</span>
-              </button>
+                <span className="mt-[2px] shrink-0">
+                  {c.status === 'pass' ? <CheckCircle2 className="h-2.5 w-2.5" />
+                   : c.status === 'warn' ? <AlertTriangle className="h-2.5 w-2.5" />
+                   : <XCircle className="h-2.5 w-2.5" />}
+                </span>
+                <span className="leading-relaxed">
+                  <strong className="font-medium">{c.label}</strong> — {c.detail}
+                  {/* The remedy is the point of a failed check. Without it an operator
+                      knows something is wrong but not what to do about it. */}
+                  {c.status !== 'pass' && c.remedy && (
+                    <span className="block text-muted-foreground mt-0.5">{c.remedy}</span>
+                  )}
+                </span>
+              </div>
             ))}
           </div>
-          {summary && (
-            <div className="flex items-center gap-2 text-[10px]">
-              {summary.errors > 0   && <span className="text-rose-400">{summary.errors} error{summary.errors !== 1 ? 's' : ''}</span>}
-              {summary.warnings > 0 && <span className="text-amber-400">{summary.warnings} warning{summary.warnings !== 1 ? 's' : ''}</span>}
-              {summary.errors === 0 && summary.warnings === 0 && (
-                <span className="text-emerald-400 flex items-center gap-1">
-                  <CheckCircle2 className="h-2.5 w-2.5" /> All checks passed
-                </span>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-2 text-[10px]">
+            {data?.canProvision ? (
+              <span className="text-emerald-400 flex items-center gap-1">
+                <CheckCircle2 className="h-2.5 w-2.5" /> Ready to provision
+                {warned.length > 0 && <span className="text-amber-400">· {warned.length} warning{warned.length !== 1 ? 's' : ''}</span>}
+              </span>
+            ) : (
+              <span className="text-rose-400 flex items-center gap-1">
+                <XCircle className="h-2.5 w-2.5" /> Cannot provision — {failed.length} blocking issue{failed.length !== 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
         </>
       )}
 
       {checks.length === 0 && !isFetching && (
         <p className="text-[10px] text-muted-foreground/50">
-          Click "Run Checks" to validate for duplicates before provisioning.
+          Run checks to see every provisioning prerequisite and what is missing.
         </p>
       )}
     </div>
@@ -1806,7 +1991,7 @@ export default function CompanyListPage() {
           )}
           <Link href="/client-wizard">
             <Button data-testid="btn-client-wizard" size="sm" variant="outline" className="gap-1.5 border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
-              <Zap className="h-4 w-4" /> Client Wizard
+              <Sliders className="h-4 w-4" /> Configuration
             </Button>
           </Link>
           <Link href="/company/create">
@@ -1992,7 +2177,7 @@ export default function CompanyListPage() {
                           size="sm" variant="outline"
                           className="h-7 text-xs gap-1 border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
                         >
-                          <Zap className="h-3 w-3" /> Wizard
+                          <Sliders className="h-3 w-3" /> Configuration
                         </Button>
                       </Link>
                     )}

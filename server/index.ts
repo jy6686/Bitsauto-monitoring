@@ -3,7 +3,8 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
-import { runSafeMigrations, runSchemaCheck } from "./db";
+import { runSafeMigrations, runSchemaCheck, pool } from "./db";
+import { runFileMigrations, getMigrationStatus } from "./migrate";
 import { startRoutingCacheSync } from "./routing-cache";
 import { setupNocWebSocket } from "./noc-ws";
 import { setupLiveTrafficWebSocket } from "./live-traffic-ws";
@@ -42,7 +43,17 @@ app.use((req, _res, next) => {
 
   // ── Unauthenticated health probe (Cloud Run / Replit Autoscale) ──────────
   app.get('/healthz', (_req, res) => {
-    res.json({ status: 'ok', uptime: Math.floor(process.uptime()), ts: Date.now() });
+    // `status` stays 'ok' even when migrations are incomplete — this probe decides
+    // whether the container is alive, and failing it would pull a running platform
+    // out of service over a schema problem. The migration state is reported
+    // alongside it, without filenames: this endpoint is unauthenticated.
+    const m = getMigrationStatus();
+    res.json({
+      status: 'ok',
+      uptime: Math.floor(process.uptime()),
+      ts: Date.now(),
+      migrations: !m ? 'pending' : m.failed ? 'incomplete' : m.skipped ? 'skipped' : 'ok',
+    });
   });
 
 
@@ -235,6 +246,13 @@ app.use((req, res, next) => {
   boot("5 runSafeMigrations() starting");
   await runSafeMigrations();
   boot("6 runSafeMigrations() done");
+  // Numbered migration files (038+). Deliberately OUTSIDE runSafeMigrations() —
+  // that function swallows every error in one catch, so anything appended to it
+  // is silently skipped once an earlier statement fails. This reports its own
+  // outcome and halts on the first failure instead.
+  boot("6a runFileMigrations() starting");
+  await runFileMigrations(pool);
+  boot("6b runFileMigrations() done");
   console.log("[db] connected:", (process.env.DATABASE_URL ?? "").replace(/:\/\/[^:]+:[^@]+@/, "://<user>:***@"));
   // Schema check is diagnostic-only — run async so it doesn't delay routes
   runSchemaCheck().catch(() => {});

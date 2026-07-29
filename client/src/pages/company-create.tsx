@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -66,6 +67,8 @@ export default function CompanyCreatePage() {
   const [billing, setBilling] = useState(defaultBilling());
   const [contacts, setContacts] = useState<Record<string,Contact[]>>(defaultContacts());
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  /** Client SIP IPs captured at creation. Recorded PENDING — admin approval is unchanged. */
+  const [clientIps, setClientIps] = useState("");
 
   const { data: kamsData } = useQuery<{ id: number; name: string; email: string; orgRole: string }[]>({
     queryKey: ["/api/kam"],
@@ -161,7 +164,11 @@ export default function CompanyCreatePage() {
     const pocContacts = Object.entries(contacts).flatMap(([type, list]) =>
       list.filter(c => c.firstName || c.email).map(c => ({ contactType: type, ...c }))
     );
-    const payload = { basic, billing, contacts: pocContacts, bankAccounts };
+    // Accepts newline, comma or semicolon separated — an operator pasting an interconnect
+    // form should not have to reformat it. Recorded as PENDING; only an admin approves.
+    const initialIps = clientIps
+      .split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+    const payload = { basic, billing, contacts: pocContacts, bankAccounts, initialIps };
     if (isEdit) {
       updateMutation.mutate(payload);
     } else {
@@ -305,6 +312,27 @@ export default function CompanyCreatePage() {
 
           {step === 3 && (
             <div className="space-y-6">
+              {!isEdit && (
+                <div className="border border-border/50 rounded-lg p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-medium">Client SIP IP(s)</h3>
+                    <span className="text-[11px] text-muted-foreground">optional — approval is admin-only</span>
+                  </div>
+                  <Textarea
+                    data-testid="input-client-ips"
+                    rows={3}
+                    placeholder={"145.239.9.179\n104.245.246.110"}
+                    value={clientIps}
+                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setClientIps(e.target.value)}
+                    className="text-sm font-mono"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    One per line, or separated by commas. Recorded as <strong>pending</strong> —
+                    an admin approves them before provisioning, and only approved IPs reach Sippy.
+                    Leave blank if the customer has not sent them yet; they can be added later.
+                  </p>
+                </div>
+              )}
               {(["technical","finance","commercial","billing"] as const).map(type => (
                 <div key={type} className="border border-border/50 rounded-lg p-4 space-y-3">
                   <div className="flex items-center justify-between">

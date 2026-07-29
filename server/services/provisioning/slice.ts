@@ -28,14 +28,22 @@ import { accountStep } from "./steps/account.step";
 import { authenticationStep } from "./steps/authentication.step";
 import { capacityStep } from "./steps/capacity.step";
 import type { ProvisioningStep } from "./types";
+import { sendAccountDetailsEmail } from "./account-details-email";
+import { writeAudit } from "../../audit";
 
 /** Stages this slice executes. Extended one at a time per Sprint 2.3B..2.3F. */
 export const SLICE_STEPS: ProvisioningStep[] = [tariffStep, servicePlanStep, accountStep, authenticationStep, capacityStep];
 
 /** Stages written but not yet in the pipeline — shown in the dry-run plan so an operator
  *  sees what is NOT yet automated rather than assuming full coverage. */
+// "Routing" is no longer listed here: routing group assignment is not a separate stage in
+// Sippy. Every authentication rule carries its own i_routing_group, resolved from the
+// routing package matrix, so the authentication stage applies routing as it applies
+// authentication. Routing group CREATION stays manual by design — which groups exist is a
+// network design decision made in Routing Manager, not something provisioning should invent.
+// Products are likewise not a stage: a product is the digit inside each rule's incoming CLD.
 const NOT_YET_AUTOMATED = [
-  "Routing", "Products", "Rates", "Media (codec / relay)", "Traffic activation",
+  "Rates", "Media (codec / relay)", "Traffic activation",
 ];
 
 export interface SliceResult {
@@ -108,6 +116,28 @@ export async function provisionSlice(opts: {
   // from a detached promise would take the process down, and the failure is already
   // durable in provisioning_steps.
   void executeRun(runId, SLICE_STEPS, { actor: opts.actor })
+    .then(async (result) => {
+      // Account details go out ONLY on a terminal success. A customer holding credentials
+      // for an account that failed verification is worse than no email: they will try to
+      // send traffic and blame the carrier. 'completed_with_warnings' still qualifies —
+      // the account is live and carrying calls; a skipped non-blocking stage does not
+      // change what the customer needs to connect.
+      if (result.status !== 'completed' && result.status !== 'completed_with_warnings') return;
+      const sent = await sendAccountDetailsEmail(opts.companyId);
+      if (sent.ok) {
+        console.log(`[provisioning] ${runRef} account details emailed to ${sent.recipients?.join(', ')}`);
+      } else {
+        // Never downgrades the run: provisioning succeeded, delivery did not. Recorded so
+        // an operator can resend rather than discovering the gap from the customer.
+        console.warn(`[provisioning] ${runRef} account details NOT sent — ${sent.error}`);
+      }
+      void writeAudit({
+        category: 'operational', action: 'company.account_details_emailed',
+        actor: opts.actor, actorType: 'user',
+        targetType: 'company', targetId: String(opts.companyId),
+        metadata: { runRef, sent: sent.ok, recipients: sent.recipients ?? [], error: sent.error ?? null },
+      });
+    })
     .catch(e => console.error(`[provisioning] ${runRef} run failed outside step handling:`, e?.message));
 
   return { dryRun: false, preflight, runRef, runId, status: 'queued' };

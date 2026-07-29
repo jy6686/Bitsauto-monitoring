@@ -34,9 +34,24 @@ pool.on('error', (err) => {
 export const db = drizzle(pool, { schema });
 
 // ── Safe column migrations ─────────────────────────────────────────────────────
-// These run once at startup and are idempotent (IF NOT EXISTS). They handle
-// schema changes that need to be applied to the production database without
-// requiring a full db:push run.
+// LEGACY. DO NOT ADD SCHEMA HERE.
+//
+// New schema goes in a numbered file under migrations/, applied at startup by
+// runFileMigrations() in server/migrate.ts. See docs/MIGRATIONS.md.
+//
+// Two reasons this function is not the place for anything new:
+//
+//  1. The catch below wraps EVERY statement in this function. The first one that
+//     errors silently skips all the rest and logs a single "non-fatal" warning.
+//     Anything appended here is in the most-likely-to-be-skipped position.
+//
+//  2. Each statement is its own client.query(), so a group of statements that
+//     needs to apply atomically cannot. Migration files carry their own
+//     BEGIN;/COMMIT; and the file runner honours it.
+//
+// This function is being retired in phases — see docs/MIGRATIONS.md, "Retiring
+// runSafeMigrations()". Its remaining contents move to numbered files (Phase 2A/2B)
+// and then it is deleted (Phase 3).
 export async function runSafeMigrations(): Promise<void> {
   const client = await pool.connect();
   try {

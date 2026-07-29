@@ -189,6 +189,8 @@ import NetworkTopologyPage from "@/pages/network-topology";
 import NocCommandPage from "@/pages/noc-command";
 import NocDashboardPage from "@/pages/noc-dashboard";
 import ServerHealthPage from "@/pages/server-health";
+import SchemaMigrationsPage from "@/pages/schema-migrations";
+import RoutingMatrixPage from "@/pages/routing-matrix";
 import NocIncidentsPage from "@/pages/noc-incidents";
 import RouteIntelligencePage from "@/pages/route-intelligence";
 import MfaSetupPage from "@/pages/mfa-setup";
@@ -869,6 +871,15 @@ function Router() {
       </Route>
       <Route path="/server-health">
         {() => <ProtectedRoute component={ServerHealthPage} requiredRoles={['admin','management']} />}
+      </Route>
+      {/* Admin only — the ledger names files and checksums, unlike /healthz. */}
+      <Route path="/schema-migrations">
+        {() => <ProtectedRoute component={SchemaMigrationsPage} requiredRoles={['admin','super_admin']} />}
+      </Route>
+      {/* Management may read the matrix; only admin can change where calls go — the
+          PUT endpoint enforces that independently of this route. */}
+      <Route path="/routing-matrix">
+        {() => <ProtectedRoute component={RoutingMatrixPage} requiredRoles={['admin','super_admin','management']} />}
       </Route>
       <Route path="/noc-incidents">
         {() => <ProtectedRoute component={NocIncidentsPage} requiredRoles={['admin','management','super_admin','noc_operator','team_lead']} />}
