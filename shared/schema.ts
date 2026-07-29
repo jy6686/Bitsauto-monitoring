@@ -1441,6 +1441,17 @@ export const companies = pgTable("companies", {
   maxSessions:            integer("max_sessions"),
   codec:                  varchar("codec",       { length: 32 }),
   mediaRelay:             varchar("media_relay", { length: 16 }),
+  /** Canonical customer identity (migration 049). Allocated once from account_prefix_seq
+   *  at company creation and IMMUTABLE thereafter — it is embedded in Sippy
+   *  authentication and CLD rules, so changing it orphans a live customer's routing.
+   *  Never reissued, including after a company is deleted. */
+  accountPrefix:          varchar("account_prefix",       { length: 4 }),
+  /** No cld_translation_rule here, deliberately: a CLD rule is
+   *  s/^{prefix}{product}{cc}/{product}{cc}/ — per authentication rule, not per customer.
+   *  Built by buildAuthRuleFields() at provision time. See migration 049. */
+  /** Resolved from the routing package during preparation — NULL until then. */
+  routingGroupId:         integer("routing_group_id"),
+  routingGroupName:       varchar("routing_group_name",   { length: 128 }),
   /** The single accountable owner of preparation (migration 045). A user reference, never
    *  a role snapshot — authorisation always comes from RBAC, not from these columns. */
   ownerUserId:            varchar("owner_user_id",    { length: 255 }),

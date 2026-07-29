@@ -98,7 +98,9 @@ import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggre
 import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
 import { refreshVendorAcds } from "./vendor-acd-cache";
 import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, navigationModules } from "@shared/schema";
-import { db } from "./db";
+import { db, pool } from "./db";
+import { getMigrationLedger, getMigrationStatus } from "./migrate";
+import { allocateAccountPrefix } from "./services/provisioning/account-prefix";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, inArray, sql, asc } from "drizzle-orm";
 const sqlExpr = sql;
 const drizzleSql = sql;
@@ -1587,6 +1589,168 @@ export async function registerRoutes(
     try { res.json(await storage.getAllNavigationModules()); }
     catch (err: any) { res.status(500).json({ error: err.message }); }
   });
+
+  // ── Migration diagnostics (admin only) ──────────────────────────────────────
+  // The full ledger, including checksum drift with both values. /healthz reports a
+  // coarse status only — it is unauthenticated, so filenames and checksums are not
+  // exposed there. Drift means the database and the repository disagree about what
+  // was applied; an operator should be able to see that without grepping logs.
+  app.get('/api/admin/migrations',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const ledger = await getMigrationLedger(pool);
+        const boot = getMigrationStatus();
+        res.json({
+          ...ledger,
+          lastRun: boot && {
+            applied: boot.applied,
+            baselined: boot.baselined,
+            failed: boot.failed,
+            skipped: boot.skipped,
+            baselineInvalid: boot.baselineInvalid,
+          },
+        });
+      } catch (err: any) {
+        res.status(500).json({ error: err?.message ?? 'Could not read the migration ledger' });
+      }
+    });
+
+  // ── Routing package matrix (migration 050) ──────────────────────────────────
+  // The country x product grid and its routing-group mapping. The mapping is stored by
+  // ID; the name is cached for display only, so renaming a group in Sippy cannot change
+  // where calls go. Suggestions come from the routing cache by name match and are only
+  // ever proposals — resolution never uses them.
+  // Is this Sippy account managed by the provisioning engine? Auth Studio asks so it can
+  // warn before a hand edit. Deliberately advisory, not a lock: Auth Studio is the
+  // troubleshooting console, and a managed customer with a routing fault is exactly when
+  // an engineer needs it. The hazard is silent duplication — the engine's reuse check keys
+  // on (remote_ip, incoming_cld), so an edited CLD is not recognised on re-provision and a
+  // second rule is created alongside the edited one.
+  app.get('/api/provisioning/managed-account/:iAccount',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const iAccount = parseInt(req.params.iAccount, 10);
+        if (!Number.isFinite(iAccount)) return res.status(400).json({ error: 'Invalid account id' });
+        const { rows } = await pool.query(
+          `SELECT id, name, account_prefix, prepared_at, provisioning_status
+             FROM companies WHERE sippy_i_account = $1 LIMIT 1`, [iAccount]);
+        const c = rows[0];
+        res.json({
+          managed: Boolean(c?.prepared_at) || c?.provisioning_status === 'provisioned',
+          companyId: c?.id ?? null,
+          companyName: c?.name ?? null,
+          accountPrefix: c?.account_prefix ?? null,
+        });
+      } catch (err: any) {
+        // Never blocks the page: a failed lookup means no banner, not a broken console.
+        res.json({ managed: false, companyId: null, companyName: null, accountPrefix: null });
+      }
+    });
+
+  app.get('/api/routing-packages',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin', 'management'], req, res, next),
+    async (_req: any, res: any) => {
+      try {
+        const { rows } = await pool.query(
+          `SELECT p.id, p.name, p.is_default,
+                  COUNT(e.id)::int                                        AS cells,
+                  COUNT(e.id) FILTER (WHERE e.i_routing_group IS NULL)::int AS unmapped
+             FROM routing_packages p
+             LEFT JOIN routing_package_entries e ON e.package_id = p.id AND e.active
+            GROUP BY p.id, p.name, p.is_default
+            ORDER BY p.is_default DESC, p.name`);
+        res.json({ packages: rows });
+      } catch (err: any) {
+        res.status(500).json({ error: err?.message ?? 'Could not list routing packages' });
+      }
+    });
+
+  app.get('/api/routing-packages/:id/matrix',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const packageId = parseInt(req.params.id, 10);
+        if (!Number.isFinite(packageId)) return res.status(400).json({ error: 'Invalid package id' });
+
+        const [{ rows: entries }, { rows: groups }, { rows: pkg }] = await Promise.all([
+          pool.query(
+            `SELECT id, country, product, priority, active, i_routing_group, routing_group_name
+               FROM routing_package_entries WHERE package_id = $1
+              ORDER BY country, product`, [packageId]),
+          pool.query(`SELECT i_routing_group, name, members_count FROM routing_groups_cache ORDER BY name`),
+          pool.query(`SELECT id, name FROM routing_packages WHERE id = $1`, [packageId]),
+        ]);
+
+        // A mapped group whose cached name no longer matches the cache is surfaced rather
+        // than silently corrected: it means the group was renamed or deleted in Sippy, and
+        // which of those happened changes what an operator should do.
+        const byId = new Map(groups.map((g: any) => [g.i_routing_group, g.name]));
+        const rows = entries.map((e: any) => {
+          const liveName = e.i_routing_group != null ? byId.get(e.i_routing_group) ?? null : null;
+          return {
+            ...e,
+            liveName,
+            stale: e.i_routing_group != null && (liveName === null || liveName !== e.routing_group_name),
+          };
+        });
+
+        res.json({ package: pkg[0] ?? null, entries: rows, groups, unmapped: rows.filter((r: any) => r.i_routing_group == null).length });
+      } catch (err: any) {
+        res.status(500).json({ error: err?.message ?? 'Could not read the routing matrix' });
+      }
+    });
+
+  // Map one (country, product) cell to a routing group. Admin only — this decides where a
+  // customer's calls go.
+  app.put('/api/routing-package-entries/:id',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const entryId = parseInt(req.params.id, 10);
+        if (!Number.isFinite(entryId)) return res.status(400).json({ error: 'Invalid entry id' });
+
+        const raw = req.body?.iRoutingGroup;
+        const iRoutingGroup = raw === null || raw === undefined || raw === '' ? null : Number(raw);
+        if (iRoutingGroup !== null && !Number.isFinite(iRoutingGroup)) {
+          return res.status(400).json({ error: 'iRoutingGroup must be a number or null' });
+        }
+
+        // Only groups the cache knows about. Accepting an arbitrary id would let a typo
+        // become a routing decision that fails at provision time, far from the mistake.
+        let name: string | null = null;
+        if (iRoutingGroup !== null) {
+          const { rows } = await pool.query(
+            `SELECT name FROM routing_groups_cache WHERE i_routing_group = $1`, [iRoutingGroup]);
+          if (!rows[0]) {
+            return res.status(400).json({ error: `Routing group ${iRoutingGroup} is not in the routing cache. Sync the cache if it was created recently.` });
+          }
+          name = rows[0].name;
+        }
+
+        const { rows: before } = await pool.query(
+          `SELECT country, product, i_routing_group FROM routing_package_entries WHERE id = $1`, [entryId]);
+        if (!before[0]) return res.status(404).json({ error: 'Entry not found' });
+
+        const { rows } = await pool.query(
+          `UPDATE routing_package_entries SET i_routing_group = $2, routing_group_name = $3
+            WHERE id = $1 RETURNING id, country, product, i_routing_group, routing_group_name`,
+          [entryId, iRoutingGroup, name]);
+
+        void writeAudit({
+          category: 'operational', action: 'routing.matrix.mapped',
+          actor: req.user?.email ?? req.user?.claims?.email, actorType: 'user',
+          targetType: 'routing_package_entry', targetId: String(entryId),
+          targetName: `${before[0].country} / ${before[0].product}`,
+          metadata: { from: before[0].i_routing_group ?? null, to: iRoutingGroup, routingGroupName: name },
+        });
+
+        res.json(rows[0]);
+      } catch (err: any) {
+        res.status(500).json({ error: err?.message ?? 'Could not save the mapping' });
+      }
+    });
 
   // Create a navigation module (upsert by module_key — safe to call multiple times)
   app.post('/api/governance/modules',
@@ -27536,7 +27700,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
   app.post('/api/companies', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
     try {
-      const { basic, billing, contacts = [], bankAccounts = [] } = req.body ?? {};
+      const { basic, billing, contacts = [], bankAccounts = [], initialIps = [] } = req.body ?? {};
       if (!basic?.name?.trim()) return res.status(400).json({ message: 'Company name is required' });
       if (!basic?.shortCode?.trim()) return res.status(400).json({ message: 'Short code is required' });
 
@@ -27562,6 +27726,22 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         // Preparation is additive: if the configuration layer is unavailable the company
         // must still be created, just unprepared. Failing the create would be worse.
         console.warn('[companies] preparation profile lookup failed:', e?.message);
+      }
+
+      // ── Account prefix (migration 049) ────────────────────────────────────────
+      // The canonical customer identifier. Allocated here, once, and never changed:
+      // it is embedded in Sippy authentication and CLD rules downstream.
+      //
+      // Non-fatal, matching the rule the rest of preparation follows — a company must
+      // still be recordable when a dependency is unavailable. But unlike the profile
+      // lookup this is logged at ERROR, because a company with no prefix cannot be
+      // provisioned at all, and preflight reports it rather than the engine discovering
+      // it half way through.
+      let accountPrefix: string | null = null;
+      try {
+        accountPrefix = await allocateAccountPrefix();
+      } catch (e: any) {
+        console.error(`[companies] account prefix allocation FAILED for "${basic.name}": ${e?.message}`);
       }
 
       const company = await storage.createCompany({
@@ -27592,6 +27772,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         invoiceEmail: billing?.invoiceEmail || null,
         notes: null,
         createdBy: (req as any).user?.claims?.sub || null,
+        // Canonical identity (migration 049). Immutable once written.
+        accountPrefix,
         // Preparation package — the links that make the configuration layer real.
         provisioningProfileId: prep?.id ?? null,
         routingPackageId:      prep?.routingPackageId ?? null,
@@ -27606,6 +27788,36 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         mediaRelay:            prep?.mediaRelay ?? null,
         preparedAt:            prep ? new Date() : null,
       } as any, contacts, bankAccounts);
+
+      // ── Initial client IPs ────────────────────────────────────────────────────
+      // Captured at creation so NOC records everything it knows in one action, but
+      // recorded as PENDING: an IP entered here is a claim, not an authorisation. Only
+      // an admin approves (PATCH /api/client-ip-requests/:id/approve), and only approved
+      // IPs reach Sippy. That keeps the approval gate exactly where it was rather than
+      // letting the create form become a way around it.
+      if (Array.isArray(initialIps) && initialIps.length) {
+        const seen = new Set<string>();
+        const rows = initialIps
+          .map((v: any) => String(typeof v === 'string' ? v : v?.ipAddress ?? '').trim())
+          .filter((ip: string) => ip && !seen.has(ip) && seen.add(ip))
+          .map((ip: string) => ({
+            companyId:   (company as any).id,
+            clientName:  basic.name.trim(),
+            ipAddress:   ip,
+            status:      'pending' as const,
+            submittedBy: (req as any).user?.email ?? (req as any).user?.claims?.email ?? 'system',
+            description: 'Captured at company creation',
+          }));
+        if (rows.length) {
+          try {
+            await db.insert(clientIpRequests).values(rows);
+          } catch (e: any) {
+            // Non-fatal, consistent with the rest of preparation: losing the company over
+            // an IP row would be a worse trade than an operator re-entering the IPs.
+            console.warn(`[companies] initial IP capture failed for "${basic.name}": ${e?.message}`);
+          }
+        }
+      }
 
       // ── Commercial objects in Sippy (frozen principle 2, amended 2026-07-28) ──
       // Tariff and Service Plan are SHARED COMMERCIAL objects: they carry no traffic and
@@ -27790,6 +28002,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         companyId: id,
         companyName: company.name,
         preparedAt: company.preparedAt ?? null,
+        // Canonical identity (migration 049). Reported alongside preparation because the
+        // provisioning engine consumes it exactly like the rest — and a company without
+        // a prefix cannot be provisioned at all.
+        accountPrefix:       company.accountPrefix ?? null,
+        routingGroup:        company.routingGroupId
+          ? { id: company.routingGroupId, name: company.routingGroupName ?? null }
+          : null,
         tariff:              company.sippyITariff      ? { id: company.sippyITariff,      name: company.name } : null,
         servicePlan:         company.sippyIBillingPlan ? { id: company.sippyIBillingPlan, name: company.name } : null,
         provisioningProfile: profile  ? { id: profile.id,  name: profile.name }  : null,
@@ -27818,7 +28037,38 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // an admin reads before a production-changing action. Read-only: it refuses nothing and
   // changes nothing, it only reports whether provisioning may proceed.
   // Admin-only, matching who may act on the result.
-  app.get('/api/companies/:id/preflight', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+  // Provisioning history for a company — every run, newest first, with per-stage outcomes.
+  // Reads provisioning_runs/provisioning_steps, which the engine already writes, so this
+  // adds no new source of truth. Gives Operations an audit trail without opening logs.
+  app.get('/api/companies/:id/provisioning-runs',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const id = parseInt(req.params.id, 10);
+        if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+        const { rows } = await pool.query(
+          `SELECT r.id, r.run_ref, r.status, r.created_by, r.started_at, r.completed_at,
+                  COALESCE(json_agg(json_build_object(
+                    'key', s.step_key, 'label', s.label, 'status', s.status,
+                    'error', s.error, 'reasonCode', s.reason_code
+                  ) ORDER BY s.step_order) FILTER (WHERE s.id IS NOT NULL), '[]') AS steps
+             FROM provisioning_runs r
+             LEFT JOIN provisioning_steps s ON s.run_id = r.id
+            WHERE r.company_id = $1
+            GROUP BY r.id
+            ORDER BY r.id DESC
+            LIMIT 10`, [id]);
+        res.json({ runs: rows });
+      } catch (err: any) {
+        // A company provisioned before the engine existed simply has no runs; that is not
+        // an error state and must not break the card.
+        res.json({ runs: [], error: err?.message ?? null });
+      }
+    });
+
+  // Read-only and side-effect free, so management may see WHY a company is not ready
+  // rather than only that the button is disabled. Starting a job remains admin-only.
+  app.get('/api/companies/:id/preflight', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
@@ -27849,6 +28099,21 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // __source is audit provenance, not a column — strip it before the write reaches
       // Drizzle, which would otherwise try to set a field that does not exist.
       const { __source, ...patch } = (req.body ?? {}) as Record<string, unknown>;
+
+      // accountPrefix is immutable (migration 049). It is embedded in Sippy
+      // authentication and CLD rules, so changing it here would leave a live customer
+      // authenticating under an identifier the platform no longer records. Dropped
+      // rather than rejected: an editor that round-trips the whole company object would
+      // otherwise fail every save for a field the operator never touched. Changing a
+      // prefix is a deliberate migration, not a form edit.
+      if ('accountPrefix' in patch) {
+        const attempted = patch.accountPrefix;
+        delete patch.accountPrefix;
+        const current = (await storage.getCompany(id)) as any;
+        if (attempted != null && String(attempted) !== String(current?.accountPrefix ?? '')) {
+          console.warn(`[companies] ignored attempt to change accountPrefix on company ${id}: ${current?.accountPrefix} → ${attempted}`);
+        }
+      }
 
       const before: any = await storage.getCompany(id);
       const updated = await storage.updateCompany(id, patch);

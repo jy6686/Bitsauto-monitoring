@@ -130,17 +130,23 @@ export async function sendDirectEmailWithAttachment(opts: {
   to: string;
   subject: string;
   html: string;
+  /** Display name on the From header. Customer-facing mail must NOT go out as
+   *  "Bitsauto Monitoring" — the platform is internal and the recipient is a customer. */
+  fromName?: string;
   attachment: {
     filename: string;
     content: Buffer | string;
     contentType: string;
+    /** Set to reference the file inline as <img src="cid:...">. Without it the image
+     *  arrives as a download rather than rendering in the body. */
+    cid?: string;
   };
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const conn = await getTransporter();
     if (!conn) return { ok: false, error: 'Email not configured — enable alerts in Settings first.' };
     await conn.transporter.sendMail({
-      from: `"Bitsauto Monitoring" <${conn.from}>`,
+      from: `"${opts.fromName ?? 'Bitsauto Monitoring'}" <${conn.from}>`,
       to: opts.to,
       subject: opts.subject,
       html: opts.html,
@@ -148,6 +154,7 @@ export async function sendDirectEmailWithAttachment(opts: {
         filename: opts.attachment.filename,
         content: opts.attachment.content,
         contentType: opts.attachment.contentType,
+        ...(opts.attachment.cid ? { cid: opts.attachment.cid } : {}),
       }],
     });
     console.log(`[email] Attachment send: ${opts.subject} → ${opts.to} (${opts.attachment.filename})`);

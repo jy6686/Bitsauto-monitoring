@@ -12,10 +12,13 @@
  * therefore moves here rather than disappearing.
  */
 import { db } from "../../db";
-import { companies, clientIpRequests, ipSharingApprovals,
+import { companies, clientIpRequests, ipSharingApprovals, companyContacts,
          provisioningProfiles, routingPackages, routingPackageEntries,
          notificationProfiles, rateCards } from "@shared/schema";
 import { eq, and, ne } from "drizzle-orm";
+import { unmappedRoutingCells } from "./routing-group";
+import { planAuthRuleSet } from "./auth-rule-set";
+import { testEmailConfig } from "../../email";
 
 export type CheckStatus = "pass" | "fail" | "warn";
 
@@ -50,6 +53,9 @@ const pass = (key: string, label: string, detail: string): PreflightCheck =>
   ({ key, label, status: "pass", detail });
 const fail = (key: string, label: string, detail: string, remedy: string): PreflightCheck =>
   ({ key, label, status: "fail", detail, remedy });
+/** Does NOT block provisioning — for gaps that need a follow-up rather than a halt. */
+const warn = (key: string, label: string, detail: string, remedy: string): PreflightCheck =>
+  ({ key, label, status: "warn", detail, remedy });
 
 export async function runPreflight(companyId: number): Promise<PreflightResult> {
   const [company]: any[] = await db.select().from(companies).where(eq(companies.id, companyId));
@@ -158,6 +164,77 @@ export async function runPreflight(companyId: number): Promise<PreflightResult> 
       ? pass("ips", "Authorised IPs", `${ipList.length} IP${ipList.length === 1 ? "" : "s"}, no conflicts`)
       : fail("ips", "IP conflict", conflicts.join(" · "),
              "Two customers cannot be authorised on the same IP — calls would authenticate against the wrong account. Change the IP, or add it to the internal shared-IP list if the overlap is intentional."));
+  }
+
+  // ── Canonical identity (migration 049) ────────────────────────────────────
+  // Every CLD translation rule derives from the prefix, so without it the engine can
+  // build no authentication rules at all.
+  checks.push(company.accountPrefix
+    ? pass("account_prefix", "Account prefix", `${company.accountPrefix} — CLD rules derive from this`)
+    : fail("account_prefix", "Account prefix", "No account prefix allocated",
+           "Allocated automatically at company creation. A company created before migration 049, or one whose legacy prefix collided with another customer's, needs its prefix set from its Sippy authentication rules."));
+
+  // ── Routing matrix (migration 050) ────────────────────────────────────────
+  // An unmapped cell cannot become an authentication rule: a rule without a routing group
+  // authenticates the caller and then falls back to the account default, which is the
+  // usual cause of "No Route Found".
+  try {
+    const unmapped = await unmappedRoutingCells(companyId);
+    checks.push(unmapped.length === 0
+      ? pass("routing_matrix", "Routing matrix", "Every destination and product is mapped to a routing group")
+      : fail("routing_matrix", "Routing matrix",
+             `${unmapped.length} unmapped cell(s): ${unmapped.slice(0, 4).map(u => `${u.country}/${u.product}`).join(", ")}${unmapped.length > 4 ? " …" : ""}`,
+             "Map each destination and product to a Sippy routing group on the Routing Matrix page. Provisioning cannot create authentication rules for an unmapped cell."));
+  } catch {
+    checks.push(warn("routing_matrix", "Routing matrix", "Could not be read",
+                     "Migration 050 may not have applied yet — check Schema Migrations."));
+  }
+
+  // ── Account details email ─────────────────────────────────────────────────
+  // Warn, not fail: an account that carries traffic but whose credentials were not emailed
+  // is a follow-up, whereas blocking the provision would leave the customer with neither.
+  const contactRows: any[] = await db.select().from(companyContacts)
+    .where(eq(companyContacts.companyId, companyId));
+  const eligible = contactRows.filter(c =>
+    ["technical", "support", "noc", "commercial"].includes(String(c.contactType ?? "").toLowerCase())
+    && String(c.email ?? "").includes("@"));
+  checks.push(eligible.length > 0
+    ? pass("email_recipients", "Email recipients", `${eligible.length} support/commercial contact(s) will receive the account details`)
+    : warn("email_recipients", "Email recipients", "No support or commercial contact has an email address",
+           "Account details are never sent to finance, billing, rates or invoicing contacts. Add a technical or commercial contact, or the credentials will have to be sent by hand."));
+
+  // ── Authentication plan ───────────────────────────────────────────────────
+  // Builds the rule set without touching Sippy, so the operator sees the exact number of
+  // rules that will be created BEFORE committing. A plan that cannot be built is the same
+  // failure the authentication stage would hit half way through a run — better here.
+  try {
+    const ips = ipList.length ? ipList : [];
+    const plan = await planAuthRuleSet(companyId, ips);
+    checks.push(plan.gaps.length === 0 && plan.rules.length > 0
+      ? pass("auth_plan", "Authentication plan",
+             `${plan.rules.length} rule(s) — ${plan.ips.length} IP(s) x ${plan.ips.length ? plan.rules.length / plan.ips.length : 0} routing cell(s)`)
+      : fail("auth_plan", "Authentication plan",
+             plan.gaps.length
+               ? `${plan.gaps.length} gap(s): ${plan.gaps.slice(0, 3).map(g => `${g.country}/${g.product}`).join(", ")}${plan.gaps.length > 3 ? " …" : ""}`
+               : "No rules could be built from this company's configuration",
+             "Every destination and product must resolve to a routing group, and the company needs an account prefix and at least one approved IP."));
+  } catch (e: any) {
+    checks.push(warn("auth_plan", "Authentication plan", `Could not be built: ${e?.message ?? "unknown error"}`,
+                     "Migrations 049/050 may not have applied — check Schema Migrations."));
+  }
+
+  // ── Outbound email ────────────────────────────────────────────────────────
+  // Warning, never blocking: a provisioned customer whose credentials must be sent by hand
+  // is a follow-up; refusing to provision leaves them with neither an account nor an email.
+  try {
+    const smtp = await testEmailConfig();
+    checks.push(smtp.ok
+      ? pass("smtp", "Outbound email", "SMTP is configured and reachable")
+      : warn("smtp", "Outbound email", smtp.error ?? "SMTP is not configured",
+             "Provisioning will still complete, but the account details email will not be delivered — send it manually or fix SMTP in Settings."));
+  } catch (e: any) {
+    checks.push(warn("smtp", "Outbound email", `Could not be checked: ${e?.message ?? "unknown error"}`,
+                     "Provisioning is unaffected; the account details email may need to be sent by hand."));
   }
 
   const canProvision = checks.every(c => c.status !== "fail");
