@@ -599,9 +599,24 @@ function ProvisioningPanel({ company }: { company: Company }) {
           draft — a company with its tariff and service plan already in Sippy still read as
           un-started. These are the states a company genuinely moves through. */}
       {(() => {
+        // A company whose tariff never reached Sippy CANNOT be provisioned — the account
+        // step needs the tariff id. That outranks "Ready to provision", which otherwise
+        // shows green off the IP state alone and sends the operator into a Provision run
+        // that fails at its first Sippy write. Ranked below isProvisioned only because a
+        // provisioned company's objects demonstrably exist whatever a stale flag says.
+        const billingFailed = companyAny.billingProvisionStatus === 'failed';
+        const billingReason: string | undefined = companyAny.billingProvisionReasonCode ?? undefined;
+        const billingWhy =
+          billingReason === 'SIPPY_AUTH_REJECTED'     ? 'Sippy rejected the API credentials (401). Verify the XML-RPC admin password, then recreate.'
+          : billingReason === 'SIPPY_PERMISSION_DENIED' ? 'The Sippy API user authenticated but is not an admin (403). Grant admin rights, then recreate.'
+          : billingReason === 'SIPPY_UNREACHABLE'       ? 'Sippy could not be reached. Check the switch and the portal URL, then recreate.'
+          : billingReason === 'SIPPY_CIRCUIT_OPEN'      ? 'XML-RPC calls are suspended after repeated failures. Resolve the switch error, then recreate.'
+          : companyAny.billingProvisionError || 'Tariff and service plan were not created in Sippy.';
+
         const st =
           jobRunning                                   ? { tone: 'blue',    icon: <Loader2 className="h-2.5 w-2.5 shrink-0 animate-spin" />, text: job.data?.currentStage ? `Provisioning — ${job.data.currentStage}` : 'Provisioning…' }
           : isProvisioned                              ? { tone: 'emerald', icon: <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />,        text: 'Provisioned' }
+          : billingFailed                              ? { tone: 'rose',    icon: <AlertTriangle className="h-2.5 w-2.5 shrink-0" />,       text: `Not ready — tariff/service plan missing in Sippy. ${billingWhy}` }
           : pendingIps.length > 0                      ? { tone: 'amber',   icon: <Clock className="h-2.5 w-2.5 shrink-0" />,               text: `${pendingIps.length} IP${pendingIps.length !== 1 ? 's' : ''} pending admin approval` }
           : approvedIps.length > 0                     ? { tone: 'emerald', icon: <CheckCircle2 className="h-2.5 w-2.5 shrink-0" />,        text: 'Ready to provision' }
           :                                              { tone: 'blue',    icon: <AlertTriangle className="h-2.5 w-2.5 shrink-0" />,       text: "No SIP IP submitted — add the customer's IP(s) for admin approval" };
@@ -609,6 +624,7 @@ function ProvisioningPanel({ company }: { company: Company }) {
           blue:    'text-blue-400 bg-blue-500/5 border-blue-500/20',
           amber:   'text-amber-400 bg-amber-500/5 border-amber-500/20',
           emerald: 'text-emerald-400 bg-emerald-500/5 border-emerald-500/20',
+          rose:    'text-rose-400 bg-rose-500/5 border-rose-500/20',
         };
         return (
           <p className={`text-[10px] flex items-center gap-1 border rounded px-2 py-1.5 ${tones[st.tone]}`}>
