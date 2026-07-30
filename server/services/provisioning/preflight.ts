@@ -14,8 +14,9 @@
 import { db } from "../../db";
 import { companies, clientIpRequests, ipSharingApprovals, companyContacts,
          provisioningProfiles, routingPackages, routingPackageEntries,
-         notificationProfiles, rateCards } from "@shared/schema";
-import { eq, and, ne } from "drizzle-orm";
+         notificationProfiles, rateCards,
+         companyProducts, productRates } from "@shared/schema";
+import { eq, and, ne, or, sql, inArray } from "drizzle-orm";
 import { unmappedRoutingCells } from "./routing-group";
 import { planAuthRuleSet } from "./auth-rule-set";
 import { testEmailConfig } from "../../email";
@@ -118,16 +119,37 @@ export async function runPreflight(companyId: number): Promise<PreflightResult> 
   }
 
   // Rate policy resolves to a card by name (migration 041/042).
-  if (company.ratePolicy) {
-    const cards = await db.select().from(rateCards).where(eq(rateCards.name, company.ratePolicy));
-    const card = cards.find((c: any) => c.cardType === "client") ?? cards[0];
-    checks.push(card
-      ? pass("rates", "Rate policy", `${company.ratePolicy} — ${card.entryCount ?? 0} rates`)
-      : fail("rates", "Rate policy", `Policy "${company.ratePolicy}" resolves to no rate card`,
-             `Create a client rate card named "${company.ratePolicy}", or change the policy on the provisioning profile.`));
-  } else {
-    checks.push(fail("rates", "Rate policy", "No rate policy assigned",
-                     "Assign a provisioning profile so the rate policy resolves."));
+  // ── Rates: can we generate them, not does a static card exist ───────────────
+  // This used to resolve company.ratePolicy to a rate_cards row and FAIL when it found
+  // none — which blocked every retail company, because 041 sets retail profiles to
+  // "Standard Retail" and only ever creates a Standard Wholesale card. The check was also
+  // asking the wrong question: under per-customer tariffs there is no shared retail sheet
+  // to point at. What matters is whether the rates step will have anything to upload.
+  //
+  // WARN, not fail. The rates step is non-blocking by design — a customer with a working
+  // account and no rates is recoverable from Rate Manager in minutes — so a check that
+  // refuses the whole provisioning run over it would contradict the step it describes.
+  try {
+    const chosen = await db.select({ productId: companyProducts.productId })
+      .from(companyProducts).where(eq(companyProducts.companyId, companyId));
+    const productIds = chosen.map(r => r.productId);
+    const today = new Date().toISOString().slice(0, 10);
+
+    const [{ n }] = await db
+      .select({ n: sql<number>`COUNT(*)::int` })
+      .from(productRates)
+      .where(and(
+        productIds.length ? inArray(productRates.productId, productIds) : sql`TRUE`,
+        sql`${productRates.effectiveFrom} <= ${today}`,
+        or(sql`${productRates.effectiveTo} IS NULL`, sql`${productRates.effectiveTo} >= ${today}`),
+      ));
+
+    checks.push(n > 0
+      ? pass("rates", "Rates", `${n} price(s) effective today${productIds.length ? ` across ${productIds.length} selected product(s)` : ' across every product'}`)
+      : warn("rates", "Rates", "No prices effective today — the account will be provisioned unpriced",
+             "Load prices in Rate Manager. Provisioning continues; the rate upload step will report that it had nothing to send."));
+  } catch (e: any) {
+    checks.push(warn("rates", "Rates", "Could not be read", e?.message ?? "unknown error"));
   }
 
   // ── IPs + conflict detection ──────────────────────────────────────────────
