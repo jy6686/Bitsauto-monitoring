@@ -27,12 +27,17 @@ import { servicePlanStep } from "./steps/service-plan.step";
 import { accountStep } from "./steps/account.step";
 import { authenticationStep } from "./steps/authentication.step";
 import { capacityStep } from "./steps/capacity.step";
+import { ratesStep } from "./steps/rates.step";
 import type { ProvisioningStep } from "./types";
 import { sendAccountDetailsEmail } from "./account-details-email";
 import { writeAudit } from "../../audit";
 
 /** Stages this slice executes. Extended one at a time per Sprint 2.3B..2.3F. */
-export const SLICE_STEPS: ProvisioningStep[] = [tariffStep, servicePlanStep, accountStep, authenticationStep, capacityStep];
+// ratesStep LAST and non-blocking: its rows go into the tariff the account references, so
+// everything above it must exist and be verified first, and a customer with a working
+// account but no rates is recoverable from Rate Manager in minutes — worse to abort a run
+// that has already built the account, authentication and capacity.
+export const SLICE_STEPS: ProvisioningStep[] = [tariffStep, servicePlanStep, accountStep, authenticationStep, capacityStep, ratesStep];
 
 /** Stages written but not yet in the pipeline — shown in the dry-run plan so an operator
  *  sees what is NOT yet automated rather than assuming full coverage. */
@@ -43,7 +48,7 @@ export const SLICE_STEPS: ProvisioningStep[] = [tariffStep, servicePlanStep, acc
 // network design decision made in Routing Manager, not something provisioning should invent.
 // Products are likewise not a stage: a product is the digit inside each rule's incoming CLD.
 const NOT_YET_AUTOMATED = [
-  "Rates", "Media (codec / relay)", "Traffic activation",
+  "Media (codec / relay)", "Traffic activation",
 ];
 
 export interface SliceResult {
