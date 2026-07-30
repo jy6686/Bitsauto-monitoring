@@ -92,7 +92,7 @@ import {
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
 import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
 import { refreshVendorAcds } from "./vendor-acd-cache";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, navigationModules, clientIpRequests, companies } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, navigationModules, clientIpRequests, companies, companyProducts, companyMarkets } from "@shared/schema";
 import { db, pool } from "./db";
 import { getMigrationLedger, getMigrationStatus } from "./migrate";
 import { allocateAccountPrefix } from "./services/provisioning/account-prefix";
@@ -27815,6 +27815,43 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         }
       }
 
+      // ── Commercial intent: what the customer BOUGHT ───────────────────────────
+      // Normalised into company_products / company_markets, not wizard_draft. A JSON blob
+      // cannot be queried, which is why the wizard's product checkboxes have never driven
+      // anything — the provisioning engine, the rate generator and preflight all need to
+      // read this, and 049 had to PARSE JSON to recover legacy prefixes for the same
+      // reason. Non-fatal, like the rest of preparation: losing the company over a
+      // product row is the worse trade. Reported, so a dropped selection is not silent.
+      const intent: { products: number; markets: number; error: string | null } =
+        { products: 0, markets: 0, error: null };
+      try {
+        const productIds: number[] = Array.isArray(req.body?.productIds)
+          ? req.body.productIds.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n)) : [];
+        const marketIds: number[] = Array.isArray(req.body?.marketDestinationIds)
+          ? req.body.marketDestinationIds.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n)) : [];
+        const actor = req.user?.email ?? req.user?.claims?.email ?? 'system';
+
+        if (productIds.length) {
+          await db.insert(companyProducts)
+            .values([...new Set(productIds)].map(pid => ({
+              companyId: (company as any).id, productId: pid, createdBy: actor,
+            })))
+            .onConflictDoNothing();
+          intent.products = new Set(productIds).size;
+        }
+        if (marketIds.length) {
+          await db.insert(companyMarkets)
+            .values([...new Set(marketIds)].map(did => ({
+              companyId: (company as any).id, destinationId: did, createdBy: actor,
+            })))
+            .onConflictDoNothing();
+          intent.markets = new Set(marketIds).size;
+        }
+      } catch (e: any) {
+        intent.error = e?.message ?? 'unknown error';
+        console.error(`[companies] commercial intent NOT recorded for "${basic.name}": ${intent.error}`);
+      }
+
       // ── Commercial objects in Sippy (frozen principle 2, amended 2026-07-28) ──
       // Tariff and Service Plan are SHARED COMMERCIAL objects: they carry no traffic and
       // expose no network, so they are created here rather than gated behind Provision.
@@ -27923,6 +27960,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         // Surfaced for the same reason as `commercial`: an IP the operator typed and the
         // platform then dropped must not look like an IP the operator forgot to type.
         ips: ipCapture,
+        // Same reason as `ips` and `commercial`: a selection the platform dropped must not
+        // look like a selection the operator never made.
+        intent,
       });
     } catch (e: any) {
       const msg = e.message || '';

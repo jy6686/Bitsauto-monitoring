@@ -74,12 +74,19 @@ export default function CompanyCreatePage() {
    *  which should be rare — auto is correct for essentially every company. */
   const [accountPrefix, setAccountPrefix] = useState("");
   const [pickPrefix, setPickPrefix] = useState(false);
+  /** What the customer BUYS. Persisted to company_products, not wizard_draft — the
+   *  provisioning engine and rate generator both query it. */
+  const [productIds, setProductIds] = useState<number[]>([]);
 
   const { data: freePrefixes } = useQuery<{ prefixes: string[] }>({
     queryKey: ["/api/account-prefixes/available", accountPrefix],
     queryFn: () => fetch(`/api/account-prefixes/available?q=${encodeURIComponent(accountPrefix)}&limit=20`)
       .then(r => r.json()),
     enabled: pickPrefix,
+  });
+
+  const { data: sellableProducts } = useQuery<Array<{ id: number; code: string; name: string; color?: string }>>({
+    queryKey: ["/api/rate-manager/products"],
   });
 
   const { data: kamsData } = useQuery<{ id: number; name: string; email: string; orgRole: string }[]>({
@@ -151,6 +158,9 @@ export default function CompanyCreatePage() {
       else if (com?.error)    failed.push("Service plan");
       if (ips?.created)       done.push(`${ips.created} IP${ips.created !== 1 ? "s" : ""} pending approval`);
       if (ips?.error)         failed.push(`${ips.requested} IP${ips.requested !== 1 ? "s" : ""}`);
+      const intent = data?.intent as { products: number; markets: number; error: string | null } | undefined;
+      if (intent?.products)   done.push(`${intent.products} product${intent.products !== 1 ? "s" : ""}`);
+      if (intent?.error)      failed.push("Product selection");
 
       if (failed.length) {
         toast({
@@ -234,7 +244,8 @@ export default function CompanyCreatePage() {
     );
     const initialIps = parseIps(clientIps);
     const payload = { basic, billing, contacts: pocContacts, bankAccounts, initialIps,
-                      ...(accountPrefix ? { accountPrefix } : {}) };
+                      ...(accountPrefix ? { accountPrefix } : {}),
+                      ...(productIds.length ? { productIds } : {}) };
     if (isEdit) {
       updateMutation.mutate(payload);
     } else {
@@ -403,6 +414,47 @@ export default function CompanyCreatePage() {
                   {errors.clientIps && (
                     <p className="text-[11px] text-red-400">{errors.clientIps}</p>
                   )}
+
+                  {/* What the customer buys. Cards rather than a dropdown: four to eight
+                      options that an operator sets on every single company, where a
+                      dropdown costs two clicks and hides the other choices. */}
+                  <div className="pt-3 mt-3 border-t border-border/40 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium">Products</h3>
+                      <span className="text-[11px] text-muted-foreground">
+                        {productIds.length ? `${productIds.length} selected` : 'none — platform default applies'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      {(sellableProducts ?? []).map(p => {
+                        const on = productIds.includes(p.id);
+                        return (
+                          <button
+                            key={p.id} type="button"
+                            onClick={() => setProductIds(v => on ? v.filter(x => x !== p.id) : [...v, p.id])}
+                            className={cn(
+                              "text-left px-3 py-2 rounded-lg border transition-colors",
+                              on ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-300"
+                                 : "border-border/50 hover:border-emerald-500/40",
+                            )}
+                            data-testid={`btn-product-${p.code}`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full shrink-0"
+                                    style={{ background: on ? undefined : (p.color || '#6366f1') }} />
+                              <span className="text-xs font-medium truncate">{p.name}</span>
+                            </div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5">{p.code}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {!productIds.length && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Leave empty to sell every product. A selection is a deliberate restriction.
+                      </p>
+                    )}
+                  </div>
 
                   {/* PROGRESSIVE DISCLOSURE. Auto is right for essentially every company —
                       the allocator falls back to a scan and can only fail when the whole
