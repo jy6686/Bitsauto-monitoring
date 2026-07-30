@@ -172,6 +172,12 @@ async function main() {
       body: call("getUploadToken", member("i_upload_type", int(2)) + member("process_on", str("not-a-date"))),
       note: "A DIFFERENT fault (like G's 410) means the value is parsed and validated. The SAME 500 means the parameter is not handled at all.",
     },
+    {
+      label: "O  type 2 + process_on as <string> + params{i_tariff}  ← the FIXED production call",
+      body: call("getUploadToken", member("i_upload_type", int(2)) + member("process_on", str(processOn))
+              + member("params", `<struct>${member("i_tariff", int(iTariff))}</struct>`)),
+      note: "L proved the string encoding works alone. This is it with the tariff — what production now sends.",
+    },
   ];
 
   for (const v of variants) {
@@ -199,12 +205,18 @@ async function main() {
     break;
   }
 
-  console.log("\n── Reading the result ──────────────────────────────────────────");
-  console.log("A succeeds, D faults      → a parameter is at fault; the first failing variant names it.");
-  console.log("Every variant faults 500  → getUploadToken is broken on this build. No request will work;");
-  console.log("                            manual import through the Sippy UI stays the only path, and the");
-  console.log("                            fix is a Sippy upgrade or support ticket, not BitsAuto code.");
-  console.log("F succeeds, A-E fault     → type 1 (rates) specifically is broken; routes upload is fine.");
+  // Findings as of 2026-07-30 on this switch, kept here so a re-run is a REGRESSION check
+  // rather than a fresh investigation. If any line below stops matching, something moved.
+  console.log("\n── Established on this switch, 2026-07-30 ──────────────────────");
+  console.log("A/B/F/H  OK     getUploadToken works; i_tariff valid; both upload types accepted.");
+  console.log("dict     1=Routes 2=Rates — the OPPOSITE of what the code asserted for months.");
+  console.log("C/I/J/K  500    any date sent as <dateTime.iso8601> faults, process_on and expires_on alike.");
+  console.log("L        OK     the SAME value as a <string> is accepted → the XML TYPE was the fault.");
+  console.log("M/N      402    malformed strings get a clean 'Unrecognized date format' → value is parsed;");
+  console.log("                so YYYYMMDDThh:mm:ss is required, and SQL datetime is not accepted.");
+  console.log("O        ?      the fixed production shape: string date + i_tariff. Must be OK.");
+  console.log("\nProduction now sends type-from-dictionary + <string> date. If O faults, that is a");
+  console.log("regression in the fix, not a new Sippy problem — nothing else here has changed.");
   process.exit(0);
 }
 

@@ -4907,8 +4907,16 @@ function buildGetUploadTokenXml(
 ): string {
   let members = `<member><name>i_upload_type</name><value><int>${iUploadType}</int></value></member>`;
 
-  if (processOn)  members += `<member><name>process_on</name><value><dateTime.iso8601>${processOn}</dateTime.iso8601></value></member>`;
-  if (expiresOn)  members += `<member><name>expires_on</name><value><dateTime.iso8601>${expiresOn}</dateTime.iso8601></value></member>`;
+  // <string>, NOT <dateTime.iso8601>. This switch faults 500 "Fatal error" on an
+  // iso8601-typed date and accepts the IDENTICAL value as a string — proven 2026-07-30 by
+  // scripts/diagnose-upload-token.ts variants C/I/K (typed → 500) against L (same value,
+  // string → token issued). Not a format problem: M and N send malformed strings and get
+  // a clean 402 "Unrecognized date format in process_on", so the value is parsed and
+  // validated. It is the XML type this build cannot accept.
+  //
+  // Format stays YYYYMMDDThh:mm:ss — the value L was accepted with. 402 on anything else.
+  if (processOn)  members += `<member><name>process_on</name><value><string>${processOn}</string></value></member>`;
+  if (expiresOn)  members += `<member><name>expires_on</name><value><string>${expiresOn}</string></value></member>`;
 
   if (uploadParams && Object.keys(uploadParams).length > 0) {
     const innerMembers = Object.entries(uploadParams)
@@ -6221,19 +6229,13 @@ export async function pushRatesBulkXlsx(
   const xlsxBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 
   // Get upload token for this tariff
-  // process_on OMITTED — it is what faults this switch.
-  // scripts/diagnose-upload-token.ts, 2026-07-30: getUploadToken issues a token for
-  // {i_upload_type} and for {i_upload_type, params{i_tariff}}, and returns faultCode 500
-  // "Fatal error" the moment process_on is added — with Rates (type 2) exactly as with
-  // Routes (type 1). Sending it has never once worked on this build.
-  //
-  // The comment that introduced it warned the status can then sit at FILE_UPLOADED
-  // because processing is scheduled far out. That is already handled: the poll loop
-  // treats FILE_UPLOADED as "verify anyway" and confirms the rate by reading it back,
-  // which is a stronger check than a status string. Trading a status we cannot get for a
-  // read-back we can is the right way round.
+  // process_on RESTORED, now that buildGetUploadTokenXml sends it as <string>. It faulted
+  // 500 only because it was typed <dateTime.iso8601>; the same value as a string is
+  // accepted. Without it some builds schedule processing far out and the status sits at
+  // FILE_UPLOADED, which is why it was here originally.
+  const processOn = sippyUploadTimestamp(10_000);
   const tokenXml  = buildGetUploadTokenXml(
-    await resolveUploadType(username, password, base, 'rates'), undefined, undefined, { i_tariff: iTariff });
+    await resolveUploadType(username, password, base, 'rates'), processOn, undefined, { i_tariff: iTariff });
   const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10_000);
 
   if (tokenResp.statusCode !== 200 || tokenResp.body.includes('faultCode')) {
@@ -8879,6 +8881,18 @@ export function buildFullTariffXlsx(
  * switch's actual answer, used only if the dictionary call fails, so a dictionary outage
  * degrades to something known-correct here rather than to the value that was broken.
  */
+/**
+ * Sippy's upload timestamp: YYYYMMDDThh:mm:ss.
+ *
+ * The only format this switch accepts — M and N proved it rejects SQL datetime and
+ * anything else with 402 "Unrecognized date format". Sent as a <string>, never as
+ * <dateTime.iso8601>; see buildGetUploadTokenXml.
+ */
+function sippyUploadTimestamp(offsetMs: number): string {
+  const s = new Date(Date.now() + offsetMs).toISOString();
+  return `${s.slice(0, 4)}${s.slice(5, 7)}${s.slice(8, 10)}T${s.slice(11, 19)}`;
+}
+
 const UPLOAD_TYPE_FALLBACK: Record<string, number> = { routes: 1, rates: 2 };
 let _uploadTypes: Record<string, number> | null = null;
 
@@ -9026,20 +9040,14 @@ export async function setSippyRateEntry(
       if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))     return `${raw.trim()} 00:00:00`;
       return '';
     };
-  // process_on OMITTED — it is what faults this switch.
-  // scripts/diagnose-upload-token.ts, 2026-07-30: getUploadToken issues a token for
-  // {i_upload_type} and for {i_upload_type, params{i_tariff}}, and returns faultCode 500
-  // "Fatal error" the moment process_on is added — with Rates (type 2) exactly as with
-  // Routes (type 1). Sending it has never once worked on this build.
-  //
-  // The comment that introduced it warned the status can then sit at FILE_UPLOADED
-  // because processing is scheduled far out. That is already handled: the poll loop
-  // treats FILE_UPLOADED as "verify anyway" and confirms the rate by reading it back,
-  // which is a stronger check than a status string. Trading a status we cannot get for a
-  // read-back we can is the right way round.
+  // process_on RESTORED, now that buildGetUploadTokenXml sends it as <string>. It faulted
+  // 500 only because it was typed <dateTime.iso8601>; the same value as a string is
+  // accepted. Without it some builds schedule processing far out and the status sits at
+  // FILE_UPLOADED, which is why it was here originally.
+  const processOn = sippyUploadTimestamp(10_000);
     const tokenXml  = buildGetUploadTokenXml(
       await resolveUploadType(username, password, base, 'rates'),
-      undefined, undefined, { i_tariff: Number(tariffId) });
+      processOn, undefined, { i_tariff: Number(tariffId) });
     const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10000);
     console.log(`[RateManager] getUploadToken: HTTP ${tokenResp.statusCode} body=${tokenResp.body.substring(0, 300)}`);
 
