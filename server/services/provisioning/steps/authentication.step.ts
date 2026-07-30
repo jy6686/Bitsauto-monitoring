@@ -175,6 +175,16 @@ export const authenticationStep: ProvisioningStep = {
         error: `${failures.length} of ${missing.length} rule(s) could not be created. First: ${failures[0]}`,
         detail: [...detail, `${failures.length} failed:`, ...failures.slice(0, 12)],
         result: { iAccount, planned: plan.rules },
+        metrics: {
+          requested: plan.rules.length,
+          created:   createdCount,
+          reused:    plan.rules.length - missing.length,
+          failed:    failures.length,
+          verified:  0,   // Not 'unknown': verify never runs on a failed execute.
+          ips:       plan.ips.length,
+          cells,
+          failures:  [{ cause: 'addAuthRule rejected', count: failures.length }],
+        },
       };
     }
 
@@ -182,6 +192,16 @@ export const authenticationStep: ProvisioningStep = {
       status: "success",
       result: { iAccount, planned: plan.rules, created: createdCount, reused: plan.rules.length - createdCount },
       detail: [...detail, `created ${createdCount}, reused ${plan.rules.length - createdCount}`],
+      // verified and failures are left to verify(), which merges over these — execute()
+      // knows what it asked for, not what the switch now holds.
+      metrics: {
+        requested: plan.rules.length,
+        created:   createdCount,
+        reused:    plan.rules.length - createdCount,
+        failed:    0,
+        ips:       plan.ips.length,
+        cells,
+      },
     };
   },
 
@@ -301,6 +321,16 @@ export const authenticationStep: ProvisioningStep = {
         : `Verification:    listAuthRules (rule + CLD translation); routing group confirmed on ${groupsChecked} of ${planned.length} via getAuthRuleInfo`,
     ];
 
+    // The same counts the lines above are built from — not a second tally that could
+    // disagree with what the operator is reading.
+    const metrics = {
+      requested: planned.length,
+      verified,
+      failed: planned.length - verified,
+      routingGroupsConfirmed: groupsChecked,
+      failures: Array.from(causes, ([cause, count]) => ({ cause, count })),
+    };
+
     if (problems.length) {
       report.push(`Failed:          ${planned.length - verified} — ` +
                   Array.from(causes).map(([cause, n]) => `${n} ${cause}`).join(', '));
@@ -316,8 +346,9 @@ export const authenticationStep: ProvisioningStep = {
                 Array.from(causes).map(([cause, n]) => `${n} ${cause}`).join(', ') + '. ' +
                 shown.join('; ') + (rest > 0 ? ` (+${rest} more)` : ''),
         detail: report,
+        metrics,
       };
     }
-    return { detail: report };
+    return { detail: report, metrics };
   },
 };

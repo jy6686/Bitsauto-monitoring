@@ -202,6 +202,10 @@ export async function executeRun(
           const report = await def.verify(ctx, outcome.result ?? {});
           const reason      = typeof report === 'string' ? report : report?.reason ?? null;
           const verifyLines = typeof report === 'string' || !report ? [] : report.detail ?? [];
+          // Verify's counts win over execute's. `verified` and `failures` describe what
+          // was read back from Sippy; execute() only knows what it asked for.
+          const verifyMetrics = typeof report === 'string' || !report ? null : report.metrics ?? null;
+          if (verifyMetrics) outcome = { ...outcome, metrics: { ...(outcome.metrics ?? {}), ...verifyMetrics } };
 
           if (reason) {
             outcome = {
@@ -238,6 +242,9 @@ export async function executeRun(
         // console line — so a step could pass having created twelve authentication rules
         // and report only a tick and a duration.
         detail:      outcome.detail?.length ? JSON.stringify(outcome.detail) : null,
+        // JSONB — drizzle serialises the object. NULL when a step emitted none, which
+        // means unknown; a rate computed over history must not read that as zero.
+        metrics:     outcome.metrics && Object.keys(outcome.metrics).length ? outcome.metrics : null,
         reasonCode:  outcome.reasonCode ?? null,
         error:       outcome.error ?? null,
         traceId:     outcome.traceId ?? null,

@@ -64,8 +64,44 @@ export interface StepOutcome {
   reasonCode?: string;
   error?: string;
   traceId?: string;
-  /** Diagnostic breadcrumbs surfaced to the UI, e.g. XML-RPC attempt outcomes. */
+  /** Diagnostic breadcrumbs surfaced to the UI, e.g. XML-RPC attempt outcomes. Prose,
+   *  written for a person. Numbers belong in `metrics`, not in here. */
   detail?: string[];
+  /** Countable outcomes, persisted to provisioning_steps.metrics (migration 056). */
+  metrics?: StepMetrics;
+}
+
+/**
+ * Countable outcomes for a step (migration 056). The machine-readable counterpart to
+ * `detail`, which is prose.
+ *
+ * THE SHARED KEYS ARE THE WHOLE POINT. "What is our authentication verification success
+ * rate" is answerable only if `verified` and `requested` mean the same thing wherever they
+ * appear. A step emits whichever of these apply to it, using them in this sense and no
+ * other, and adds its own keys alongside — `iTariff`, `rowsUploaded`, `byProduct`.
+ *
+ * Never parse `detail` for a number. Its wording belongs to the step and is meant to
+ * change; a query that depends on the wording breaks silently when it does.
+ */
+export interface StepMetrics {
+  /** How many things the step set out to create or confirm. */
+  requested?: number;
+  /** How many it created on this run. */
+  created?:   number;
+  /** How many already existed in the wanted state and were left alone. */
+  reused?:    number;
+  /** How many were read back and confirmed correct. Never assume verified === requested;
+   *  a step that could not check reports fewer, and that difference is the signal. */
+  verified?:  number;
+  /** How many did not end up in the wanted state. */
+  failed?:    number;
+  /** How many were deliberately not attempted. */
+  skipped?:   number;
+  /** Why things failed, counted. Free-text cause, stable enough to group on — this is what
+   *  answers "most common provisioning failure" without reading any prose. */
+  failures?:  { cause: string; count: number }[];
+  /** Step-specific counts. */
+  [k: string]: unknown;
 }
 
 /**
@@ -78,6 +114,9 @@ export interface VerifyReport {
   /** Lines describing what was checked and what was found. Appended to the step's detail
    *  on PASS as well as on failure — a check that proves something should say what. */
   detail?: string[];
+  /** Counts the check established. Merged over the executor's metrics, so `verified` and
+   *  `failures` come from the read-back rather than from what execute() believed. */
+  metrics?: StepMetrics;
 }
 
 export type VerifyOutcome = string | null | VerifyReport;

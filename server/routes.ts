@@ -28050,6 +28050,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             return Array.isArray(parsed) ? parsed.map((x: any) => String(x)) : [];
           } catch { return []; }
         })(),
+        // Countable outcomes (migration 056). Returned alongside the prose so a caller can
+        // chart without parsing it. Null, not {}, when the step emitted none — a rate over
+        // history must be able to tell "unknown" from "zero".
+        metrics: s.metrics ?? null,
         // Elapsed per stage: a step that succeeded after 40s is a different signal from
         // one that succeeded instantly, and only timing distinguishes them.
         elapsedMs: s.startedAt && s.completedAt

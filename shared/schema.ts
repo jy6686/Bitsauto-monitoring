@@ -4262,6 +4262,11 @@ export const provisioningSteps = pgTable("provisioning_steps", {
    *  already built this and the runner discarded it — a passing step could report only a
    *  tick and a duration, when it knew how many rules it created and how many it reused. */
   detail:      text("detail"),
+  /** Countable outcomes (migration 056). The machine-readable counterpart to `detail`:
+   *  requested / created / reused / verified / failed / skipped mean the same thing in
+   *  every step that emits them, so a rate can be computed across steps without parsing
+   *  a sentence. NULL is unknown, not zero. See StepMetrics in provisioning/types.ts. */
+  metrics:     jsonb("metrics"),
 });
 export type ProvisioningStep       = typeof provisioningSteps.$inferSelect;
 export type InsertProvisioningStep = typeof provisioningSteps.$inferInsert;
