@@ -28040,6 +28040,16 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         key: s.stepKey, label: s.label, status: s.status,
         startedAt: s.startedAt, completedAt: s.completedAt,
         attempt: s.attempt, reasonCode: s.reasonCode, error: s.error,
+        // What the step DID (migration 055). Parsed here rather than in the browser so a
+        // row written before that column existed, or one holding anything but a JSON
+        // array, degrades to no detail instead of breaking the whole progress panel.
+        detail: (() => {
+          if (!s.detail) return [];
+          try {
+            const parsed = JSON.parse(s.detail);
+            return Array.isArray(parsed) ? parsed.map((x: any) => String(x)) : [];
+          } catch { return []; }
+        })(),
         // Elapsed per stage: a step that succeeded after 40s is a different signal from
         // one that succeeded instantly, and only timing distinguishes them.
         elapsedMs: s.startedAt && s.completedAt

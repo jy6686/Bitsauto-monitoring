@@ -68,6 +68,20 @@ export interface StepOutcome {
   detail?: string[];
 }
 
+/**
+ * What a verify() may report. The bare `string | null` form is unchanged and still
+ * correct for a step whose check has nothing to say beyond pass or fail.
+ */
+export interface VerifyReport {
+  /** A reason when the check failed; null or omitted when it passed. */
+  reason?: string | null;
+  /** Lines describing what was checked and what was found. Appended to the step's detail
+   *  on PASS as well as on failure — a check that proves something should say what. */
+  detail?: string[];
+}
+
+export type VerifyOutcome = string | null | VerifyReport;
+
 export interface ProvisioningStep {
   /** Stable machine key. Matches provisioning_steps.step_key. Never renamed. */
   key:   string;
@@ -101,8 +115,13 @@ export interface ProvisioningStep {
    *
    * Runs AFTER execute() succeeds. A verify failure marks the step failed even
    * though execute() returned success — that is the entire point.
+   *
+   * A step whose check is worth describing may return a VerifyReport instead, and its
+   * lines join the step's detail whether the check passed or failed. "12 requested, 12
+   * created, 12 verified via listAuthRules + getAuthRuleInfo" is what an operator needs
+   * from a PASS; a bare tick tells them a check ran, not what it proved.
    */
-  verify?(ctx: StepContext, result: Record<string, unknown>): Promise<string | null>;
+  verify?(ctx: StepContext, result: Record<string, unknown>): Promise<VerifyOutcome>;
 
   /** Optional pre-flight. Return an error string to fail fast without side
    *  effects; return null to proceed. */

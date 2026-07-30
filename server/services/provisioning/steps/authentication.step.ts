@@ -48,7 +48,7 @@ import * as sippy from "../../../sippy";
 import { db } from "../../../db";
 import { clientIpRequests } from "@shared/schema";
 import { eq } from "drizzle-orm";
-import type { ProvisioningStep, StepContext, StepOutcome } from "../types";
+import type { ProvisioningStep, StepContext, StepOutcome, VerifyReport } from "../types";
 import { planAuthRuleSet, ruleKey, type PlannedAuthRule } from "../auth-rule-set";
 
 /** SIP. Sippy protocol ids: 1=SIP, 3=IAX2, 4=PIN. */
@@ -190,17 +190,17 @@ export const authenticationStep: ProvisioningStep = {
    * routing group is the failure mode that most looks like success: the customer
    * authenticates, calls connect, and traffic goes to the wrong carrier at the wrong cost.
    */
-  async verify(ctx: StepContext, result: Record<string, unknown>): Promise<string | null> {
+  async verify(ctx: StepContext, result: Record<string, unknown>): Promise<VerifyReport> {
     const iAccount = Number(result.iAccount);
     const planned  = (Array.isArray(result.planned) ? result.planned : []) as PlannedAuthRule[];
-    if (!planned.length) return "no rules to verify";
+    if (!planned.length) return { reason: "no rules to verify" };
 
     const listed = await sippy.listSippyAuthRules(
       ctx.sippy.username, ctx.sippy.password,
       { iAccount, iCustomer: Number(ctx.input.iCustomer ?? 1) }, ctx.sippy.portalUrl);
 
     // An error reading back is NOT a pass — the runner's verify contract.
-    if (listed.error) return `could not read auth rules back: ${listed.error}`;
+    if (listed.error) return { reason: `could not read auth rules back: ${listed.error}` };
 
     const byKey = new Map(
       (listed.authRules ?? []).map(readRule)
@@ -210,15 +210,31 @@ export const authenticationStep: ProvisioningStep = {
 
     const iCustomer = Number(ctx.input.iCustomer ?? 1);
     const problems: string[] = [];
+    // Counted BY CAUSE, not just totalled. "2 failed — routing group mismatch" tells an
+    // operator what to go and change; "2 failed" sends them to read twelve log lines.
+    const causes = new Map<string, number>();
+    let verified = 0;
+    // Recorded because it changes what a PASS means. If the switch never returned the
+    // routing group from either call, twelve ticks prove the rules exist and their CLD
+    // translation is right — not that they route anywhere. The operator should be told
+    // which of those two things was established.
+    let groupsChecked = 0;
 
     for (const want of planned) {
+      const before = problems.length;
+      const note = (cause: string, message: string) => {
+        problems.push(message);
+        causes.set(cause, (causes.get(cause) ?? 0) + 1);
+      };
+
       const got = byKey.get(ruleKey(want.remoteIp, want.incomingCld));
       if (!got) {
-        problems.push(`missing: ${want.remoteIp} ${want.incomingCld} (${want.country}/${want.product})`);
+        note('rule missing', `missing: ${want.remoteIp} ${want.incomingCld} (${want.country}/${want.product})`);
         continue;
       }
       if (got.cldRule !== want.cldTranslationRule) {
-        problems.push(`${want.incomingCld}: CLD rule is "${got.cldRule || "(empty)"}", expected "${want.cldTranslationRule}"`);
+        note('CLD translation mismatch',
+             `${want.incomingCld}: CLD rule is "${got.cldRule || "(empty)"}", expected "${want.cldTranslationRule}"`);
       }
 
       // ── Routing group ──────────────────────────────────────────────────────
@@ -229,25 +245,29 @@ export const authenticationStep: ProvisioningStep = {
       let actual = got.iRoutingGroup;
       if (actual === undefined) {
         if (!got.iAuthentication) {
-          problems.push(`${want.incomingCld}: Sippy returned no rule id, so the routing group cannot be read back`);
+          note('no rule id returned',
+               `${want.incomingCld}: Sippy returned no rule id, so the routing group cannot be read back`);
           continue;
         }
         const info = await sippy.getSippyAuthRuleInfo(
           ctx.sippy.username, ctx.sippy.password, got.iAuthentication,
           { iCustomer, portalUrl: ctx.sippy.portalUrl });
         if (!info.success) {
-          problems.push(`${want.incomingCld}: getAuthRuleInfo(${got.iAuthentication}) failed — ${info.error}`);
+          note('getAuthRuleInfo failed',
+               `${want.incomingCld}: getAuthRuleInfo(${got.iAuthentication}) failed — ${info.error}`);
           continue;
         }
         const fromInfo = info.authRule?.iRoutingGroup;
         if (fromInfo === undefined) {
           // Neither method returned the field. Unverifiable, and named as such rather than
           // reported as a wrong value — this switch would need a different check.
-          problems.push(`${want.incomingCld}: neither listAuthRules nor getAuthRuleInfo returned i_routing_group on rule ${got.iAuthentication} — could not verify`);
+          note('routing group not exposed by this switch',
+               `${want.incomingCld}: neither listAuthRules nor getAuthRuleInfo returned i_routing_group on rule ${got.iAuthentication} — could not verify`);
           continue;
         }
         actual = fromInfo;
       }
+      groupsChecked++;
 
       console.log(`[auth] read  acct=${iAccount} id=${got.iAuthentication} ip=${got.remoteIp} cld=${got.incomingCld} ` +
                   `cldRule=${got.cldRule || '(empty)'} rg=${actual === null ? '(null)' : actual} ` +
@@ -257,20 +277,47 @@ export const authenticationStep: ProvisioningStep = {
         // Sippy sent the field and it is empty. This is the documented cause of
         // "No Route Found": the rule authenticates and hands the call to the account
         // default instead of the group this cell was mapped to.
-        problems.push(`${want.incomingCld}: rule ${got.iAuthentication} has no routing group — the call would fall back to the account default, expected ${want.iRoutingGroup} (${want.routingGroupName ?? "unnamed"})`);
+        note('no routing group on the rule',
+             `${want.incomingCld}: rule ${got.iAuthentication} has no routing group — the call would fall back to the account default, expected ${want.iRoutingGroup} (${want.routingGroupName ?? "unnamed"})`);
       } else if (Number(actual) !== Number(want.iRoutingGroup)) {
-        problems.push(`${want.incomingCld}: routing group is ${actual}, expected ${want.iRoutingGroup} (${want.routingGroupName ?? "unnamed"})`);
+        note('routing group mismatch',
+             `${want.incomingCld}: routing group is ${actual}, expected ${want.iRoutingGroup} (${want.routingGroupName ?? "unnamed"})`);
       }
+
+      if (problems.length === before) verified++;
     }
 
-    // Cap the reported detail: twenty identical complaints tell an operator no more than
-    // three do, and the count is what conveys the scale.
+    // ── The report ────────────────────────────────────────────────────────────
+    // Requested / created / verified, plus the method, on a PASS as well as a failure. A
+    // tick and a duration answered "did a check run"; the operator's question is what the
+    // check established, and how many of the things they asked for now exist.
+    const created = Number(result.created ?? 0);
+    const reused  = Number(result.reused ?? 0);
+    const report: string[] = [
+      `Rules requested: ${planned.length} — created ${created}, reused ${reused}`,
+      `Rules verified:  ${verified} of ${planned.length}`,
+      groupsChecked === planned.length
+        ? 'Verification:    listAuthRules (rule + CLD translation) + getAuthRuleInfo (routing group)'
+        : `Verification:    listAuthRules (rule + CLD translation); routing group confirmed on ${groupsChecked} of ${planned.length} via getAuthRuleInfo`,
+    ];
+
     if (problems.length) {
+      report.push(`Failed:          ${planned.length - verified} — ` +
+                  Array.from(causes).map(([cause, n]) => `${n} ${cause}`).join(', '));
+      // Cap the per-rule lines: twenty identical complaints tell an operator no more than
+      // three do, and the count above is what conveys the scale.
       const shown = problems.slice(0, 5);
       const rest  = problems.length - shown.length;
-      return `${problems.length} of ${planned.length} rule(s) did not verify — ` +
-        shown.join("; ") + (rest > 0 ? ` (+${rest} more)` : "");
+      report.push(...shown.map(p => `  · ${p}`));
+      if (rest > 0) report.push(`  · (+${rest} more)`);
+
+      return {
+        reason: `${planned.length - verified} of ${planned.length} rule(s) did not verify — ` +
+                Array.from(causes).map(([cause, n]) => `${n} ${cause}`).join(', ') + '. ' +
+                shown.join('; ') + (rest > 0 ? ` (+${rest} more)` : ''),
+        detail: report,
+      };
     }
-    return null;
+    return { detail: report };
   },
 };

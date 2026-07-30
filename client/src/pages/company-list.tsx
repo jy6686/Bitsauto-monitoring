@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
@@ -706,6 +707,25 @@ function ProvisioningPanel({ company }: { company: Company }) {
                 )}
                 {s.status === 'failed' && s.error && (
                   <div className="text-[10px] text-red-400/90 mt-0.5 break-words">{s.error}</div>
+                )}
+                {/* What the step did — counts, identifiers, how it was verified. Shown on a
+                    PASS too: "12 requested, 12 created, 12 verified" is the answer to the
+                    question an operator actually has after a run, and a tick is not.
+                    Monospaced so the aligned labels the steps emit stay aligned. */}
+                {s.detail?.length > 0 && (
+                  <div className="mt-0.5 space-y-px">
+                    {s.detail.map((line: string, i: number) => (
+                      <div
+                        key={i}
+                        className={cn(
+                          "text-[10px] font-mono whitespace-pre-wrap break-words",
+                          s.status === 'failed' ? "text-red-400/75" : "text-muted-foreground",
+                        )}
+                      >
+                        {line}
+                      </div>
+                    ))}
+                  </div>
                 )}
               </span>
             </div>
