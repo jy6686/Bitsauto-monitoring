@@ -28147,6 +28147,35 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // GET /api/commercial-destinations — the destinations the business actually sells.
+  //
+  // Approved in the catalogue AND assigned to at least one product. Not the ~150,000
+  // operational catalogue, and not country names: the rate engine, the routing matrix and
+  // the catalogue all key on destination, so "Pakistan" would leave provisioning to guess
+  // between Pakistan Fixed, Pakistan Mobile and each operator breakout.
+  app.get('/api/commercial-destinations', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (_req, res) => {
+    try {
+      const { rows } = await pool.query<{ id: number; dial_prefix: string; name: string; country_code: string | null; products: string }>(
+        `SELECT d.id, d.dial_prefix, d.name, d.country_code,
+                string_agg(DISTINCT p.code, ',' ORDER BY p.code) AS products
+           FROM product_destination_assignments a
+           JOIN global_destinations d ON d.id = a.destination_id
+           JOIN product_registry    p ON p.id = a.product_id
+          WHERE a.status = 'active'
+            AND d.commercial_status = 'approved'
+            AND d.dial_prefix IS NOT NULL
+          GROUP BY d.id, d.dial_prefix, d.name, d.country_code
+          ORDER BY d.dial_prefix`,
+      );
+      res.json({
+        destinations: rows.map(r => ({
+          id: r.id, prefix: r.dial_prefix, name: r.name,
+          countryCode: r.country_code, products: (r.products ?? '').split(',').filter(Boolean),
+        })),
+      });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // GET /api/account-prefixes/available?q=100&limit=12 — free prefixes, for the picker.
   //
   // Offered instead of a free-text box so an operator chooses from what is actually
