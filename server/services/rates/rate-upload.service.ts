@@ -38,11 +38,33 @@ export {
  * downstream can tell that apart from a customer who only bought three.
  */
 export async function resolveDefaultRates(opts: {
+  /**
+   * Which default price list applies — resolved from the company's provisioning profile
+   * (`provisioning_profiles.rate_policy`).
+   *
+   * ACCEPTED BUT NOT YET APPLIED. product_rates has no policy dimension today, so every
+   * caller currently gets the platform default and passing a policy changes nothing. It
+   * is in the signature from the start deliberately: the alternative is adding a required
+   * argument once provisioning, Rate Manager and the certification page are all calling
+   * this, and a missed caller would silently price a customer off the wrong list rather
+   * than failing.
+   *
+   * Left as a string because provisioning_profiles.rate_policy is a NAME today. When the
+   * rate_policies pointer table lands (anticipated in 042's column comment), this becomes
+   * an id and only this function changes — the workbook builder never sees it.
+   */
+  ratePolicy?: string | null;
   /** Restrict to these product codes (FC/BC/SB/SC). Omit for every active product. */
   productCodes?: string[];
   asOf?: Date;
 } = {}): Promise<ResolvedDefaults> {
   const asOf = (opts.asOf ?? new Date()).toISOString().slice(0, 10);
+  if (opts.ratePolicy) {
+    // Say so rather than appearing to honour it. A caller that thinks it selected a
+    // policy and got the platform default would only discover the difference in a
+    // customer's bill.
+    console.warn(`[rates] resolveDefaultRates: ratePolicy "${opts.ratePolicy}" ignored — product_rates has no policy dimension yet; returning the platform default matrix.`);
+  }
 
   const products = await db
     .select({
