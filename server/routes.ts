@@ -28143,6 +28143,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
 
       let prefix: string | undefined = typeof req.body?.prefix === 'string' ? req.body.prefix.trim() : undefined;
+      // Reported back so an operator can tell a healthy allocation from one that only
+      // succeeded because the fallback caught a broken sequence.
+      let allocationSource: string | null = null;
 
       if (prefix) {
         if (!/^\d{4}$/.test(prefix)) {
@@ -28164,10 +28167,23 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           });
         }
       } else {
-        // Auto: draw from the sequence, skipping anything already taken. Same rule as
-        // migration 049's Pass 2 — an adopted legacy prefix occupies a number the
-        // sequence will still hand out.
-        const { allocateAccountPrefix, PrefixSpaceExhaustedError } = await import('./services/provisioning/account-prefix');
+        // Auto — SEQUENCE PREFERRED, SCAN AS FALLBACK.
+        //
+        // The sequence is the better source: nextval() is atomic, so two admins clicking
+        // at the same moment cannot be handed the same number, and it never returns a
+        // value twice. But it is also the only part of this endpoint that has failed in
+        // practice — 500 on a database where the manual picker, which scans
+        // generate_series for free values, worked in the same session and on the same
+        // click. Whatever the sequence's state, refusing to allocate when a free prefix
+        // demonstrably exists is the wrong answer for an operator.
+        //
+        // So: try the sequence, and if it cannot produce a usable value for ANY reason —
+        // missing, exhausted, permissions — fall back to the scan that is known to work
+        // here. The scan loses atomicity, which is why it is second, not first; the
+        // conditional UPDATE below is what actually prevents two admins colliding, and it
+        // holds for either source.
+        let source = 'sequence';
+        const { allocateAccountPrefix } = await import('./services/provisioning/account-prefix');
         try {
           for (let attempt = 0; attempt < 50; attempt++) {
             const candidate = await allocateAccountPrefix();
@@ -28175,16 +28191,30 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
               .from(companies).where(eq(companies.accountPrefix, candidate)).limit(1);
             if (!taken) { prefix = candidate; break; }
           }
-          if (!prefix) return res.status(409).json({ message: 'Fifty consecutive sequence values were already in use. Assign a prefix manually.' });
         } catch (e: any) {
-          if (e instanceof PrefixSpaceExhaustedError) return res.status(409).json({ message: e.message });
-          // The usual cause here is migration 049 never having applied on this database,
-          // so account_prefix_seq does not exist. Say so rather than surfacing a raw
-          // Postgres error an operator cannot act on.
-          return res.status(500).json({
-            message: `Automatic allocation is unavailable (${e?.message}). Assign a prefix manually, or check /schema-migrations — this usually means migration 049 has not applied here.`,
-          });
+          // Logged, never swallowed: the sequence being unusable is a real condition
+          // someone should fix, even though the operator is now served anyway.
+          console.warn(`[account-prefix] sequence unusable for company ${id}, falling back to scan:`, e?.message ?? e, e?.code ?? '');
         }
+
+        if (!prefix) {
+          source = 'scan';
+          const { rows } = await pool.query<{ prefix: string }>(
+            `SELECT lpad(g::TEXT, 4, '0') AS prefix
+               FROM generate_series(1001, 9999) g
+              WHERE lpad(g::TEXT, 4, '0') NOT IN (
+                      SELECT account_prefix FROM companies WHERE account_prefix IS NOT NULL)
+              ORDER BY g LIMIT 1`,
+          );
+          prefix = rows[0]?.prefix;
+          if (!prefix) {
+            return res.status(409).json({
+              message: 'The 4-digit prefix space 1001-9999 is fully allocated. Widen the prefix format — do not reissue a retired prefix.',
+            });
+          }
+          console.warn(`[account-prefix] company ${id} allocated ${prefix} by scan, not the sequence — account_prefix_seq needs attention (check /schema-migrations for 049/051).`);
+        }
+        allocationSource = source;
       }
 
       // Conditional on still being NULL: two admins assigning at once must not both win,
@@ -28204,7 +28234,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         metadata: { prefix, mode: req.body?.prefix ? 'manual' : 'auto' },
       });
 
-      res.json({ accountPrefix: prefix, mode: req.body?.prefix ? 'manual' : 'auto' });
+      res.json({ accountPrefix: prefix, mode: req.body?.prefix ? 'manual' : 'auto', source: allocationSource });
     } catch (e: any) {
       // Named and logged with context. An unlabelled 500 from here sent us looking at the
       // migration, the sequence and the UI in turn before anyone could say which line

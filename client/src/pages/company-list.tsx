@@ -1054,7 +1054,12 @@ function AssignPrefixButton({ companyId, companyName }: { companyId: number; com
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/preflight`] });
       toast({
         title: `${companyName} — account prefix ${d.accountPrefix}`,
-        description: d.mode === 'auto' ? "Allocated automatically." : "Assigned manually.",
+        // A scan-sourced allocation succeeded but means the sequence is unusable on this
+        // database. Saying so keeps a working fallback from hiding a real defect.
+        description: d.mode === 'manual' ? "Assigned manually."
+          : d.source === 'scan'
+            ? "Allocated by scan — account_prefix_seq is unusable here. Check migrations 049/051."
+            : "Allocated automatically.",
       });
       setManual(false); setValue("");
     },
