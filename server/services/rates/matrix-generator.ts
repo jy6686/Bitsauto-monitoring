@@ -73,6 +73,22 @@ export interface GeneratedMatrix {
   rows: GeneratedRow[];
   skipped: GeneratorSkip[];
   byProduct: Array<{ code: string; name: string; count: number }>;
+  /** False when `errors` is non-empty. Nothing may be uploaded from a matrix that is not ok. */
+  ok: boolean;
+  /** Conditions that would produce a WRONG tariff. Generation still returns its rows so a
+   *  preview can show what went wrong — but no caller may upload while these exist. */
+  errors: string[];
+  /** Conditions worth an operator's attention that do not make the tariff wrong. */
+  warnings: string[];
+  /** Counts for the UI, so a summary panel needs no arithmetic of its own. */
+  summary: {
+    destinationsProcessed: number;
+    destinationsApproved: number;
+    rowsGenerated: number;
+    rowsSkipped: number;
+    errorCount: number;
+    warningCount: number;
+  };
 }
 
 export interface GenerateOptions {
@@ -170,49 +186,60 @@ export function generateRateMatrix(opts: GenerateOptions): GeneratedMatrix {
     }
   }
 
-  return {
-    rows,
-    skipped,
-    byProduct: products.map(p => ({ code: p.code, name: p.name, count: counts.get(p.code) ?? 0 })),
-  };
-}
-
-/**
- * Refuse a matrix that would produce a wrong tariff.
- *
- * Separate from generation so a caller can preview a partial matrix — seeing what is
- * missing is the point of the preview — while an upload still cannot proceed on one.
- */
-export function validateGeneratedMatrix(m: GeneratedMatrix): { ok: boolean; errors: string[]; warnings: string[] } {
+  // ── Verdict, computed here rather than in a separate validate() ─────────────
+  // Duplicate detection in particular MUST live in generation. As a separate step it is
+  // a step a caller can forget, and the consequence of forgetting is a tariff where one
+  // destination silently overwrites another and which one wins depends on row order.
+  // The upload engine should never be the thing that discovers this.
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  if (!m.rows.length) errors.push('No rows generated — no approved destination has a price for any product.');
-
-  // Two destinations composing to one prefix means one silently overwrites the other in
-  // the tariff, and which one wins depends on row order.
   const seen = new Map<string, string>();
-  for (const r of m.rows) {
+  for (const r of rows) {
     const prior = seen.get(r.prefix);
     if (prior) {
-      errors.push(`Prefix ${r.prefix} is produced by both "${prior}" and "${r.destinationName}" — one would overwrite the other.`);
+      errors.push(`Prefix ${r.prefix} is produced by both "${prior}" and "${r.destinationName}" (${r.productCode}) — one would overwrite the other in the tariff.`);
     } else {
       seen.set(r.prefix, `${r.destinationName} (${r.productCode})`);
     }
   }
 
-  for (const p of m.byProduct) {
-    if (p.count === 0) errors.push(`Product ${p.code} (${p.name}) produced no rows — a customer would carry it unpriced.`);
+  if (!rows.length) {
+    errors.push('No rows generated — no approved destination has a price for any product.');
+  }
+  for (const p of products) {
+    if ((counts.get(p.code) ?? 0) === 0) {
+      errors.push(`Product ${p.code} (${p.name}) produced no rows — a customer would carry it unpriced.`);
+    }
   }
 
-  const unroutable = m.skipped.filter(s => s.reason === 'no-routing-group');
+  const unroutable = skipped.filter(s2 => s2.reason === 'no-routing-group');
   if (unroutable.length) {
-    warnings.push(`${unroutable.length} cell(s) are priced but have no routing group: ${unroutable.slice(0, 3).map(s => `${s.destinationName}/${s.productCode}`).join(', ')}${unroutable.length > 3 ? ' …' : ''}`);
+    warnings.push(`${unroutable.length} cell(s) priced with no routing group: ${unroutable.slice(0, 3).map(s2 => `${s2.destinationName}/${s2.productCode}`).join(', ')}${unroutable.length > 3 ? ' …' : ''}`);
   }
-  const notApproved = m.skipped.filter(s => s.reason === 'not-approved');
+  const notApproved = skipped.filter(s2 => s2.reason === 'not-approved');
   if (notApproved.length) {
-    warnings.push(`${notApproved.length} destination(s) excluded as not approved in the catalogue.`);
+    warnings.push(`${notApproved.length} destination(s) excluded — not approved in the catalogue.`);
+  }
+  const noRate = skipped.filter(s2 => s2.reason === 'no-rate');
+  if (noRate.length) {
+    warnings.push(`${noRate.length} (destination, product) cell(s) have no price.`);
   }
 
-  return { ok: errors.length === 0, errors, warnings };
+  return {
+    rows,
+    skipped,
+    byProduct: products.map(p => ({ code: p.code, name: p.name, count: counts.get(p.code) ?? 0 })),
+    ok: errors.length === 0,
+    errors,
+    warnings,
+    summary: {
+      destinationsProcessed: destinations.length,
+      destinationsApproved:  destinations.filter(d => d.commercialStatus === 'approved').length,
+      rowsGenerated: rows.length,
+      rowsSkipped:   skipped.length,
+      errorCount:    errors.length,
+      warningCount:  warnings.length,
+    },
+  };
 }
