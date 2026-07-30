@@ -5,6 +5,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { runSafeMigrations, runSchemaCheck, pool } from "./db";
 import { runFileMigrations, getMigrationStatus } from "./migrate";
+import { reportSchemaContract } from "./schema-contract";
 import { startRoutingCacheSync } from "./routing-cache";
 import { setupNocWebSocket } from "./noc-ws";
 import { setupLiveTrafficWebSocket } from "./live-traffic-ws";
@@ -253,6 +254,11 @@ app.use((req, res, next) => {
   boot("6a runFileMigrations() starting");
   await runFileMigrations(pool);
   boot("6b runFileMigrations() done");
+  // The runner never throws, so a halted run still reaches here. Confirm the columns the
+  // running code actually reads are present — the ledger says what was applied, this says
+  // what exists, and only the second one is what an endpoint hits. Awaited: it is one
+  // query, and the answer belongs above the first request in the log, not after it.
+  await reportSchemaContract(pool);
   console.log("[db] connected:", (process.env.DATABASE_URL ?? "").replace(/:\/\/[^:]+:[^@]+@/, "://<user>:***@"));
   // Schema check is diagnostic-only — run async so it doesn't delay routes
   runSchemaCheck().catch(() => {});

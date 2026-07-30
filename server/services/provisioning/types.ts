@@ -82,6 +82,9 @@ export interface StepOutcome {
  *
  * Never parse `detail` for a number. Its wording belongs to the step and is meant to
  * change; a query that depends on the wording breaks silently when it does.
+ *
+ * These keys are FROZEN — their meaning is a contract, not a convention. See
+ * docs/PROVISIONING-STEP-METRICS.md before changing one or adding a step.
  */
 export interface StepMetrics {
   /** How many things the step set out to create or confirm. */
