@@ -206,6 +206,7 @@ async function main() {
       process.exit(0);
     }
     console.log(`getUploadToken (tariff ${tariff}): FAILED — ${probe.error}`);
+    if (probe.raw) console.log(`  raw: ${probe.raw.replace(/\s+/g, ' ')}`);
     console.log("Admin XML-RPC works but the bulk-upload API does not answer. This is the mechanism behind");
     console.log("the tariff-33 rate-push defect. A rate upload cannot be automated until it is resolved;");
     console.log("importing a workbook through the Sippy UI still works and remains the manual path.");

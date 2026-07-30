@@ -19,6 +19,20 @@ import { productRates, productRegistry } from "../../../shared/schema";
 import { and, eq, or, sql, inArray } from "drizzle-orm";
 import { composePrefix, type RateRow, type ResolvedDefaults } from "./rate-matrix";
 
+/**
+ * Which product_registry rows count as sellable, and therefore must be priced.
+ *
+ * NOT just 'active'. workspace-seed.ts seeds the four canonical products with
+ * status 'commercial', and the schema's column default is 'active' — so filtering on
+ * 'active' alone matched nothing on a database holding all four, and the rate template
+ * reported "No active products in product_registry" against a fully seeded registry.
+ *
+ * Both are included deliberately. Pricing a product that turns out not to be sellable
+ * leaves unused rows; missing one leaves a sellable product unpriced, which reaches a
+ * customer. Same set routes.ts:37771 uses.
+ */
+export const SELLABLE_PRODUCT_STATUSES = ['active', 'commercial'] as const;
+
 export {
   buildBulkRateXlsx, validateDefaults, composePrefix,
   RATE_XLSX_HEADERS, type RateRow, type ResolvedDefaults,
@@ -76,8 +90,11 @@ export async function resolveDefaultRates(opts: {
     .from(productRegistry)
     .where(
       opts.productCodes?.length
-        ? and(eq(productRegistry.status, 'active'), inArray(productRegistry.code, opts.productCodes))
-        : eq(productRegistry.status, 'active'),
+        ? and(
+            inArray(productRegistry.status, [...SELLABLE_PRODUCT_STATUSES]),
+            inArray(productRegistry.code, opts.productCodes),
+          )
+        : inArray(productRegistry.status, [...SELLABLE_PRODUCT_STATUSES]),
     );
 
   const rows: RateRow[] = [];
