@@ -27737,11 +27737,29 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // lookup this is logged at ERROR, because a company with no prefix cannot be
       // provisioned at all, and preflight reports it rather than the engine discovering
       // it half way through.
+      // An operator may choose the prefix in the wizard. Validated here, not trusted:
+      // the browser's availability list is stale the moment it renders, and the partial
+      // unique index is the only thing that actually guarantees uniqueness.
       let accountPrefix: string | null = null;
-      try {
-        accountPrefix = await allocateAccountPrefix();
-      } catch (e: any) {
-        console.error(`[companies] account prefix allocation FAILED for "${basic.name}": ${e?.message}`);
+      const requested = typeof req.body?.accountPrefix === 'string' ? req.body.accountPrefix.trim() : '';
+      if (requested) {
+        if (!/^\d{4}$/.test(requested) || Number(requested) < 1001) {
+          return res.status(400).json({ message: `"${requested}" is not a valid account prefix (four digits, 1001-9999).` });
+        }
+        const [clash]: any[] = await db.select({ name: companies.name })
+          .from(companies).where(eq(companies.accountPrefix, requested)).limit(1);
+        if (clash) {
+          // Refuse the whole creation rather than silently allocating a different number:
+          // the operator chose this prefix for a reason and would not learn it was ignored.
+          return res.status(409).json({ message: `Prefix ${requested} is already allocated to ${clash.name}. Choose another.` });
+        }
+        accountPrefix = requested;
+      } else {
+        try {
+          accountPrefix = await allocateAccountPrefix();
+        } catch (e: any) {
+          console.error(`[companies] account prefix allocation FAILED for "${basic.name}": ${e?.message}`);
+        }
       }
 
       const company = await storage.createCompany({

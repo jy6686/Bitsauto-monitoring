@@ -70,6 +70,17 @@ export default function CompanyCreatePage() {
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   /** Client SIP IPs captured at creation. Recorded PENDING — admin approval is unchanged. */
   const [clientIps, setClientIps] = useState("");
+  /** Empty = let the platform allocate. Set only when the operator deliberately picks one,
+   *  which should be rare — auto is correct for essentially every company. */
+  const [accountPrefix, setAccountPrefix] = useState("");
+  const [pickPrefix, setPickPrefix] = useState(false);
+
+  const { data: freePrefixes } = useQuery<{ prefixes: string[] }>({
+    queryKey: ["/api/account-prefixes/available", accountPrefix],
+    queryFn: () => fetch(`/api/account-prefixes/available?q=${encodeURIComponent(accountPrefix)}&limit=20`)
+      .then(r => r.json()),
+    enabled: pickPrefix,
+  });
 
   const { data: kamsData } = useQuery<{ id: number; name: string; email: string; orgRole: string }[]>({
     queryKey: ["/api/kam"],
@@ -222,7 +233,8 @@ export default function CompanyCreatePage() {
       list.filter(c => c.firstName || c.email).map(c => ({ contactType: type, ...c }))
     );
     const initialIps = parseIps(clientIps);
-    const payload = { basic, billing, contacts: pocContacts, bankAccounts, initialIps };
+    const payload = { basic, billing, contacts: pocContacts, bankAccounts, initialIps,
+                      ...(accountPrefix ? { accountPrefix } : {}) };
     if (isEdit) {
       updateMutation.mutate(payload);
     } else {
@@ -391,6 +403,74 @@ export default function CompanyCreatePage() {
                   {errors.clientIps && (
                     <p className="text-[11px] text-red-400">{errors.clientIps}</p>
                   )}
+
+                  {/* PROGRESSIVE DISCLOSURE. Auto is right for essentially every company —
+                      the allocator falls back to a scan and can only fail when the whole
+                      1001-9999 space is gone. Showing a picker by default would invite an
+                      operator to invent a number the platform could have chosen correctly.
+                      The chosen value is validated server-side on save; this list is stale
+                      the moment it renders. */}
+                  <div className="pt-3 mt-3 border-t border-border/40 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium">Account Prefix</h3>
+                      {!pickPrefix ? (
+                        <button type="button" className="text-[11px] underline text-muted-foreground hover:text-foreground"
+                          onClick={() => setPickPrefix(true)} data-testid="link-choose-prefix">
+                          choose manually
+                        </button>
+                      ) : (
+                        <button type="button" className="text-[11px] underline text-muted-foreground hover:text-foreground"
+                          onClick={() => { setPickPrefix(false); setAccountPrefix(""); }}>
+                          use automatic
+                        </button>
+                      )}
+                    </div>
+
+                    {!pickPrefix ? (
+                      <p className="text-[11px] text-muted-foreground">
+                        Allocated automatically when the company is created.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        <Input
+                          value={accountPrefix}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                            setAccountPrefix(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                          placeholder="type to filter…"
+                          inputMode="numeric"
+                          className="h-8 w-32 text-sm font-mono"
+                          data-testid="input-account-prefix"
+                        />
+                        <div className="flex flex-wrap gap-1">
+                          {(freePrefixes?.prefixes ?? []).map((p: string) => (
+                            <button
+                              key={p} type="button"
+                              onClick={() => setAccountPrefix(p)}
+                              className={cn(
+                                "px-2 py-0.5 rounded border font-mono text-[11px]",
+                                accountPrefix === p
+                                  ? "border-emerald-500/60 text-emerald-400 bg-emerald-500/10"
+                                  : "border-border/50 hover:border-emerald-500/40",
+                              )}
+                              data-testid={`btn-prefix-${p}`}
+                            >
+                              {p}
+                            </button>
+                          ))}
+                          {!freePrefixes?.prefixes?.length && (
+                            <span className="text-[11px] text-muted-foreground">
+                              No free prefix matches “{accountPrefix}”.
+                            </span>
+                          )}
+                        </div>
+                        {accountPrefix.length === 4 && (
+                          <p className="text-[11px] text-emerald-400">
+                            Will use {accountPrefix} — checked again on save.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
               {(["technical","finance","commercial","billing"] as const).map(type => (
