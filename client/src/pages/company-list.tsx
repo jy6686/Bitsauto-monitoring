@@ -1069,7 +1069,13 @@ function AssignPrefixButton({ companyId, companyName }: { companyId: number; com
     },
     onSuccess: (d: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
-      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/preflight`] });
+      // REMOVE, not invalidate. The checks query is manual (Run Checks), so it is
+      // disabled — and invalidateQueries never refetches a disabled query. The panel kept
+      // showing the pre-assignment result, so it read "No account prefix allocated"
+      // directly above a toast saying the prefix was 1001, and a second click then hit the
+      // immutability guard. Dropping the cached result returns the panel to its un-run
+      // state, which is honest: the last checks are genuinely out of date now.
+      queryClient.removeQueries({ queryKey: [`/api/companies/${companyId}/preflight`] });
       toast({
         title: `${companyName} — account prefix ${d.accountPrefix}`,
         // A scan-sourced allocation succeeded but means the sequence is unusable on this

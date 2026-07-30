@@ -138,8 +138,12 @@ export const authenticationStep: ProvisioningStep = {
       return {
         status: "failed",
         reasonCode: "AUTH_RULE_CREATE_FAILED",
-        error: `${failures.length} of ${missing.length} rule(s) could not be created.`,
-        detail: [...detail, ...failures.slice(0, 5)],
+        // The COUNT alone sends an operator to the logs. Every rule carries Sippy's own
+        // message; the first one is almost always the reason for all of them, since 12 of
+        // 12 failing means a systemic cause — a rejected routing group, a duplicate rule,
+        // a permission — not twelve unrelated problems.
+        error: `${failures.length} of ${missing.length} rule(s) could not be created. First: ${failures[0]}`,
+        detail: [...detail, `${failures.length} failed:`, ...failures.slice(0, 12)],
         result: { iAccount, planned: plan.rules },
       };
     }
