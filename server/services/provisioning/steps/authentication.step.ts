@@ -29,6 +29,20 @@
  * VERIFIED FIELD BY FIELD — a rule existing is not proof it is correct. The read-back
  * compares CLD translation rule and routing group, because a rule with the wrong routing
  * group is the failure that looks like success and routes calls to the wrong carrier.
+ *
+ * TWO READ-BACK CALLS, NOT ONE. listAuthRules does not return i_routing_group — see the
+ * note above listSippyAuthRules in sippy.ts; since Sippy 2020 the list struct carries only
+ * the matching fields, and i_tariff / i_routing_group / max_sessions / max_cps come from
+ * getAuthRuleInfo. Verifying the group from the list alone therefore reported "routing
+ * group not returned by Sippy" for every rule on every run — twelve correctly created
+ * rules failing a check against a field the method never sends. So the list locates the
+ * rule and getAuthRuleInfo confirms its routing group.
+ *
+ * The three outcomes stay distinct, because they call for different actions:
+ *   absent  — the API did not send the field   → unverifiable, say which call and why
+ *   null    — Sippy sent it, empty             → a real defect: the rule falls back to the
+ *                                                account default, which is "No Route Found"
+ *   number  — compare it
  */
 import * as sippy from "../../../sippy";
 import { db } from "../../../db";
@@ -47,13 +61,25 @@ async function authorisedIpsFor(companyId: number): Promise<string[]> {
   ));
 }
 
-/** Normalise a rule read back from Sippy — field names vary by API surface. */
+/**
+ * Normalise a rule read back from Sippy — field names vary by API surface.
+ *
+ * iRoutingGroup keeps THREE states, and collapsing them with `?? null` is what turned a
+ * field listAuthRules simply does not send into twelve reported defects:
+ *   undefined — the response did not contain the member
+ *   null      — the response contained it, empty (Sippy's <nil/>)
+ *   number    — a value to compare
+ */
 function readRule(r: any) {
+  const rgKey = 'iRoutingGroup' in r ? r.iRoutingGroup
+              : 'i_routing_group' in r ? r.i_routing_group
+              : undefined;
   return {
+    iAuthentication: Number(r.iAuthentication ?? r.i_authentication ?? 0) || null,
     remoteIp:      String(r.remoteIp ?? r.remote_ip ?? "").trim(),
     incomingCld:   String(r.incomingCld ?? r.incoming_cld ?? "").trim(),
     cldRule:       String(r.cldTranslationRule ?? r.cld_translation_rule ?? "").trim(),
-    iRoutingGroup: r.iRoutingGroup ?? r.i_routing_group ?? null,
+    iRoutingGroup: rgKey === undefined ? undefined : rgKey === null ? null : Number(rgKey),
   };
 }
 
@@ -115,6 +141,10 @@ export const authenticationStep: ProvisioningStep = {
     let createdCount = 0;
 
     for (const rule of missing) {
+      // Every field we send, on one line, so a mismatch found at verify can be traced to
+      // what was actually requested without re-running anything.
+      console.log(`[auth] send  acct=${iAccount} ip=${rule.remoteIp} cld=${rule.incomingCld} cli=(none) ` +
+                  `cldRule=${rule.cldTranslationRule} rg=${rule.iRoutingGroup} (${rule.country}/${rule.product})`);
       const res = await sippy.addSippyAuthRule(
         ctx.sippy.username, ctx.sippy.password,
         {
@@ -178,7 +208,9 @@ export const authenticationStep: ProvisioningStep = {
         .map(r => [ruleKey(r.remoteIp, r.incomingCld), r] as const),
     );
 
+    const iCustomer = Number(ctx.input.iCustomer ?? 1);
     const problems: string[] = [];
+
     for (const want of planned) {
       const got = byKey.get(ruleKey(want.remoteIp, want.incomingCld));
       if (!got) {
@@ -188,12 +220,46 @@ export const authenticationStep: ProvisioningStep = {
       if (got.cldRule !== want.cldTranslationRule) {
         problems.push(`${want.incomingCld}: CLD rule is "${got.cldRule || "(empty)"}", expected "${want.cldTranslationRule}"`);
       }
-      // A routing group Sippy does not return is reported as unverifiable rather than
-      // assumed correct — an absent value is not a match.
-      if (got.iRoutingGroup == null) {
-        problems.push(`${want.incomingCld}: routing group not returned by Sippy — could not verify`);
-      } else if (Number(got.iRoutingGroup) !== Number(want.iRoutingGroup)) {
-        problems.push(`${want.incomingCld}: routing group is ${got.iRoutingGroup}, expected ${want.iRoutingGroup} (${want.routingGroupName ?? "unnamed"})`);
+
+      // ── Routing group ──────────────────────────────────────────────────────
+      // The list never carries it, so a second call per rule is the only honest way to
+      // check the field that decides where the call goes. One extra round trip per rule
+      // against a twelve-rule matrix is a few seconds; not checking it means a customer
+      // can pass provisioning and route to the wrong carrier at the wrong cost.
+      let actual = got.iRoutingGroup;
+      if (actual === undefined) {
+        if (!got.iAuthentication) {
+          problems.push(`${want.incomingCld}: Sippy returned no rule id, so the routing group cannot be read back`);
+          continue;
+        }
+        const info = await sippy.getSippyAuthRuleInfo(
+          ctx.sippy.username, ctx.sippy.password, got.iAuthentication,
+          { iCustomer, portalUrl: ctx.sippy.portalUrl });
+        if (!info.success) {
+          problems.push(`${want.incomingCld}: getAuthRuleInfo(${got.iAuthentication}) failed — ${info.error}`);
+          continue;
+        }
+        const fromInfo = info.authRule?.iRoutingGroup;
+        if (fromInfo === undefined) {
+          // Neither method returned the field. Unverifiable, and named as such rather than
+          // reported as a wrong value — this switch would need a different check.
+          problems.push(`${want.incomingCld}: neither listAuthRules nor getAuthRuleInfo returned i_routing_group on rule ${got.iAuthentication} — could not verify`);
+          continue;
+        }
+        actual = fromInfo;
+      }
+
+      console.log(`[auth] read  acct=${iAccount} id=${got.iAuthentication} ip=${got.remoteIp} cld=${got.incomingCld} ` +
+                  `cldRule=${got.cldRule || '(empty)'} rg=${actual === null ? '(null)' : actual} ` +
+                  `— want cldRule=${want.cldTranslationRule} rg=${want.iRoutingGroup}`);
+
+      if (actual === null) {
+        // Sippy sent the field and it is empty. This is the documented cause of
+        // "No Route Found": the rule authenticates and hands the call to the account
+        // default instead of the group this cell was mapped to.
+        problems.push(`${want.incomingCld}: rule ${got.iAuthentication} has no routing group — the call would fall back to the account default, expected ${want.iRoutingGroup} (${want.routingGroupName ?? "unnamed"})`);
+      } else if (Number(actual) !== Number(want.iRoutingGroup)) {
+        problems.push(`${want.incomingCld}: routing group is ${actual}, expected ${want.iRoutingGroup} (${want.routingGroupName ?? "unnamed"})`);
       }
     }
 

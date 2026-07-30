@@ -28,6 +28,7 @@ import { registerVendorProbeRoutes, initVendorProbeScheduler } from './routes-ve
 import { registerRouteTestRoutes } from './routes-route-tester';
 import { registerProductMappingRoutes } from './routes-product-mapping';
 import { createServer, type Server } from "http";
+import { checkIpv4, checkIpList } from "@shared/ip";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
 import * as net from "net";
 import * as https from "https";
@@ -27671,6 +27672,24 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       if (!basic?.name?.trim()) return res.status(400).json({ message: 'Company name is required' });
       if (!basic?.shortCode?.trim()) return res.status(400).json({ message: 'Short code is required' });
 
+      // ── SIP IPs, validated BEFORE the company row exists ──────────────────
+      // This endpoint had no IP check at all: the wizard validated, Add IP validated, and
+      // the one path the wizard's own submit takes did not. That is how 1.2.3.09 reached
+      // client_ip_requests, was approved, and surfaced as twelve authentication rules
+      // rejected with "Parameter remote_ip has incorrect format" — three provisioning runs
+      // later. A shape error is refused here rather than recorded and discovered on the
+      // switch, and it is refused before the insert so a bad IP cannot leave behind a
+      // half-created company.
+      const ipValidation = checkIpList(Array.isArray(initialIps) ? initialIps : []);
+      if (ipValidation.invalid.length) {
+        const first = ipValidation.invalid[0];
+        return res.status(400).json({
+          field: 'clientSipIps',
+          message: `${first.value} is not a valid IPv4 address. ${first.message}`,
+          invalid: ipValidation.invalid.map(v => ({ line: v.line, value: v.value, problem: v.problem, message: v.message })),
+        });
+      }
+
       // ── Automatic preparation (migration 044) ────────────────────────────
       // Resolve the provisioning profile from company type and COPY its routing,
       // notification and rate references onto the company. Copied rather than read
@@ -28503,19 +28522,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // reads as octal to a strict parser — and that surfaced as all twelve rules failing
       // at provisioning, long after the typo. The wizard now refuses it, but Add IP is a
       // second way in and every path to remote_ip has to be closed.
+      //
+      // Same validator the wizard and POST /api/companies use — @shared/ip. Three private
+      // copies of this rule was how the fourth path came to have none.
       const ipTrim = ipAddress.trim();
-      const base = ipTrim.split('/')[0];
-      const octets: string[] = base.split('.');
-      const validIpv4 = octets.length === 4
-        && octets.every(o => /^(0|[1-9]\d{0,2})$/.test(o) && Number(o) <= 255)
-        && (!ipTrim.includes('/') || /^\d{1,2}$/.test(ipTrim.split('/')[1]) && Number(ipTrim.split('/')[1]) <= 32);
-      if (!validIpv4) {
-        const leadingZero = octets.some(o => /^0\d/.test(o));
-        return res.status(400).json({
-          message: leadingZero
-            ? `${ipTrim} has a leading zero. Sippy rejects it as an invalid remote_ip — write ${octets.map(o => String(Number(o))).join('.')} instead.`
-            : `${ipTrim} is not a valid IPv4 address.`,
-        });
+      const check = checkIpv4(ipTrim);
+      if (!check.ok) {
+        return res.status(400).json({ field: 'ipAddress', message: `${ipTrim} is not a valid IPv4 address. ${check.message}` });
       }
 
       const existing = await storage.findClientIpRequest(ipTrim, clientName.trim());

@@ -34,7 +34,22 @@ async function throwIfResNotOk(res: Response) {
       throw new Error("Session expired. Redirecting to sign in…");
     }
 
-    throw new Error(`${res.status}: ${text || res.statusText}`);
+    // The server's own sentence, not the JSON that carries it. This threw
+    // `400: {"field":"clientSipIps","message":"1.2.3.09 is not a valid IPv4 address…"}`
+    // — every endpoint that takes trouble to explain a rejection had that explanation
+    // rendered as a raw body in a toast. Status and body stay on the error object for
+    // callers that want to branch on them.
+    let body: any = null;
+    try { body = JSON.parse(text); } catch { /* not JSON — fall through to the raw text */ }
+
+    const err: any = new Error(
+      typeof body?.message === 'string' && body.message.trim()
+        ? body.message
+        : `${res.status}: ${text || res.statusText}`,
+    );
+    err.status = res.status;
+    err.body   = body;
+    throw err;
   }
 }
 

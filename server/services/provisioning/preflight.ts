@@ -20,6 +20,7 @@ import { eq, and, ne, or, sql, inArray } from "drizzle-orm";
 import { unmappedRoutingCells } from "./routing-group";
 import { planAuthRuleSet } from "./auth-rule-set";
 import { testEmailConfig } from "../../email";
+import { checkIpv4 } from "@shared/ip";
 
 export type CheckStatus = "pass" | "fail" | "warn";
 
@@ -182,10 +183,28 @@ export async function runPreflight(companyId: number): Promise<PreflightResult> 
         .map((o: any) => `${ip} → ${nameOf(o.companyId)}`);
     });
 
-    checks.push(conflicts.length === 0
-      ? pass("ips", "Authorised IPs", `${ipList.length} IP${ipList.length === 1 ? "" : "s"}, no conflicts`)
-      : fail("ips", "IP conflict", conflicts.join(" · "),
-             "Two customers cannot be authorised on the same IP — calls would authenticate against the wrong account. Change the IP, or add it to the internal shared-IP list if the overlap is intentional."));
+    // Shape, checked BEFORE conflicts. Every entry point now refuses a malformed address,
+    // but rows recorded before that landed are still in the table and still approved, and
+    // Sippy rejects them one authentication rule at a time — "Parameter remote_ip has
+    // incorrect format", twelve times, at step 40 of a run. Named here instead, where the
+    // operator is deciding whether the customer is ready.
+    //
+    // Not repaired silently. Rewriting 1.2.3.09 to 1.2.3.9 on the way to Sippy would leave
+    // the approved record and the switch disagreeing about what was authorised.
+    const malformed = ipList
+      .map(ip => ({ ip, check: checkIpv4(ip) }))
+      .filter(x => !x.check.ok);
+
+    if (malformed.length) {
+      checks.push(fail("ips", "Authorised IPs",
+        malformed.map(m => `${m.ip} — ${m.check.message}`).join(" · "),
+        "Sippy refuses an authentication rule with a malformed remote_ip, so every rule for this IP fails. Add the corrected address on the company card, approve it, and reject the malformed one."));
+    } else {
+      checks.push(conflicts.length === 0
+        ? pass("ips", "Authorised IPs", `${ipList.length} IP${ipList.length === 1 ? "" : "s"}, no conflicts`)
+        : fail("ips", "IP conflict", conflicts.join(" · "),
+               "Two customers cannot be authorised on the same IP — calls would authenticate against the wrong account. Change the IP, or add it to the internal shared-IP list if the overlap is intentional."));
+    }
   }
 
   // ── Canonical identity (migration 049) ────────────────────────────────────
