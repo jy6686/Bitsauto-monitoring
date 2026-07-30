@@ -6221,11 +6221,19 @@ export async function pushRatesBulkXlsx(
   const xlsxBuffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 
   // Get upload token for this tariff
-  const _pIso     = new Date(Date.now() + 10_000).toISOString();
-  const processOn = `${_pIso.slice(0,4)}${_pIso.slice(5,7)}${_pIso.slice(8,10)}T${_pIso.slice(11,19)}`;
-  // Type resolved from the switch: this one numbers Rates as 2, not 1. See resolveUploadType.
+  // process_on OMITTED — it is what faults this switch.
+  // scripts/diagnose-upload-token.ts, 2026-07-30: getUploadToken issues a token for
+  // {i_upload_type} and for {i_upload_type, params{i_tariff}}, and returns faultCode 500
+  // "Fatal error" the moment process_on is added — with Rates (type 2) exactly as with
+  // Routes (type 1). Sending it has never once worked on this build.
+  //
+  // The comment that introduced it warned the status can then sit at FILE_UPLOADED
+  // because processing is scheduled far out. That is already handled: the poll loop
+  // treats FILE_UPLOADED as "verify anyway" and confirms the rate by reading it back,
+  // which is a stronger check than a status string. Trading a status we cannot get for a
+  // read-back we can is the right way round.
   const tokenXml  = buildGetUploadTokenXml(
-    await resolveUploadType(username, password, base, 'rates'), processOn, undefined, { i_tariff: iTariff });
+    await resolveUploadType(username, password, base, 'rates'), undefined, undefined, { i_tariff: iTariff });
   const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10_000);
 
   if (tokenResp.statusCode !== 200 || tokenResp.body.includes('faultCode')) {
@@ -8955,15 +8963,12 @@ export async function probeUploadToken(
   iTariff: number,
 ): Promise<{ ok: boolean; token?: string; url?: string; statusCode?: number; error?: string; raw?: string }> {
   const apiUrl = `${sippyBase(portalUrl)}/xmlapi/xmlapi`;
-  // process_on in the future: the token is never used, so nothing should be scheduled.
-  const iso = new Date(Date.now() + 3_600_000).toISOString();
-  const processOn = `${iso.slice(0, 4)}${iso.slice(5, 7)}${iso.slice(8, 10)}T${iso.slice(11, 19)}`;
   try {
     const resp = await sippyPost(
       apiUrl,
       buildGetUploadTokenXml(
         await resolveUploadType(username, password, portalUrl, 'rates'),
-        processOn, undefined, { i_tariff: iTariff }),
+        undefined, undefined, { i_tariff: iTariff }),
       username, password, 15000,
     );
     if (resp.statusCode !== 200) {
@@ -9021,14 +9026,20 @@ export async function setSippyRateEntry(
       if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))     return `${raw.trim()} 00:00:00`;
       return '';
     };
-    // Explicitly set process_on = "now + 10s" in Sippy ISO8601 format (YYYYMMDDThh:mm:ss).
-    // Without it some Sippy builds schedule processing far in the future, leaving status
-    // permanently at FILE_UPLOADED within the poll window.
-    const _pIso     = new Date(Date.now() + 10000).toISOString();
-    const processOn = `${_pIso.slice(0,4)}${_pIso.slice(5,7)}${_pIso.slice(8,10)}T${_pIso.slice(11,19)}`;
+  // process_on OMITTED — it is what faults this switch.
+  // scripts/diagnose-upload-token.ts, 2026-07-30: getUploadToken issues a token for
+  // {i_upload_type} and for {i_upload_type, params{i_tariff}}, and returns faultCode 500
+  // "Fatal error" the moment process_on is added — with Rates (type 2) exactly as with
+  // Routes (type 1). Sending it has never once worked on this build.
+  //
+  // The comment that introduced it warned the status can then sit at FILE_UPLOADED
+  // because processing is scheduled far out. That is already handled: the poll loop
+  // treats FILE_UPLOADED as "verify anyway" and confirms the rate by reading it back,
+  // which is a stronger check than a status string. Trading a status we cannot get for a
+  // read-back we can is the right way round.
     const tokenXml  = buildGetUploadTokenXml(
       await resolveUploadType(username, password, base, 'rates'),
-      processOn, undefined, { i_tariff: Number(tariffId) });
+      undefined, undefined, { i_tariff: Number(tariffId) });
     const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10000);
     console.log(`[RateManager] getUploadToken: HTTP ${tokenResp.statusCode} body=${tokenResp.body.substring(0, 300)}`);
 

@@ -148,6 +148,30 @@ async function main() {
               + member("params", `<struct>${member("i_tariff", int(iTariff))}</struct>`)),
       note: "If this issues a token, the rate-push defect is one wrong constant and nothing more.",
     },
+    // ── J failed, so process_on breaks with Rates as well. These separate the three
+    // remaining explanations, which need three different fixes:
+    //   the XML TYPE is unsupported · the FORMAT is wrong · the PARAMETER is unsupported
+    {
+      label: "K  type 2 + expires_on only (also a dateTime.iso8601)",
+      body: call("getUploadToken", member("i_upload_type", int(2)) + member("expires_on", dt(expiresOn))),
+      note: "A DIFFERENT date field failing identically means <dateTime.iso8601> itself is the problem, not process_on.",
+    },
+    {
+      label: "L  type 2 + process_on as <string>",
+      body: call("getUploadToken", member("i_upload_type", int(2)) + member("process_on", str(processOn))),
+      note: "If this passes, the value is fine and the XML type is what this build rejects.",
+    },
+    {
+      label: "M  type 2 + process_on as <string> in SQL format",
+      body: call("getUploadToken", member("i_upload_type", int(2))
+              + member("process_on", str(new Date(Date.now() + 10_000).toISOString().slice(0, 19).replace('T', ' ')))),
+      note: "YYYY-MM-DD HH:MM:SS — the shape the rate workbook's own date columns use.",
+    },
+    {
+      label: "N  type 2 + process_on = obvious rubbish",
+      body: call("getUploadToken", member("i_upload_type", int(2)) + member("process_on", str("not-a-date"))),
+      note: "A DIFFERENT fault (like G's 410) means the value is parsed and validated. The SAME 500 means the parameter is not handled at all.",
+    },
   ];
 
   for (const v of variants) {
