@@ -1,33 +1,33 @@
 prefix,destination,FC,BC,SB,SC,FC-R,BC-R,SB-R,SC-R
-880,BANGLADESH FIXED,,,,,,,,
-8801,BANGLADESH MOBILE,,,,,,,,
-8802,BANGLADESH FIXED DHAKA,,,,,,,,
-88031,BANGLADESH FIXED CHITTAGONG,,,,,,,,
-880821,BANGLADESH FIXED SYLHET,,,,,,,,
-91,INDIA FIXED,,,,,,,,
-9160,INDIA MOBILE,,,,,,,,
-9162,INDIA MOBILE,,,,,,,,
-9163,INDIA MOBILE,,,,,,,,
-9168,INDIA MOBILE,,,,,,,,
-9169,INDIA MOBILE,,,,,,,,
-9170,INDIA MOBILE,,,,,,,,
-9172,INDIA MOBILE,,,,,,,,
-9173,INDIA MOBILE,,,,,,,,
-9174,INDIA MOBILE,,,,,,,,
-9175,INDIA MOBILE,,,,,,,,
-9176,INDIA MOBILE,,,,,,,,
-9177,INDIA MOBILE,,,,,,,,
-9178,INDIA MOBILE,,,,,,,,
-9179,INDIA MOBILE,,,,,,,,
-918,INDIA MOBILE,,,,,,,,
-919,INDIA MOBILE,,,,,,,,
-92,PAKISTAN FIXED,,,,,,,,
-923,PAKISTAN MOBILE,,,,,,,,
-9230,PAKISTAN MOBILE MOBILINK,,,,,,,,
-9231,PAKISTAN MOBILE ZONG,,,,,,,,
-9232,PAKISTAN MOBILE WARID,,,,,,,,
-9233,PAKISTAN MOBILE UFONE,,,,,,,,
-9234,PAKISTAN MOBILE TELENOR,,,,,,,,
-9235,PAKISTAN MOBILE SCOM,,,,,,,,
-9237,PAKISTAN MOBILE ZONG,,,,,,,,
-9258,PAKISTAN FIXED KASHMIR,,,,,,,,
+880,Bangladesh,,,,,n/a,n/a,n/a,n/a
+8801,BANGLADESH MOBILE,,,,,n/a,n/a,n/a,n/a
+8802,Bangladesh Dhaka,,,,,n/a,n/a,n/a,n/a
+88031,Bangladesh Chittagong,,,,,n/a,n/a,n/a,n/a
+880821,Bangladesh Sylhet,,,,,n/a,n/a,n/a,n/a
+91,India,,,,,n/a,n/a,n/a,n/a
+9160,INDIA MOBILE,,,,,n/a,n/a,n/a,n/a
+9162,India Mobile,,,,,n/a,n/a,n/a,n/a
+9163,India Mobile,,,,,n/a,n/a,n/a,n/a
+9168,INDIA MOBILE,,,,,n/a,n/a,n/a,n/a
+9169,INDIA MOBILE,,,,,n/a,n/a,n/a,n/a
+9170,India Mobile,,,,,n/a,n/a,n/a,n/a
+9172,INDIA MOBILE,,,,,n/a,n/a,n/a,n/a
+9173,INDIA MOBILE,,,,,n/a,n/a,n/a,n/a
+9174,INDIA MOBILE,,,,,n/a,n/a,n/a,n/a
+9175,INDIA MOBILE,,,,,n/a,n/a,n/a,n/a
+9176,INDIA MOBILE,,,,,n/a,n/a,n/a,n/a
+9177,INDIA MOBILE,,,,,n/a,n/a,n/a,n/a
+9178,INDIA MOBILE,,,,,n/a,n/a,n/a,n/a
+9179,Jio,,,,,n/a,n/a,n/a,n/a
+918,INDIA MOBILE,,,,,n/a,n/a,n/a,n/a
+919,INDIA MOBILE,,,,,n/a,n/a,n/a,n/a
+92,Pakistan,,,,,n/a,n/a,n/a,n/a
+923,PAKISTAN MOBILE,,,,,n/a,n/a,n/a,n/a
+9230,Pakistan Mobile Jazz,,,,,n/a,n/a,n/a,n/a
+9231,Pakistan Mobile Zong,,,,,n/a,n/a,n/a,n/a
+9232,Pakistan Mobile Jazz,,,,,n/a,n/a,n/a,n/a
+9233,Pakistan Mobile Ufone,,,,,n/a,n/a,n/a,n/a
+9234,Pakistan Mobile Telenor,,,,,n/a,n/a,n/a,n/a
+9235,Pakistan Mobile SCO,,,,,n/a,n/a,n/a,n/a
+9237,Pakistan Mobile Zong,,,,,n/a,n/a,n/a,n/a
+9258,Pakistan Fixed SCO,,,,,n/a,n/a,n/a,n/a
