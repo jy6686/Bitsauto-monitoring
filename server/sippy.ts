@@ -8851,6 +8851,35 @@ export function buildFullTariffXlsx(
 }
 
 /**
+ * Send a fully-formed XML-RPC body and return the raw response.
+ *
+ * For diagnostics only — never call this from application code, which should use a typed
+ * wrapper. It exists because narrowing a fault means varying ONE parameter at a time, and
+ * every typed wrapper fixes the parameters it sends. getUploadToken currently returns
+ * faultCode 500 "Fatal error" for the exact arguments production uses, and the only way
+ * to tell a rejected parameter from a broken method is to send deliberately different
+ * bodies and compare.
+ *
+ * Takes portalUrl explicitly: module-level activeSession does not exist in a script.
+ */
+export async function sippyRawCall(
+  username: string,
+  password: string,
+  portalUrl: string,
+  xmlBody: string,
+  timeoutMs = 15000,
+): Promise<{ statusCode: number; body: string; faultCode?: string; faultString?: string }> {
+  const resp = await sippyPost(`${sippyBase(portalUrl)}/xmlapi/xmlapi`, xmlBody, username, password, timeoutMs);
+  const out: { statusCode: number; body: string; faultCode?: string; faultString?: string } =
+    { statusCode: resp.statusCode, body: resp.body };
+  if (resp.body.includes('faultCode')) {
+    out.faultCode   = extractTag(resp.body, 'int') || extractTag(resp.body, 'i4') || '?';
+    out.faultString = extractFaultString(resp.body) || '(none)';
+  }
+  return out;
+}
+
+/**
  * Ask Sippy for a rate-upload token WITHOUT uploading anything.
  *
  * Non-destructive by design, so it is safe in an automated probe. `createTariff` and
