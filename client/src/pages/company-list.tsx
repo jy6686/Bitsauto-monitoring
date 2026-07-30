@@ -1016,6 +1016,9 @@ function AssignPrefixButton({ companyId, companyName }: { companyId: number; com
   const { toast } = useToast();
   const [manual, setManual] = useState(false);
   const [value, setValue] = useState("");
+  /** Free prefixes the server returned with a refusal — shown ahead of the live list so
+   *  the operator sees exactly what it just offered. */
+  const [suggested, setSuggested] = useState<string[]>([]);
 
   // Only fetched once the picker is open — the card renders this component for every
   // company missing a prefix, and a list nobody has asked for is a query per card.
@@ -1045,7 +1048,11 @@ function AssignPrefixButton({ companyId, companyName }: { companyId: number; com
       if (!r.ok) {
         // Prefer the server's own wording; fall back to the raw body so a non-JSON error
         // page is still shown rather than swallowed into a status code.
-        throw new Error(body?.message ?? (raw ? raw.slice(0, 300) : `Request failed (${r.status})`));
+        const err: any = new Error(body?.message ?? (raw ? raw.slice(0, 300) : `Request failed (${r.status})`));
+        // Carried onto the error so the refusal can offer a way forward. A conflict that
+        // names the problem and nothing else leaves the operator to go hunting.
+        err.suggestions = Array.isArray(body?.suggestions) ? body.suggestions : [];
+        throw err;
       }
       return body;
     },
@@ -1061,9 +1068,19 @@ function AssignPrefixButton({ companyId, companyName }: { companyId: number; com
             ? "Allocated by scan — account_prefix_seq is unusable here. Check migrations 049/051."
             : "Allocated automatically.",
       });
-      setManual(false); setValue("");
+      setManual(false); setValue(""); setSuggested([]);
     },
-    onError: (e: any) => toast({ title: "Could not assign prefix", description: e.message, variant: "destructive" }),
+    onError: (e: any) => {
+      // Open the picker on failure, seeded with what the server says is free. The operator
+      // recovers in place instead of reading an error, closing it, and starting again.
+      const s: string[] = e?.suggestions ?? [];
+      if (s.length) { setSuggested(s); setManual(true); setValue(""); }
+      toast({
+        title: "Could not assign prefix",
+        description: s.length ? `${e.message} Pick one of the available prefixes below.` : e.message,
+        variant: "destructive",
+      });
+    },
   });
 
   return (
@@ -1096,7 +1113,7 @@ function AssignPrefixButton({ companyId, companyName }: { companyId: number; com
           <span className="flex items-center gap-1.5">
             <Input
               value={value}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setValue(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setSuggested([]); setValue(e.target.value.replace(/\D/g, "").slice(0, 4)); }}
               placeholder="type to filter…"
               inputMode="numeric"
               className="h-6 w-28 text-[10px] font-mono"
@@ -1120,7 +1137,7 @@ function AssignPrefixButton({ companyId, companyName }: { companyId: number; com
                 No free prefix matches “{value}”.
               </span>
             )}
-            {available.data?.prefixes?.map((p: string) => (
+            {(value ? (available.data?.prefixes ?? []) : (suggested.length ? suggested : available.data?.prefixes ?? [])).map((p: string) => (
               <button
                 key={p}
                 type="button"

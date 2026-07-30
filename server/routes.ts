@@ -28149,6 +28149,21 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  /** Free prefixes, for offering alongside a refusal. Never leave an operator at a dead
+   *  end: a conflict that also carries the next few available values is recoverable in
+   *  one click, where a bare "already allocated" means going to look for another. */
+  async function freePrefixes(limit = 6): Promise<string[]> {
+    try {
+      const { rows } = await pool.query<{ prefix: string }>(
+        `SELECT lpad(g::TEXT, 4, '0') AS prefix
+           FROM generate_series(1001, 9999) g
+          WHERE lpad(g::TEXT, 4, '0') NOT IN (
+                  SELECT account_prefix FROM companies WHERE account_prefix IS NOT NULL)
+          ORDER BY g LIMIT $1`, [limit]);
+      return rows.map(r => r.prefix);
+    } catch { return []; }   // suggestions are a courtesy; never fail the request over them
+  }
+
   // POST /api/companies/:id/account-prefix — assign a prefix that allocation could not.
   // Body: {} to retry auto-allocation, or { prefix: "1050" } to set one by hand.
   //
@@ -28197,6 +28212,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             message: `Prefix ${prefix} is already allocated to ${clash.name}.`,
             conflictCompanyId: clash.id,
             conflictCompanyName: clash.name,
+            suggestions: await freePrefixes(),
           });
         }
       } else {
@@ -28243,6 +28259,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           if (!prefix) {
             return res.status(409).json({
               message: 'The 4-digit prefix space 1001-9999 is fully allocated. Widen the prefix format — do not reissue a retired prefix.',
+              suggestions: [],
             });
           }
           console.warn(`[account-prefix] company ${id} allocated ${prefix} by scan, not the sequence — account_prefix_seq needs attention (check /schema-migrations for 049/051).`);
@@ -28257,7 +28274,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         .where(and(eq(companies.id, id), isNull(companies.accountPrefix)))
         .returning({ id: companies.id, accountPrefix: companies.accountPrefix });
       if (!updated.length) {
-        return res.status(409).json({ message: 'Another administrator assigned a prefix to this company a moment ago. Reload to see it.' });
+        return res.status(409).json({
+          message: 'Another administrator assigned a prefix to this company a moment ago. Reload to see it.',
+          suggestions: await freePrefixes(),
+        });
       }
 
       void writeAudit({
@@ -28269,6 +28289,17 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
       res.json({ accountPrefix: prefix, mode: req.body?.prefix ? 'manual' : 'auto', source: allocationSource });
     } catch (e: any) {
+      // 23505 = the partial unique index on companies.account_prefix. The SELECT above
+      // checks for a clash, but SELECT-then-UPDATE is not atomic: two admins assigning the
+      // same prefix to DIFFERENT companies both pass the check, and the index is what
+      // actually stops the second. Caught here so that arrives as the same recoverable
+      // conflict as any other, rather than a raw constraint error.
+      if (e?.code === '23505') {
+        return res.status(409).json({
+          message: 'That prefix was taken by another company a moment ago. Pick another.',
+          suggestions: await freePrefixes(),
+        });
+      }
       // Named and logged with context. An unlabelled 500 from here sent us looking at the
       // migration, the sequence and the UI in turn before anyone could say which line
       // threw — and `e.message` alone is empty for some Postgres errors, which is how this

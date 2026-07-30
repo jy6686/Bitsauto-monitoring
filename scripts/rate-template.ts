@@ -122,14 +122,19 @@ async function doDownload() {
       eq(globalDestinations.commercialStatus, "approved"),
       isNotNull(globalDestinations.dialPrefix),
     ));
-  const possible = approvedCount * products.length;
+  // Coverage against the COMMERCIAL set, not the operational catalogue. Measuring 128
+  // priceable cells against 150,268 approved destinations x 8 products reads as 0% and
+  // suggests something is broken, when it is in fact complete: every destination the
+  // business sells is priceable on every product it sells it on. The operational count
+  // stays visible for context, but it is not the denominator.
+  const possible = dests.length * products.length;
   const pct = possible ? Math.round((offered.size / possible) * 100) : 0;
 
   console.log(`Wrote ${out}\n`);
-  console.log(`  Approved destinations   ${approvedCount}`);
-  console.log(`  Assigned to a product   ${dests.length}`);
+  console.log(`  Catalogue (operational) ${approvedCount} approved destination(s)`);
+  console.log(`  Commercial set          ${dests.length} assigned to at least one product`);
   console.log(`  Products configured     ${products.length} — ${products.map(p => p.code).join(", ")}`);
-  console.log(`  Priceable cells         ${offered.size} of ${possible} possible (${pct}%)`);
+  console.log(`  Priceable cells         ${offered.size} of ${possible} across the commercial set (${pct}%)`);
   console.log(`  Cells marked "n/a" are not sold on that product and need no price.`);
 
   if (!dests.length) {
