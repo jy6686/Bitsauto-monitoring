@@ -35,17 +35,36 @@ export class PrefixSpaceExhaustedError extends Error {
 /**
  * Take the next prefix. Each call consumes one value whether or not the caller goes on
  * to use it — gaps in the sequence are expected and harmless, reuse is not.
+ *
+ * SKIPS VALUES ALREADY HELD BY A COMPANY. Two things put taken numbers in the sequence's
+ * path: 049 adopts legacy prefixes without consuming them from the sequence, and 051
+ * rewinds the sequence to the lowest free value, after which it walks upward through a
+ * range where some numbers are already in use. Without the skip, allocation returns a
+ * duplicate and the caller hits the partial unique index with a raw constraint error.
+ *
+ * The skip does not weaken the never-reissue guarantee: a value that ever reached a
+ * company is in `companies` and is exactly what this excludes.
  */
 export async function allocateAccountPrefix(): Promise<string> {
+  // Bounded rather than unbounded: on a nearly-full space this would otherwise walk
+  // thousands of taken values one round trip at a time. Hitting the cap means the space
+  // is dense enough to need widening, which is the same conversation as exhaustion.
+  const MAX_ATTEMPTS = 100;
   try {
-    const { rows } = await pool.query<{ prefix: string }>(
-      `SELECT lpad(nextval('account_prefix_seq')::TEXT, 4, '0') AS prefix`,
-    );
-    const prefix = rows[0]?.prefix;
-    if (!prefix || !/^\d{4}$/.test(prefix)) {
-      throw new Error(`account_prefix_seq produced an invalid value: ${String(prefix)}`);
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const { rows } = await pool.query<{ prefix: string; taken: boolean }>(
+        `WITH candidate AS (SELECT lpad(nextval('account_prefix_seq')::TEXT, 4, '0') AS prefix)
+         SELECT c.prefix,
+                EXISTS (SELECT 1 FROM companies WHERE account_prefix = c.prefix) AS taken
+           FROM candidate c`,
+      );
+      const prefix = rows[0]?.prefix;
+      if (!prefix || !/^\d{4}$/.test(prefix)) {
+        throw new Error(`account_prefix_seq produced an invalid value: ${String(prefix)}`);
+      }
+      if (!rows[0].taken) return prefix;
     }
-    return prefix;
+    throw new Error(`${MAX_ATTEMPTS} consecutive sequence values were already allocated — the 4-digit prefix space is nearly full.`);
   } catch (err: any) {
     // Postgres raises 2200H (sequence_generator_limit_exceeded) at MAXVALUE with NO CYCLE.
     if (err?.code === '2200H' || /reached maximum value/i.test(err?.message ?? '')) {
