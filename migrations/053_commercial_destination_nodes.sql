@@ -66,7 +66,10 @@ BEGIN
     -- Hang it beneath the nearest approved ancestor if there is one (923 under 92), so the
     -- tree stays navigable. No ancestor is fine — a root-level commercial node still
     -- prices correctly.
-    SELECT id, level INTO parent FROM global_destinations
+    -- country_code comes from the ancestor, never from the rate card. rate_card_entries
+    -- .country holds a NAME ("Bangladesh"), country_code is varchar(4) — writing one into
+    -- the other is what failed this migration on its first run.
+    SELECT id, level, country_code INTO parent FROM global_destinations
      WHERE commercial_status = 'approved'
        AND r.prefix LIKE dial_prefix || '%' AND dial_prefix <> r.prefix
      ORDER BY length(dial_prefix) DESC LIMIT 1;
@@ -77,7 +80,7 @@ BEGIN
       parent.id,
       COALESCE(parent.level, 0) + 1,
       COALESCE(NULLIF(r.breakout, ''), NULLIF(r.country, ''), 'Commercial ' || r.prefix),
-      NULLIF(r.country, ''),
+      parent.country_code,
       r.prefix,
       'approved',
       'Commercial pricing level (migration 053). Operator-series entries beneath this prefix remain the routing and analytics model; this node exists so the destination can be priced as one breakout.',
