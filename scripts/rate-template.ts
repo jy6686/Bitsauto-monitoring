@@ -170,7 +170,13 @@ async function main() {
     process.exit(2);
   }
   const mode = process.argv[2];
-  if (mode === "download") return doDownload();
+  if (mode === "download") {
+    await doDownload();
+    // Explicit: the pg pool keeps the event loop alive, so without this the script
+    // prints its result and then appears to hang. doImport already exits on every path;
+    // download did not, and the missing prompt read as a stuck process.
+    process.exit(0);
+  }
   if (mode === "import") {
     const file = process.argv[3];
     if (!file || file.startsWith("--")) {
