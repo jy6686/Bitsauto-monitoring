@@ -1027,21 +1027,39 @@ function AssignPrefixButton({ companyId, companyName }: { companyId: number; com
   });
 
   const assign = useMutation({
-    mutationFn: (prefix?: string) =>
-      apiRequest("POST", `/api/companies/${companyId}/account-prefix`, prefix ? { prefix } : {})
-        .then(async r => {
-          const body = await r.json();
-          // The 409 body carries which company owns the prefix — the useful part. A bare
-          // "already allocated" leaves the operator guessing.
-          if (!r.ok) throw new Error(body?.message ?? `Request failed (${r.status})`);
-          return body;
-        }),
+    // fetch, NOT apiRequest. apiRequest calls throwIfResNotOk, which throws
+    // `${status}: ${rawBody}` BEFORE returning — so the handler below never ran on an
+    // error and every message this endpoint composes was replaced by that raw string.
+    // The whole point of the 409 is naming which company owns the prefix; losing it turns
+    // a precise answer into "500: Internal Server Error".
+    mutationFn: async (prefix?: string) => {
+      const r = await fetch(`/api/companies/${companyId}/account-prefix`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(prefix ? { prefix } : {}),
+      });
+      const raw = await r.text();
+      let body: any = null;
+      try { body = raw ? JSON.parse(raw) : null; } catch { /* not JSON — fall through */ }
+      if (!r.ok) {
+        // Prefer the server's own wording; fall back to the raw body so a non-JSON error
+        // page is still shown rather than swallowed into a status code.
+        throw new Error(body?.message ?? (raw ? raw.slice(0, 300) : `Request failed (${r.status})`));
+      }
+      return body;
+    },
     onSuccess: (d: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/preflight`] });
       toast({
         title: `${companyName} — account prefix ${d.accountPrefix}`,
-        description: d.mode === 'auto' ? "Allocated automatically." : "Assigned manually.",
+        // A scan-sourced allocation succeeded but means the sequence is unusable on this
+        // database. Saying so keeps a working fallback from hiding a real defect.
+        description: d.mode === 'manual' ? "Assigned manually."
+          : d.source === 'scan'
+            ? "Allocated by scan — account_prefix_seq is unusable here. Check migrations 049/051."
+            : "Allocated automatically.",
       });
       setManual(false); setValue("");
     },
