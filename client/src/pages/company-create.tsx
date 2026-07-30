@@ -116,10 +116,42 @@ export default function CompanyCreatePage() {
   }, [isEdit, existingData, companyId, populated]);
 
   const createMutation = useMutation({
-    mutationFn: (payload: any) => apiRequest("POST", "/api/companies", payload),
-    onSuccess: () => {
+    // .json() — the response was previously discarded, so everything the endpoint reports
+    // about what it actually managed to do was unreachable to the UI.
+    mutationFn: (payload: any) => apiRequest("POST", "/api/companies", payload).then(r => r.json()),
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
-      toast({ title: "Company created successfully" });
+
+      // Creating a company does three more things that can each fail on their own: the
+      // Sippy tariff, the Sippy service plan, and the initial IP requests. All three are
+      // deliberately non-fatal — a switch outage must not cost a customer record — so the
+      // create returns 200 either way, and "Company created successfully" was shown even
+      // when none of them had happened. That is how Test-098 came to exist with nothing in
+      // Sippy, and Test-982 with the operator's IP silently dropped.
+      const ips = data?.ips as { requested: number; created: number; error: string | null } | undefined;
+      const com = data?.commercial as { tariffId: number | null; servicePlanId: number | null; error: string | null } | undefined;
+
+      const done: string[] = [];
+      const failed: string[] = [];
+      if (com?.tariffId)      done.push(`Tariff #${com.tariffId}`);
+      else if (com?.error)    failed.push("Tariff");
+      if (com?.servicePlanId) done.push(`Service plan #${com.servicePlanId}`);
+      else if (com?.error)    failed.push("Service plan");
+      if (ips?.created)       done.push(`${ips.created} IP${ips.created !== 1 ? "s" : ""} pending approval`);
+      if (ips?.error)         failed.push(`${ips.requested} IP${ips.requested !== 1 ? "s" : ""}`);
+
+      if (failed.length) {
+        toast({
+          title: `Company created — ${failed.join(" and ")} could not be recorded`,
+          description: `${done.length ? done.join(" · ") + ". " : ""}${com?.error ?? ips?.error ?? ""} Retry from the company card once resolved.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Company created",
+          description: done.length ? done.join(" · ") : undefined,
+        });
+      }
       navigate("/company/list");
     },
     onError: (e: any) => toast({ title: e.message || "Failed to create company", variant: "destructive" }),
