@@ -28497,12 +28497,33 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const { clientName, companyId, ipAddress, trunk, description } = req.body ?? {};
       if (!clientName?.trim()) return res.status(400).json({ message: 'Client name is required' });
       if (!ipAddress?.trim()) return res.status(400).json({ message: 'IP address is required' });
-      const existing = await storage.findClientIpRequest(ipAddress.trim(), clientName.trim());
+
+      // Validated HERE, not only in the wizard. Sippy rejects an authentication rule with
+      // "Parameter remote_ip has incorrect format" for a leading-zero octet — 1.2.3.09
+      // reads as octal to a strict parser — and that surfaced as all twelve rules failing
+      // at provisioning, long after the typo. The wizard now refuses it, but Add IP is a
+      // second way in and every path to remote_ip has to be closed.
+      const ipTrim = ipAddress.trim();
+      const base = ipTrim.split('/')[0];
+      const octets: string[] = base.split('.');
+      const validIpv4 = octets.length === 4
+        && octets.every(o => /^(0|[1-9]\d{0,2})$/.test(o) && Number(o) <= 255)
+        && (!ipTrim.includes('/') || /^\d{1,2}$/.test(ipTrim.split('/')[1]) && Number(ipTrim.split('/')[1]) <= 32);
+      if (!validIpv4) {
+        const leadingZero = octets.some(o => /^0\d/.test(o));
+        return res.status(400).json({
+          message: leadingZero
+            ? `${ipTrim} has a leading zero. Sippy rejects it as an invalid remote_ip — write ${octets.map(o => String(Number(o))).join('.')} instead.`
+            : `${ipTrim} is not a valid IPv4 address.`,
+        });
+      }
+
+      const existing = await storage.findClientIpRequest(ipTrim, clientName.trim());
       if (existing && existing.status === 'pending') return res.status(409).json({ message: 'IP already submitted and pending approval' });
       const row = await storage.createClientIpRequest({
         clientName: clientName.trim(),
         companyId: companyId ? parseInt(companyId, 10) : null,
-        ipAddress: ipAddress.trim(),
+        ipAddress: ipTrim,
         trunk: trunk || null,
         description: description || null,
         status: 'pending',
