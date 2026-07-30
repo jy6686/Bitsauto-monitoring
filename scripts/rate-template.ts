@@ -164,13 +164,49 @@ async function doImport(file: string) {
   const errors = issues.filter(i => i.severity === "error");
   const warnings = issues.filter(i => i.severity === "warning");
 
+  // SUMMARISE, do not enumerate. An empty sheet produces one error per (destination,
+  // product) — 128 near-identical lines saying the same thing, which an operator has to
+  // scroll past to find the one that is different. Grouped by line, the shape of the
+  // problem is visible at a glance; --verbose still prints every line for a diff.
+  const verbose = has("verbose");
   for (const w of warnings) console.log(`  WARN  ${w.line ? `line ${w.line}: ` : ""}${w.message}`);
-  for (const e of errors)   console.log(`  ERROR ${e.line ? `line ${e.line}: ` : ""}${e.message}`);
+
+  if (verbose) {
+    for (const e of errors) console.log(`  ERROR ${e.line ? `line ${e.line}: ` : ""}${e.message}`);
+  } else if (errors.length) {
+    const missing = new Map<number, { prefix: string; products: string[] }>();
+    const other: typeof errors = [];
+    for (const e of errors) {
+      const m = /^(\S+) has no (\S+) price/.exec(e.message);
+      if (m && e.line) {
+        const g = missing.get(e.line) ?? { prefix: m[1], products: [] };
+        g.products.push(m[2]);
+        missing.set(e.line, g);
+      } else {
+        other.push(e);
+      }
+    }
+    for (const e of other) console.log(`  ERROR ${e.line ? `line ${e.line}: ` : ""}${e.message}`);
+    if (missing.size) {
+      const productCount = products.length;
+      const whole = [...missing.values()].filter(g => g.products.length === productCount);
+      const partial = [...missing.entries()].filter(([, g]) => g.products.length < productCount);
+      console.log("");
+      if (whole.length) {
+        console.log(`  ${whole.length} destination(s) have NO prices at all:`);
+        console.log(`    ${whole.map(g => g.prefix).join(', ')}`);
+      }
+      for (const [line, g] of partial) {
+        console.log(`  line ${line}: ${g.prefix} missing ${g.products.join(', ')}`);
+      }
+    }
+  }
 
   if (errors.length) {
     // Nothing touches the database. A partially-valid sheet imported partially is a
     // price list nobody can reason about.
     console.error(`\n${errors.length} error(s) — nothing imported.`);
+    if (!verbose) console.error('Re-run with --verbose to list every one.');
     process.exit(1);
   }
 
