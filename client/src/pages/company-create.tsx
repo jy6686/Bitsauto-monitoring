@@ -232,9 +232,20 @@ export default function CompanyCreatePage() {
       } else {
         // Shape only, deliberately — an IP that is well-formed but wrong is a business
         // problem the admin approval step exists to catch. This catches the typo.
-        const bad = ips.filter(ip => !/^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/.test(ip)
-                                  || ip.split('/')[0].split('.').some(o => Number(o) > 255));
-        if (bad.length) errs.clientIps = `Not a valid IPv4 address: ${bad.slice(0, 3).join(', ')}`;
+        // Leading zeros rejected. "1.2.3.09" passes a naive octet check but is not a
+        // valid IPv4 literal — historically an octal notation, and strict parsers refuse
+        // it. Sippy is one of them, so accepting it here means the failure surfaces as
+        // twelve authentication rules rejected at provisioning rather than a typo caught
+        // at the field.
+        const octetsOk = (ip: string) => ip.split('/')[0].split('.').every(
+          o => /^(0|[1-9]\d{0,2})$/.test(o) && Number(o) <= 255);
+        const bad = ips.filter(ip => !/^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/.test(ip) || !octetsOk(ip));
+        if (bad.length) {
+          const zeroPadded = bad.filter(ip => ip.split('/')[0].split('.').some(o => /^0\d/.test(o)));
+          errs.clientIps = zeroPadded.length
+            ? `Leading zeros are not valid in an IP address: ${zeroPadded.slice(0, 3).join(', ')} — write 1.2.3.9, not 1.2.3.09.`
+            : `Not a valid IPv4 address: ${bad.slice(0, 3).join(', ')}`;
+        }
       }
     }
     setErrors(errs);
