@@ -21,8 +21,8 @@
 import { readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { db } from "../server/db";
-import { productRegistry, productRates, rateCards, rateCardEntries } from "../shared/schema";
-import { and, eq, isNull, lt, inArray, asc } from "drizzle-orm";
+import { productRegistry, productRates, globalDestinations } from "../shared/schema";
+import { and, eq, isNull, isNotNull, lt, inArray, asc } from "drizzle-orm";
 import {
   buildTemplateCsv, parseTemplateCsv, validateTemplate, expandTemplate, previousDay,
   type TemplateProduct,
@@ -47,29 +47,38 @@ async function activeProducts(): Promise<TemplateProduct[]> {
 }
 
 /**
- * Destinations for a blank template.
+ * Destinations for a blank template — FROM THE CATALOGUE, approved only.
  *
- * Prefers what product_rates already holds, so a re-download reflects the current sheet.
- * Falls back to the client rate card seeded by migration 041 — 32 owner-supplied
- * destinations — so the first download is a sheet to price rather than a header to fill
- * in by hand. Retyping 32 prefixes is where prefixes get transposed.
+ * Previously this seeded from whatever was already in product_rates, falling back to a
+ * client rate card. Both let an operator price a destination the catalogue has never
+ * approved, and neither produced a destination_id — so every imported row was a free-text
+ * prefix with nothing tying it to a catalogue entry, and the generator's approval rule had
+ * nothing to check against.
+ *
+ * The template now offers exactly the destinations that may legitimately be sold. You
+ * cannot price what is not approved, because it is not on the sheet.
  */
-async function seedDestinations(): Promise<Array<{ prefix: string; destination?: string | null }>> {
-  const existing = await db
-    .selectDistinct({ prefix: productRates.prefix })
-    .from(productRates)
-    .orderBy(asc(productRates.prefix));
-  const fromRates = existing.map(r => r.prefix).filter((p): p is string => !!p);
-  if (fromRates.length) return fromRates.map(prefix => ({ prefix }));
-
-  const [card] = await db.select().from(rateCards).where(eq(rateCards.cardType, "client")).limit(1);
-  if (!card) return [];
-  const entries = await db
-    .select({ prefix: rateCardEntries.prefix, breakout: rateCardEntries.breakout, country: rateCardEntries.country })
-    .from(rateCardEntries)
-    .where(eq(rateCardEntries.rateCardId, card.id))
-    .orderBy(asc(rateCardEntries.prefix));
-  return entries.map(e => ({ prefix: e.prefix, destination: e.breakout ?? e.country ?? null }));
+async function seedDestinations(): Promise<Array<{ id: number; prefix: string; destination: string }>> {
+  const rows = await db
+    .select({
+      id: globalDestinations.id,
+      dialPrefix: globalDestinations.dialPrefix,
+      name: globalDestinations.name,
+      operatorName: globalDestinations.operatorName,
+    })
+    .from(globalDestinations)
+    .where(and(
+      eq(globalDestinations.commercialStatus, "approved"),
+      isNotNull(globalDestinations.dialPrefix),
+    ))
+    .orderBy(asc(globalDestinations.dialPrefix));
+  return rows
+    .filter(r => (r.dialPrefix ?? "").trim())
+    .map(r => ({
+      id: r.id,
+      prefix: (r.dialPrefix ?? "").trim(),
+      destination: r.operatorName ? `${r.name} ${r.operatorName}` : r.name,
+    }));
 }
 
 async function doDownload() {
@@ -85,7 +94,8 @@ async function doDownload() {
   console.log(`Wrote ${out}`);
   console.log(`  ${dests.length} destination(s) x ${products.length} product(s) — ${products.map(p => p.code).join(", ")}`);
   if (!dests.length) {
-    console.log("  No destinations found in product_rates or any client rate card — the file is a header only.");
+    console.log("  No APPROVED destinations with a dial prefix in the catalogue — the file is a header only.");
+    console.log("  Approve destinations in the Destination Catalogue before pricing them.");
   }
   console.log("\nFill in the price columns, then:");
   console.log(`  npx tsx scripts/rate-template.ts import ${out} --effective-from YYYY-MM-DD`);
@@ -117,6 +127,24 @@ async function doImport(file: string) {
     process.exit(1);
   }
 
+  // ── Resolve every row to an APPROVED catalogue entry ────────────────────────
+  // The owner's rule is that Sippy never receives an arbitrary prefix. Enforced here,
+  // at the only point free text enters the system: a CSV row whose prefix matches no
+  // approved destination is refused, not imported and dealt with later. Without this the
+  // generator's approval check has nothing to check — destination_id was written NULL.
+  const catalogue = await seedDestinations();
+  const byPrefix = new Map(catalogue.map(d => [d.prefix, d]));
+  const unmatched = rows.filter(r => !byPrefix.has(r.prefix));
+  if (unmatched.length) {
+    for (const r of unmatched) {
+      console.log(`  ERROR line ${r.line}: prefix ${r.prefix} matches no APPROVED destination in the catalogue.`);
+    }
+    console.error(`\n${unmatched.length} row(s) reference destinations that are not approved — nothing imported.`);
+    console.error('Approve them in the Destination Catalogue, or re-download the template: it only lists what may be sold.');
+    process.exit(1);
+  }
+  const destIdOf = new Map(rows.map(r => [r.prefix, byPrefix.get(r.prefix)!.id]));
+
   const expanded = expandTemplate(rows, products);
   const closesOn = previousDay(effectiveFrom);
   const productIds = products.map(p => p.id);
@@ -147,7 +175,9 @@ async function doImport(file: string) {
 
     await tx.insert(productRates).values(expanded.map(r => ({
       productId:     r.productId,
-      destinationId: null,
+      // The link the generator joins on. Populated from the catalogue rather than left
+      // NULL, so a rate can always name the approved destination it prices.
+      destinationId: destIdOf.get(r.prefix) ?? null,
       prefix:        r.prefix,
       rate:          String(r.rate),   // numeric column — a JS float would round
       currency:      "USD",
