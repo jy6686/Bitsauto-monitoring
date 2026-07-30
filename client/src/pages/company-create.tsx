@@ -139,6 +139,22 @@ export default function CompanyCreatePage() {
       legalNameVen: co.legalNameVen ?? "",
       invoiceEmail: co.invoiceEmail ?? "",
     });
+    // Contacts too. They render as four empty rows otherwise, which reads as a company
+    // with no contacts rather than a form that did not load them. Harmless to save today —
+    // the PUT handler ignores contacts — but the display is still wrong, and the moment
+    // that handler learns to write them the blank form becomes a deletion.
+    if (Array.isArray(co.contacts) && co.contacts.length) {
+      const byType: Record<string, Contact[]> = defaultContacts();
+      for (const c of co.contacts) {
+        const t = String(c.contactType ?? '').toLowerCase();
+        if (!(t in byType)) continue;
+        const row = { firstName: c.firstName ?? '', lastName: c.lastName ?? '',
+                      email: c.email ?? '', phone: c.phone ?? '', fax: c.fax ?? '' };
+        if (byType[t].length === 1 && !byType[t][0].firstName && !byType[t][0].email) byType[t][0] = row;
+        else byType[t].push(row);
+      }
+      setContacts(byType);
+    }
     setPopulated(true);
   }, [isEdit, existingData, companyId, populated]);
 
@@ -189,7 +205,10 @@ export default function CompanyCreatePage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (payload: any) => apiRequest("PATCH", `/api/companies/${companyId}`, payload),
+    // PUT, not PATCH. The route is app.put('/api/companies/:id') — a PATCH 404s, so
+    // saving an edit has never worked; it failed as "not found" rather than as anything
+    // an operator would connect to the Save button.
+    mutationFn: (payload: any) => apiRequest("PUT", `/api/companies/${companyId}`, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       toast({ title: "Company updated successfully" });
