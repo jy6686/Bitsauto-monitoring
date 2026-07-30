@@ -8,10 +8,9 @@
  * difference decides what to do about it:
  *
  *   923 did not match — but 9230, 9231, 9232, 9233, 9234, 9235 and 9237 all did. The
- *   generic Pakistan Mobile prefix is SUPERSEDED by its operator breakouts, so there is
- *   nothing to add; the commercial list simply carries an entry the catalogue models more
- *   finely. Adding a 923 node would overlap seven existing ones and Sippy's longest-match
- *   would ignore it anyway.
+ *   catalogue models Pakistan Mobile as operator series; the commercial list prices it as
+ *   one breakout. Both are correct at their own level, and the COMMERCIAL PARENT IS
+ *   MISSING FROM THE CATALOGUE — it is not a redundant entry to delete.
  *
  *   A prefix with no catalogue entry and no children is a genuine gap: the business
  *   prices a destination the catalogue does not know about.
@@ -44,7 +43,9 @@ async function main() {
   }
 
   const exact: string[] = [];
-  const superseded: Array<{ prefix: string; label: string; children: string[] }> = [];
+  // Named for what it is: a commercial-level node the catalogue lacks, evidenced by
+  // operator-level children existing beneath it.
+  const needsParent: Array<{ prefix: string; label: string; children: string[] }> = [];
   const covered: Array<{ prefix: string; label: string; by: string }> = [];
   const missing: Array<{ prefix: string; label: string }> = [];
 
@@ -65,7 +66,7 @@ async function main() {
           AND dial_prefix LIKE $1 || '%' AND dial_prefix <> $1
         ORDER BY dial_prefix LIMIT 12`, [w.prefix]);
     if (kids.length) {
-      superseded.push({ prefix: w.prefix, label, children: kids.map(k => k.dial_prefix) });
+      needsParent.push({ prefix: w.prefix, label, children: kids.map(k => k.dial_prefix) });
       continue;
     }
 
@@ -88,15 +89,24 @@ async function main() {
 
   console.log(`Commercial list: ${wanted.length} prefix(es) from migration 041\n`);
   console.log(`  ${exact.length} matched a catalogue entry exactly — already assignable`);
-  console.log(`  ${superseded.length} superseded by finer catalogue entries — NO ACTION NEEDED`);
+  console.log(`  ${needsParent.length} priced at commercial level, catalogue has only operator level — ADD A PARENT NODE`);
   console.log(`  ${covered.length} already carried by a broader approved entry`);
   console.log(`  ${missing.length} genuinely absent from the catalogue — NEEDS A DECISION\n`);
 
-  if (superseded.length) {
-    console.log("── Superseded: the catalogue models these more finely ──────────────");
-    console.log("   Sippy matches longest prefix, so a generic entry alongside its own");
-    console.log("   breakouts would never win. Drop these from the commercial list.\n");
-    for (const s of superseded) {
+  if (needsParent.length) {
+    console.log("── Commercial parent missing from the catalogue ────────────────────");
+    console.log("   The catalogue models these as operator series; Commercial prices them as");
+    console.log("   one breakout. Both are right at their own level.");
+    console.log("");
+    console.log("   DO NOT remove these from the commercial list. A generated tariff contains");
+    console.log("   only the rows we put in it, so 1923 rates every 923xxxx call — the");
+    console.log("   catalogue's finer entries are not in that tariff and do not compete with");
+    console.log("   it. Pricing per operator series would mean thousands of rows per customer");
+    console.log("   instead of 128.");
+    console.log("");
+    console.log("   Add a commercial node at this prefix (migration 053 does this), keeping");
+    console.log("   the operator entries for routing, analytics and fraud.\n");
+    for (const s of needsParent) {
       console.log(`   ${s.prefix.padEnd(8)} ${s.label}`);
       console.log(`            covered by: ${s.children.join(', ')}${s.children.length === 12 ? ' …' : ''}`);
     }
