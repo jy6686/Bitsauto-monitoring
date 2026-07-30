@@ -14559,11 +14559,16 @@ export async function delSippyAuthRule(
   }
 }
 
+/** Guards the one-per-boot raw payload dump below. */
+let _loggedRawAuthRuleInfo = false;
+
 /**
  * Get full info for a single authentication rule.
  * Official method: getAuthRuleInfo() — docs 107336 (available from Sippy 4.5)
  *
- * Returns the full authrule struct including tariff, routing group, max_sessions, max_cps.
+ * Returns the full authrule struct including tariff, routing group, max_sessions, max_cps
+ * — none of which listAuthRules carries. That is the entire reason this call exists in the
+ * verification path.
  */
 export async function getSippyAuthRuleInfo(
   username: string,
@@ -14581,6 +14586,23 @@ export async function getSippyAuthRuleInfo(
   try {
     const resp = await sippyPost(apiUrl, xmlRpcCall('getAuthRuleInfo', params), username, password);
     const text = resp.body;
+
+    // ── One raw payload per boot, whatever happens ──────────────────────────
+    // This method has never been called against the production switch, so every claim
+    // about what it returns is currently inference. One complete body settles all three
+    // open questions at once — whether i_routing_group is present, present under another
+    // name, or absent — and settles them permanently.
+    //
+    // Bounded to the FIRST call: a twelve-rule matrix would otherwise dump twelve near
+    // identical payloads into a console already saturated with AMI events, which is how
+    // evidence gets lost here rather than found. A response body carries no credentials.
+    if (!_loggedRawAuthRuleInfo) {
+      _loggedRawAuthRuleInfo = true;
+      console.log(`[Sippy] getAuthRuleInfo RAW (first call this boot) — i_authentication=${iAuthentication}`
+                + `${opts?.iCustomer !== undefined ? ` i_customer=${opts.iCustomer}` : ' (no i_customer)'}`
+                + ` HTTP ${resp.statusCode}\n${text}`);
+    }
+
     if (text.includes('<fault>')) {
       const fault = extractFaultString(text) || 'getAuthRuleInfo failed.';
       return { success: false, error: fault };
@@ -14590,7 +14612,17 @@ export async function getSippyAuthRuleInfo(
     const nestedMatch = /<name>authrule<\/name>\s*<value>\s*<struct>([\s\S]*?)<\/struct>\s*<\/value>/.exec(text);
     if (!nestedMatch) return { success: false, error: 'authrule struct not found in response.' };
 
-    return { success: true, authRule: parseAuthRuleStruct(nestedMatch[1]) };
+    const parsed = parseAuthRuleStruct(nestedMatch[1]);
+
+    // The specific question this call exists to answer. Logged with the member names the
+    // response actually carried, so "absent" and "present under another name" are
+    // distinguishable from one line without re-reading the raw body above.
+    if (parsed.iRoutingGroup === undefined) {
+      console.warn(`[Sippy] getAuthRuleInfo(${iAuthentication}) returned no i_routing_group. `
+                 + `Members present: ${Object.keys(extractStructMembers(`<struct>${nestedMatch[1]}</struct>`)).join(', ')}`);
+    }
+
+    return { success: true, authRule: parsed };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
