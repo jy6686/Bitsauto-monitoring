@@ -128,6 +128,26 @@ async function main() {
       body: call("getUploadToken", member("i_upload_type", int(0))),
       note: "Probing whether the type is validated at all — a DIFFERENT fault here means it is.",
     },
+    // ── Type 2 = Rates, per this switch's own getDictionary. Production has always sent
+    // type 1, which this switch calls Routes. C proved process_on breaks with ROUTES; it
+    // has never been tried with RATES, and that is the combination production should be
+    // sending. Testing rather than assuming: if H-J pass, one constant is the whole fix.
+    {
+      label: "H  type 2 (Rates) + params{i_tariff}",
+      body: call("getUploadToken", member("i_upload_type", int(2))
+              + member("params", `<struct>${member("i_tariff", int(iTariff))}</struct>`)),
+    },
+    {
+      label: "I  type 2 + process_on",
+      body: call("getUploadToken", member("i_upload_type", int(2)) + member("process_on", dt(processOn))),
+      note: "C faulted on the same shape with type 1. If this passes, process_on was never the problem.",
+    },
+    {
+      label: "J  type 2 + process_on + params{i_tariff}  ← the CORRECTED production call",
+      body: call("getUploadToken", member("i_upload_type", int(2)) + member("process_on", dt(processOn))
+              + member("params", `<struct>${member("i_tariff", int(iTariff))}</struct>`)),
+      note: "If this issues a token, the rate-push defect is one wrong constant and nothing more.",
+    },
   ];
 
   for (const v of variants) {
