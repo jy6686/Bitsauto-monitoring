@@ -56,6 +56,20 @@ function buildPairs(s: Record<string, string | null>): Pair[] {
   return pairs;
 }
 
+/**
+ * Any existing tariff id, purely as a target for the upload-token probe. Read-only, and
+ * the token is never used — which tariff it names is irrelevant.
+ */
+async function firstTariffId(p: Pair, portalUrl: string): Promise<number | null> {
+  try {
+    const list = await sippy.getTariffsList(p.username, p.password, undefined, undefined, 1);
+    const hit = (list as any[])?.find(t => t?.iTariff);
+    return hit?.iTariff ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) {
@@ -91,6 +105,7 @@ async function main() {
   }
 
   let anyOk = false;
+  let workingIndex = -1;
   for (const [i, p] of pairs.entries()) {
     const label = `${i + 1}. ${p.origin} — user "${p.username}", password ${p.password.length} chars`;
     const started = Date.now();
@@ -100,8 +115,10 @@ async function main() {
       const r = await sippy.listSippyAccounts(p.username, p.password, { limit: 1 }, portalUrl);
       const ms = Date.now() - started;
       if (!r.error) {
+        if (!anyOk) workingIndex = i;
         anyOk = true;
-        verdict = `OK   (${ms}ms) — admin method succeeded, ${r.accounts.length} account(s) returned`;
+        // limit:1 above — "1 account" is this probe's own cap, not your account count.
+        verdict = `OK   (${ms}ms) — admin method succeeded, ${r.accounts.length} account(s) returned (limit 1)`;
       } else if (r.error === "HTTP 401") {
         verdict = `401  (${ms}ms) — rejected. Credentials not accepted for admin XML-RPC.`;
       } else if (r.error === "HTTP 403") {
@@ -116,10 +133,38 @@ async function main() {
   }
 
   if (anyOk) {
-    console.log("VERDICT: at least one credential pair can call admin XML-RPC. Provisioning writes should reach Sippy.");
+    console.log("VERDICT: at least one credential pair can call admin XML-RPC.");
     console.log("If a LATER pair is the working one, move it into the apiAdmin fields — every admin call currently");
-    console.log("pays the failed attempts ahead of it on every request.");
-    process.exit(0);
+    console.log("pays the failed attempts ahead of it on every request.\n");
+
+    // ── Bulk-upload availability ──────────────────────────────────────────────
+    // listAccounts is a READ. It proves the credential authenticates and is authorised
+    // for admin methods; it does not prove the bulk-upload API exists on this build.
+    // Those are different failures with different fixes, and conflating them is how the
+    // tariff-33 rate-push defect stayed unexplained: "0/1 succeeded" was read as a
+    // permissions problem when the build simply predates several modern methods.
+    //
+    // Non-destructive: a token is requested and discarded. Nothing is uploaded, nothing
+    // is created, no cleanup is needed. Deliberately NOT createTariff/createAccount —
+    // those leave real objects on a production switch.
+    const working = pairs[workingIndex];
+    const tariff = await firstTariffId(working, portalUrl);
+    if (tariff === null) {
+      console.log("getUploadToken: SKIPPED — no tariff available to probe against.");
+      process.exit(0);
+    }
+    const probe = await sippy.probeUploadToken(working.username, working.password, portalUrl, tariff);
+    if (probe.ok) {
+      console.log(`getUploadToken (tariff ${tariff}): OK — token issued, upload URL returned.`);
+      console.log("The bulk-upload API is available. A rate-push failure from here is in the workbook,");
+      console.log("the import, or the read-back — not in authentication or method availability.");
+      process.exit(0);
+    }
+    console.log(`getUploadToken (tariff ${tariff}): FAILED — ${probe.error}`);
+    console.log("Admin XML-RPC works but the bulk-upload API does not answer. This is the mechanism behind");
+    console.log("the tariff-33 rate-push defect. A rate upload cannot be automated until it is resolved;");
+    console.log("importing a workbook through the Sippy UI still works and remains the manual path.");
+    process.exit(1);
   }
 
   console.log("VERDICT: no configured credential can call an admin XML-RPC method.");

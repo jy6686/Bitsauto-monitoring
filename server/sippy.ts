@@ -8850,6 +8850,53 @@ export function buildFullTariffXlsx(
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 }
 
+/**
+ * Ask Sippy for a rate-upload token WITHOUT uploading anything.
+ *
+ * Non-destructive by design, so it is safe in an automated probe. `createTariff` and
+ * `createAccount` would certify writes too, but they create real objects on a production
+ * switch — the client tariff list already carries the debris of past attempts (`23ew`,
+ * `2year`, `3tre`, `43`, `765`). Requesting a token creates nothing and expires on its
+ * own, yet it exercises the exact mechanism the tariff-33 rate-push defect lives in:
+ * if this returns a token and a URL, the upload path is alive and the defect is
+ * downstream of authentication.
+ *
+ * Separates two questions that were previously answered together — "can we authenticate
+ * for admin methods" (listAccounts) and "is the bulk-upload API available on this build"
+ * (here). They have different fixes.
+ */
+export async function probeUploadToken(
+  username: string,
+  password: string,
+  portalUrl: string,
+  iTariff: number,
+): Promise<{ ok: boolean; token?: string; url?: string; statusCode?: number; error?: string }> {
+  const apiUrl = `${sippyBase(portalUrl)}/xmlapi/xmlapi`;
+  // process_on in the future: the token is never used, so nothing should be scheduled.
+  const iso = new Date(Date.now() + 3_600_000).toISOString();
+  const processOn = `${iso.slice(0, 4)}${iso.slice(5, 7)}${iso.slice(8, 10)}T${iso.slice(11, 19)}`;
+  try {
+    const resp = await sippyPost(
+      apiUrl,
+      buildGetUploadTokenXml(1, processOn, undefined, { i_tariff: iTariff }),
+      username, password, 15000,
+    );
+    if (resp.statusCode !== 200) {
+      return { ok: false, statusCode: resp.statusCode, error: `HTTP ${resp.statusCode}` };
+    }
+    if (resp.body.includes('faultCode')) {
+      return { ok: false, statusCode: 200, error: extractFaultString(resp.body) || 'fault with no faultString' };
+    }
+    const m = extractStructMembers(extractAllTags(resp.body, 'struct')[0] ?? '');
+    if (!m['token'] || !m['url']) {
+      return { ok: false, statusCode: 200, error: 'response carried neither token nor url' };
+    }
+    return { ok: true, token: m['token'], url: m['url'], statusCode: 200 };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? String(e) };
+  }
+}
+
 export async function setSippyRateEntry(
   username: string,
   password: string,
