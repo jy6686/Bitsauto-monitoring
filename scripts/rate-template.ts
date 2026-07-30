@@ -21,7 +21,7 @@
 import { readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { db } from "../server/db";
-import { productRegistry, productRates, globalDestinations } from "../shared/schema";
+import { productRegistry, productRates, globalDestinations, productDestinationAssignments } from "../shared/schema";
 import { and, eq, isNull, isNotNull, lt, inArray, asc } from "drizzle-orm";
 import {
   buildTemplateCsv, parseTemplateCsv, validateTemplate, expandTemplate, previousDay,
@@ -47,38 +47,60 @@ async function activeProducts(): Promise<TemplateProduct[]> {
 }
 
 /**
- * Destinations for a blank template — FROM THE CATALOGUE, approved only.
+ * The COMMERCIAL destination set — what the business actually sells.
  *
- * Previously this seeded from whatever was already in product_rates, falling back to a
- * client rate card. Both let an operator price a destination the catalogue has never
- * approved, and neither produced a destination_id — so every imported row was a free-text
- * prefix with nothing tying it to a catalogue entry, and the generator's approval rule had
- * nothing to check against.
+ * NOT every approved catalogue row. global_destinations holds ~150,000 entries: every
+ * country, operator, fixed line, test range and future record. It is the operational
+ * catalogue, and driving pricing from it produced a template of 150,254 destinations x 8
+ * products — 1.2 million cells nobody can fill. Approved means "may be used"; it does not
+ * mean "we sell this".
  *
- * The template now offers exactly the destinations that may legitimately be sold. You
- * cannot price what is not approved, because it is not on the sheet.
+ * The curated set already exists: product_destination_assignments is Commercial's own
+ * record of which destinations are offered on which product, maintained on the Destination
+ * Catalogue page. Using it needs no new flag, and it is per-product — First Class can sell
+ * a destination Business Class does not, which a single boolean could never express.
+ *
+ * Approval is still required on top: an assignment to a destination the catalogue has
+ * since blocked must not be priced.
  */
-async function seedDestinations(): Promise<Array<{ id: number; prefix: string; destination: string }>> {
+async function commercialDestinations(): Promise<{
+  destinations: Array<{ id: number; prefix: string; destination: string }>;
+  /** `${prefix}|${productCode}` — the cells actually sold. */
+  offered: Set<string>;
+}> {
   const rows = await db
     .select({
-      id: globalDestinations.id,
-      dialPrefix: globalDestinations.dialPrefix,
-      name: globalDestinations.name,
+      id:           globalDestinations.id,
+      dialPrefix:   globalDestinations.dialPrefix,
+      name:         globalDestinations.name,
       operatorName: globalDestinations.operatorName,
+      productCode:  productRegistry.code,
     })
-    .from(globalDestinations)
+    .from(productDestinationAssignments)
+    .innerJoin(globalDestinations, eq(globalDestinations.id, productDestinationAssignments.destinationId))
+    .innerJoin(productRegistry,    eq(productRegistry.id,    productDestinationAssignments.productId))
     .where(and(
+      eq(productDestinationAssignments.status, "active"),
       eq(globalDestinations.commercialStatus, "approved"),
       isNotNull(globalDestinations.dialPrefix),
     ))
     .orderBy(asc(globalDestinations.dialPrefix));
-  return rows
-    .filter(r => (r.dialPrefix ?? "").trim())
-    .map(r => ({
-      id: r.id,
-      prefix: (r.dialPrefix ?? "").trim(),
-      destination: r.operatorName ? `${r.name} ${r.operatorName}` : r.name,
-    }));
+
+  const byId = new Map<number, { id: number; prefix: string; destination: string }>();
+  const offered = new Set<string>();
+  for (const r of rows) {
+    const prefix = (r.dialPrefix ?? "").trim();
+    if (!prefix) continue;
+    if (!byId.has(r.id)) {
+      byId.set(r.id, {
+        id: r.id,
+        prefix,
+        destination: r.operatorName ? `${r.name} ${r.operatorName}` : r.name,
+      });
+    }
+    offered.add(`${prefix}|${r.productCode}`);
+  }
+  return { destinations: [...byId.values()], offered };
 }
 
 async function doDownload() {
@@ -87,15 +109,17 @@ async function doDownload() {
     console.error("No active products in product_registry — nothing to build columns from.");
     process.exit(1);
   }
-  const dests = await seedDestinations();
+  const { destinations: dests, offered } = await commercialDestinations();
   const out = resolve(arg("out") ?? "./rate-template.csv");
-  writeFileSync(out, buildTemplateCsv(dests, products));
+  writeFileSync(out, buildTemplateCsv(dests, products, offered));
 
   console.log(`Wrote ${out}`);
-  console.log(`  ${dests.length} destination(s) x ${products.length} product(s) — ${products.map(p => p.code).join(", ")}`);
+  console.log(`  ${dests.length} destination(s) x ${products.length} product(s) — ${offered.size} priceable cell(s)`);
+  console.log(`  Cells marked "n/a" are not sold on that product and need no price.`);
   if (!dests.length) {
-    console.log("  No APPROVED destinations with a dial prefix in the catalogue — the file is a header only.");
-    console.log("  Approve destinations in the Destination Catalogue before pricing them.");
+    console.log("  Nothing is assigned to a product yet — the file is a header only.");
+    console.log("  Assign destinations to products on the Destination Catalogue page; this sheet");
+    console.log("  prices what Commercial sells, not all ~150,000 catalogue entries.");
   }
   console.log("\nFill in the price columns, then:");
   console.log(`  npx tsx scripts/rate-template.ts import ${out} --effective-from YYYY-MM-DD`);
@@ -132,15 +156,15 @@ async function doImport(file: string) {
   // at the only point free text enters the system: a CSV row whose prefix matches no
   // approved destination is refused, not imported and dealt with later. Without this the
   // generator's approval check has nothing to check — destination_id was written NULL.
-  const catalogue = await seedDestinations();
+  const { destinations: catalogue } = await commercialDestinations();
   const byPrefix = new Map(catalogue.map(d => [d.prefix, d]));
   const unmatched = rows.filter(r => !byPrefix.has(r.prefix));
   if (unmatched.length) {
     for (const r of unmatched) {
-      console.log(`  ERROR line ${r.line}: prefix ${r.prefix} matches no APPROVED destination in the catalogue.`);
+      console.log(`  ERROR line ${r.line}: prefix ${r.prefix} is not an approved destination assigned to any product.`);
     }
     console.error(`\n${unmatched.length} row(s) reference destinations that are not approved — nothing imported.`);
-    console.error('Approve them in the Destination Catalogue, or re-download the template: it only lists what may be sold.');
+    console.error('Assign them to a product on the Destination Catalogue page, or re-download the template.');
     process.exit(1);
   }
   const destIdOf = new Map(rows.map(r => [r.prefix, byPrefix.get(r.prefix)!.id]));

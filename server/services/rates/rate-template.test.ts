@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   splitCsvLine, buildTemplateCsv, parseTemplateCsv, validateTemplate,
-  expandTemplate, previousDay, type TemplateProduct,
+  expandTemplate, previousDay, NOT_OFFERED, type TemplateProduct,
 } from "./rate-template";
 
 const PRODUCTS: TemplateProduct[] = [
@@ -158,5 +158,50 @@ describe("previousDay", () => {
 
   it("throws on a malformed date rather than expiring rates at an epoch", () => {
     expect(() => previousDay("01/08/2026")).toThrow(/YYYY-MM-DD/);
+  });
+});
+
+describe("products not offered on a destination", () => {
+  // global_destinations holds ~150k operational entries; only the ones Commercial has
+  // assigned to a product are sellable, and the assignment is PER PRODUCT — First Class
+  // can sell a destination Business Class does not.
+  const offered = new Set(["92|FC", "92|BC"]);
+
+  it("pre-fills n/a where the destination is not sold on that product", () => {
+    const csv = buildTemplateCsv([{ prefix: "92", destination: "PAKISTAN FIXED" }], PRODUCTS, offered);
+    expect(csv.split("\n")[1]).toBe("92,PAKISTAN FIXED,,,n/a,n/a");
+  });
+
+  it("offers every product when no assignment set is given", () => {
+    const csv = buildTemplateCsv([{ prefix: "92", destination: "PK" }], PRODUCTS);
+    expect(csv.split("\n")[1]).toBe("92,PK,,,,");
+  });
+
+  it("reads n/a back as not-offered, not as a price", () => {
+    const { rows } = parseTemplateCsv(
+      `prefix,destination,FC,BC,SB,SC\n92,PK,0.045,0.04,${NOT_OFFERED},${NOT_OFFERED}`, PRODUCTS);
+    expect(rows[0].notOffered).toEqual(new Set(["SB", "SC"]));
+    expect(rows[0].prices).toEqual({ FC: 0.045, BC: 0.04 });
+  });
+
+  it("does not demand a price for a product marked n/a", () => {
+    // The distinction that matters: blank is a price someone forgot, n/a is deliberate.
+    const { rows } = parseTemplateCsv(
+      "prefix,destination,FC,BC,SB,SC\n92,PK,0.045,0.04,n/a,n/a", PRODUCTS);
+    expect(validateTemplate(rows, PRODUCTS)).toEqual([]);
+  });
+
+  it("still demands a price for a blank cell on an offered product", () => {
+    const { rows } = parseTemplateCsv(
+      "prefix,destination,FC,BC,SB,SC\n92,PK,0.045,,n/a,n/a", PRODUCTS);
+    const errs = validateTemplate(rows, PRODUCTS).filter(i => i.severity === "error");
+    expect(errs).toHaveLength(1);
+    expect(errs[0].message).toMatch(/no BC price/);
+  });
+
+  it("expands only the offered products", () => {
+    const { rows } = parseTemplateCsv(
+      "prefix,destination,FC,BC,SB,SC\n92,PK,0.045,0.04,n/a,n/a", PRODUCTS);
+    expect(expandTemplate(rows, PRODUCTS).map(r => r.productCode)).toEqual(["FC", "BC"]);
   });
 });
