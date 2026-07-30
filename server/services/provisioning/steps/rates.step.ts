@@ -141,6 +141,11 @@ export const ratesStep: ProvisioningStep = {
       result: { iTariff, rowsUploaded: rows.length, verified: res.verified, uploadStatus: res.uploadStatus },
       detail: [
         `${rows.length} rate(s) uploaded to tariff ${iTariff}`,
+        // Stated because it is a decision the operator never made and should still see.
+        // The workbook leaves Activation Date blank, which Sippy reads as immediate —
+        // correct for onboarding, where the customer is being activated now. Scheduling a
+        // future price belongs to Rate Manager, not to a provisioning run.
+        'Effective immediately — no activation date set',
         `${matrix.byProduct.map(p => `${p.code} ${p.count}`).join(' · ')}`,
         res.message,
         ...(matrix.warnings.length ? [`Warnings: ${matrix.warnings.join(' · ')}`] : []),
