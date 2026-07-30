@@ -97,7 +97,7 @@ import {
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
 import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
 import { refreshVendorAcds } from "./vendor-acd-cache";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, navigationModules } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, navigationModules, clientIpRequests } from "@shared/schema";
 import { db, pool } from "./db";
 import { getMigrationLedger, getMigrationStatus } from "./migrate";
 import { allocateAccountPrefix } from "./services/provisioning/account-prefix";
@@ -27795,6 +27795,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // an admin approves (PATCH /api/client-ip-requests/:id/approve), and only approved
       // IPs reach Sippy. That keeps the approval gate exactly where it was rather than
       // letting the create form become a way around it.
+      const ipCapture: { requested: number; created: number; error: string | null } =
+        { requested: Array.isArray(initialIps) ? initialIps.length : 0, created: 0, error: null };
       if (Array.isArray(initialIps) && initialIps.length) {
         const seen = new Set<string>();
         const rows = initialIps
@@ -27811,10 +27813,19 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         if (rows.length) {
           try {
             await db.insert(clientIpRequests).values(rows);
+            ipCapture.created = rows.length;
           } catch (e: any) {
             // Non-fatal, consistent with the rest of preparation: losing the company over
             // an IP row would be a worse trade than an operator re-entering the IPs.
-            console.warn(`[companies] initial IP capture failed for "${basic.name}": ${e?.message}`);
+            //
+            // But REPORTED, not just logged. This failed silently for Test-982: the
+            // operator typed an IP, the card said "No SIP IP submitted", and the reason
+            // existed only as one console.warn in a stream saturated with AMI events. The
+            // operator's rational conclusion was that the field is ignored — so they
+            // entered it twice, and we spent a round trip deciding whether the field was
+            // even wired. It is; the insert throws.
+            ipCapture.error = e?.message ?? 'unknown error';
+            console.error(`[companies] initial IP capture FAILED for "${basic.name}" (${rows.length} IP(s) lost): ${ipCapture.error}`);
           }
         }
       }
@@ -27924,6 +27935,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         prepared: !!prep,
         // Surfaced so the UI can show what actually happened rather than implying success.
         commercial: { tariffId: commercialObjs.iTariff ?? null, servicePlanId: commercialObjs.planId ?? null, error: commercialObjs.error ?? null },
+        // Surfaced for the same reason as `commercial`: an IP the operator typed and the
+        // platform then dropped must not look like an IP the operator forgot to type.
+        ips: ipCapture,
       });
     } catch (e: any) {
       const msg = e.message || '';
