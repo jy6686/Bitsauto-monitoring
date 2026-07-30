@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  generateRateMatrix, validateGeneratedMatrix,
+  generateRateMatrix,
   type CatalogueDestination, type GeneratorProduct, type GeneratorRate,
 } from "./matrix-generator";
 
@@ -96,52 +96,57 @@ describe("generateRateMatrix", () => {
   });
 });
 
-describe("validateGeneratedMatrix", () => {
+describe("verdict, folded into generation", () => {
   const full = () => generateRateMatrix({
     destinations: [PK, IN], products: PRODUCTS,
     rates: [...ratesFor(100), ...ratesFor(200, 0.02)],
   });
 
-  it("passes a complete matrix", () => {
-    const v = validateGeneratedMatrix(full());
-    expect(v.ok).toBe(true);
-    expect(v.errors).toEqual([]);
+  it("passes a complete matrix and reports counts", () => {
+    const m = full();
+    expect(m.ok).toBe(true);
+    expect(m.errors).toEqual([]);
+    expect(m.summary).toMatchObject({
+      destinationsProcessed: 2, destinationsApproved: 2,
+      rowsGenerated: 8, rowsSkipped: 0, errorCount: 0,
+    });
   });
 
-  it("errors when two destinations compose to the same prefix", () => {
-    // "1" + "9233" and "19" + "233" both make 19233 — one silently overwrites the other,
-    // and which one depends on row order.
+  it("FAILS generation when two destinations compose to one prefix", () => {
+    // "1"+"9233" and "19"+"233" both make 19233. Caught here rather than by the upload
+    // engine — as a separate validate() step this is a step a caller can forget, and the
+    // cost of forgetting is one destination silently overwriting another.
     const collide: CatalogueDestination = { id: 300, dialPrefix: "233", name: "OVERLAP", country: "X", commercialStatus: "approved" };
     const products = [PRODUCTS[0], { id: 9, code: "XX", name: "Odd", trunkPrefix: "19" }];
     const m = generateRateMatrix({
       destinations: [PK, collide], products,
       rates: [{ destinationId: 100, productId: 1, rate: 0.04 }, { destinationId: 300, productId: 9, rate: 0.04 }],
     });
-    const v = validateGeneratedMatrix(m);
-    expect(v.ok).toBe(false);
-    expect(v.errors.join(" ")).toMatch(/Prefix 19233 is produced by both/);
+    expect(m.ok).toBe(false);
+    expect(m.errors.join(" ")).toMatch(/Prefix 19233 is produced by both/);
+    // Rows still returned so a preview can show the problem.
+    expect(m.rows).toHaveLength(2);
   });
 
-  it("errors when a product produced nothing", () => {
+  it("fails when a product produced nothing", () => {
     const rates = ratesFor(100).filter(r => r.productId !== 7);
-    const v = validateGeneratedMatrix(generateRateMatrix({ destinations: [PK], products: PRODUCTS, rates }));
-    expect(v.ok).toBe(false);
-    expect(v.errors.join(" ")).toMatch(/SC .*produced no rows/);
+    const m = generateRateMatrix({ destinations: [PK], products: PRODUCTS, rates });
+    expect(m.ok).toBe(false);
+    expect(m.errors.join(" ")).toMatch(/SC .*produced no rows/);
   });
 
-  it("errors on an empty matrix", () => {
-    const v = validateGeneratedMatrix(generateRateMatrix({ destinations: [], products: PRODUCTS, rates: [] }));
-    expect(v.ok).toBe(false);
+  it("fails on an empty matrix", () => {
+    expect(generateRateMatrix({ destinations: [], products: PRODUCTS, rates: [] }).ok).toBe(false);
   });
 
-  it("warns, not errors, on unroutable and unapproved", () => {
+  it("warns without failing on unroutable and unapproved", () => {
     const m = generateRateMatrix({
       destinations: [PK, { ...IN, commercialStatus: "pending" }], products: PRODUCTS,
       rates: [...ratesFor(100), ...ratesFor(200)],
       routableCells: new Set(["Pakistan|FC", "Pakistan|BC", "Pakistan|SB", "Pakistan|SC"]),
     });
-    const v = validateGeneratedMatrix(m);
-    expect(v.ok).toBe(true);
-    expect(v.warnings.join(" ")).toMatch(/1 destination\(s\) excluded as not approved/);
+    expect(m.ok).toBe(true);
+    expect(m.warnings.join(" ")).toMatch(/1 destination\(s\) excluded/);
+    expect(m.summary.destinationsApproved).toBe(1);
   });
 });
