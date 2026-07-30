@@ -6223,7 +6223,9 @@ export async function pushRatesBulkXlsx(
   // Get upload token for this tariff
   const _pIso     = new Date(Date.now() + 10_000).toISOString();
   const processOn = `${_pIso.slice(0,4)}${_pIso.slice(5,7)}${_pIso.slice(8,10)}T${_pIso.slice(11,19)}`;
-  const tokenXml  = buildGetUploadTokenXml(1, processOn, undefined, { i_tariff: iTariff });
+  // Type resolved from the switch: this one numbers Rates as 2, not 1. See resolveUploadType.
+  const tokenXml  = buildGetUploadTokenXml(
+    await resolveUploadType(username, password, base, 'rates'), processOn, undefined, { i_tariff: iTariff });
   const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10_000);
 
   if (tokenResp.statusCode !== 200 || tokenResp.body.includes('faultCode')) {
@@ -8851,6 +8853,58 @@ export function buildFullTariffXlsx(
 }
 
 /**
+ * Upload-type numbering, resolved from the switch rather than assumed.
+ *
+ * THIS WAS WRONG FOR MONTHS. The code asserted "1 = Rates/Tariff, 2 = Routes/Destination
+ * Set" in a comment citing getDictionary('upload_types') — a dictionary nothing ever
+ * called. On 2026-07-30 it was finally called, and this switch answers the opposite:
+ *
+ *     1 = Routes        2 = Rates
+ *
+ * So every rate upload has been announcing itself as a routes upload. That is the
+ * mechanism behind the tariff-33 rate-push defect: getUploadToken faults 500 "Fatal
+ * error" when a Routes upload is given process_on, and the failure was read as a
+ * permissions or availability problem for two weeks.
+ *
+ * Resolved at runtime and cached, not hardcoded to 2 — swapping one believed constant for
+ * another repeats the mistake, and the numbering is per-build. FALLBACK values are this
+ * switch's actual answer, used only if the dictionary call fails, so a dictionary outage
+ * degrades to something known-correct here rather than to the value that was broken.
+ */
+const UPLOAD_TYPE_FALLBACK: Record<string, number> = { routes: 1, rates: 2 };
+let _uploadTypes: Record<string, number> | null = null;
+
+export async function resolveUploadType(
+  username: string,
+  password: string,
+  portalUrl: string,
+  name: 'rates' | 'routes',
+): Promise<number> {
+  if (_uploadTypes) return _uploadTypes[name] ?? UPLOAD_TYPE_FALLBACK[name];
+  try {
+    const body = `<?xml version="1.0" encoding="UTF-8"?><methodCall><methodName>getDictionary</methodName>`
+               + `<params><param><value><struct><member><name>name</name><value><string>upload_types</string></value></member></struct></value></param></params></methodCall>`;
+    const resp = await sippyPost(`${sippyBase(portalUrl)}/xmlapi/xmlapi`, body, username, password, 10000);
+    if (resp.statusCode === 200 && !resp.body.includes('faultCode')) {
+      const map: Record<string, number> = {};
+      for (const s of extractAllTags(resp.body, 'struct')) {
+        const m = extractStructMembers(s);
+        if (m['i_upload_type'] && m['name']) map[m['name'].toLowerCase()] = parseInt(m['i_upload_type'], 10);
+      }
+      if (Object.keys(map).length) {
+        _uploadTypes = map;
+        console.log(`[Sippy] upload_types resolved: ${Object.entries(map).map(([k, v]) => `${k}=${v}`).join(', ')}`);
+        return map[name] ?? UPLOAD_TYPE_FALLBACK[name];
+      }
+    }
+    console.warn(`[Sippy] getDictionary('upload_types') gave nothing usable — falling back to ${name}=${UPLOAD_TYPE_FALLBACK[name]}`);
+  } catch (e: any) {
+    console.warn(`[Sippy] getDictionary('upload_types') failed (${e?.message}) — falling back to ${name}=${UPLOAD_TYPE_FALLBACK[name]}`);
+  }
+  return UPLOAD_TYPE_FALLBACK[name];
+}
+
+/**
  * Send a fully-formed XML-RPC body and return the raw response.
  *
  * For diagnostics only — never call this from application code, which should use a typed
@@ -8907,7 +8961,9 @@ export async function probeUploadToken(
   try {
     const resp = await sippyPost(
       apiUrl,
-      buildGetUploadTokenXml(1, processOn, undefined, { i_tariff: iTariff }),
+      buildGetUploadTokenXml(
+        await resolveUploadType(username, password, portalUrl, 'rates'),
+        processOn, undefined, { i_tariff: iTariff }),
       username, password, 15000,
     );
     if (resp.statusCode !== 200) {
@@ -8970,7 +9026,9 @@ export async function setSippyRateEntry(
     // permanently at FILE_UPLOADED within the poll window.
     const _pIso     = new Date(Date.now() + 10000).toISOString();
     const processOn = `${_pIso.slice(0,4)}${_pIso.slice(5,7)}${_pIso.slice(8,10)}T${_pIso.slice(11,19)}`;
-    const tokenXml  = buildGetUploadTokenXml(1, processOn, undefined, { i_tariff: Number(tariffId) });
+    const tokenXml  = buildGetUploadTokenXml(
+      await resolveUploadType(username, password, base, 'rates'),
+      processOn, undefined, { i_tariff: Number(tariffId) });
     const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10000);
     console.log(`[RateManager] getUploadToken: HTTP ${tokenResp.statusCode} body=${tokenResp.body.substring(0, 300)}`);
 
