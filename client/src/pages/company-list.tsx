@@ -1035,7 +1035,7 @@ function AssignPrefixButton({ companyId, companyName }: { companyId: number; com
   // company missing a prefix, and a list nobody has asked for is a query per card.
   const available = useQuery<{ prefixes: string[] }>({
     queryKey: ["/api/account-prefixes/available", value],
-    queryFn: () => fetch(`/api/account-prefixes/available?q=${encodeURIComponent(value)}&limit=12`)
+    queryFn: () => fetch(`/api/account-prefixes/available?q=${encodeURIComponent(value)}&limit=20`)
       .then(r => r.json()),
     enabled: manual,
   });

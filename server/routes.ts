@@ -28119,7 +28119,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   /** Free prefixes, for offering alongside a refusal. Never leave an operator at a dead
    *  end: a conflict that also carries the next few available values is recoverable in
    *  one click, where a bare "already allocated" means going to look for another. */
-  async function freePrefixes(limit = 6): Promise<string[]> {
+  async function freePrefixes(limit = 20): Promise<string[]> {
     try {
       const { rows } = await pool.query<{ prefix: string }>(
         `SELECT lpad(g::TEXT, 4, '0') AS prefix
