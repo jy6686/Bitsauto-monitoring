@@ -28205,7 +28205,18 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       });
 
       res.json({ accountPrefix: prefix, mode: req.body?.prefix ? 'manual' : 'auto' });
-    } catch (e: any) { res.status(500).json({ message: e.message }); }
+    } catch (e: any) {
+      // Named and logged with context. An unlabelled 500 from here sent us looking at the
+      // migration, the sequence and the UI in turn before anyone could say which line
+      // threw — and `e.message` alone is empty for some Postgres errors, which is how this
+      // reached the global handler as a bare "Internal Server Error".
+      console.error(`[account-prefix] assign FAILED for company ${req.params.id}:`, e);
+      res.status(500).json({
+        message: `Could not assign a prefix: ${e?.message || e?.code || e?.constructor?.name || 'unknown error'}`,
+        code: e?.code ?? null,
+        detail: e?.detail ?? null,
+      });
+    }
   });
 
   app.get('/api/companies/:id', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res) => {
