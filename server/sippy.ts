@@ -8870,7 +8870,7 @@ export async function probeUploadToken(
   password: string,
   portalUrl: string,
   iTariff: number,
-): Promise<{ ok: boolean; token?: string; url?: string; statusCode?: number; error?: string }> {
+): Promise<{ ok: boolean; token?: string; url?: string; statusCode?: number; error?: string; raw?: string }> {
   const apiUrl = `${sippyBase(portalUrl)}/xmlapi/xmlapi`;
   // process_on in the future: the token is never used, so nothing should be scheduled.
   const iso = new Date(Date.now() + 3_600_000).toISOString();
@@ -8885,7 +8885,19 @@ export async function probeUploadToken(
       return { ok: false, statusCode: resp.statusCode, error: `HTTP ${resp.statusCode}` };
     }
     if (resp.body.includes('faultCode')) {
-      return { ok: false, statusCode: 200, error: extractFaultString(resp.body) || 'fault with no faultString' };
+      // Return the code and the raw envelope, not just the string. Sippy answers this
+      // call with faultString "Fatal error", which is true and useless — the faultCode
+      // distinguishes an unknown method from a rejected parameter from an internal
+      // error, and those are three different fixes. The body is capped rather than
+      // omitted because the only way to tell a bad i_upload_type from a bad i_tariff is
+      // to read what the switch actually sent back.
+      const code = extractTag(resp.body, 'int') || extractTag(resp.body, 'i4') || '?';
+      return {
+        ok: false,
+        statusCode: 200,
+        error: `faultCode ${code}: ${extractFaultString(resp.body) || '(no faultString)'}`,
+        raw: resp.body.slice(0, 600),
+      };
     }
     const m = extractStructMembers(extractAllTags(resp.body, 'struct')[0] ?? '');
     if (!m['token'] || !m['url']) {

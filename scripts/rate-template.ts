@@ -27,6 +27,7 @@ import {
   buildTemplateCsv, parseTemplateCsv, validateTemplate, expandTemplate, previousDay,
   type TemplateProduct,
 } from "../server/services/rates/rate-template";
+import { SELLABLE_PRODUCT_STATUSES } from "../server/services/rates/rate-upload.service";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -38,8 +39,10 @@ async function activeProducts(): Promise<TemplateProduct[]> {
   const rows = await db
     .select({ id: productRegistry.id, code: productRegistry.code, name: productRegistry.name })
     .from(productRegistry)
-    .where(eq(productRegistry.status, "active"))
-    .orderBy(asc(productRegistry.id));
+    // Not 'active' alone — the canonical four are seeded as 'commercial'. See
+    // SELLABLE_PRODUCT_STATUSES.
+    .where(inArray(productRegistry.status, [...SELLABLE_PRODUCT_STATUSES]))
+    .orderBy(asc(productRegistry.sortOrder), asc(productRegistry.id));
   return rows;
 }
 
