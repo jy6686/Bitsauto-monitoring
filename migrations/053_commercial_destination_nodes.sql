@@ -99,8 +99,12 @@ END $$;
 DO $$
 DECLARE created INTEGER := 0;
 BEGIN
+  -- DISTINCT: a prefix can appear on more than one line of the rate card, and the
+  -- NOT EXISTS below cannot see rows this same statement is inserting. Without it a
+  -- duplicated line would create two assignments for one (product, destination), which
+  -- the template would then count twice.
   INSERT INTO product_destination_assignments (product_id, destination_id, status, created_by)
-  SELECT p.id, d.id, 'active', 'migration 053'
+  SELECT DISTINCT p.id, d.id, 'active', 'migration 053'
     FROM global_destinations d
     JOIN rate_card_entries e ON e.prefix = d.dial_prefix
     JOIN rate_cards c        ON c.id = e.rate_card_id AND c.name = 'Standard Wholesale' AND c.card_type = 'client'
