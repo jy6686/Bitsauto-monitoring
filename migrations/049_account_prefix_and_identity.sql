@@ -82,7 +82,7 @@ DECLARE
   r            RECORD;
   legacy       TEXT;
   taken        BOOLEAN;
-  max_adopted  INTEGER := 1000;
+  candidate    TEXT;
   adopted_n    INTEGER := 0;
   conflict_n   INTEGER := 0;
   alloc_n      INTEGER := 0;
@@ -122,16 +122,26 @@ BEGIN
 
     UPDATE companies SET account_prefix = legacy WHERE id = r.id;
     adopted_n := adopted_n + 1;
-    IF legacy ~ '^[0-9]+$' AND legacy::INTEGER > max_adopted THEN
-      max_adopted := legacy::INTEGER;
-    END IF;
   END LOOP;
 
-  -- Advance the sequence past every adopted value so allocation can never hand a new
-  -- customer a number a live customer is already authenticating with. GREATEST keeps
-  -- this from rewinding the sequence on a re-run.
-  PERFORM setval('account_prefix_seq',
-                 GREATEST((SELECT last_value FROM account_prefix_seq), max_adopted, 1000));
+  -- DO NOT advance the sequence past the highest adopted value.
+  --
+  -- This originally did `setval(GREATEST(last_value, max_adopted, 1000))`, reasoning that
+  -- starting above every adopted number made a collision impossible. It does — by burning
+  -- the entire space below it. On production, "calling" carries the legacy prefix 9989, so
+  -- the sequence jumped to 9989 and left ten slots under the 9999 ceiling for sixteen
+  -- unprovisioned companies. The eleventh nextval() raised "reached maximum value of
+  -- sequence", the whole migration rolled back, and because the runner halts on first
+  -- failure, 050 never applied either. Every republish failed identically and silently.
+  -- Adopted prefixes are SPARSE: one high legacy value must not consume the range.
+  --
+  -- Skipping taken values gives the same guarantee for the cost of a lookup, and keeps
+  -- what the sequence is actually for — nextval() is atomic under concurrency and never
+  -- returns a number twice, so two simultaneous boots cannot collide and a deleted
+  -- company's prefix is never reissued.
+  --
+  -- No setval at all now: the sequence is left exactly where it is. Calling it here would
+  -- also mark 1001 as consumed on a fresh sequence, quietly skipping the first prefix.
 
   -- Pass 2 — allocate for everyone else, row by row: nextval() in a set-returning
   -- UPDATE has no guaranteed ordering, and these values are permanent.
@@ -141,9 +151,18 @@ BEGIN
     CONTINUE WHEN EXISTS (
       SELECT 1 FROM companies c WHERE c.id = r.id AND c.sippy_i_account IS NOT NULL
     );
-    UPDATE companies
-       SET account_prefix = lpad(nextval('account_prefix_seq')::TEXT, 4, '0')
-     WHERE id = r.id;
+
+    -- Draw until the value is free. An adopted prefix occupies a number the sequence will
+    -- still hand out, so the candidate is checked rather than assumed. Bounded by the
+    -- sequence's own NO CYCLE ceiling: if the space is genuinely exhausted nextval()
+    -- raises, which is the correct outcome — widening to five digits is a capacity
+    -- decision, not something to paper over by reissuing a live customer's identity.
+    LOOP
+      candidate := lpad(nextval('account_prefix_seq')::TEXT, 4, '0');
+      EXIT WHEN NOT EXISTS (SELECT 1 FROM companies WHERE account_prefix = candidate);
+    END LOOP;
+
+    UPDATE companies SET account_prefix = candidate WHERE id = r.id;
     alloc_n := alloc_n + 1;
   END LOOP;
 
