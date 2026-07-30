@@ -1001,6 +1001,17 @@ function ProvisionHistory({ companyId }: { companyId: number }) {
 type PreflightCheck = { key: string; label: string; status: 'pass' | 'fail' | 'warn'; detail: string; remedy?: string };
 
 /**
+ * Where a failing check is fixed. Only for checks whose remedy is on another page —
+ * account_prefix has its own inline control, and the derived checks (auth_plan) resolve
+ * themselves once their inputs do, so sending an operator somewhere for those would be
+ * sending them somewhere there is nothing to do.
+ */
+const CHECK_FIX_PAGE: Record<string, { href: string; label: string }> = {
+  routing_matrix: { href: "/routing-matrix", label: "Open Routing Matrix" },
+  rates:          { href: "/rate-cards",     label: "Open Rate Cards" },
+};
+
+/**
  * Assign a prefix that allocation could not — the fallback for a company predating
  * migration 049, or one whose legacy prefix collided with a live customer's.
  *
@@ -1236,6 +1247,21 @@ function PreProvisionChecks({ company }: { company: Company }) {
                       decisions, and the auth plan is derived from the two above it. */}
                   {c.status === 'fail' && c.key === 'account_prefix' && (
                     <AssignPrefixButton companyId={company.id} companyName={company.name} />
+                  )}
+                  {/* Where the fix lives, for the two checks whose remedy is on another
+                      page. Not a rebuilt readiness panel: the checks, their detail and
+                      their remedies are already here, and duplicating them into a second
+                      layout would give two places to disagree about what is blocking. The
+                      thing that was missing is the way there. */}
+                  {c.status === 'fail' && CHECK_FIX_PAGE[c.key] && (
+                    <a
+                      href={CHECK_FIX_PAGE[c.key].href}
+                      onClick={e => e.stopPropagation()}
+                      className="inline-block mt-1.5 px-2 py-0.5 rounded border border-rose-500/30 text-[10px] text-rose-300 hover:border-rose-400/60 hover:text-rose-200"
+                      data-testid={`btn-fix-${c.key}-${company.id}`}
+                    >
+                      {CHECK_FIX_PAGE[c.key].label} →
+                    </a>
                   )}
                 </span>
               </div>
