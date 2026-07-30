@@ -59,12 +59,23 @@ function buildPairs(s: Record<string, string | null>): Pair[] {
 /**
  * Any existing tariff id, purely as a target for the upload-token probe. Read-only, and
  * the token is never used — which tariff it names is irrelevant.
+ *
+ * Deliberately NOT getTariffsList(): that function reads module-level `activeSession`
+ * and throws 'No active Sippy session' outside the running app, so in a standalone
+ * script it reports "no tariffs" on a switch holding 54 of them. Everything here takes
+ * portalUrl explicitly instead.
  */
 async function firstTariffId(p: Pair, portalUrl: string): Promise<number | null> {
   try {
-    const list = await sippy.getTariffsList(p.username, p.password, undefined, undefined, 1);
-    const hit = (list as any[])?.find(t => t?.iTariff);
-    return hit?.iTariff ?? null;
+    // A handful, not one: an account can carry no tariff, and giving up after the first
+    // would report the API unavailable when it is simply that account.
+    const { accounts, error } = await sippy.listSippyAccounts(p.username, p.password, { limit: 10 }, portalUrl);
+    if (error) return null;
+    for (const a of accounts) {
+      const info = await sippy.getAccountInfo(p.username, p.password, portalUrl, Number(a.iAccount));
+      if (info?.iTariff) return Number(info.iTariff);
+    }
+    return null;
   } catch {
     return null;
   }
