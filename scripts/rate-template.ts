@@ -188,14 +188,22 @@ async function doImport(file: string) {
     }
     for (const e of other) console.log(`  ERROR ${e.line ? `line ${e.line}: ` : ""}${e.message}`);
     if (missing.size) {
-      const productCount = products.length;
-      const whole = [...missing.values()].filter(g => g.products.length === productCount);
-      const partial = [...missing.entries()].filter(([, g]) => g.products.length < productCount);
+      // Against what the row can actually be priced on, NOT products.length. A row with
+      // four n/a columns is missing four prices out of four offered, not four out of
+      // eight — comparing to the total classed every wholly-empty row as "partial" and
+      // printed 32 near-identical lines, which is the output this was meant to replace.
+      const offeredOn = new Map(rows.map(r => [r.line, products.length - r.notOffered.size]));
+      const whole   = [...missing.entries()].filter(([l, g]) => g.products.length >= (offeredOn.get(l) ?? products.length));
+      const partial = [...missing.entries()].filter(([l, g]) => g.products.length <  (offeredOn.get(l) ?? products.length));
       console.log("");
       if (whole.length) {
-        console.log(`  ${whole.length} destination(s) have NO prices at all:`);
-        console.log(`    ${whole.map(g => g.prefix).join(', ')}`);
+        console.log(`  ${whole.length} destination(s) have no prices at all:`);
+        console.log(`    ${whole.map(([, g]) => g.prefix).join(', ')}`);
+        const anyRow = whole[0][1];
+        console.log(`  Each needs: ${anyRow.products.join(', ')}`);
       }
+      // Itemised, because a partially-filled row is the case that needs attention — it is
+      // a sheet someone was working on, not one nobody has started.
       for (const [line, g] of partial) {
         console.log(`  line ${line}: ${g.prefix} missing ${g.products.join(', ')}`);
       }
