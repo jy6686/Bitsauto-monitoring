@@ -9013,6 +9013,82 @@ export async function probeUploadToken(
   }
 }
 
+/**
+ * Upload a WHOLE workbook of rates to one tariff: one token, one POST, one verify.
+ *
+ * setSippyRateEntry does this for a single rate — its own token, its own upload, its own
+ * poll. Right for an operator changing two destinations, wrong for provisioning: a
+ * customer's default sheet is destinations x products, so per-rate upload means hundreds
+ * of tokens, hundreds of round trips, and hundreds of chances to stop half-way leaving a
+ * tariff holding some of its prices. getUploadToken accepts as many rows as you give it.
+ *
+ * VERIFICATION IS THE RESULT, not the status. getUploadStatus is unsupported on this build
+ * and parks at FILE_UPLOADED, so a sampled read-back decides success. Sampled rather than
+ * exhaustive because confirming 128 rows one at a time would cost more round trips than
+ * the upload it is checking — first, middle and last catch a truncated or misaligned
+ * import, which is what actually goes wrong.
+ */
+export async function uploadRatesWorkbook(
+  username: string,
+  password: string,
+  portalUrl: string,
+  iTariff: number,
+  xlsx: Buffer,
+  sample: Array<{ prefix: string; rate: number }>,
+): Promise<{ success: boolean; message: string; uploadStatus?: string; verified: number; checked: number }> {
+  const base   = sippyBase(portalUrl);
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+
+  const tokenXml = buildGetUploadTokenXml(
+    await resolveUploadType(username, password, base, 'rates'),
+    sippyUploadTimestamp(10_000), undefined, { i_tariff: iTariff },
+  );
+  const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 15000);
+  console.log(`[RateManager] bulk getUploadToken: HTTP ${tokenResp.statusCode} ${tokenResp.body.slice(0, 200)}`);
+  if (tokenResp.statusCode !== 200 || tokenResp.body.includes('faultCode')) {
+    return { success: false, verified: 0, checked: 0,
+      message: `getUploadToken failed: ${extractFaultString(tokenResp.body) || `HTTP ${tokenResp.statusCode}`}` };
+  }
+  const m = extractStructMembers(extractAllTags(tokenResp.body, 'struct')[0] ?? '');
+  if (!m['token'] || !m['url']) {
+    return { success: false, verified: 0, checked: 0, message: 'getUploadToken returned no token or url' };
+  }
+
+  const up = await uploadBinaryFile(m['url'], xlsx, 'rates.xlsx');
+  console.log(`[RateManager] bulk upload: success=${up.success} ${up.body.slice(0, 200)}`);
+  if (!up.success) {
+    return { success: false, verified: 0, checked: 0, message: `file upload rejected: ${up.body.slice(0, 200)}` };
+  }
+
+  let status = 'FILE_UPLOADED';
+  for (let poll = 1; poll <= 15; poll++) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const sr = await sippyPost(apiUrl, xmlRpcCall('getUploadStatus', { token: m['token'] }), username, password, 8000);
+      if (sr.statusCode === 200 && !sr.body.includes('faultCode')) {
+        const sm = extractStructMembers(extractAllTags(sr.body, 'struct')[0] ?? '');
+        if (sm['status']) status = sm['status'];
+      }
+    } catch { /* keep polling; the read-back below is what decides */ }
+    console.log(`[RateManager] bulk status poll #${poll}: ${status}`);
+    if (status === 'DONE' || status === 'FAIL') break;
+  }
+
+  let verified = 0;
+  for (const row of sample) {
+    const v = await verifySippyRate(username, password, String(iTariff), row.prefix, row.rate, base);
+    console.log(`[RateManager] bulk verify ${row.prefix}: ${v.message}`);
+    if (v.confirmed) verified++;
+  }
+
+  if (verified === sample.length && sample.length > 0) {
+    return { success: true, verified, checked: sample.length, uploadStatus: status,
+      message: `Uploaded and verified (${verified}/${sample.length} sampled, status ${status})` };
+  }
+  return { success: false, verified, checked: sample.length, uploadStatus: status,
+    message: `Upload finished with status ${status} but only ${verified}/${sample.length} sampled rate(s) read back — the tariff does not hold what was sent` };
+}
+
 export async function setSippyRateEntry(
   username: string,
   password: string,
