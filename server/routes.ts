@@ -28122,6 +28122,33 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 
+  // GET /api/account-prefixes/available?q=100&limit=12 — free prefixes, for the picker.
+  //
+  // Offered instead of a free-text box so an operator chooses from what is actually
+  // available rather than typing a number and being told afterwards that another customer
+  // owns it. The assign endpoint still re-checks: this list is a moment old the instant it
+  // is rendered, and two admins can be looking at the same screen.
+  //
+  // generate_series over 1001-9999 is ~9k rows and cheap; a prefix table would be a second
+  // place for the allocatable range to be defined, and the two would drift.
+  app.get('/api/account-prefixes/available', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const q = String(req.query.q ?? '').replace(/\D/g, '').slice(0, 4);
+      const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '12'), 10) || 12, 1), 50);
+      const { rows } = await pool.query<{ prefix: string }>(
+        `SELECT lpad(g::TEXT, 4, '0') AS prefix
+           FROM generate_series(1001, 9999) g
+          WHERE lpad(g::TEXT, 4, '0') NOT IN (
+                  SELECT account_prefix FROM companies WHERE account_prefix IS NOT NULL)
+            AND ($1 = '' OR lpad(g::TEXT, 4, '0') LIKE $1 || '%')
+          ORDER BY g
+          LIMIT $2`,
+        [q, limit],
+      );
+      res.json({ prefixes: rows.map(r => r.prefix), query: q });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   // POST /api/companies/:id/account-prefix — assign a prefix that allocation could not.
   // Body: {} to retry auto-allocation, or { prefix: "1050" } to set one by hand.
   //

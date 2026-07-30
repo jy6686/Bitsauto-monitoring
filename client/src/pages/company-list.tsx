@@ -1017,6 +1017,15 @@ function AssignPrefixButton({ companyId, companyName }: { companyId: number; com
   const [manual, setManual] = useState(false);
   const [value, setValue] = useState("");
 
+  // Only fetched once the picker is open — the card renders this component for every
+  // company missing a prefix, and a list nobody has asked for is a query per card.
+  const available = useQuery<{ prefixes: string[] }>({
+    queryKey: ["/api/account-prefixes/available", value],
+    queryFn: () => fetch(`/api/account-prefixes/available?q=${encodeURIComponent(value)}&limit=12`)
+      .then(r => r.json()),
+    enabled: manual,
+  });
+
   const assign = useMutation({
     mutationFn: (prefix?: string) =>
       apiRequest("POST", `/api/companies/${companyId}/account-prefix`, prefix ? { prefix } : {})
@@ -1052,40 +1061,60 @@ function AssignPrefixButton({ companyId, companyName }: { companyId: number; com
           >
             {assign.isPending ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : "Allocate automatically"}
           </Button>
-          <button
-            type="button"
-            className="text-[10px] underline text-muted-foreground hover:text-foreground"
+          {/* A button, not a link. In an operations dashboard a text link beside a button
+              reads as secondary detail and gets skipped. */}
+          <Button
+            size="sm" variant="outline"
+            className="h-6 text-[10px] px-2"
+            disabled={assign.isPending}
             onClick={() => setManual(true)}
+            data-testid={`btn-manual-prefix-${companyId}`}
           >
-            enter manually
-          </button>
+            Choose manually
+          </Button>
         </span>
       ) : (
-        <span className="flex items-center gap-1.5">
-          <Input
-            value={value}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setValue(e.target.value.replace(/\D/g, "").slice(0, 4))}
-            placeholder="1050"
-            inputMode="numeric"
-            className="h-6 w-20 text-[10px] font-mono"
-            data-testid={`input-manual-prefix-${companyId}`}
-          />
-          <Button
-            size="sm"
-            className="h-6 text-[10px] px-2"
-            disabled={value.length !== 4 || assign.isPending}
-            onClick={() => assign.mutate(value)}
-            data-testid={`btn-save-prefix-${companyId}`}
-          >
-            {assign.isPending ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : "Save"}
-          </Button>
-          <button
-            type="button"
-            className="text-[10px] underline text-muted-foreground hover:text-foreground"
-            onClick={() => { setManual(false); setValue(""); }}
-          >
-            cancel
-          </button>
+        <span className="block space-y-1.5">
+          <span className="flex items-center gap-1.5">
+            <Input
+              value={value}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setValue(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              placeholder="type to filter…"
+              inputMode="numeric"
+              className="h-6 w-28 text-[10px] font-mono"
+              data-testid={`input-manual-prefix-${companyId}`}
+            />
+            <Button
+              size="sm" variant="ghost"
+              className="h-6 text-[10px] px-2"
+              onClick={() => { setManual(false); setValue(""); }}
+            >
+              Cancel
+            </Button>
+          </span>
+          {/* Pick from what is free rather than typing and being refused afterwards. The
+              server still re-checks on assign — this list is stale the moment it renders,
+              and two admins can be looking at the same card. */}
+          <span className="flex flex-wrap gap-1">
+            {available.isLoading && <span className="text-[10px] text-muted-foreground">Loading available prefixes…</span>}
+            {!available.isLoading && !(available.data?.prefixes?.length) && (
+              <span className="text-[10px] text-muted-foreground">
+                No free prefix matches “{value}”.
+              </span>
+            )}
+            {available.data?.prefixes?.map((p: string) => (
+              <button
+                key={p}
+                type="button"
+                disabled={assign.isPending}
+                onClick={() => assign.mutate(p)}
+                className="px-1.5 py-0.5 rounded border border-border/50 font-mono text-[10px] hover:border-emerald-500/50 hover:text-emerald-300 disabled:opacity-50"
+                data-testid={`btn-prefix-${companyId}-${p}`}
+              >
+                {p}
+              </button>
+            ))}
+          </span>
         </span>
       )}
     </span>
