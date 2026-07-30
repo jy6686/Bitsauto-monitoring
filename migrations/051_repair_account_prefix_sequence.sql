@@ -37,15 +37,12 @@ CREATE SEQUENCE IF NOT EXISTS account_prefix_seq
 
 DO $$
 DECLARE
-  -- Headroom below which the sequence counts as starved and a rewind is justified.
-  -- 200 is roughly two years of onboarding at the current rate — comfortably more than a
-  -- deploy cycle, so a starved range is repaired long before it blocks anyone, and well
-  -- short of the point where reusing gaps becomes routine.
-  REWIND_THRESHOLD CONSTANT INTEGER := 200;
   r          RECORD;
   candidate  TEXT;
   lowest     INTEGER;
   before_val BIGINT;
+  needed     INTEGER;
+  reachable  INTEGER;
   alloc_n    INTEGER := 0;
 BEGIN
   SELECT last_value INTO before_val FROM account_prefix_seq;
@@ -64,26 +61,37 @@ BEGIN
     RAISE EXCEPTION 'account_prefix space 1001-9999 is fully allocated — widen the prefix format; do not reissue';
   END IF;
 
-  -- REWIND ONLY WHEN THE SEQUENCE IS ACTUALLY STARVED.
+  -- REWIND ONLY WHEN THE SEQUENCE CANNOT SERVE THIS BACKFILL.
   --
-  -- Reusing a gap is not unconditionally safe. A gap usually means a value was drawn and
-  -- never persisted — harmless, it never reached Sippy. But it can also mean a company
-  -- was DELETED, and that prefix may still sit in authentication and CLD rules on the
-  -- switch. Handing it to a new customer would route their traffic under a retired
-  -- identity, which is the exact failure 049's header exists to prevent.
+  -- The condition is the actual failure, not a threshold: how many prefixes must be
+  -- allocated, against how many the sequence can still produce before the 9999 ceiling.
+  -- If it can serve them, it is left alone and this migration only allocates. If it
+  -- cannot, the backfill would raise and roll back, which is the state that has been
+  -- blocking every deploy — so the rewind is the only alternative to failing.
   --
-  -- So the rewind is confined to the situation where the alternative is that nothing can
-  -- be allocated at all. Above the threshold the sequence is left exactly where it is and
-  -- this migration is a no-op — which is also the answer to "will this move the sequence
-  -- backwards again next time": it will not, unless the range is genuinely starved again.
-  IF (9999 - before_val) < REWIND_THRESHOLD AND before_val > lowest THEN
+  -- Stated this way there is no number anyone has to justify later, and the migration
+  -- cannot pull a healthy sequence backwards: a healthy sequence, by definition, has
+  -- enough values left for the work in front of it.
+  --
+  -- WHY THE RESTRAINT MATTERS. Reusing a gap is not unconditionally safe. A gap usually
+  -- means a value was drawn and never persisted — harmless, it never reached Sippy. But
+  -- it can also mean a company was DELETED while its prefix remains in authentication and
+  -- CLD rules on the switch, and handing that number to a new customer routes their
+  -- traffic under a retired identity. That is the failure 049's header exists to prevent,
+  -- and deleted companies are not in `companies`, so the exclusion below does not catch
+  -- them. Hence: only when the alternative is not allocating at all.
+  SELECT COUNT(*) INTO needed
+    FROM companies WHERE account_prefix IS NULL AND sippy_i_account IS NULL;
+  reachable := 9999 - before_val;
+
+  IF needed > reachable AND before_val > lowest THEN
     -- is_called = false so the NEXT nextval() returns `lowest` itself, not lowest+1.
     PERFORM setval('account_prefix_seq', lowest, false);
-    RAISE NOTICE 'account_prefix_seq rewound from % to % — only % value(s) remained below the ceiling. Gaps are now reusable; verify none belonged to a DELETED company still referenced in Sippy.',
-      before_val, lowest, 9999 - before_val;
+    RAISE NOTICE 'account_prefix_seq rewound from % to %: % company(ies) need a prefix and only % value(s) remained below the ceiling. Gaps are now reusable — verify none belonged to a DELETED company still referenced in Sippy.',
+      before_val, lowest, needed, reachable;
   ELSE
-    RAISE NOTICE 'account_prefix_seq at % with % value(s) of headroom — no rewind (lowest free is %)',
-      before_val, 9999 - before_val, lowest;
+    RAISE NOTICE 'account_prefix_seq at % — % value(s) reachable, % needed. No rewind.',
+      before_val, reachable, needed;
   END IF;
 
   -- Finish what 049 could not: any company with no prefix that is NOT already provisioned.
