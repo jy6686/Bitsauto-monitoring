@@ -74,12 +74,27 @@ export default function CompanyCreatePage() {
    *  which should be rare — auto is correct for essentially every company. */
   const [accountPrefix, setAccountPrefix] = useState("");
   const [pickPrefix, setPickPrefix] = useState(false);
+  /** What the customer BUYS. Persisted to company_products, not wizard_draft — the
+   *  provisioning engine and rate generator both query it. */
+  const [productIds, setProductIds] = useState<number[]>([]);
+  /** Destination ids, not country names. The rate engine, routing matrix and catalogue all
+   *  key on destination — "Pakistan" would leave provisioning guessing between Pakistan
+   *  Fixed, Pakistan Mobile and each operator breakout. */
+  const [marketIds, setMarketIds] = useState<number[]>([]);
 
   const { data: freePrefixes } = useQuery<{ prefixes: string[] }>({
     queryKey: ["/api/account-prefixes/available", accountPrefix],
     queryFn: () => fetch(`/api/account-prefixes/available?q=${encodeURIComponent(accountPrefix)}&limit=20`)
       .then(r => r.json()),
     enabled: pickPrefix,
+  });
+
+  const { data: sellableProducts } = useQuery<Array<{ id: number; code: string; name: string; color?: string }>>({
+    queryKey: ["/api/rate-manager/products"],
+  });
+
+  const { data: commercialDests } = useQuery<{ destinations: Array<{ id: number; prefix: string; name: string; countryCode: string | null }> }>({
+    queryKey: ["/api/commercial-destinations"],
   });
 
   const { data: kamsData } = useQuery<{ id: number; name: string; email: string; orgRole: string }[]>({
@@ -151,6 +166,10 @@ export default function CompanyCreatePage() {
       else if (com?.error)    failed.push("Service plan");
       if (ips?.created)       done.push(`${ips.created} IP${ips.created !== 1 ? "s" : ""} pending approval`);
       if (ips?.error)         failed.push(`${ips.requested} IP${ips.requested !== 1 ? "s" : ""}`);
+      const intent = data?.intent as { products: number; markets: number; error: string | null } | undefined;
+      if (intent?.products)   done.push(`${intent.products} product${intent.products !== 1 ? "s" : ""}`);
+      if (intent?.markets)    done.push(`${intent.markets} destination${intent.markets !== 1 ? "s" : ""}`);
+      if (intent?.error)      failed.push("Product selection");
 
       if (failed.length) {
         toast({
@@ -234,7 +253,9 @@ export default function CompanyCreatePage() {
     );
     const initialIps = parseIps(clientIps);
     const payload = { basic, billing, contacts: pocContacts, bankAccounts, initialIps,
-                      ...(accountPrefix ? { accountPrefix } : {}) };
+                      ...(accountPrefix ? { accountPrefix } : {}),
+                      ...(productIds.length ? { productIds } : {}),
+                      ...(marketIds.length ? { marketDestinationIds: marketIds } : {}) };
     if (isEdit) {
       updateMutation.mutate(payload);
     } else {
@@ -403,6 +424,112 @@ export default function CompanyCreatePage() {
                   {errors.clientIps && (
                     <p className="text-[11px] text-red-400">{errors.clientIps}</p>
                   )}
+
+                  {/* What the customer buys. Cards rather than a dropdown: four to eight
+                      options that an operator sets on every single company, where a
+                      dropdown costs two clicks and hides the other choices. */}
+                  <div className="pt-3 mt-3 border-t border-border/40 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium">Products</h3>
+                      <span className="text-[11px] text-muted-foreground">
+                        {productIds.length ? `${productIds.length} selected` : 'none — platform default applies'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                      {(sellableProducts ?? []).map(p => {
+                        const on = productIds.includes(p.id);
+                        return (
+                          <button
+                            key={p.id} type="button"
+                            onClick={() => setProductIds(v => on ? v.filter(x => x !== p.id) : [...v, p.id])}
+                            className={cn(
+                              "text-left px-3 py-2 rounded-lg border transition-colors",
+                              on ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-300"
+                                 : "border-border/50 hover:border-emerald-500/40",
+                            )}
+                            data-testid={`btn-product-${p.code}`}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full shrink-0"
+                                    style={{ background: on ? undefined : (p.color || '#6366f1') }} />
+                              <span className="text-xs font-medium truncate">{p.name}</span>
+                            </div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5">{p.code}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {!productIds.length && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Leave empty to sell every product. A selection is a deliberate restriction.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Destinations, grouped by country so 32 rows stay scannable. Selecting
+                      a country heading takes all of its destinations — a convenience over
+                      the real unit, not a substitute for it. */}
+                  <div className="pt-3 mt-3 border-t border-border/40 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium">Destinations</h3>
+                      <span className="text-[11px] text-muted-foreground">
+                        {marketIds.length ? `${marketIds.length} selected` : 'none — every commercial destination applies'}
+                      </span>
+                    </div>
+                    {(() => {
+                      const all = commercialDests?.destinations ?? [];
+                      const groups = all.reduce((m, d) => {
+                        const k = d.countryCode ?? '—';
+                        (m[k] ??= []).push(d);
+                        return m;
+                      }, {} as Record<string, typeof all>);
+                      const toggle = (ids: number[], on: boolean) =>
+                        setMarketIds(v => on ? v.filter(x => !ids.includes(x)) : [...new Set([...v, ...ids])]);
+                      return (
+                        <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                          {Object.entries(groups).map(([cc, dests]) => {
+                            const ids = dests.map(d => d.id);
+                            const allOn = ids.every(i => marketIds.includes(i));
+                            return (
+                              <div key={cc}>
+                                <button type="button"
+                                  onClick={() => toggle(ids, allOn)}
+                                  className="text-[11px] font-medium text-muted-foreground hover:text-foreground mb-1"
+                                >
+                                  +{cc} · {allOn ? 'clear all' : 'select all'} ({dests.length})
+                                </button>
+                                <div className="flex flex-wrap gap-1">
+                                  {dests.map(d => {
+                                    const on = marketIds.includes(d.id);
+                                    return (
+                                      <button key={d.id} type="button"
+                                        onClick={() => toggle([d.id], on)}
+                                        title={`${d.prefix} — ${d.name}`}
+                                        className={cn(
+                                          "px-2 py-0.5 rounded border text-[10px]",
+                                          on ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-300"
+                                             : "border-border/50 hover:border-emerald-500/40",
+                                        )}
+                                        data-testid={`btn-market-${d.prefix}`}
+                                      >
+                                        <span className="font-mono">{d.prefix}</span>{' '}
+                                        <span className="text-muted-foreground">{d.name}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {!all.length && (
+                            <p className="text-[11px] text-muted-foreground">
+                              No commercial destinations yet — assign destinations to products on the Product Registry page.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
 
                   {/* PROGRESSIVE DISCLOSURE. Auto is right for essentially every company —
                       the allocator falls back to a scan and can only fail when the whole

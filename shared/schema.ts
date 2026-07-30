@@ -4452,6 +4452,35 @@ export type ProductDestinationAssignment       = typeof productDestinationAssign
 export type InsertProductDestinationAssignment = typeof productDestinationAssignments.$inferInsert;
 
 // ── Product History / Audit Trail ─────────────────────────────────────────────
+// ── Company commercial intent ─────────────────────────────────────────────────
+// What the customer BOUGHT, against the company. Distinct from customer_product_assignments
+// and the Sippy tables, which record what was BUILT and only exist after provisioning.
+// Migration 054.
+export const companyProducts = pgTable("company_products", {
+  id:        serial("id").primaryKey(),
+  companyId: integer("company_id").notNull(),
+  productId: integer("product_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  createdBy: varchar("created_by", { length: 128 }),
+}, (t) => ({
+  uqCompanyProduct: uniqueIndex("uq_company_product").on(t.companyId, t.productId),
+}));
+export type CompanyProduct       = typeof companyProducts.$inferSelect;
+export type InsertCompanyProduct = typeof companyProducts.$inferInsert;
+
+/** Empty means the platform default commercial set applies; a list is a deliberate restriction. */
+export const companyMarkets = pgTable("company_markets", {
+  id:            serial("id").primaryKey(),
+  companyId:     integer("company_id").notNull(),
+  destinationId: integer("destination_id").notNull(),
+  createdAt:     timestamp("created_at").defaultNow().notNull(),
+  createdBy:     varchar("created_by", { length: 128 }),
+}, (t) => ({
+  uqCompanyMarket: uniqueIndex("uq_company_market").on(t.companyId, t.destinationId),
+}));
+export type CompanyMarket       = typeof companyMarkets.$inferSelect;
+export type InsertCompanyMarket = typeof companyMarkets.$inferInsert;
+
 export const productHistory = pgTable("product_history", {
   id:            serial("id").primaryKey(),
   productId:     integer("product_id"),
