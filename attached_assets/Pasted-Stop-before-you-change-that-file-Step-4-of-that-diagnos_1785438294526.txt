@@ -1,0 +1,42 @@
+Stop before you change that file. Step 4 of that diagnosis is unsupported — getAuthRuleInfo has never executed against this switch. Let me prove it:
+
+Checked whether the deployed build ever called getAuthRuleInfo
+Confirmed. The build that produced your screenshot calls listSippyAuthRules twice and getSippyAuthRuleInfo zero times.
+
+The flaw in that diagnosis
+That agent read the new code and used it to explain an old screenshot. Its steps 3–6 describe a call chain that has never run:
+
+getAuthRuleInfo on this Sippy switch also doesn't return i_routing_group
+There is no evidence for this. No getAuthRuleInfo request has been sent to this switch. The claim was inferred backwards from a failure the old single-call verifier produced, and the giveaway is in the screenshot itself: routing group not returned by Sippy — could not verify is a string that no longer exists in the repository.
+
+Its step 6 names the branch 'routing group not exposed by this switch' — a label I added in 5b06a544, in code that has never executed.
+
+Why applying that fix now would be the worst move available
+sippy.ts:14611 says, about this API: use getAuthRuleInfo for those. There is a real chance the redeployed verifier simply passes. Downgrading "absent from both calls" to a warning before observing one run would:
+
+solve a problem that may not exist,
+and permanently mask a genuinely absent routing group — the No Route Found failure — behind a warning nobody reads.
+That is the exact inversion of the discipline that found this bug in the first place.
+
+Your three-state model is right, and I'd implement it — after one run
+You pushed back on the auto-PASS for precisely the correct reason, and your classification is the one I'd build:
+
+Outcome	Status
+Rule missing · CLD mismatch · RG returned but wrong	failed
+RG genuinely null on the rule	failed — this is No Route Found
+RG absent from both API calls	completed_with_warnings, stating the limitation
+Everything confirmed	completed
+Two notes for when we build it:
+
+It needs a runner change, not just a step change. Today verify() returns pass or fail, and any non-null reason downgrades success to failed. A third outcome — verified-with-limitation — has to exist in the contract, or the step can only lie in one of two directions. That's VerifyReport gaining a warnings?: string[] and the runner distinguishing it from reason.
+
+The warning must name the account and the unproven field, not just say "API limitation" — so it lands in detail, in metrics (routingGroupsConfirmed: 0), and in the run status. An unread warning is the absence we keep eliminating.
+
+What actually decides this
+One run of the deployed fix. Three possible outcomes, each pointing somewhere different:
+
+New message	Meaning
+(step passes)	getAuthRuleInfo returns it. Nothing to fix.
+getAuthRuleInfo(318) failed — <Sippy's message>	Permission, or wrong iCustomer scoping
+neither listAuthRules nor getAuthRuleInfo returned i_routing_group on rule 318	Now your three-state model is correct, and I build it
+Redeploy, run Test-3071, send me the new text. And flashbee's export still answers the routing-group question from outside our code entirely — that's the independent source your own flow diagram calls for.
