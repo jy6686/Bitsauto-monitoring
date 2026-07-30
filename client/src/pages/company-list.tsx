@@ -340,7 +340,7 @@ function ProvisioningPanel({ company }: { company: Company }) {
         toast({
           title: `${company.name} — cannot provision (${failed.length} blocking issue${failed.length !== 1 ? 's' : ''})`,
           description: failed.length
-            ? `${failed.slice(0, 3).map((c: any) => c.label).join(' · ')}${failed.length > 3 ? ` · +${failed.length - 3} more` : ''} — see Pre-Provision Checks for the remedy. Nothing was sent to Sippy.`
+            ? `${failed.slice(0, 3).map((c: any) => c.label).join(' · ')}${failed.length > 3 ? ` · +${failed.length - 3} more` : ''} — see Provisioning Readiness for the remedy. Nothing was sent to Sippy.`
             : 'Preflight refused the run. Nothing was sent to Sippy.',
           variant: "destructive",
         });
@@ -920,7 +920,7 @@ function ProvisioningPanel({ company }: { company: Company }) {
   );
 }
 
-// ── Pre-Provision Checks ──────────────────────────────────────────────────────
+// ── Provisioning Readiness ────────────────────────────────────────────────────
 type CheckStatus = 'ok' | 'warning' | 'error';
 type ProvCheck = { type: string; status: CheckStatus; message: string; conflictWith?: string; field?: string };
 
@@ -1147,7 +1147,7 @@ function PreProvisionChecks({ company }: { company: Company }) {
     <div className="border-t border-border/40 pt-2 space-y-1.5">
       <div className="flex items-center justify-between">
         <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-          <AlertCircle className="h-2.5 w-2.5" /> Pre-Provision Checks
+          <AlertCircle className="h-2.5 w-2.5" /> Provisioning Readiness
         </p>
         <button
           data-testid={`btn-run-checks-${company.id}`}
