@@ -36,6 +36,8 @@ export interface TemplateRow {
   destination: string | null;
   /** productCode → rate. A missing entry is a gap; 0 is a real price. */
   prices: Record<string, number>;
+  /** Product codes explicitly marked `n/a` — not sold here, so not a missing price. */
+  notOffered: Set<string>;
   /** 1-based line number in the source file, for error messages an operator can act on. */
   line: number;
 }
@@ -91,13 +93,23 @@ export function splitCsvLine(line: string): string[] {
  * whatever is already in product_rates) so the operator edits prices rather than retyping
  * 32 prefixes — the retyping is where prefixes get transposed.
  */
+export const NOT_OFFERED = 'n/a';
+
 export function buildTemplateCsv(
   destinations: Array<{ prefix: string; destination?: string | null }>,
   products: TemplateProduct[],
+  /** `${prefix}|${productCode}` pairs the business actually sells. Omit to offer every
+   *  product on every row. Cells outside it are pre-filled `n/a` — a destination sold on
+   *  two products out of four should not read as two missing prices. */
+  offered?: Set<string>,
 ): string {
   const header = [...FIXED_COLUMNS, ...products.map(p => p.code)].join(',');
   const q = (s: string) => (s.includes(',') || s.includes('"')) ? `"${s.replace(/"/g, '""')}"` : s;
-  const lines = destinations.map(d => [q(d.prefix), q(d.destination ?? ''), ...products.map(() => '')].join(','));
+  const lines = destinations.map(d => [
+    q(d.prefix),
+    q(d.destination ?? ''),
+    ...products.map(p => (!offered || offered.has(`${d.prefix}|${p.code}`)) ? '' : NOT_OFFERED),
+  ].join(','));
   return [header, ...lines].join('\n') + '\n';
 }
 
@@ -146,9 +158,13 @@ export function parseTemplateCsv(csv: string, products: TemplateProduct[]): {
     }
 
     const prices: Record<string, number> = {};
+    const notOffered = new Set<string>();
     for (const [code, idx] of colFor) {
       const raw = (cells[idx] ?? '').trim();
       if (raw === '') continue;                       // gap — validate() decides if it matters
+      // 'n/a' means the business does not sell this destination on this product. Distinct
+      // from blank: blank is a price someone forgot, n/a is a deliberate absence.
+      if (raw.toLowerCase() === NOT_OFFERED) { notOffered.add(code); continue; }
       const n = Number(raw);
       if (!Number.isFinite(n)) {
         issues.push({ line, severity: 'error', message: `${code} price "${raw}" is not a number.` });
@@ -164,6 +180,7 @@ export function parseTemplateCsv(csv: string, products: TemplateProduct[]): {
       prefix,
       destination: destIdx >= 0 ? ((cells[destIdx] ?? '').trim() || null) : null,
       prices,
+      notOffered,
       line,
     });
   }
@@ -198,6 +215,7 @@ export function validateTemplate(rows: TemplateRow[], products: TemplateProduct[
     seen.set(r.prefix, r.line);
 
     for (const p of products) {
+      if (r.notOffered.has(p.code)) continue;   // deliberately not sold — nothing to price
       const v = r.prices[p.code];
       if (v === undefined) {
         issues.push({ line: r.line, severity: 'error', message: `${r.prefix} has no ${p.code} price — a customer on ${p.name} would carry this destination unpriced.` });
