@@ -97,7 +97,7 @@ import {
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
 import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
 import { refreshVendorAcds } from "./vendor-acd-cache";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, navigationModules, clientIpRequests } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, navigationModules, clientIpRequests, companies } from "@shared/schema";
 import { db, pool } from "./db";
 import { getMigrationLedger, getMigrationStatus } from "./migrate";
 import { allocateAccountPrefix } from "./services/provisioning/account-prefix";
@@ -28119,6 +28119,98 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
       const { runPreflight } = await import('./services/provisioning/preflight');
       res.json(await runPreflight(id));
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
+  // POST /api/companies/:id/account-prefix — assign a prefix that allocation could not.
+  // Body: {} to retry auto-allocation, or { prefix: "1050" } to set one by hand.
+  //
+  // FALLBACK ONLY. Allocation at company creation handles essentially every company; this
+  // exists for the cases it cannot — a company predating migration 049, or one whose
+  // legacy prefix collided with a live customer's and was deliberately left unset.
+  //
+  // ASSIGNS ONLY WHEN NULL, and admin-only. The prefix is embedded in Sippy authentication
+  // and CLD rules the moment a customer is provisioned; changing it would authenticate
+  // their traffic under a number the switch no longer knows. That is why PUT
+  // /api/companies/:id already strips accountPrefix, and why this endpoint refuses an
+  // overwrite rather than offering a confirmation.
+  app.post('/api/companies/:id/account-prefix', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) return res.status(400).json({ message: 'Invalid ID' });
+      const company: any = await storage.getCompany(id);
+      if (!company) return res.status(404).json({ message: 'Company not found' });
+
+      if (company.accountPrefix) {
+        return res.status(409).json({
+          message: `${company.name} already has account prefix ${company.accountPrefix}. A prefix is immutable once assigned — it is embedded in this customer's Sippy authentication and CLD rules.`,
+          currentPrefix: company.accountPrefix,
+        });
+      }
+
+      let prefix: string | undefined = typeof req.body?.prefix === 'string' ? req.body.prefix.trim() : undefined;
+
+      if (prefix) {
+        if (!/^\d{4}$/.test(prefix)) {
+          return res.status(400).json({ message: 'A prefix is exactly four digits (1001-9999).' });
+        }
+        const n = Number(prefix);
+        if (n < 1001 || n > 9999) {
+          return res.status(400).json({ message: `${prefix} is outside the allocatable range 1001-9999.` });
+        }
+        // Named, not just refused: "already allocated" leaves the operator guessing which
+        // customer owns it and whether that is even correct.
+        const [clash]: any[] = await db.select({ id: companies.id, name: companies.name })
+          .from(companies).where(eq(companies.accountPrefix, prefix)).limit(1);
+        if (clash) {
+          return res.status(409).json({
+            message: `Prefix ${prefix} is already allocated to ${clash.name}.`,
+            conflictCompanyId: clash.id,
+            conflictCompanyName: clash.name,
+          });
+        }
+      } else {
+        // Auto: draw from the sequence, skipping anything already taken. Same rule as
+        // migration 049's Pass 2 — an adopted legacy prefix occupies a number the
+        // sequence will still hand out.
+        const { allocateAccountPrefix, PrefixSpaceExhaustedError } = await import('./services/provisioning/account-prefix');
+        try {
+          for (let attempt = 0; attempt < 50; attempt++) {
+            const candidate = await allocateAccountPrefix();
+            const [taken]: any[] = await db.select({ id: companies.id })
+              .from(companies).where(eq(companies.accountPrefix, candidate)).limit(1);
+            if (!taken) { prefix = candidate; break; }
+          }
+          if (!prefix) return res.status(409).json({ message: 'Fifty consecutive sequence values were already in use. Assign a prefix manually.' });
+        } catch (e: any) {
+          if (e instanceof PrefixSpaceExhaustedError) return res.status(409).json({ message: e.message });
+          // The usual cause here is migration 049 never having applied on this database,
+          // so account_prefix_seq does not exist. Say so rather than surfacing a raw
+          // Postgres error an operator cannot act on.
+          return res.status(500).json({
+            message: `Automatic allocation is unavailable (${e?.message}). Assign a prefix manually, or check /schema-migrations — this usually means migration 049 has not applied here.`,
+          });
+        }
+      }
+
+      // Conditional on still being NULL: two admins assigning at once must not both win,
+      // and the partial unique index would reject the loser with a raw constraint error.
+      const updated = await db.update(companies)
+        .set({ accountPrefix: prefix })
+        .where(and(eq(companies.id, id), isNull(companies.accountPrefix)))
+        .returning({ id: companies.id, accountPrefix: companies.accountPrefix });
+      if (!updated.length) {
+        return res.status(409).json({ message: 'Another administrator assigned a prefix to this company a moment ago. Reload to see it.' });
+      }
+
+      void writeAudit({
+        category: 'operational', action: 'company.account_prefix.assigned',
+        actor: req.user?.email ?? req.user?.claims?.email, actorType: 'user',
+        targetType: 'company', targetId: String(id), targetName: company.name,
+        metadata: { prefix, mode: req.body?.prefix ? 'manual' : 'auto' },
+      });
+
+      res.json({ accountPrefix: prefix, mode: req.body?.prefix ? 'manual' : 'auto' });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });
 

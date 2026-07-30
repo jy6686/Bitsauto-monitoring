@@ -1000,6 +1000,98 @@ function ProvisionHistory({ companyId }: { companyId: number }) {
 /** One check as the provisioning engine reports it. */
 type PreflightCheck = { key: string; label: string; status: 'pass' | 'fail' | 'warn'; detail: string; remedy?: string };
 
+/**
+ * Assign a prefix that allocation could not — the fallback for a company predating
+ * migration 049, or one whose legacy prefix collided with a live customer's.
+ *
+ * Auto first, manual second, deliberately in that order: automatic allocation is right
+ * for essentially every company, and offering a free-text box as the primary path invites
+ * an operator to invent a number when the platform could have picked a correct one.
+ *
+ * The server is the authority on uniqueness — it re-checks and refuses, naming the company
+ * that owns a clashing prefix. This does not pre-validate, because a check here would be
+ * stale by the time Save is pressed and two admins could still both pass it.
+ */
+function AssignPrefixButton({ companyId, companyName }: { companyId: number; companyName: string }) {
+  const { toast } = useToast();
+  const [manual, setManual] = useState(false);
+  const [value, setValue] = useState("");
+
+  const assign = useMutation({
+    mutationFn: (prefix?: string) =>
+      apiRequest("POST", `/api/companies/${companyId}/account-prefix`, prefix ? { prefix } : {})
+        .then(async r => {
+          const body = await r.json();
+          // The 409 body carries which company owns the prefix — the useful part. A bare
+          // "already allocated" leaves the operator guessing.
+          if (!r.ok) throw new Error(body?.message ?? `Request failed (${r.status})`);
+          return body;
+        }),
+    onSuccess: (d: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/companies/${companyId}/preflight`] });
+      toast({
+        title: `${companyName} — account prefix ${d.accountPrefix}`,
+        description: d.mode === 'auto' ? "Allocated automatically." : "Assigned manually.",
+      });
+      setManual(false); setValue("");
+    },
+    onError: (e: any) => toast({ title: "Could not assign prefix", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <span className="block mt-1.5" onClick={e => e.stopPropagation()}>
+      {!manual ? (
+        <span className="flex items-center gap-1.5">
+          <Button
+            size="sm" variant="outline"
+            className="h-6 text-[10px] px-2"
+            disabled={assign.isPending}
+            onClick={() => assign.mutate(undefined)}
+            data-testid={`btn-auto-prefix-${companyId}`}
+          >
+            {assign.isPending ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : "Allocate automatically"}
+          </Button>
+          <button
+            type="button"
+            className="text-[10px] underline text-muted-foreground hover:text-foreground"
+            onClick={() => setManual(true)}
+          >
+            enter manually
+          </button>
+        </span>
+      ) : (
+        <span className="flex items-center gap-1.5">
+          <Input
+            value={value}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setValue(e.target.value.replace(/\D/g, "").slice(0, 4))}
+            placeholder="1050"
+            inputMode="numeric"
+            className="h-6 w-20 text-[10px] font-mono"
+            data-testid={`input-manual-prefix-${companyId}`}
+          />
+          <Button
+            size="sm"
+            className="h-6 text-[10px] px-2"
+            disabled={value.length !== 4 || assign.isPending}
+            onClick={() => assign.mutate(value)}
+            data-testid={`btn-save-prefix-${companyId}`}
+          >
+            {assign.isPending ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : "Save"}
+          </Button>
+          <button
+            type="button"
+            className="text-[10px] underline text-muted-foreground hover:text-foreground"
+            onClick={() => { setManual(false); setValue(""); }}
+          >
+            cancel
+          </button>
+        </span>
+      )}
+    </span>
+  );
+}
+
 function PreProvisionChecks({ company }: { company: Company }) {
   // Reads the ENGINE's preflight, not the legacy /api/sippy/pre-provision-check.
   // Two preflights disagreeing is worse than none: the card would show green while the
@@ -1073,6 +1165,13 @@ function PreProvisionChecks({ company }: { company: Company }) {
                       knows something is wrong but not what to do about it. */}
                   {c.status !== 'pass' && c.remedy && (
                     <span className="block text-muted-foreground mt-0.5">{c.remedy}</span>
+                  )}
+                  {/* A remedy an operator can act on here beats one they have to go and
+                      perform elsewhere. Only for account_prefix: the other failures are
+                      genuinely off-card — the routing matrix is twelve commercial
+                      decisions, and the auth plan is derived from the two above it. */}
+                  {c.status === 'fail' && c.key === 'account_prefix' && (
+                    <AssignPrefixButton companyId={company.id} companyName={company.name} />
                   )}
                 </span>
               </div>

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { Building2, ChevronRight, ChevronLeft, CheckCircle2, Plus, Trash2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -178,12 +179,33 @@ export default function CompanyCreatePage() {
   const addContact = (type: string) => setContacts(p => ({ ...p, [type]: [...p[type], emptyContact()] }));
   const removeContact = (type: string, idx: number) => setContacts(p => ({ ...p, [type]: p[type].filter((_,i) => i !== idx) }));
 
+  /** Split on newline, comma or semicolon — an operator pasting an interconnect form
+   *  should not have to reformat it. Shared by validation and submit so the two cannot
+   *  disagree about what counts as an IP. */
+  const parseIps = (raw: string) => raw.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+
   const validateStep = () => {
     const errs: Record<string,string> = {};
     if (step === 1) {
       if (!basic.name.trim()) errs.name = "Company name is required";
       if (!basic.shortCode.trim()) errs.shortCode = "Short code is required";
       if (!basic.department) errs.department = "Department is required";
+    }
+    // Step 3 — REQUIRED on create. Provisioning cannot start without an approved IP, so
+    // treating it as optional only defers the stop: the company is created, the card says
+    // "no IP yet", and someone comes back to the same customer later. Not enforced on
+    // edit: existing IPs live in the approval table, and this field would be empty there.
+    if (step === 3 && !isEdit) {
+      const ips = parseIps(clientIps);
+      if (!ips.length) {
+        errs.clientIps = "At least one client SIP IP is required.";
+      } else {
+        // Shape only, deliberately — an IP that is well-formed but wrong is a business
+        // problem the admin approval step exists to catch. This catches the typo.
+        const bad = ips.filter(ip => !/^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/.test(ip)
+                                  || ip.split('/')[0].split('.').some(o => Number(o) > 255));
+        if (bad.length) errs.clientIps = `Not a valid IPv4 address: ${bad.slice(0, 3).join(', ')}`;
+      }
     }
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -193,13 +215,13 @@ export default function CompanyCreatePage() {
   const back = () => setStep(s => Math.max(s - 1, 1));
 
   const handleSubmit = () => {
+    // Submit validates too. next() only runs on the Next button, so without this the
+    // required IP could be skipped entirely by landing on step 3 and pressing Create.
+    if (!validateStep()) return;
     const pocContacts = Object.entries(contacts).flatMap(([type, list]) =>
       list.filter(c => c.firstName || c.email).map(c => ({ contactType: type, ...c }))
     );
-    // Accepts newline, comma or semicolon separated — an operator pasting an interconnect
-    // form should not have to reformat it. Recorded as PENDING; only an admin approves.
-    const initialIps = clientIps
-      .split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+    const initialIps = parseIps(clientIps);
     const payload = { basic, billing, contacts: pocContacts, bankAccounts, initialIps };
     if (isEdit) {
       updateMutation.mutate(payload);
@@ -347,8 +369,9 @@ export default function CompanyCreatePage() {
               {!isEdit && (
                 <div className="border border-border/50 rounded-lg p-4 space-y-2">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium">Client SIP IP(s)</h3>
-                    <span className="text-[11px] text-muted-foreground">optional — approval is admin-only</span>
+                    <h3 className="text-sm font-medium">
+                      Client SIP IP(s) <span className="text-red-400">*</span>
+                    </h3>
                   </div>
                   <Textarea
                     data-testid="input-client-ips"
@@ -356,13 +379,18 @@ export default function CompanyCreatePage() {
                     placeholder={"145.239.9.179\n104.245.246.110"}
                     value={clientIps}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setClientIps(e.target.value)}
-                    className="text-sm font-mono"
+                    className={cn("text-sm font-mono", errors.clientIps && "border-red-500/60")}
                   />
+                  {/* One line, not a paragraph. The previous help text explained the internal
+                      approval mechanism — pending status, who approves, what reaches Sippy —
+                      which is our workflow, not the operator's decision. What they need to
+                      know is the format and that someone approves it next. */}
                   <p className="text-[11px] text-muted-foreground">
-                    One per line, or separated by commas. Recorded as <strong>pending</strong> —
-                    an admin approves them before provisioning, and only approved IPs reach Sippy.
-                    Leave blank if the customer has not sent them yet; they can be added later.
+                    One per line or comma-separated. Submitted for admin approval after creation.
                   </p>
+                  {errors.clientIps && (
+                    <p className="text-[11px] text-red-400">{errors.clientIps}</p>
+                  )}
                 </div>
               )}
               {(["technical","finance","commercial","billing"] as const).map(type => (
