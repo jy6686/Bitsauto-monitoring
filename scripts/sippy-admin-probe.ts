@@ -65,19 +65,42 @@ function buildPairs(s: Record<string, string | null>): Pair[] {
  * script it reports "no tariffs" on a switch holding 54 of them. Everything here takes
  * portalUrl explicitly instead.
  */
-async function firstTariffId(p: Pair, portalUrl: string): Promise<number | null> {
+async function firstTariffId(p: Pair, portalUrl: string): Promise<{ id: number | null; how: string }> {
+  // listSippyTariffs, not getTariffsList: the latter reads module-level activeSession and
+  // throws outside the running app. This one takes portalUrl and carries its own
+  // method-name fallbacks for older builds.
+  //
+  // Every outcome is REPORTED, never collapsed into "no tariff available". The previous
+  // version returned null on all of: the call faulting, the switch having no tariffs, and
+  // no account carrying one — three different problems that need three different fixes,
+  // reported identically. That is the same defect this probe exists to expose.
   try {
-    // A handful, not one: an account can carry no tariff, and giving up after the first
-    // would report the API unavailable when it is simply that account.
+    const { tariffs, error } = await sippy.listSippyTariffs(p.username, p.password, portalUrl);
+    if (error) return { id: null, how: `listSippyTariffs failed — ${error}` };
+    const hit = tariffs.find((t: any) => t?.id ?? t?.iTariff);
+    if (hit) {
+      const id = Number((hit as any).id ?? (hit as any).iTariff);
+      return { id, how: `from listSippyTariffs (${tariffs.length} tariff(s) visible)` };
+    }
+    if (tariffs.length) {
+      return { id: null, how: `listSippyTariffs returned ${tariffs.length} tariff(s) but none carried an id — field-name mismatch in the parser` };
+    }
+  } catch (e: any) {
+    return { id: null, how: `listSippyTariffs threw — ${e?.message ?? e}` };
+  }
+
+  // Fallback: read a tariff off an account. Ten, not one — an account can carry none.
+  try {
     const { accounts, error } = await sippy.listSippyAccounts(p.username, p.password, { limit: 10 }, portalUrl);
-    if (error) return null;
+    if (error) return { id: null, how: `no tariffs listed; listSippyAccounts also failed — ${error}` };
+    if (!accounts.length) return { id: null, how: 'no tariffs listed and no accounts returned' };
     for (const a of accounts) {
       const info = await sippy.getAccountInfo(p.username, p.password, portalUrl, Number(a.iAccount));
-      if (info?.iTariff) return Number(info.iTariff);
+      if (info?.iTariff) return { id: Number(info.iTariff), how: `from account ${a.iAccount}` };
     }
-    return null;
-  } catch {
-    return null;
+    return { id: null, how: `no tariffs listed, and none of the first ${accounts.length} account(s) carried an i_tariff` };
+  } catch (e: any) {
+    return { id: null, how: `account fallback threw — ${e?.message ?? e}` };
   }
 }
 
@@ -159,11 +182,22 @@ async function main() {
     // is created, no cleanup is needed. Deliberately NOT createTariff/createAccount —
     // those leave real objects on a production switch.
     const working = pairs[workingIndex];
-    const tariff = await firstTariffId(working, portalUrl);
+    // --tariff <id> skips discovery entirely. You can read an i_tariff straight off the
+    // Rate Cards page (it prints "ID 58" beside each name), which beats debugging the
+    // listing call when all you want is to test the upload API.
+    const argIdx = process.argv.indexOf("--tariff");
+    const forced = argIdx >= 0 ? Number(process.argv[argIdx + 1]) : NaN;
+    const { id: tariff, how } = Number.isFinite(forced) && forced > 0
+      ? { id: forced, how: "supplied with --tariff" }
+      : await firstTariffId(working, portalUrl);
     if (tariff === null) {
-      console.log("getUploadToken: SKIPPED — no tariff available to probe against.");
+      console.log(`getUploadToken: SKIPPED — could not obtain a tariff id to probe against.`);
+      console.log(`  reason: ${how}`);
+      console.log("  This is a probe limitation, not necessarily a Sippy fault — the switch may hold tariffs");
+      console.log("  the listing call cannot see. Pass one explicitly:  --tariff <i_tariff>");
       process.exit(0);
     }
+    console.log(`Tariff for the upload probe: ${tariff} (${how})`);
     const probe = await sippy.probeUploadToken(working.username, working.password, portalUrl, tariff);
     if (probe.ok) {
       console.log(`getUploadToken (tariff ${tariff}): OK — token issued, upload URL returned.`);
