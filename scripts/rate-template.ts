@@ -22,7 +22,7 @@ import { readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
 import { db } from "../server/db";
 import { productRegistry, productRates, globalDestinations, productDestinationAssignments } from "../shared/schema";
-import { and, eq, isNull, isNotNull, lt, inArray, asc } from "drizzle-orm";
+import { and, eq, isNull, isNotNull, lt, inArray, asc, sql } from "drizzle-orm";
 import {
   buildTemplateCsv, parseTemplateCsv, validateTemplate, expandTemplate, previousDay,
   type TemplateProduct,
@@ -113,13 +113,31 @@ async function doDownload() {
   const out = resolve(arg("out") ?? "./rate-template.csv");
   writeFileSync(out, buildTemplateCsv(dests, products, offered));
 
-  console.log(`Wrote ${out}`);
-  console.log(`  ${dests.length} destination(s) x ${products.length} product(s) — ${offered.size} priceable cell(s)`);
+  // Coverage, not just a count. "0 destinations" reads like a fault; the numbers below
+  // show it is unfinished commercial configuration and say how much is left.
+  const [{ count: approvedCount }] = await db
+    .select({ count: sql<number>`COUNT(*)::int` })
+    .from(globalDestinations)
+    .where(and(
+      eq(globalDestinations.commercialStatus, "approved"),
+      isNotNull(globalDestinations.dialPrefix),
+    ));
+  const possible = approvedCount * products.length;
+  const pct = possible ? Math.round((offered.size / possible) * 100) : 0;
+
+  console.log(`Wrote ${out}\n`);
+  console.log(`  Approved destinations   ${approvedCount}`);
+  console.log(`  Assigned to a product   ${dests.length}`);
+  console.log(`  Products configured     ${products.length} — ${products.map(p => p.code).join(", ")}`);
+  console.log(`  Priceable cells         ${offered.size} of ${possible} possible (${pct}%)`);
   console.log(`  Cells marked "n/a" are not sold on that product and need no price.`);
+
   if (!dests.length) {
-    console.log("  Nothing is assigned to a product yet — the file is a header only.");
-    console.log("  Assign destinations to products on the Destination Catalogue page; this sheet");
-    console.log("  prices what Commercial sells, not all ~150,000 catalogue entries.");
+    console.log("\n  NOTHING IS ASSIGNED TO A PRODUCT YET — the file is a header only.");
+    console.log("  This is commercial configuration, not a defect: the sheet prices what the");
+    console.log("  business sells, not all ~150,000 operational catalogue entries.");
+    console.log("  Assign destinations to products on the Product Registry page (drag a product");
+    console.log("  onto a destination), then re-run this download.");
   }
   console.log("\nFill in the price columns, then:");
   console.log(`  npx tsx scripts/rate-template.ts import ${out} --effective-from YYYY-MM-DD`);
