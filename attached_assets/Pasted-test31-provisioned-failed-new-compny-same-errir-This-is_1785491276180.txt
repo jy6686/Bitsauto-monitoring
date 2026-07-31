@@ -1,0 +1,154 @@
+test31 provisioned failed
+new compny same errir 
+
+This is actually a different bug from the authentication issue.
+
+The important clue is the error:
+
+column "detail" of relation "provisioning_steps" does not exist
+
+This means the failure is inside your BitsAuto database, before the authentication verifier finishes.
+
+The authentication rules are no longer the blocker.
+
+Root Cause
+
+One of the latest merged commits expects a new database column:
+
+provisioning_steps.detail
+
+but your production database still has the old schema.
+
+Your code is trying to execute something similar to
+
+UPDATE provisioning_steps
+SET
+    detail = ...
+
+or
+
+INSERT INTO provisioning_steps(detail,...)
+
+PostgreSQL responds
+
+column "detail" does not exist
+
+which aborts provisioning.
+
+This explains everything
+
+Earlier you had
+
+12 rules failed verification
+
+Now you get
+
+column detail does not exist
+
+That means:
+
+authentication verifier has changed
+provisioning reached a newer code path
+now the DB schema is behind the application
+
+So this is actually progress.
+
+First thing to verify
+
+Run:
+
+psql "$DATABASE_URL"
+
+then
+
+SELECT column_name
+FROM information_schema.columns
+WHERE table_name='provisioning_steps'
+ORDER BY ordinal_position;
+
+I expect you'll get something like
+
+id
+run_id
+step
+status
+started_at
+completed_at
+...
+
+but no
+
+detail
+Then check migrations
+
+Run
+
+SELECT *
+FROM drizzle.__drizzle_migrations
+ORDER BY created_at DESC
+LIMIT 20;
+
+(or whatever migration table you use)
+
+I want to see whether the migration that adds
+
+detail
+
+ever ran.
+
+Also search the repository
+
+Run
+
+grep -R "ADD COLUMN detail" migrations server -n
+
+or
+
+grep -R "provisioning_steps" migrations -n
+
+We need to find which migration introduced it.
+
+My suspicion
+
+During the merge, code from
+
+origin/feature/portal-framework
+
+expects
+
+detail
+metrics
+
+columns,
+
+but your production DB never executed the migration because:
+
+migration skipped
+migration failed
+migration wasn't deployed
+This is now Priority #1
+
+Don't debug Sippy.
+
+Don't debug authentication.
+
+Fix the schema first.
+
+Please run these four commands
+psql "$DATABASE_URL"
+SELECT column_name
+FROM information_schema.columns
+WHERE table_name='provisioning_steps';
+SELECT *
+FROM drizzle.__drizzle_migrations
+ORDER BY created_at DESC
+LIMIT 20;
+grep -R "provisioning_steps" migrations server -n
+
+Those outputs will tell us:
+
+whether detail exists,
+which migration should have added it,
+why your deployed database is behind the code.
+
+Once the schema matches the merged code, provisioning should advance to the authentication verification stage again.
