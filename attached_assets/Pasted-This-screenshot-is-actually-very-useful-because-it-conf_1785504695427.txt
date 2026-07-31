@@ -1,0 +1,72 @@
+This screenshot is actually very useful because it confirms two separate issues after the latest deployment.
+
+1. Upload Rates is still not finding prices ❌
+
+The log now says:
+
+0 price(s) effective today, 0 matched to a destination.
+96 cell(s) skipped.
+
+This is better diagnostics than before, but it confirms the problem remains.
+
+This means the provisioning engine successfully:
+
+looked for prices effective today,
+attempted destination matching,
+but did not find any matching Product Rates for the 24 destinations × 4 products.
+
+So the problem is no longer "why did it skip?"—it is now specifically:
+
+Product Rates are not being stored where provisioning expects them, or
+Destination matching is failing because the destination catalogue/product mapping does not resolve those prefixes.
+2. Send Account Details is executing ✅
+
+The new stage is now visible:
+
+Send Account Details
+
+That confirms the new provisioning stage is running.
+
+However it failed with:
+
+SIPPY_SIP_IP is not set — the email quotes it as the Ichibaan IP.
+
+This is not a provisioning failure.
+
+The message itself explains it:
+
+The account is provisioned and will carry traffic — only the handover email failed.
+
+So provisioning completed correctly; only the email stage failed because the deployment is missing configuration.
+
+That should be fixed by either:
+
+configuring the required environment variable (SIPPY_SIP_IP), or
+making the email template derive the SIP IP from the assigned switch instead of relying on a global variable.
+Current certification status
+Stage	Status
+Tariff	✅
+Service Plan	✅
+Customer Account	✅
+Authentication	✅
+Capacity	✅
+Upload Rates	❌ No prices matched
+Send Account Details	⚠ Executed, configuration missing
+What to fix next
+
+The highest-priority blocker is no longer provisioning—it is Product Rates.
+
+The new diagnostics clearly indicate:
+
+0 prices matched
+
+So I would investigate, in this order:
+
+Verify Product Rates were actually saved after using the Product Rates UI.
+Verify the provisioning query can retrieve today's effective Product Rates.
+Verify destination resolution (destination ID / prefix mapping) matches what the provisioning engine expects.
+Verify product mapping (First Class / Business Class / Special Bravo / Special Charlie) matches between Product Rates and the provisioning matrix.
+
+The email issue can be addressed afterward by configuring SIPPY_SIP_IP (or deriving it dynamically), since it does not prevent accounts from being provisioned or carrying traffic.
+
+At this point, the critical blocker for end-to-end certification is the Product Rates → Upload Rates path, not the provisioning engine itself.

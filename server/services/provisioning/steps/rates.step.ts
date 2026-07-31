@@ -156,6 +156,7 @@ export const ratesStep: ProvisioningStep = {
         detail: [
           `Nothing to upload — no price is effective today for any of the ${destinations.length} destination(s) x ${products.length} product(s).`,
           `${priced.length} price(s) effective today, ${rates.length} matched to a destination.`,
+          `To load opening rates: go to Rate Manager → add a price row for each product (FC / BC / SB / SC) and prefix. Prices saved there will be picked up on the next provisioning run.`,
           // A price that resolved to nothing is the difference between "no prices exist"
           // and "prices exist for destinations this customer is not sold", and the
           // operator's next action is completely different in each case.
