@@ -124,7 +124,7 @@ END $$;
 
 -- ── Verify ────────────────────────────────────────────────────────────────────
 DO $$
-DECLARE unpriced INTEGER; dupes INTEGER;
+DECLARE unpriced INTEGER; dupes INTEGER; dupe_detail TEXT;
 BEGIN
   -- Every priced prefix should now resolve. Reported, not fatal: a prefix with no
   -- catalogue children was never this migration's to invent, and halting here would block
@@ -141,12 +141,29 @@ BEGIN
 
   -- Two approved entries on one dial_prefix would make "which destination is this" depend
   -- on row order, in a table three subsystems key off.
+  --
+  -- NAMES THEM. This first raised as "1 dial_prefix value(s) have more than one approved
+  -- catalogue entry" and halted 054-057 behind it, leaving an operator a count and no way
+  -- to find the row. A migration that blocks a deployment has to say what to go and fix —
+  -- the count only conveys how much reading is ahead.
   SELECT COUNT(*) INTO dupes FROM (
     SELECT dial_prefix FROM global_destinations
      WHERE commercial_status = 'approved' AND dial_prefix IS NOT NULL
      GROUP BY dial_prefix HAVING COUNT(*) > 1) d;
   IF dupes > 0 THEN
-    RAISE EXCEPTION '% dial_prefix value(s) have more than one approved catalogue entry', dupes;
+    SELECT string_agg(detail, E'\n  ' ORDER BY detail) INTO dupe_detail FROM (
+      SELECT g.dial_prefix || '  ->  ' ||
+             string_agg(g.id || ' ' || COALESCE(g.name,'(unnamed)'), ' | ' ORDER BY g.id) AS detail
+        FROM global_destinations g
+        JOIN (SELECT dial_prefix FROM global_destinations
+               WHERE commercial_status = 'approved' AND dial_prefix IS NOT NULL
+               GROUP BY dial_prefix HAVING COUNT(*) > 1) x ON x.dial_prefix = g.dial_prefix
+       WHERE g.commercial_status = 'approved'
+       GROUP BY g.dial_prefix
+       LIMIT 20) s;
+
+    RAISE EXCEPTION E'% dial_prefix value(s) have more than one approved catalogue entry:\n  %\n\nEach prefix must resolve to ONE approved destination — three subsystems key off it. Block or deprecate the duplicates in the Destination Catalogue, then re-deploy. (Approving every destination at once surfaces duplicates that were previously hidden because only one of each pair was approved.)',
+      dupes, dupe_detail;
   END IF;
 END $$;
 
