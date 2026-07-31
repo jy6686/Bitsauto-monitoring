@@ -70,6 +70,33 @@ Evidence:     what proves the fix works
 
 "Observed" means a run, a log line, a CDR or a screenshot. A code reading is a hypothesis; this project has had three plausible hypotheses turn out to be about code that was not running.
 
+### Next after the call: split the handover into two emails
+
+Specified by the owner 2026-07-31. Stage 7 becomes **Handover**, with two sends instead of one.
+
+| | Technical Handover | Commercial Handover |
+|---|---|---|
+| To | support, NOC | commercial |
+| Carries | SIP username **and password**, authorised IPs, prefixes, CLD translation, routing package, auth rules, provision id | company, account, portal URL, username, currency, service plan, tariff |
+| Never carries | — | **no SIP password, no auth rules, no routing detail** |
+
+**This closes a real defect.** The single email today includes a Password row and goes to
+`technical, support, noc, commercial` — so a commercial contact receives the SIP password.
+It is currently LATENT: nothing generates an account password, so the row renders
+"Provided separately by our NOC team" and no credential ships. It becomes a live exposure
+the moment password generation lands, so **the split must land before or with that work**,
+not after it.
+
+Recipients come from `notification_profile_events`, which already stores comma-separated
+contact roles per event key and resolves them against the company's contacts at send time.
+Two keys — `handover.technical`, `handover.commercial` — and the roles become configuration
+rather than a hardcoded list in the email service. No address is ever requested during
+provisioning; the Create Company wizard remains the single source.
+
+Readiness gains four checks, all warnings rather than blocks: commercial contact email,
+support contact email, NOC contact email, SMTP configured. Provisioning continues without
+them and the Handover stage reports exactly which send happened and which did not.
+
 ### Explicitly out of scope until a call completes
 
 Bundle splitting and lazy loading · repo weight (the 444 MB LFS object, `attached_assets/`) · the enriched per-rule routing report · authentication workbook upload as a second provisioning backend · severity classes for startup checks · Edit-as-management-page (Phase 2).
