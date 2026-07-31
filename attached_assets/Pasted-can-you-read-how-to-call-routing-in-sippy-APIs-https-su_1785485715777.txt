@@ -1,0 +1,183 @@
+can you read how to call routing in sippy APIs
+https://support.sippysoft.com/support/solutions
+Yes. I checked the Sippy documentation related to authentication and routing APIs.
+The important finding is that there is no single "route this call" XML-RPC API. Sippy determines routing during SIP call processing based on the authentication rule, account, and routing configuration. The XML-RPC API is used to configure the routing inputs, not to execute routing.
+1. Authentication Rule API (the routing entry point)
+The official Authentication Rules API is:
+addAuthRule()
+listAuthRules()
+getAuthRuleInfo()
+update/delete methods
+The official addAuthRule() parameters are:
+Mandatory
+i_account
+i_protocol
+At least one matcher
+remote_ip
+incoming_cli
+incoming_cld
+to_domain
+from_domain
+Routing parameters
+cli_translation_rule
+cld_translation_rule
+i_tariff
+i_routing_group
+Notice that Routing Group is an official API parameter, not something inferred by BitsAuto.
+2. How Sippy decides routing
+From the documentation and your screenshots, the routing decision is approximately:
+Incoming SIP INVITE
+        │
+        ▼
+Authentication Rule
+        │
+        ├── Remote IP
+        ├── Incoming CLD
+        ├── Incoming CLI
+        ├── To Domain
+        └── From Domain
+                │
+                ▼
+CLD Translation
+                │
+                ▼
+Routing Group
+                │
+                ▼
+Account Tariff / Service Plan
+                │
+                ▼
+Routing Package
+                │
+                ▼
+Vendor
+This matches the Authentication Rule edit page you showed.
+3. For your BitsAuto platform
+Your statement is correct.
+A routing decision is effectively based on:
+Required Item	Comes from
+Client IP	Authentication Rule
+Dialed Number	SIP INVITE
+Prefix (Incoming CLD)	Authentication Rule
+Translation Rule	Authentication Rule
+Destination	Derived after translation
+Country Code	Destination catalogue
+Routing Group	Authentication Rule
+Routing Matrix	Routing configuration
+Vendor	Routing engine
+So the routing key is not simply:
+IP
+It is closer to:
+IP
++
+Incoming CLD
++
+Translation Rule
++
+Destination
++
+Routing Group
++
+Routing Matrix
+=
+Vendor
+4. Your discovery is important
+Earlier you wrote:
+routing call we need IP+prefix+destination+CC+Number
+That is essentially what Sippy evaluates.
+I would refine it slightly:
+Remote IP
++
+Incoming CLD (Dialed Number)
++
+Translation Rule
++
+Destination Prefix
++
+Routing Group
+=
+Vendor Selection
+The Country is not an API parameter—it is derived from the destination prefix catalogue that your commercial layer maintains.
+5. What BitsAuto should verify
+Instead of only checking:
+✓ Authentication Rule Created
+BitsAuto should know, for every rule:
+IP	Incoming CLD	Translation	Destination	Routing Group	Expected Vendor
+149.210.145.184	33431192*	s/^3343/1/	Pakistan	RG-4	Vendor A
+Then after a real call compare:
+Commercial Design
+        │
+        ▼
+Authentication Rule
+        │
+        ▼
+Routing Group
+        │
+        ▼
+CDR Routing Group
+        │
+        ▼
+Vendor Used
+If all match, the routing is proven.
+One thing I did not find
+I did not find an XML-RPC API that says:
+simulateRoute()
+or
+routeCall()
+or
+testRouting()
+The documentation I found exposes APIs to configure authentication rules and related routing inputs, but not an API that asks Sippy to calculate or simulate the routing for an arbitrary call.
+Given your Route Inspector work, the next documentation I'd recommend checking is the XML-RPC APIs for:
+Routing Groups
+Routes
+Destination Sets
+Routing Packages / LCR
+Those are more likely to expose the configuration APIs that the routing engine uses internally, even if there is no direct "simulate routing" endpoint.
+
+Let me actually fetch it, and check what we already wrap:
+
+
+Ran a command, browsed the web, used a tool
+Two decisive findings. Let me confirm the second one:
+
+
+Browsed the web, ran 3 commands
+I read the docs. Two findings, and the first one settles the argument.
+
+1. The documentation contradicts the "getAuthRuleInfo doesn't return it" claim
+From XML-RPC API — Authentication Rules Management:
+
+Method	Returns
+listAuthRules()	i_authentication, remote_ip, incoming_cli, incoming_cld, to_domain, from_domain, cli_translation_rule, cld_translation_rule, i_protocol — nine fields. No i_routing_group.
+getAuthRuleInfo()	authrule — the complete structure matching addAuthRule() parameters, which includes i_tariff, i_routing_group, max_sessions, max_cps
+Officially documented, and it matches the comment already in sippy.ts:14611 exactly. getAuthRuleInfo is the documented way to read the routing group, which is what 4b0cd637 changed the verifier to do.
+
+So the redeployed step should pass. The three-state model is very likely unnecessary — hold it until a run says otherwise.
+
+2. Sippy has the routing verification you were asking for — and we already wrap it
+You asked how to "call routing" via the API. There's no simulateRoute(), correct. But there are two methods that verify the auth-rule half of the routing decision without placing a call:
+
+applyTranslationRule() — {rule, number} → {result, number}. Explicitly supports "CLD/CLI Translation Rules on Authentication Rules of Account". Give it s/^33211192/1192/ and 332111923001234567, and Sippy itself tells you what the translated number will be.
+
+checkMatchRule() — {rule, number} → {result, match}. Tells you whether a dialled number matches a pattern.
+
+Together those answer the two questions your routing chain depends on:
+
+Dialled 332111923001234567
+   → checkMatchRule("33211192*")        → does rule #5 match?
+   → applyTranslationRule("s/^33211192/1192/") → what number goes to the routing group?
+Both are already implemented — server/sippy.ts:17082 and :17116, exposed at routes.ts:13739 and :13754. Nothing in provisioning or verification calls them.
+
+That's the pre-call proof your certification matrix wants: it validates the CLD grammar against Sippy's own regex engine rather than against our belief about it — and it would have caught s/^3343/1/ immediately. The vendor-selection half still needs the CDR; nothing in the API substitutes for that.
+
+Your routing model, corrected on one point
+Your chain is right. One refinement: Country Code is not a routing input. Sippy matches on incoming_cld and routes on i_routing_group. CC exists only in our catalogue, as the thing that generates the CLD. So the real key is:
+
+remote_ip + incoming_cld  →  matched rule
+matched rule              →  cld_translation_rule + i_routing_group
+translated CLD            →  destination
+i_routing_group + matrix  →  vendor
+Still the blocking item
+Nothing above changes the order. The deploy is still pending, both the enriched routing report and any use of these two methods come after a run, and I still need to know which switch — 104.245.246.110 or 191.101.30.107 — the platform provisions to.
+
+Sources: Authentication Rules Management · Apply Translation Rule · Check if String Matches Rule · Understanding Routing · Sippy XML-RPC API index
