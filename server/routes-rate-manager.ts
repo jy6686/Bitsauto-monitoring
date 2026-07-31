@@ -195,16 +195,29 @@ export function registerRateManagerRoutes(app: Express) {
   app.post('/api/product-rates', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
     try {
       const { productId, destinationId, prefix, rate, currency, effectiveFrom, effectiveTo, notes } = req.body ?? {};
-      if (!productId || rate === undefined || !effectiveFrom) {
-        return res.status(400).json({ error: 'productId, rate, effectiveFrom required' });
+      if (!productId || rate === undefined) {
+        return res.status(400).json({ error: 'productId and rate are required' });
       }
+      // ── Effective TODAY unless a date is given ─────────────────────────────
+      // effectiveFrom used to be mandatory, so a price entered without one was rejected
+      // outright — and a price that does not exist is indistinguishable from a platform
+      // with no prices, which is how provisioning kept reporting every product unpriced.
+      // Entering a rate means "charge this", and the overwhelmingly common case is
+      // "charge this from now". Scheduling a future price stays available by passing the
+      // field; it is now the deliberate act rather than the mandatory one.
+      //
+      // UTC, matching the READER exactly. rates.step and rate-upload.service both compare
+      // against new Date().toISOString().slice(0,10). Using the database's CURRENT_DATE
+      // here instead would put a price written just before midnight UTC one day ahead of
+      // the filter that looks for it, and it would be silently invisible for hours.
+      const effFrom = effectiveFrom || new Date().toISOString().slice(0, 10);
       const [row] = await db.insert(productRates).values({
         productId:     Number(productId),
         destinationId: destinationId ? Number(destinationId) : null,
         prefix:        prefix || null,
         rate:          String(rate),
         currency:      currency || 'USD',
-        effectiveFrom,
+        effectiveFrom: effFrom,
         effectiveTo:   effectiveTo || null,
         notes:         notes || null,
         createdBy:     ((req.user as any)?.firstName && (req.user as any)?.lastName ? `${(req.user as any).firstName} ${(req.user as any).lastName}` : (req.user as any)?.firstName || (req.user as any)?.email || 'operator'),
