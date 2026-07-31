@@ -1,4 +1,8 @@
 /**
+ * 🔒 FROZEN — Provisioning Freeze v1.0, 2026-07-31. Critical fixes only, and the commit
+ * must carry the block described in docs/PROVISIONING-FREEZE-V1.md. Twelve rules verified
+ * against the live switch; every edit from here is a new variable in a certified stage.
+ *
  * authentication.step.ts — push the customer's complete authentication rule matrix.
  *
  * Authentication and IP authorisation are ONE stage. In Sippy an auth rule carrying

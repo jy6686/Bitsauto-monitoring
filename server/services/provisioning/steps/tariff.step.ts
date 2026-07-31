@@ -1,3 +1,5 @@
+// 🔒 FROZEN — Provisioning Freeze v1.0, 2026-07-31. Critical fixes only; see
+// docs/PROVISIONING-FREEZE-V1.md for the change-control block a commit must carry.
 /**
  * tariff.step.ts — creates (or reuses) the client's Sippy tariff.
  *
