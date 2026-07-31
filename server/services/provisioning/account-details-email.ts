@@ -253,8 +253,32 @@ export async function collectAccountDetails(
     return { error: 'No support or commercial contact has an email address. Account details are not sent to finance, billing, rates or invoicing contacts, so there is no eligible recipient — add a technical or commercial contact and resend.' };
   }
 
-  const platformIp = process.env.SIPPY_SIP_IP?.trim() || '';
-  if (!platformIp) return { error: 'SIPPY_SIP_IP is not set — the email quotes it as the Ichibaan IP.' };
+  // ── The IP the customer points traffic at ──────────────────────────────────
+  // SIPPY_SIP_IP first, because a deployment whose SIP edge differs from its XML-RPC
+  // address needs to say so. When it is unset — which it is on this deployment — fall
+  // back to the switch the platform is ALREADY configured against rather than to a
+  // literal. The address exists once, in settings.portal_url, and every XML-RPC call
+  // already uses it; a hardcoded copy here would be the fifth in this repository and the
+  // first one to go stale would send customers to a switch that no longer answers.
+  //
+  // Still an error if neither is available: an email that omits the IP, or invents one,
+  // is worse than an email that was not sent. The customer would point traffic nowhere
+  // and open a ticket against us.
+  let platformIp = process.env.SIPPY_SIP_IP?.trim() || '';
+  let ipSource   = 'SIPPY_SIP_IP';
+  if (!platformIp) {
+    const { rows: sRows } = await pool.query<{ portal_url: string | null }>(
+      `SELECT portal_url FROM settings LIMIT 1`);
+    // "https://191.101.30.107:8443/" → "191.101.30.107". Host only: the customer points
+    // SIP at the host, not at the management URL.
+    const host = String(sRows[0]?.portal_url ?? '')
+      .replace(/^[a-z]+:\/\//i, '').split('/')[0].split(':')[0].trim();
+    if (host) { platformIp = host; ipSource = 'settings.portal_url'; }
+  }
+  if (!platformIp) {
+    return { error: 'No platform SIP IP is configured — set SIPPY_SIP_IP, or the Sippy portal URL in Settings. The email quotes it as the address the customer sends traffic to, so it cannot be guessed.' };
+  }
+  console.log(`[account-details] platform SIP IP ${platformIp} (from ${ipSource})`);
 
   return {
     companyName:   c.name,
