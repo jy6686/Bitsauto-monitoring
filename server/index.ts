@@ -5,6 +5,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { runSafeMigrations, runSchemaCheck, pool } from "./db";
 import { runFileMigrations, getMigrationStatus } from "./migrate";
+import { reportSchemaContract } from "./schema-contract";
 import { startRoutingCacheSync } from "./routing-cache";
 import { setupNocWebSocket } from "./noc-ws";
 import { setupLiveTrafficWebSocket } from "./live-traffic-ws";
@@ -279,6 +280,7 @@ app.use((req, res, next) => {
   boot("6a runFileMigrations() starting");
   await runFileMigrations(pool);
   boot("6b runFileMigrations() done");
+  await reportSchemaContract(pool);
   console.log("[db] connected:", (process.env.DATABASE_URL ?? "").replace(/:\/\/[^:]+:[^@]+@/, "://<user>:***@"));
   // Schema check is diagnostic-only — run async so it doesn't delay routes
   runSchemaCheck().catch(() => {});

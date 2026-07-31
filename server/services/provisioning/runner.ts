@@ -195,27 +195,32 @@ export async function executeRun(
       // point — "we asked and it said yes" is not evidence.
       if (outcome.status === 'success' && def.verify) {
         try {
-          const verifyResult = await def.verify(ctx, outcome.result ?? {});
-          if (typeof verifyResult === 'string') {
-            // Hard failure — confirmed wrong state in Sippy.
+          // Two shapes. A bare string is a failure reason and null is a pass — unchanged.
+          // A VerifyReport also carries lines describing what the check looked at, and
+          // those are kept whether it passed or failed: what a check PROVED is as much
+          // use to an operator as why it failed.
+          const report = await def.verify(ctx, outcome.result ?? {});
+          const reason      = typeof report === 'string' ? report : report?.reason ?? null;
+          const verifyLines = typeof report === 'string' || !report ? [] : report.detail ?? [];
+          // Verify's counts win over execute's. `verified` and `failures` describe what
+          // was read back from Sippy; execute() only knows what it asked for.
+          const verifyMetrics = typeof report === 'string' || !report ? null : report.metrics ?? null;
+          if (verifyMetrics) outcome = { ...outcome, metrics: { ...(outcome.metrics ?? {}), ...verifyMetrics } };
+
+          if (reason) {
             outcome = {
               ...outcome,
               status: 'failed',
               reasonCode: outcome.reasonCode ?? 'VERIFY_FAILED',
-              error: `Executed but read-back failed: ${verifyResult}`,
-              detail: [...(outcome.detail ?? []), `read-back: ${verifyResult}`],
-            };
-          } else if (verifyResult && typeof verifyResult === 'object' && 'warnings' in verifyResult) {
-            // Partial verification — pass with limitations (e.g. a field the switch API
-            // does not expose). Step stays successful; warnings surface in detail so
-            // operators can see what was not confirmed without blocking provisioning.
-            const warnLines = (verifyResult.warnings as string[]).map((w: string) => `read-back warning: ${w}`);
-            outcome = {
-              ...outcome,
-              detail: [...(outcome.detail ?? []), 'read-back: verified with limitations', ...warnLines],
+              error: `Executed but read-back failed: ${reason}`,
+              detail: [...(outcome.detail ?? []), ...verifyLines, `read-back: ${reason}`],
             };
           } else {
-            outcome = { ...outcome, detail: [...(outcome.detail ?? []), 'read-back: verified'] };
+            outcome = {
+              ...outcome,
+              detail: [...(outcome.detail ?? []), ...verifyLines,
+                       ...(verifyLines.length ? [] : ['read-back: verified'])],
+            };
           }
         } catch (ve: any) {
           // An unreadable object is NOT a pass. Treating a failed check as
@@ -233,6 +238,13 @@ export async function executeRun(
       await db.update(provisioningSteps).set({
         status:      outcome.status,
         result:      outcome.result ? JSON.stringify(outcome.result) : null,
+        // Persisted (migration 055). Every executor built this and it went nowhere but a
+        // console line — so a step could pass having created twelve authentication rules
+        // and report only a tick and a duration.
+        detail:      outcome.detail?.length ? JSON.stringify(outcome.detail) : null,
+        // JSONB — drizzle serialises the object. NULL when a step emitted none, which
+        // means unknown; a rate computed over history must not read that as zero.
+        metrics:     outcome.metrics && Object.keys(outcome.metrics).length ? outcome.metrics : null,
         reasonCode:  outcome.reasonCode ?? null,
         error:       outcome.error ?? null,
         traceId:     outcome.traceId ?? null,

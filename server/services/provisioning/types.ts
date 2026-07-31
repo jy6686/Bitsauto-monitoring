@@ -64,9 +64,65 @@ export interface StepOutcome {
   reasonCode?: string;
   error?: string;
   traceId?: string;
-  /** Diagnostic breadcrumbs surfaced to the UI, e.g. XML-RPC attempt outcomes. */
+  /** Diagnostic breadcrumbs surfaced to the UI, e.g. XML-RPC attempt outcomes. Prose,
+   *  written for a person. Numbers belong in `metrics`, not in here. */
   detail?: string[];
+  /** Countable outcomes, persisted to provisioning_steps.metrics (migration 056). */
+  metrics?: StepMetrics;
 }
+
+/**
+ * Countable outcomes for a step (migration 056). The machine-readable counterpart to
+ * `detail`, which is prose.
+ *
+ * THE SHARED KEYS ARE THE WHOLE POINT. "What is our authentication verification success
+ * rate" is answerable only if `verified` and `requested` mean the same thing wherever they
+ * appear. A step emits whichever of these apply to it, using them in this sense and no
+ * other, and adds its own keys alongside — `iTariff`, `rowsUploaded`, `byProduct`.
+ *
+ * Never parse `detail` for a number. Its wording belongs to the step and is meant to
+ * change; a query that depends on the wording breaks silently when it does.
+ *
+ * These keys are FROZEN — their meaning is a contract, not a convention. See
+ * docs/PROVISIONING-STEP-METRICS.md before changing one or adding a step.
+ */
+export interface StepMetrics {
+  /** How many things the step set out to create or confirm. */
+  requested?: number;
+  /** How many it created on this run. */
+  created?:   number;
+  /** How many already existed in the wanted state and were left alone. */
+  reused?:    number;
+  /** How many were read back and confirmed correct. Never assume verified === requested;
+   *  a step that could not check reports fewer, and that difference is the signal. */
+  verified?:  number;
+  /** How many did not end up in the wanted state. */
+  failed?:    number;
+  /** How many were deliberately not attempted. */
+  skipped?:   number;
+  /** Why things failed, counted. Free-text cause, stable enough to group on — this is what
+   *  answers "most common provisioning failure" without reading any prose. */
+  failures?:  { cause: string; count: number }[];
+  /** Step-specific counts. */
+  [k: string]: unknown;
+}
+
+/**
+ * What a verify() may report. The bare `string | null` form is unchanged and still
+ * correct for a step whose check has nothing to say beyond pass or fail.
+ */
+export interface VerifyReport {
+  /** A reason when the check failed; null or omitted when it passed. */
+  reason?: string | null;
+  /** Lines describing what was checked and what was found. Appended to the step's detail
+   *  on PASS as well as on failure — a check that proves something should say what. */
+  detail?: string[];
+  /** Counts the check established. Merged over the executor's metrics, so `verified` and
+   *  `failures` come from the read-back rather than from what execute() believed. */
+  metrics?: StepMetrics;
+}
+
+export type VerifyOutcome = string | null | VerifyReport;
 
 export interface ProvisioningStep {
   /** Stable machine key. Matches provisioning_steps.step_key. Never renamed. */
@@ -101,15 +157,13 @@ export interface ProvisioningStep {
    *
    * Runs AFTER execute() succeeds. A verify failure marks the step failed even
    * though execute() returned success — that is the entire point.
+   *
+   * A step whose check is worth describing may return a VerifyReport instead, and its
+   * lines join the step's detail whether the check passed or failed. "12 requested, 12
+   * created, 12 verified via listAuthRules + getAuthRuleInfo" is what an operator needs
+   * from a PASS; a bare tick tells them a check ran, not what it proved.
    */
-  /**
-   * Three possible outcomes:
-   *   null                   — every field confirmed; step is fully verified.
-   *   string                 — hard failure; execute() result is downgraded to failed.
-   *   { warnings: string[] } — pass with caveats (e.g. a field the switch API does not
-   *                            expose); step stays success but warnings surface in detail.
-   */
-  verify?(ctx: StepContext, result: Record<string, unknown>): Promise<string | { warnings: string[] } | null>;
+  verify?(ctx: StepContext, result: Record<string, unknown>): Promise<VerifyOutcome>;
 
   /** Optional pre-flight. Return an error string to fail fast without side
    *  effects; return null to proceed. */

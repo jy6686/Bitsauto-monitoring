@@ -139,6 +139,10 @@ export type MigrationOutcome = {
   applied: string[];
   baselined: number;
   failed: { file: string; error: string } | null;
+  /** Files that exist in the repository and were NOT applied because the run halted.
+   *  The halting file's name alone does not tell an operator what else is now missing,
+   *  and "what else" is the part that decides whether the app can serve. */
+  pending: string[];
   drifted: MigrationDrift[];
   skipped: boolean;
   /** Every baseline check and its result — the passes matter as much as the
@@ -291,7 +295,7 @@ function numberOf(file: string): number {
 
 export async function runFileMigrations(pool: Pool): Promise<MigrationOutcome> {
   const outcome: MigrationOutcome = {
-    applied: [], baselined: 0, failed: null, drifted: [], skipped: false,
+    applied: [], baselined: 0, failed: null, pending: [], drifted: [], skipped: false,
     baseline: [], baselineInvalid: false,
   };
 
@@ -397,6 +401,7 @@ export async function runFileMigrations(pool: Pool): Promise<MigrationOutcome> {
         // Halt rather than skip: applying 045 on top of a failed 044 produces a
         // database no migration file describes.
         if (outcome.failed) {
+          outcome.pending.push(file);
           console.warn(`[migrate] ${file} NOT applied — halted after ${outcome.failed.file} failed.`);
           continue;
         }
@@ -435,6 +440,14 @@ export async function runFileMigrations(pool: Pool): Promise<MigrationOutcome> {
 
   if (outcome.failed) {
     console.error(`[migrate] INCOMPLETE — ${outcome.applied.length} applied, then ${outcome.failed.file} failed. Database schema is behind the repository.`);
+    // The application starts anyway — this runner never throws, deliberately, so a
+    // migration problem cannot lock an operator out of the tool they would fix it with.
+    // The cost is that the next signal is otherwise a 500 from whichever endpoint reads
+    // a column that does not exist yet. Name the gap here instead.
+    if (outcome.pending.length) {
+      console.error(`[migrate] NOT APPLIED (${outcome.pending.length}): ${outcome.pending.join(", ")}`);
+      console.error(`[migrate] The application is running against a schema older than its code. Endpoints that read anything these files add will fail until ${outcome.failed.file} is resolved.`);
+    }
   } else if (outcome.applied.length) {
     console.log(`[migrate] ${outcome.applied.length} migration(s) applied, ${outcome.baselined} baselined.`);
   } else {

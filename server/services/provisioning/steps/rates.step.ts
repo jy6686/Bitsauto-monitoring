@@ -77,6 +77,7 @@ export const ratesStep: ProvisioningStep = {
       return {
         status: 'skipped',
         detail: [`No rates to load — ${products.length} product(s), ${destinations.length} destination(s).`],
+        metrics: { requested: 0, skipped: 1, products: products.length, destinations: destinations.length },
       };
     }
 
@@ -106,6 +107,12 @@ export const ratesStep: ProvisioningStep = {
           `${matrix.summary.rowsGenerated} row(s) generated, ${matrix.summary.rowsSkipped} skipped`,
           ...matrix.errors.slice(0, 5),
         ],
+        metrics: {
+          requested: matrix.summary.rowsGenerated,
+          created: 0, verified: 0, failed: matrix.summary.rowsGenerated,
+          products: products.length, destinations: destinations.length,
+          failures: [{ cause: 'rate matrix invalid', count: matrix.errors.length }],
+        },
       };
     }
 
@@ -133,6 +140,11 @@ export const ratesStep: ProvisioningStep = {
           `Tariff ${iTariff} — ${res.message}`,
           'The account is provisioned; load the rates from Rate Manager and this is complete.',
         ],
+        metrics: {
+          requested: rows.length, created: 0, verified: 0, failed: rows.length,
+          iTariff, products: products.length, destinations: destinations.length,
+          failures: [{ cause: 'rate upload rejected by Sippy', count: 1 }],
+        },
       };
     }
 
@@ -150,6 +162,18 @@ export const ratesStep: ProvisioningStep = {
         res.message,
         ...(matrix.warnings.length ? [`Warnings: ${matrix.warnings.join(' · ')}`] : []),
       ],
+      metrics: {
+        requested: rows.length,
+        created:   rows.length,
+        // The sampled read-back, not the upload's own say-so. A workbook Sippy accepted
+        // and did not import reports created without verified, and that gap is the signal.
+        verified:  res.verified ? rows.length : 0,
+        failed:    0,
+        iTariff,
+        products: products.length, destinations: destinations.length,
+        byProduct: Object.fromEntries(matrix.byProduct.map(p => [p.code, p.count])),
+        effectiveImmediately: true,
+      },
     };
   },
 };

@@ -10,8 +10,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Building2, ChevronRight, ChevronLeft, CheckCircle2, Plus, Trash2, Loader2 } from "lucide-react";
+import { Building2, ChevronRight, ChevronLeft, CheckCircle2, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { checkIpList, parseIpList } from "@shared/ip";
 
 const STEPS = [
   { id: 1, label: "Basic Information" },
@@ -139,6 +140,22 @@ export default function CompanyCreatePage() {
       legalNameVen: co.legalNameVen ?? "",
       invoiceEmail: co.invoiceEmail ?? "",
     });
+    // Contacts too. They render as four empty rows otherwise, which reads as a company
+    // with no contacts rather than a form that did not load them. Harmless to save today —
+    // the PUT handler ignores contacts — but the display is still wrong, and the moment
+    // that handler learns to write them the blank form becomes a deletion.
+    if (Array.isArray(co.contacts) && co.contacts.length) {
+      const byType: Record<string, Contact[]> = defaultContacts();
+      for (const c of co.contacts) {
+        const t = String(c.contactType ?? '').toLowerCase();
+        if (!(t in byType)) continue;
+        const row = { firstName: c.firstName ?? '', lastName: c.lastName ?? '',
+                      email: c.email ?? '', phone: c.phone ?? '', fax: c.fax ?? '' };
+        if (byType[t].length === 1 && !byType[t][0].firstName && !byType[t][0].email) byType[t][0] = row;
+        else byType[t].push(row);
+      }
+      setContacts(byType);
+    }
     setPopulated(true);
   }, [isEdit, existingData, companyId, populated]);
 
@@ -185,11 +202,23 @@ export default function CompanyCreatePage() {
       }
       navigate("/company/list");
     },
-    onError: (e: any) => toast({ title: e.message || "Failed to create company", variant: "destructive" }),
+    onError: (e: any) => {
+      // A field rejection belongs under the field. The toast still fires — the operator may
+      // be looking at the button, not at step 3 — but the message also lands where the
+      // correction has to be made, and survives the toast timing out.
+      if (e?.body?.field === 'clientSipIps') {
+        setStep(3);
+        setErrors(prev => ({ ...prev, clientIps: e.message }));
+      }
+      toast({ title: e.message || "Failed to create company", variant: "destructive" });
+    },
   });
 
   const updateMutation = useMutation({
-    mutationFn: (payload: any) => apiRequest("PATCH", `/api/companies/${companyId}`, payload),
+    // PUT, not PATCH. The route is app.put('/api/companies/:id') — a PATCH 404s, so
+    // saving an edit has never worked; it failed as "not found" rather than as anything
+    // an operator would connect to the Save button.
+    mutationFn: (payload: any) => apiRequest("PUT", `/api/companies/${companyId}`, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
       toast({ title: "Company updated successfully" });
@@ -212,7 +241,17 @@ export default function CompanyCreatePage() {
   /** Split on newline, comma or semicolon — an operator pasting an interconnect form
    *  should not have to reformat it. Shared by validation and submit so the two cannot
    *  disagree about what counts as an IP. */
-  const parseIps = (raw: string) => raw.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
+  const parseIps = parseIpList;
+
+  // Recomputed on every keystroke, not on Next. Shape errors are cheap to check and the
+  // operator is looking at the field right now; deferring the message to the button means
+  // finding out about a typo after moving on from it.
+  //
+  // Shape only, deliberately — an IP that is well-formed but wrong is a business problem
+  // the admin approval step exists to catch. This catches the typo.
+  const ipCheck = checkIpList(clientIps);
+  const ipsInvalid = !isEdit && ipCheck.invalid.length > 0;
+  const ipsMissing = !isEdit && ipCheck.ips.length === 0;
 
   const validateStep = () => {
     const errs: Record<string,string> = {};
@@ -225,31 +264,17 @@ export default function CompanyCreatePage() {
     // treating it as optional only defers the stop: the company is created, the card says
     // "no IP yet", and someone comes back to the same customer later. Not enforced on
     // edit: existing IPs live in the approval table, and this field would be empty there.
-    if (step === 3 && !isEdit) {
-      const ips = parseIps(clientIps);
-      if (!ips.length) {
-        errs.clientIps = "At least one client SIP IP is required.";
-      } else {
-        // Shape only, deliberately — an IP that is well-formed but wrong is a business
-        // problem the admin approval step exists to catch. This catches the typo.
-        // Leading zeros rejected. "1.2.3.09" passes a naive octet check but is not a
-        // valid IPv4 literal — historically an octal notation, and strict parsers refuse
-        // it. Sippy is one of them, so accepting it here means the failure surfaces as
-        // twelve authentication rules rejected at provisioning rather than a typo caught
-        // at the field.
-        const octetsOk = (ip: string) => ip.split('/')[0].split('.').every(
-          o => /^(0|[1-9]\d{0,2})$/.test(o) && Number(o) <= 255);
-        const bad = ips.filter(ip => !/^(\d{1,3}\.){3}\d{1,3}(\/\d{1,2})?$/.test(ip) || !octetsOk(ip));
-        if (bad.length) {
-          const zeroPadded = bad.filter(ip => ip.split('/')[0].split('.').some(o => /^0\d/.test(o)));
-          errs.clientIps = zeroPadded.length
-            ? `Leading zeros are not valid in an IP address: ${zeroPadded.slice(0, 3).join(', ')} — write 1.2.3.9, not 1.2.3.09.`
-            : `Not a valid IPv4 address: ${bad.slice(0, 3).join(', ')}`;
-        }
-      }
+    //
+    // The per-address messages render under the field from ipCheck; this flag only stops
+    // the step. Repeating the detail in a second place would let the two drift.
+    if (step === 3 && !isEdit && ipsMissing) {
+      errs.clientIps = "At least one client SIP IP is required.";
     }
     setErrors(errs);
-    return Object.keys(errs).length === 0;
+    // ipsInvalid blocks without an entry in `errs` — the per-address messages are already
+    // on screen under the field, and a summary line saying the same thing again would be
+    // a second copy to keep in step with them.
+    return Object.keys(errs).length === 0 && !(step === 3 && ipsInvalid);
   };
 
   const next = () => { if (validateStep()) setStep(s => Math.min(s + 1, 3)); };
@@ -423,7 +448,9 @@ export default function CompanyCreatePage() {
                     placeholder={"145.239.9.179\n104.245.246.110"}
                     value={clientIps}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setClientIps(e.target.value)}
-                    className={cn("text-sm font-mono", errors.clientIps && "border-red-500/60")}
+                    className={cn("text-sm font-mono",
+                      (errors.clientIps || ipsInvalid) && "border-red-500/60 focus-visible:ring-red-500/40")}
+                    aria-invalid={ipsInvalid || Boolean(errors.clientIps)}
                   />
                   {/* One line, not a paragraph. The previous help text explained the internal
                       approval mechanism — pending status, who approves, what reaches Sippy —
@@ -434,6 +461,31 @@ export default function CompanyCreatePage() {
                   </p>
                   {errors.clientIps && (
                     <p className="text-[11px] text-red-400">{errors.clientIps}</p>
+                  )}
+
+                  {/* One line per bad address, naming the address and what is wrong with it.
+                      A single "invalid IP address" over a three-line field makes the operator
+                      work out which line — and the valid ones must not look accused. The
+                      line number is shown only when there is more than one address, since
+                      "Line 1" on a single-address field is noise. */}
+                  {ipCheck.invalid.map(bad => (
+                    <p key={bad.line} className="text-[11px] text-red-400 flex items-start gap-1.5">
+                      <AlertCircle className="h-3 w-3 mt-0.5 shrink-0" />
+                      <span>
+                        {ipCheck.ips.length > 1 && <span className="text-red-400/70">Line {bad.line}: </span>}
+                        <span className="font-mono">{bad.value}</span> — {bad.message}
+                      </span>
+                    </p>
+                  ))}
+                  {/* Stated positively so the operator knows the field was read, not merely
+                      that nothing complained. */}
+                  {!ipsInvalid && ipCheck.ips.length > 0 && (
+                    <p className="text-[11px] text-emerald-500 flex items-center gap-1.5">
+                      <CheckCircle2 className="h-3 w-3 shrink-0" />
+                      {ipCheck.ips.length === 1
+                        ? 'Valid IPv4 address.'
+                        : `${ipCheck.ips.length} valid IPv4 addresses.`}
+                    </p>
                   )}
 
                   {/* What the customer buys. Cards rather than a dropdown: four to eight
@@ -673,9 +725,23 @@ export default function CompanyCreatePage() {
             Next <ChevronRight className="h-4 w-4" />
           </Button>
         ) : (
-          <Button data-testid="btn-wizard-submit" onClick={handleSubmit} disabled={isPending} className="gap-1.5">
-            {isPending ? <><Loader2 className="h-4 w-4 animate-spin" />{isEdit ? "Saving…" : "Creating…"}</> : isEdit ? "Save Changes" : "Create Company"}
-          </Button>
+          <div className="flex items-center gap-3">
+            {/* Said out loud. A button that is disabled for a reason the operator cannot see
+                reads as a broken page, and they retry rather than look up the field. */}
+            {ipsInvalid && (
+              <span className="text-[11px] text-red-400">
+                Correct the SIP IP address{ipCheck.invalid.length > 1 ? 'es' : ''} above to continue.
+              </span>
+            )}
+            <Button
+              data-testid="btn-wizard-submit"
+              onClick={handleSubmit}
+              disabled={isPending || ipsInvalid}
+              className="gap-1.5"
+            >
+              {isPending ? <><Loader2 className="h-4 w-4 animate-spin" />{isEdit ? "Saving…" : "Creating…"}</> : isEdit ? "Save Changes" : "Create Company"}
+            </Button>
+          </div>
         )}
       </div>
     </div>
