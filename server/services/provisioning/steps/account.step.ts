@@ -59,7 +59,6 @@ export const accountStep: ProvisioningStep = {
     // The key is `iBillingPlan`, which is what service-plan.step actually writes. Reading a
     // key that does not exist yields undefined and no error — see the header.
     const intendedPlan = ctx.results.service_plan?.iBillingPlan as number | undefined;
-    const iBillingPlan = intendedPlan;
 
     // ── Reuse before create ────────────────────────────────────────────────
     // A retry must not produce a second account. Looked up by username, which is the
@@ -82,19 +81,28 @@ export const accountStep: ProvisioningStep = {
       // creation decide. Sippy rejects duplicates itself.
     }
 
+    // NO `as any`. The cast that used to be here is the whole reason this step shipped
+    // twice with the plan missing: SippyAccountOpts calls the field `servicePlan` (a
+    // string, mapped to i_billing_plan), and both `iBillingPlan` and `maxCalls` were
+    // being passed under names nothing reads. TypeScript would have rejected every one
+    // of them. An `as any` on a call into a 60-field options object is not a convenience,
+    // it is the type system being switched off at exactly the place it was needed.
+    const opts: sippy.SippyAccountOpts = {
+      name,
+      type: "client",
+      username,
+      voipPassword: String(ctx.input.password ?? "") || undefined,
+      iCustomer,
+      // Capacity and media come from the Provisioning Profile, resolved upstream. The
+      // engine APPLIES decisions; it does not make them.
+      maxSessions:        ctx.input.maxSessions as number | undefined,
+      maxCallsPerSecond:  ctx.input.maxCps      as number | undefined,
+      // String, because that is what the option takes — it is parsed back to an int and
+      // only then written to i_billing_plan.
+      ...(intendedPlan ? { servicePlan: String(intendedPlan) } : {}),
+    };
     const res = await sippy.pushAccountToSippy(
-      {
-        name,
-        type: "client",
-        username,
-        voipPassword: String(ctx.input.password ?? "") || undefined,
-        iCustomer,
-        // Capacity and media come from the Provisioning Profile, resolved upstream. The
-        // engine APPLIES decisions; it does not make them.
-        maxSessions: ctx.input.maxSessions as number | undefined,
-        maxCalls:    ctx.input.maxCps      as number | undefined,
-        ...(iBillingPlan ? { iBillingPlan } : {}),
-      } as any,
+      opts,
       { username: ctx.sippy.username, password: ctx.sippy.password },
       ctx.sippy.portalUrl,
     );
