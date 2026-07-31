@@ -24,6 +24,7 @@
  * traffic-carrying account as failed.
  */
 import { sendAccountDetailsEmail } from "../account-details-email";
+import { sendRateNotificationEmails } from "../rate-notification-email";
 import type { ProvisioningStep, StepContext, StepOutcome } from "../types";
 
 export const accountEmailStep: ProvisioningStep = {
@@ -69,16 +70,39 @@ export const accountEmailStep: ProvisioningStep = {
     }
 
     const to = sent.recipients ?? [];
+
+    // ── Per-product rate notifications ─────────────────────────────────────
+    // Four separate emails (FC, BC, SB, SC) in the industry-standard format:
+    //   Subject: RATE NOTIFICATION (FULL) | {COMPANY} | {PRODUCT} | {Date}
+    //   Body:    professional intro + rate table
+    //   Attachment: customer-facing Excel (Destination | Prefix | Rate USD/Min)
+    //
+    // These go to commercial + rates contacts and are independent of the account
+    // details email. A failure here is recorded in the step detail but never
+    // fails the step — the account is live regardless of whether the rate
+    // notification email delivery succeeded.
+    const rateNotif = await sendRateNotificationEmails(ctx.companyId);
+    const rateDetail = rateNotif.details.length
+      ? rateNotif.details
+      : ['Rate notification: no effective rates found — nothing sent.'];
+
     return {
       status: 'success',
-      result: { recipients: to },
+      result: { recipients: to, rateNotificationsSent: rateNotif.sent },
       detail: [
         `Account details sent to ${to.length} recipient(s): ${to.join(', ')}`,
-        // Named because it is a deliberate exclusion an operator should be able to see
-        // rather than discover from a finance contact who never received anything.
         'Technical, support, NOC and commercial contacts only — finance, billing, rates and invoicing are never sent credentials.',
+        `Rate notifications: ${rateNotif.sent} sent, ${rateNotif.failed} failed, ${rateNotif.skipped} skipped.`,
+        ...rateDetail,
       ],
-      metrics: { requested: 1, created: 1, verified: 1, recipients: to.length },
+      metrics: {
+        requested: 1 + (rateNotif.sent + rateNotif.failed),
+        created:   1 + rateNotif.sent,
+        verified:  1,
+        recipients: to.length,
+        rateEmailsSent: rateNotif.sent,
+        rateEmailsFailed: rateNotif.failed,
+      },
     };
   },
 };

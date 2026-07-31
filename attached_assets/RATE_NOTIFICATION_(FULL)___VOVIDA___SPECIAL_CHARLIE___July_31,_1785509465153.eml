@@ -1,0 +1,425 @@
+Delivered-To: junaid@ichibaanlogic.com
+Received: by 2002:a05:7108:4a84:b0:57f:ae36:e3d6 with SMTP id hc4csp396148gdb;
+        Fri, 31 Jul 2026 03:21:34 -0700 (PDT)
+X-Forwarded-Encrypted: i=4; AHgh+RrYRXHxcx3ltgYa0Lshxy53/tYdC2eQiRfJnldY5klwz3gj6vL8EC64QAddPbyhEhiVbUNy60A=@ichibaanlogic.com
+X-Received: by 2002:a17:907:9803:b0:c12:cb91:58aa with SMTP id a640c23a62f3a-c1fd3ccaa99mr69381666b.24.1785493294567;
+        Fri, 31 Jul 2026 03:21:34 -0700 (PDT)
+ARC-Seal: i=3; a=rsa-sha256; t=1785493294; cv=pass;
+        d=google.com; s=arc-20260327;
+        b=Cz5AdDe5CpV/L550eMbJUcg6tYDEpr6KmGx4m3PSiVxSrXm8QotucSIO8f7riOLSeB
+         7EhTXFDNWZQymG/v6tp4iRFrhSy2Vto1dhJ6sy3iukMcyq20F4LEgZLbc7TkW/WtrclV
+         Na3rm+2K9hNxyeQNbae2whR4Dkz2CDW180bRUOvNu5Cs8ONucGkHIbo6c5QUejxQ6+bb
+         dlb6YkSEHOJLjaFtdy8bGptUpdkEPOIrHsHopZesoN6JZTIT/6dxV1nQR7j71chA7DyW
+         +fTcD/IAZxecIc/53txt51QNiDbnhxSviH6D5hDT+7ZUIglXVpPhUzcs5ISAuRFHzV2Z
+         nu0g==
+ARC-Message-Signature: i=3; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20260327;
+        h=list-unsubscribe:list-archive:list-help:list-post:list-id
+         :mailing-list:precedence:date:reply-to:subject:cc:to:from
+         :mime-version:message-id:dkim-signature;
+        bh=k65fgVMdX+hbyVvlnMfGYdXx3GEU8c749HEQS0zsy8c=;
+        fh=qci33+SQkOJzZU0RIXhxCH5MAtBy4ZRucxmhl3lxUtE=;
+        b=d0oyVT3xvSFzZQyclnxzxCewI5GLZS5BIPbi20LDfyedjlct7cd3kgnyxGH5yMYrNI
+         mizHjAM1AR8mE+yN5IyMfHjwUeGyASa7SmgE1Vk4kQJO+M4737Sqsn7k8VYsGTOD0NBN
+         XW+Tp9wxQaNfP5GloM4IpPvBJaxyQiIVMrbGvbRTiCHcPBdbH8arlMvT7Z0EZh1L6+Kk
+         gxs3ZZa5iC0N8yH0s9ynLqqS3DXYVsHY0r/4Y4st3++E7u0wRCFwYw82LOlp0gq0pHbZ
+         SJFU/7pdV7pU8ZdVvNyBavS3esrTz8EnjeYzADGncQDGkMZi+/1usNJw7znV7QUsXv6J
+         MV5Q==;
+        dara=google.com
+ARC-Authentication-Results: i=3; mx.google.com;
+       dkim=pass header.i=@ichibaanlogic.com header.s=google header.b=P1fT6oHb;
+       arc=pass (i=2 spf=pass spfdomain=ichibaanlogic.com dkim=pass dkdomain=ichibaanlogic.com dmarc=pass fromdomain=ichibaanlogic.com);
+       spf=pass (google.com: domain of sales+bncbdc2jqgp4ynrblpowhjqmgqelc6brxi@ichibaanlogic.com designates 209.85.220.69 as permitted sender) smtp.mailfrom=sales+bncBDC2JQGP4YNRBLPOWHJQMGQELC6BRXI@ichibaanlogic.com;
+       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=ichibaanlogic.com;
+       dara=neutral header.i=@ichibaanlogic.com
+Return-Path: <sales+bncBDC2JQGP4YNRBLPOWHJQMGQELC6BRXI@ichibaanlogic.com>
+Received: from mail-sor-f69.google.com (mail-sor-f69.google.com. [209.85.220.69])
+        by mx.google.com with SMTPS id a640c23a62f3a-c1fd452015dsor27103466b.12.2026.07.31.03.21.34
+        for <junaid@ichibaanlogic.com>
+        (Google Transport Security);
+        Fri, 31 Jul 2026 03:21:34 -0700 (PDT)
+Received-SPF: pass (google.com: domain of sales+bncbdc2jqgp4ynrblpowhjqmgqelc6brxi@ichibaanlogic.com designates 209.85.220.69 as permitted sender) client-ip=209.85.220.69;
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@ichibaanlogic.com header.s=google header.b=P1fT6oHb;
+       arc=pass (i=2 spf=pass spfdomain=ichibaanlogic.com dkim=pass dkdomain=ichibaanlogic.com dmarc=pass fromdomain=ichibaanlogic.com);
+       spf=pass (google.com: domain of sales+bncbdc2jqgp4ynrblpowhjqmgqelc6brxi@ichibaanlogic.com designates 209.85.220.69 as permitted sender) smtp.mailfrom=sales+bncBDC2JQGP4YNRBLPOWHJQMGQELC6BRXI@ichibaanlogic.com;
+       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=ichibaanlogic.com;
+       dara=neutral header.i=@ichibaanlogic.com
+ARC-Seal: i=2; a=rsa-sha256; t=1785493294; cv=pass;
+        d=google.com; s=arc-20260327;
+        b=qsGP9J1z+DGsaq81QDI4iU2gRqHaj18r3MQRmtVxDYe2iJ84athJ7xZEzuouuZE1TE
+         P1djEEj2skpalRQOtrNYzx2CFKgDyCY00vFg+s/YyCqKBxs0Ie9CvP66niH4IMu78FtT
+         SJtU0ZW2yPctvHFqdMpGj0G1XVpwBm68IKCBeQ5WwNICSTSzYKFKAnL9yeRDQG+DHlc5
+         t9sxfE8WzcL7Dvz+4wWmgPLu7A8k+j5e1DZ9Gbxi28YMtUwfVRPQosScW4VMFTYjsoqJ
+         7cnIcsVaU7RhBA++ldJlonZbvw1JYbxC8WVlTxoWNEFun6/lHuA/cBqfAdMRa0rvkk+4
+         LZHw==
+ARC-Message-Signature: i=2; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20260327;
+        h=list-unsubscribe:list-archive:list-help:list-post:list-id
+         :mailing-list:precedence:date:reply-to:subject:cc:to:from
+         :mime-version:message-id:dkim-signature;
+        bh=k65fgVMdX+hbyVvlnMfGYdXx3GEU8c749HEQS0zsy8c=;
+        fh=qci33+SQkOJzZU0RIXhxCH5MAtBy4ZRucxmhl3lxUtE=;
+        b=qu+v0EZcZ3WQk4KnCW/2j3AL6Pj3ZqYbU03aLvJysb2xVVzJpybr2kNLv1d01fKrIs
+         JGvrQVR/vGIfcg+RrwlHKQIjsdMMDXOZ6ixIH0mU+7PWBJPhuuxzk4FGZoS8m27Bixz/
+         3lkO/dKEe9yMBXj6SWmyeeRem5ex7v2+3CDQLuB4tR37VThMF1FdB1ud7+b9Jke5R3qW
+         zM2B3fSWkzaLyAfpeElcHk1918A1maF5z58lEK84+xjO6TfYaHdTFalPBboHKDaBvxDD
+         G9alRiQTXfF0CFAXOr5VhJnbE4xp/M/FtfiVhoYJbzyJ7z3BdCu9b85mHHTGsP9rzSmm
+         Slsw==;
+        darn=ichibaanlogic.com
+ARC-Authentication-Results: i=2; mx.google.com;
+       dkim=pass header.i=@ichibaanlogic.com header.s=google header.b=zvTrLOYu;
+       spf=pass (google.com: domain of pricing@ichibaanlogic.com designates 209.85.220.69 as permitted sender) smtp.mailfrom=pricing@ichibaanlogic.com;
+       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=ichibaanlogic.com;
+       dara=neutral header.i=@ichibaanlogic.com
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=ichibaanlogic.com; s=google; t=1785493294; x=1786098094; darn=ichibaanlogic.com;
+        h=list-unsubscribe:list-archive:list-help:list-post:list-id
+         :mailing-list:precedence:x-original-authentication-results
+         :x-original-sender:date:reply-to:subject:cc:to:from:mime-version
+         :content-type:message-id:from:to:cc:subject:date:message-id:reply-to
+         :content-type;
+        bh=k65fgVMdX+hbyVvlnMfGYdXx3GEU8c749HEQS0zsy8c=;
+        b=P1fT6oHbR422JK/k2n2wuZpJcHqhNNV2TdYaeH0L9dAFYlgfH42jr3xN+ksfCzyX0L
+         Ysyts4XlIsjYCGcMx3rdWTFpI30+UPd2Ll4bj1ZQldaW01DTcTznmvhkLsOXs+Yb2APL
+         aXYvKtHosm0Etp+/K+UT2MvUpQKYLTEqEfAXw=
+X-Google-DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed;
+        d=1e100.net; s=20251104; t=1785493294; x=1786098094;
+        h=list-unsubscribe:list-archive:list-help:list-post
+         :x-spam-checked-in-group:list-id:mailing-list:precedence
+         :x-original-authentication-results:x-original-sender:date:reply-to
+         :subject:cc:to:from:mime-version:content-type:message-id:x-gm-gg
+         :x-beenthere:x-gm-message-state:from:to:cc:subject:date:message-id
+         :reply-to:content-type;
+        bh=k65fgVMdX+hbyVvlnMfGYdXx3GEU8c749HEQS0zsy8c=;
+        b=J9VDm6wVSh+SBtf8EDDPoi6hsHZizTK+eHz20j5APbL5yi6svX3Q8Yyn7xVfTA/VVw
+         rnlZZ8goJ8jSLESLMTdxJiXgMpxXQlUngDjilQV2RRIvN6at4Jsubo9ONbB65NBOF8Ay
+         xmkJZ/st8hxdVoP8D4oTwXz85E7ODW6XhtlCQFEJ8PhBMSQwT5OEFjryks3yP/pFwYz3
+         sySvDAq6oJfp1IT4sRkOih6C4nVVk25otmQ0yNKxLD5yooF31cky35PLKhAAJ/ltuOSF
+         AFZawd6Cbs0tnIAOSYn6Qntq8qVIRojdD25mcE7uLlg/Vka0j3xirdkz77nU0tTtF13N
+         pX4A==
+X-Forwarded-Encrypted: i=2; AHgh+RqHhMDwvZWTMGupxcVEwuj7TYIWN1rEPVE1Q52rLeVhnB0r2tveieeNIcGfYyZk9TsNBCjzzoY=@ichibaanlogic.com
+X-Gm-Message-State: AOJu0Yw4i6UGzvyxF2Zd7W/B5FuY75r8waV9iKPTQfOKQR8ajZYHZThx
+	dN78U4W7cW8FDgGILvsVTUO13lcQpDIvqTbXC1QhEe/TCAK3uQXqwI7elat69dNdqhTXlA==
+X-Received: by 2002:a05:6402:a591:10b0:69a:b449:f8cf with SMTP id 4fb4d7f45d1cf-6a09ad109eemr529432a12.4.1785493293938;
+        Fri, 31 Jul 2026 03:21:33 -0700 (PDT)
+X-BeenThere: sales@ichibaanlogic.com; h="Aa7YSPS1BSkAilqd2ymGlgfZTrqYNEx8iZATIClMP3w7t0Lj/A=="
+Received: by 2002:a05:6402:64a:b0:69c:83d2:ced3 with SMTP id
+ 4fb4d7f45d1cf-6a0507748b8ls1617869a12.1.-pod-prod-00-eu-canary; Fri, 31 Jul
+ 2026 03:21:32 -0700 (PDT)
+X-Forwarded-Encrypted: i=2; AHgh+RoYcUO7dJtkxn9DVLWvSIi1u/qIqh+pigQcJENE8HOCCc9xFXuBIgMU+WpY/fq3rWHiQN5RVw==@ichibaanlogic.com
+X-Received: by 2002:a17:907:1c95:b0:c1a:25cc:e585 with SMTP id a640c23a62f3a-c1fd3a6e3a1mr79330066b.5.1785493292475;
+        Fri, 31 Jul 2026 03:21:32 -0700 (PDT)
+ARC-Seal: i=1; a=rsa-sha256; t=1785493292; cv=none;
+        d=google.com; s=arc-20260327;
+        b=sR6182FfMxl/6O4tDxMzruIwRQRslB2Yae1ljR/kTAyv18FNZeIxYdegf2bNxEyHVY
+         4NGUJAFGVVH7o12WV0RK8wqSgeCI8qMyUK2I/AcwwjC3C2r+/9RX66LTdjXz6sptO4L3
+         Pdl59N8WK2eNgW33QnIoWU8i6kTI0zDnxuuK6a5nh+pg9EWkLdiokfyBqMIsrhhD2wZc
+         fqnUuMhIkWBAJBggOdzzyiGBH/jyamDCbI1EWp08pK9lu4z2EkMS+vuTeahWfu7IXt7V
+         1m1Nn03qnB8gTC3UVSkSAWXtppj3iDvPAe/mBanWsqjrUzgI7lKfvvvjykCxYSOmzIa7
+         1ZhQ==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=google.com; s=arc-20260327;
+        h=date:reply-to:subject:cc:to:from:mime-version:message-id
+         :dkim-signature;
+        bh=/PbYhpzUBgRS35KJwpWvodP9VikrBwUlauuUWRjGvHo=;
+        fh=MK7hhi+cqFmOIh07BrzI7Iyia1Z41vZ/JwkASN80Ch0=;
+        b=eg9JctWaFm6Uybb2EL5jSs8FPs5RcvHC6YABjRLhsnpzp7cNA1HAKFKZ5ILrjHQbXk
+         L2uaq2KxHZfSQSe9zqdfmJfeljwVw8F/3/pyLKhVyEewK9QwIqA7Mt0+wZfD4uaZ3pTL
+         cpmODpI3gn5v/bO95IAX6cJXzH3SLQK4J6FNgT9c0/GRtbm9WQh5AxrFGqAZ3td2lEEG
+         tPkSfjMRAHcUdCMEO6HWVihqX7zpQ5rvihsKdNHPIIElTH0tTKXBfvAGdaa1/5stkhN2
+         /y50Ct9h33aQH4xj8i0B7GKpN1Y2mxxAUVgKpkemeNDGFIqWwjj7tZuctvnJrvubjMGl
+         QzJA==;
+        dara=google.com
+ARC-Authentication-Results: i=1; mx.google.com;
+       dkim=pass header.i=@ichibaanlogic.com header.s=google header.b=zvTrLOYu;
+       spf=pass (google.com: domain of pricing@ichibaanlogic.com designates 209.85.220.69 as permitted sender) smtp.mailfrom=pricing@ichibaanlogic.com;
+       dmarc=pass (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=ichibaanlogic.com;
+       dara=neutral header.i=@ichibaanlogic.com
+Received: from mail-sor-f69.google.com (mail-sor-f69.google.com. [209.85.220.69])
+        by mx.google.com with SMTPS id a640c23a62f3a-c1fd495efb7sor29712466b.3.2026.07.31.03.21.32
+        for <sales@ichibaanlogic.com>
+        (Google Transport Security);
+        Fri, 31 Jul 2026 03:21:32 -0700 (PDT)
+Received-SPF: pass (google.com: domain of pricing@ichibaanlogic.com designates 209.85.220.69 as permitted sender) client-ip=209.85.220.69;
+X-Forwarded-Encrypted: i=1; AHgh+Rrq4EhnSTaqHjqRGBnGBdw6tkJEJPA6XHjxTPAitI/6+1ju++QZVlQq8+EOXjDPNeq+VeZW1g==@ichibaanlogic.com
+X-Gm-Gg: AR+sD10M8JyymHx6/RnWmiO9OCXB0wIRP5I9Zj8FuwK9a2YEdYPG9kuVAxHBhpHCd22
+	TMnrAGqRr09OrFEuW6/VTXJ43dEDFul5zlEiL/AUw+GYUhXNBSKzoY8ODDG17Kl17jrxKd8nqj6
+	VvF0ZC1Z3Vhb0SRJNHCtIn9syIpom7rltWQc7sPfsWeY55QyGrCeM9wEMnNPYGCKEsB2LRnStIm
+	LidZk96yGJ6a1l7o/aMRq90T84GCPAThb/iPKeWYdbbvnNyvlZE3VGXHZqucQIvJzFCLvnXlB/0
+	SN72vvj3C/Kq7z3CX7AoBGqJkbPuhcGCH3uoGpxmoT5AHf7iEHToJ02TSOtp1Q==
+X-Received: by 2002:a17:907:8993:b0:c15:dd1f:f2d with SMTP id a640c23a62f3a-c1fd36824cbmr81035566b.25.1785493292014;
+        Fri, 31 Jul 2026 03:21:32 -0700 (PDT)
+X-Received: by 2002:a17:907:8993:b0:c15:dd1f:f2d with SMTP id a640c23a62f3a-c1fd36824cbmr81031866b.25.1785493291347;
+        Fri, 31 Jul 2026 03:21:31 -0700 (PDT)
+Received: from 600 ([23.106.59.17])
+        by smtp.gmail.com with ESMTPSA id a640c23a62f3a-c1fd3c5b387sm99473366b.2.2026.07.31.03.21.29
+        (version=TLS1_3 cipher=TLS_AES_256_GCM_SHA384 bits=256/256);
+        Fri, 31 Jul 2026 03:21:29 -0700 (PDT)
+Message-ID: <6a6c7729.a94f6cde.201aaa.2b1a@mx.google.com>
+Content-Type: multipart/mixed; boundary="===============7820577176526407838=="
+MIME-Version: 1.0
+From: Ichibaan Rates <pricing@ichibaanlogic.com>
+To: sohaib@ichibaanlogic.com, ac.bill@ichibaanlogic.com, rates@vovida.co.uk,
+ sohaib@ichibaanlogic.com, hussain@vovida.co.uk, ac.bill@ichibaanlogic.com
+Cc: sohaib@ichibaanlogic.com
+Subject: RATE NOTIFICATION (FULL) | VOVIDA | SPECIAL CHARLIE | July 31, 2026
+Reply-to: sohaib@ichibaanlogic.com
+Date: Fri, 31 Jul 2026 10:21:29 +0000
+X-Original-Sender: pricing@ichibaanlogic.com
+X-Original-Authentication-Results: mx.google.com;       dkim=pass
+ header.i=@ichibaanlogic.com header.s=google header.b=zvTrLOYu;       spf=pass
+ (google.com: domain of pricing@ichibaanlogic.com designates 209.85.220.69 as
+ permitted sender) smtp.mailfrom=pricing@ichibaanlogic.com;       dmarc=pass
+ (p=QUARANTINE sp=QUARANTINE dis=NONE) header.from=ichibaanlogic.com;
+       dara=neutral header.i=@ichibaanlogic.com
+Precedence: list
+Mailing-list: list sales@ichibaanlogic.com; contact sales+owners@ichibaanlogic.com
+List-ID: <sales.ichibaanlogic.com>
+X-Spam-Checked-In-Group: sales@ichibaanlogic.com
+X-Google-Group-Id: 184638621634
+List-Post: <https://groups.google.com/a/ichibaanlogic.com/group/sales/post>, <mailto:sales@ichibaanlogic.com>
+List-Help: <https://support.google.com/a/ichibaanlogic.com/bin/topic.py?topic=25838>,
+ <mailto:sales+help@ichibaanlogic.com>
+List-Archive: <https://groups.google.com/a/ichibaanlogic.com/group/sales/>
+List-Unsubscribe: <mailto:googlegroups-manage+184638621634+unsubscribe@googlegroups.com>,
+ <https://groups.google.com/a/ichibaanlogic.com/group/sales/subscribe>
+
+--===============7820577176526407838==
+Content-Type: text/html; charset="UTF-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: quoted-printable
+
+<p>Dear VOVIDA,&nbsp;<br />
+<br />
+Please find attached updated rate sheet from <strong>Ichibaan Logic Private=
+ Limited</strong> <em>(formerly&nbsp;Bhaoo Private Limited)</em>. Changes a=
+re indicated in attached rate sheet and are effective as specified.</p>
+
+<p>We request you to acknowledge the rate sheet and look forward to your co=
+ntinuous support in our endeavor to give you the best quality at best possi=
+ble price. Please note that the notification will be considered&nbsp;as rec=
+eived automatically, even if you fail to confirm.</p>
+
+<p><strong>Issue Date :</strong>&nbsp;July 31, 2026</p>
+
+<p><strong>Product:</strong>&nbsp;SPECIAL CHARLIE</p>
+
+<p><strong>Traffic to send in a format:</strong>&nbsp;45127</p>
+
+<p><strong>Notification Type:</strong>&nbsp;<strong>FULL</strong></p>
+
+<p>We would like to inform you that notwithstanding any contained in rate s=
+heet, following rates will be charged for traffic:</p>
+
+<table border=3D"1" cellpadding=3D"0" cellspacing=3D"0">
+	<tbody>
+		<tr>
+			<td><strong>Origination</strong></td>
+			<td><strong>Termination</strong></td>
+			<td><strong>Rate USD/Min</strong></td>
+		</tr>
+		<tr>
+			<td>Algeria (+213), Tunisia (+216)</td>
+			<td>UAE(+971)</td>
+			<td>2.00</td>
+		</tr>
+		<tr>
+			<td>Algeria (+213), Sri Lanka (+94),<br />
+			Mauritania (+222), Libya (+218),<br />
+			Morocco (+212), Turkey(+90),<br />
+			Maldives (+960), Somalia (+252),<br />
+			South Africa (+27), Tunisia (+216),<br />
+			Syria (+963), Afghanistan (+93),<br />
+			Non CLI or Manipulated CLI,<br />
+			Thuraya (+882),</td>
+			<td>KSA (+966)</td>
+			<td>4.00</td>
+		</tr>
+	</tbody>
+</table>
+
+<p>In case of any further clarification, please do not hesitate to contact =
+your Key Account Manager, .</p>
+
+<p>Thank you very much for your support.<br />
+&nbsp;</p>
+
+<p><strong>Best Regards,</strong></p>
+
+<p><strong>Ichibaan Logic Private Limited</strong></p>
+
+<p><em>(formerly Bhaoo Private Limited)</em></p>
+
+<p><strong>FULL/A2Z:&nbsp;</strong>FULL rate sheet contains all the codes a=
+nd destinations for all countries offered. Rates against codes/destination =
+should always be replaced by new FULL rate sheet. In case, any code/destina=
+tion is not offered in new Full rate sheet, missing codes/destination is co=
+nsidered to be DELETED.</p>
+
+<p><strong>CHANGES/PARTIAL:&nbsp;</strong>Partial rate sheet includes only =
+changes from previous rate sheet. All of the rates given against codes in t=
+he partial rate sheet are replaced by the the new rate sheet. However, Rate=
+s for the missing codes/destinations are still considered valid as given in=
+ previous rate sheet.</p>
+
+
+--===============7820577176526407838==
+Content-Type: application/octet-stream
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+Content-Disposition: attachment;
+ filename="VOVIDA-SPECIAL CHARLIE-202607311021-FULL.xlsx"
+
+UEsDBBQAAAAIAK5S/1xeWsWv3wgAAPBDAAAYAAAAeGwvd29ya3NoZWV0cy9zaGVldDEueG1slZxb
+byJXFkbf8ysQ79PUvQDZjhSbi6WJFCUzyTMNZRsFKAvodubfTxW3hv2tI22/JPZmnVO7FnWo89Hg
+u5//Wa8636vtbllv7rvxl6jbqTbzerHcvN53//uf8b/63c5uP9ssZqt6U913/1ftuj8//HT3UW//
+3r1V1b7TTLDZ3Xff9vv3Ya+3m79V69nuS/1ebZpHXurterZvft2+9nbv22q2OAxar3pJFBW99Wy5
+6R5nGG49c9QvL8t59VTPv62rzf44ybZazfZN+7u35fuu+3C3WDaPtefT2VYv991fsuFzmXV7D3eH
+Q/+5rD52Vz93dm/1x2S7XPx7uama82gE7Gdf/6hW1XxfLRol3U57rl/r+u8Wf160SDNZT2YbH/r8
+bdtZVC+zb6v97/XHtFq+vu2bSfJ2yLxe7Q7/7ayXjeyk21nP/jn8/2O52L81P0VfyjgapGXe7cy/
+7fb1+q/jA/Fp+HFgehqYXgamvoHZaWB2GRj7BuangflnBxangcVnz7E8DSx/HLF0DeyfBvZ/DExc
+AwengYPPDozPduL800PPfuLi00PPJxp7z7R3vP4O1+rTbD97uNvWH53t4XLYvc/aRZwMB80CmrfF
+X9rq4fJvrt92WX1/iKO73vd2nhPyeESSayS+RaYwS3mLPMMsxQXpNT1eGs2x0VwO0Td95nKEgWlT
+54gN8qyTxH1us8A2Cz1EYvos9BCpaVRnSYzyZ50libjREhsttdHMNFpqo7lpVGdJzLk86yxJwo32
+sdG+HKIwffZPR+idu9IhiWn8ua9dZdzVALsayCHMBf84sF3pkMQukoF2FVgkcYRtHcq3B7HL+YTc
+PK3mWYVZErtQYJoksFLimHuN9Si211gOYpcKzJLatULTBBZLnHCviRzFrpYTcn0Qu1pgltQuF5gm
+DayXmF/S4+NLbXo9gzQLjOn2iRjzmjsixizPMTHmapoQU1p7ymSRtQdMHLDH95lY7wCZXJbApNYe
+MIW1B0xm7cEdSezBPHLtAWNffogJrWm+/cV6W1J7wAysPWXy2NoDJrL24GYr9qAfsQeM2AMmZI/v
+ybHeK9UeMGJPmTyx9oARe7ADEHvQj9gDRuwBE7LHG4VY7+lqDxixp0yeWnvAiD1l1B70I/aAEXvA
+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
+--===============7820577176526407838==--
