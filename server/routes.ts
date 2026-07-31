@@ -1584,6 +1584,48 @@ export async function registerRoutes(
     }
   });
 
+  // ── Platform clock ────────────────────────────────────────────────────────────
+  // THE BROWSER'S CLOCK IS NOT THE PLATFORM'S. Rate Manager's "Effective Date / Time"
+  // was initialised from `new Date()` in the browser and then rounded DOWN to the hour.
+  // For an operator in Karachi at 12:31 UTC that produced "17:00" — a rate scheduled five
+  // and a half hours into the future, which then did not apply to any call placed that
+  // afternoon. The field looked right, the push succeeded, and nothing was priced.
+  //
+  // Everything server-side already agrees on UTC: the rate filters compare against
+  // toISOString().slice(0,10), provisioning stamps UTC, and the switch reports Etc/UTC.
+  // The only clock that disagreed was the one in the browser, so the browser stops being
+  // asked. PLATFORM_TIMEZONE overrides it for a deployment that genuinely runs on another
+  // zone; the default is the zone everything else already uses.
+  //
+  // Not gated. It discloses the time, and a default that fails closed because a session
+  // expired is worse than one anybody can read.
+  app.get('/api/platform/time', (_req: any, res: any) => {
+    const timezone = process.env.PLATFORM_TIMEZONE || 'Etc/UTC';
+    const now = new Date();
+    try {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone, hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      }).formatToParts(now).reduce<Record<string, string>>((a, p) => (a[p.type] = p.value, a), {});
+      res.json({
+        epochMs: now.getTime(),
+        iso: now.toISOString(),
+        timezone,
+        // Exactly what a datetime-local input expects, and what the operator should see.
+        date:     `${parts.year}-${parts.month}-${parts.day}`,
+        time:     `${parts.hour}:${parts.minute}`,
+        display:  `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`,
+      });
+    } catch (e: any) {
+      // An invalid PLATFORM_TIMEZONE must not take the clock down — say so and serve UTC.
+      console.warn(`[platform] PLATFORM_TIMEZONE="${timezone}" is not a valid IANA zone (${e?.message}); serving UTC.`);
+      const iso = now.toISOString();
+      res.json({ epochMs: now.getTime(), iso, timezone: 'Etc/UTC',
+                 date: iso.slice(0, 10), time: iso.slice(11, 16), display: `${iso.slice(0, 10)} ${iso.slice(11, 16)}` });
+    }
+  });
+
   // ── Portal Governance Console API ─────────────────────────────────────────────
   app.get('/api/governance/modules', async (req: any, res) => {
     if (!req.user?.claims?.sub) return res.status(401).json({ message: 'Unauthorized' });

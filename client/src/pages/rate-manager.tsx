@@ -1999,12 +1999,34 @@ function SendRateTab({
   const [notifCategory, setNotifCategory] = useState<string>("");
   const [notifDetail, setNotifDetail] = useState<string>("");
   const [price, setPrice] = useState<string>("");
-  const [effectiveDate, setEffectiveDate] = useState<string>(() => {
-    const d = new Date();
-    d.setMinutes(0, 0, 0);
-    const pad = (n: number) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  // ── Effective from the PLATFORM clock, not the browser's ───────────────────
+  // This used to read `new Date()` in the browser and round DOWN to the hour. In Karachi
+  // at 12:31 UTC that produced "17:00" — a rate scheduled five and a half hours ahead,
+  // which then applied to nothing that afternoon. The push succeeded and the field looked
+  // deliberate, so there was nothing to notice.
+  //
+  // Empty until the server answers. A stale local timestamp shown for a moment is exactly
+  // the value we are trying to stop being submitted, and the push already treats an empty
+  // effectiveFrom as "now".
+  const [effectiveDate, setEffectiveDate] = useState<string>("");
+  const [platformTz, setPlatformTz] = useState<string>("");
+
+  // Refetched on every mount, so reopening the page never reuses a timestamp from the
+  // last time it was open.
+  const { data: platformNow } = useQuery<{ display: string; timezone: string }>({
+    queryKey: ["/api/platform/time"],
+    queryFn: () => fetch("/api/platform/time").then(r => r.json()),
+    refetchOnMount: "always",
+    staleTime: 0,
+    gcTime: 0,
   });
+
+  useEffect(() => {
+    if (!platformNow?.display) return;
+    setPlatformTz(platformNow.timezone);
+    // Only seeds the field; an operator who has already typed a future date keeps it.
+    setEffectiveDate(prev => prev || platformNow.display);
+  }, [platformNow]);
 
   // Multi-destination queue
   const [destQueue, setDestQueue] = useState<QueuedDest[]>([]);
@@ -2377,12 +2399,19 @@ function SendRateTab({
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] text-muted-foreground font-medium">Effective Date / Time</label>
+              <div className="flex items-baseline justify-between gap-2">
+                <label className="text-[10px] text-muted-foreground font-medium">Effective Date / Time</label>
+                {/* The zone is named on screen. An operator reading a bare "12:35" in
+                    Karachi will assume it is local, and that assumption is the bug. */}
+                {platformTz && (
+                  <span className="text-[10px] text-muted-foreground/70 font-mono">{platformTz} · platform time</span>
+                )}
+              </div>
               <input
                 type="text"
                 value={effectiveDate}
                 onChange={e => setEffectiveDate(e.target.value)}
-                placeholder="YYYY-MM-DD HH:mm"
+                placeholder={platformTz ? "YYYY-MM-DD HH:mm" : "loading platform time…"}
                 className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background font-mono"
                 data-testid="notif-date"
               />
