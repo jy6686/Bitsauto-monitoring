@@ -194,6 +194,14 @@ export async function sendDirectEmailWithAttachment(opts: {
   /** Display name on the From header. Customer-facing mail must NOT go out as
    *  "Bitsauto Monitoring" — the platform is internal and the recipient is a customer. */
   fromName?: string;
+  /**
+   * Override the From email address. Uses the authenticated SMTP account as the
+   * transport but presents a different address in the From header — e.g.
+   * pricing@ichibaanlogic.com or noc1@ichibaanlogic.com. The Gmail account must have
+   * "Send mail as" configured for the alias, or Gmail will add a "via" note in some
+   * clients. If omitted, falls back to the configured SMTP user address.
+   */
+  fromAddress?: string;
   attachment: {
     filename: string;
     content: Buffer | string;
@@ -206,8 +214,9 @@ export async function sendDirectEmailWithAttachment(opts: {
   try {
     const conn = await getTransporter();
     if (!conn) return { ok: false, error: 'Email not configured — enable alerts in Settings first.' };
+    const fromAddr = opts.fromAddress ?? conn.from;
     await conn.transporter.sendMail({
-      from: `"${opts.fromName ?? 'Bitsauto Monitoring'}" <${conn.from}>`,
+      from: `"${opts.fromName ?? 'Bitsauto Monitoring'}" <${fromAddr}>`,
       to: opts.to,
       subject: opts.subject,
       html: opts.html,
@@ -234,12 +243,16 @@ export async function sendDirectEmail(opts: {
   to: string;
   subject: string;
   html: string;
+  fromName?: string;
+  /** Override the From address — see sendDirectEmailWithAttachment for details. */
+  fromAddress?: string;
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const conn = await getTransporter();
     if (!conn) return { ok: false, error: 'Email not configured — enable alerts in Settings first.' };
+    const fromAddr = opts.fromAddress ?? conn.from;
     await conn.transporter.sendMail({
-      from: `"Bitsauto Monitoring" <${conn.from}>`,
+      from: `"${opts.fromName ?? 'Bitsauto Monitoring'}" <${fromAddr}>`,
       to: opts.to,
       subject: opts.subject,
       html: opts.html,

@@ -275,7 +275,8 @@ export async function sendRateNotificationEmails(
       to,
       subject,
       html,
-      fromName: "Ichibaan Rates",
+      fromName:    "Ichibaan Rates",
+      fromAddress: "pricing@ichibaanlogic.com",
       attachment: { filename, content: xlsx, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
     });
 

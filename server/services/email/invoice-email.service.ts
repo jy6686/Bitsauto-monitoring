@@ -99,7 +99,7 @@ async function buildInvoiceTransporter(): Promise<{
       socketTimeout:     15_000,
       greetingTimeout:   10_000,
     } as any);
-    return { transporter, from: `"Ichibaan Logic Billing" <${settings.alertGmailUser}>` };
+    return { transporter, from: `"Ichibaan Logic Billing" <billing@ichibaanlogic.com>` };
   }
 
   return null;

@@ -310,15 +310,16 @@ export async function sendAccountDetailsEmail(
   const html    = renderAccountDetails(details);
   // From name is the customer-facing department, never the platform. A customer receiving
   // "Bitsauto Monitoring" in their inbox learns an internal system name for no benefit.
-  const fromName = 'Ichibaan Logic Support';
+  const fromName    = 'Ichibaan Logic NOC';
+  const fromAddress = 'noc1@ichibaanlogic.com';
 
   const logo = logoBuffer();
   const res = logo
     ? await sendDirectEmailWithAttachment({
-        to, subject, html, fromName,
+        to, subject, html, fromName, fromAddress,
         attachment: { filename: 'ichibaan-logo.png', content: logo, contentType: 'image/png', cid: LOGO_CID },
       })
-    : await sendDirectEmail({ to, subject, html });
+    : await sendDirectEmail({ to, subject, html, fromName, fromAddress });
 
   return res.ok
     ? { ok: true, recipients: details.recipients }
