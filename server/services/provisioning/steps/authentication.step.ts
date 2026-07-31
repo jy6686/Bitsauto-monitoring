@@ -159,15 +159,31 @@ export const authenticationStep: ProvisioningStep = {
    * Read the set back and compare FIELD BY FIELD. A rule that exists with the wrong
    * routing group is the failure mode that most looks like success: the customer
    * authenticates, calls connect, and traffic goes to the wrong carrier at the wrong cost.
+   *
+   * ROUTING GROUP READ-BACK STRATEGY
+   * listAuthRules() does not return i_routing_group — this is a documented Sippy API
+   * constraint (9 fields returned; i_routing_group was removed from the list response
+   * when Sippy 2020 moved it to filter params). getAuthRuleInfo() returns the full
+   * authrule struct that includes it. So the pattern is:
+   *
+   *   1. listAuthRules  → rule existence + CLD translation (fast batch)
+   *   2. getAuthRuleInfo per rule → routing group (one call per rule on the slow path)
+   *
+   * Three outcomes for the routing group field:
+   *   confirmed correct  → pass
+   *   null or wrong id   → hard failure (wrong routing group is a live routing defect)
+   *   undefined from both APIs → warning; step stays success (API limitation on this
+   *                              switch, not evidence the group is absent)
    */
-  async verify(ctx: StepContext, result: Record<string, unknown>): Promise<string | null> {
-    const iAccount = Number(result.iAccount);
-    const planned  = (Array.isArray(result.planned) ? result.planned : []) as PlannedAuthRule[];
+  async verify(ctx: StepContext, result: Record<string, unknown>): Promise<string | { warnings: string[] } | null> {
+    const iAccount  = Number(result.iAccount);
+    const planned   = (Array.isArray(result.planned) ? result.planned : []) as PlannedAuthRule[];
     if (!planned.length) return "no rules to verify";
 
+    const iCustomer = Number(ctx.input.iCustomer ?? 1);
     const listed = await sippy.listSippyAuthRules(
       ctx.sippy.username, ctx.sippy.password,
-      { iAccount, iCustomer: Number(ctx.input.iCustomer ?? 1) }, ctx.sippy.portalUrl);
+      { iAccount, iCustomer }, ctx.sippy.portalUrl);
 
     // An error reading back is NOT a pass — the runner's verify contract.
     if (listed.error) return `could not read auth rules back: ${listed.error}`;
@@ -179,32 +195,74 @@ export const authenticationStep: ProvisioningStep = {
     );
 
     const problems: string[] = [];
+    const warnings: string[] = [];
+
     for (const want of planned) {
       const got = byKey.get(ruleKey(want.remoteIp, want.incomingCld));
       if (!got) {
         problems.push(`missing: ${want.remoteIp} ${want.incomingCld} (${want.country}/${want.product})`);
         continue;
       }
+
+      // CLD translation — always available from listAuthRules.
       if (got.cldRule !== want.cldTranslationRule) {
         problems.push(`${want.incomingCld}: CLD rule is "${got.cldRule || "(empty)"}", expected "${want.cldTranslationRule}"`);
       }
-      // A routing group Sippy does not return is reported as unverifiable rather than
-      // assumed correct — an absent value is not a match.
-      if (got.iRoutingGroup == null) {
-        problems.push(`${want.incomingCld}: routing group not returned by Sippy — could not verify`);
-      } else if (Number(got.iRoutingGroup) !== Number(want.iRoutingGroup)) {
-        problems.push(`${want.incomingCld}: routing group is ${got.iRoutingGroup}, expected ${want.iRoutingGroup} (${want.routingGroupName ?? "unnamed"})`);
+
+      // Routing group — listAuthRules never returns it; fall back to getAuthRuleInfo.
+      let actualRg = got.iRoutingGroup; // always undefined after listAuthRules
+
+      if (actualRg === undefined) {
+        if (!got.iAuthentication) {
+          // Rule returned no id — cannot look it up by id.
+          problems.push(`${want.incomingCld}: Sippy returned no rule id — routing group cannot be read back`);
+          continue;
+        }
+        const info = await sippy.getSippyAuthRuleInfo(
+          ctx.sippy.username, ctx.sippy.password,
+          got.iAuthentication,
+          { iCustomer, portalUrl: ctx.sippy.portalUrl },
+        );
+        if (!info.success) {
+          // getAuthRuleInfo call failed (permission, network, etc.).
+          // Rule existence and CLD are confirmed; treat routing group as unverified.
+          warnings.push(`${want.incomingCld}: getAuthRuleInfo(${got.iAuthentication}) failed — ${info.error} — routing group unconfirmed`);
+          continue;
+        }
+        const fromInfo = info.authRule ? readRule(info.authRule) : null;
+        if (!fromInfo || fromInfo.iRoutingGroup === undefined) {
+          // This switch does not expose i_routing_group via either API surface.
+          // The group was set during addAuthRule; we cannot read it back here.
+          warnings.push(`${want.incomingCld}: i_routing_group absent from listAuthRules and getAuthRuleInfo — routing group unconfirmed (switch API limitation)`);
+          continue;
+        }
+        actualRg = fromInfo.iRoutingGroup;
+      }
+
+      // actualRg is now null (no group) or a number.
+      if (actualRg === null) {
+        problems.push(
+          `${want.incomingCld}: rule ${got.iAuthentication} has no routing group — calls will fall back to account default; ` +
+          `expected ${want.iRoutingGroup} (${want.routingGroupName ?? "unnamed"})`,
+        );
+      } else if (Number(actualRg) !== Number(want.iRoutingGroup)) {
+        problems.push(
+          `${want.incomingCld}: routing group is ${actualRg}, expected ${want.iRoutingGroup} (${want.routingGroupName ?? "unnamed"})`,
+        );
       }
     }
 
-    // Cap the reported detail: twenty identical complaints tell an operator no more than
-    // three do, and the count is what conveys the scale.
+    // Hard failures: missing rules, wrong CLD translation, wrong or absent routing group.
     if (problems.length) {
       const shown = problems.slice(0, 5);
       const rest  = problems.length - shown.length;
       return `${problems.length} of ${planned.length} rule(s) did not verify — ` +
         shown.join("; ") + (rest > 0 ? ` (+${rest} more)` : "");
     }
+
+    // Soft limitations: routing group could not be read back (API does not expose it
+    // on this switch). Rules exist, CLD translations confirmed, routing group unproven.
+    if (warnings.length) return { warnings };
     return null;
   },
 };

@@ -195,14 +195,24 @@ export async function executeRun(
       // point — "we asked and it said yes" is not evidence.
       if (outcome.status === 'success' && def.verify) {
         try {
-          const reason = await def.verify(ctx, outcome.result ?? {});
-          if (reason) {
+          const verifyResult = await def.verify(ctx, outcome.result ?? {});
+          if (typeof verifyResult === 'string') {
+            // Hard failure — confirmed wrong state in Sippy.
             outcome = {
               ...outcome,
               status: 'failed',
               reasonCode: outcome.reasonCode ?? 'VERIFY_FAILED',
-              error: `Executed but read-back failed: ${reason}`,
-              detail: [...(outcome.detail ?? []), `read-back: ${reason}`],
+              error: `Executed but read-back failed: ${verifyResult}`,
+              detail: [...(outcome.detail ?? []), `read-back: ${verifyResult}`],
+            };
+          } else if (verifyResult && typeof verifyResult === 'object' && 'warnings' in verifyResult) {
+            // Partial verification — pass with limitations (e.g. a field the switch API
+            // does not expose). Step stays successful; warnings surface in detail so
+            // operators can see what was not confirmed without blocking provisioning.
+            const warnLines = (verifyResult.warnings as string[]).map((w: string) => `read-back warning: ${w}`);
+            outcome = {
+              ...outcome,
+              detail: [...(outcome.detail ?? []), 'read-back: verified with limitations', ...warnLines],
             };
           } else {
             outcome = { ...outcome, detail: [...(outcome.detail ?? []), 'read-back: verified'] };

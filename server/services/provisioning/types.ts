@@ -102,7 +102,14 @@ export interface ProvisioningStep {
    * Runs AFTER execute() succeeds. A verify failure marks the step failed even
    * though execute() returned success — that is the entire point.
    */
-  verify?(ctx: StepContext, result: Record<string, unknown>): Promise<string | null>;
+  /**
+   * Three possible outcomes:
+   *   null                   — every field confirmed; step is fully verified.
+   *   string                 — hard failure; execute() result is downgraded to failed.
+   *   { warnings: string[] } — pass with caveats (e.g. a field the switch API does not
+   *                            expose); step stays success but warnings surface in detail.
+   */
+  verify?(ctx: StepContext, result: Record<string, unknown>): Promise<string | { warnings: string[] } | null>;
 
   /** Optional pre-flight. Return an error string to fail fast without side
    *  effects; return null to proceed. */
