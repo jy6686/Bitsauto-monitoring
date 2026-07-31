@@ -55,6 +55,8 @@ DECLARE
   gd_count   BIGINT;
   d_count    BIGINT := NULL;
   orphans    BIGINT := 0;
+  gd_only    BIGINT := 0;
+  shared_n   BIGINT := 0;
 BEGIN
   IF to_regclass('public.global_destinations') IS NULL THEN
     RAISE EXCEPTION 'global_destinations does not exist — this database is not in the state 058 expects.';
@@ -78,8 +80,17 @@ BEGIN
         'destinations holds % row(s) that global_destinations does not. Re-pointing the view would hide them. This needs a reconciliation, not a rollback — compare the two tables before proceeding.', orphans;
     END IF;
 
-    RAISE NOTICE 'global_destinations % rows, destinations % rows (drift %). No rows exist only in destinations, so re-pointing hides nothing.',
-                 gd_count, d_count, gd_count - d_count;
+    -- Both directions, recorded even though only one of them can block. In six months
+    -- somebody will ask what exactly differed at the moment of the switch, and the answer
+    -- should be in the migration log rather than reconstructed from two tables that have
+    -- moved on since.
+    EXECUTE 'SELECT count(*) FROM global_destinations g
+              WHERE NOT EXISTS (SELECT 1 FROM destinations d WHERE d.id = g.id)'
+       INTO gd_only;
+    shared_n := gd_count - gd_only;
+
+    RAISE NOTICE 'Diff at switch — global_destinations %, destinations %; shared %, only in global % (written since the backfill), only in destinations % (would be hidden).',
+                 gd_count, d_count, shared_n, gd_only, orphans;
   ELSE
     RAISE NOTICE 'No `destinations` table on this database — Phase 1 Steps 1-2 never ran here. The view will be created over global_destinations, which is the correct source either way.';
   END IF;
@@ -117,6 +128,7 @@ DO $$
 DECLARE
   v_count BIGINT;
   n_cols  INTEGER;
+  by_stat TEXT;
 BEGIN
   EXECUTE 'SELECT count(*) FROM destinations_v' INTO v_count;
   SELECT count(*) INTO n_cols
@@ -127,7 +139,17 @@ BEGIN
     RAISE EXCEPTION 'destinations_v has % columns, expected 11 — the read consumers depend on this exact interface.', n_cols;
   END IF;
 
+  -- The status breakdown the catalogue header will now show, recorded here so validating
+  -- the deployment is reading a log line rather than clicking through a UI. Aggregated
+  -- rather than five hardcoded counters, so a status nobody anticipated still appears.
+  EXECUTE $q$
+    SELECT COALESCE(string_agg(commercial_status || ' ' || n, ', ' ORDER BY n DESC), 'none')
+      FROM (SELECT COALESCE(commercial_status,'(null)') AS commercial_status, count(*) AS n
+              FROM destinations_v GROUP BY 1) s
+  $q$ INTO by_stat;
+
   RAISE NOTICE 'destinations_v now reads global_destinations: % rows, % columns. The catalogue shows what the writes actually did.', v_count, n_cols;
+  RAISE NOTICE 'Status breakdown: %', by_stat;
 END $$;
 
 COMMIT;
