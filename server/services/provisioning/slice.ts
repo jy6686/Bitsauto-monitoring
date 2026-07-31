@@ -28,8 +28,8 @@ import { accountStep } from "./steps/account.step";
 import { authenticationStep } from "./steps/authentication.step";
 import { capacityStep } from "./steps/capacity.step";
 import { ratesStep } from "./steps/rates.step";
+import { accountEmailStep } from "./steps/account-email.step";
 import type { ProvisioningStep } from "./types";
-import { sendAccountDetailsEmail } from "./account-details-email";
 import { writeAudit } from "../../audit";
 
 /** Stages this slice executes. Extended one at a time per Sprint 2.3B..2.3F. */
@@ -37,7 +37,14 @@ import { writeAudit } from "../../audit";
 // everything above it must exist and be verified first, and a customer with a working
 // account but no rates is recoverable from Rate Manager in minutes — worse to abort a run
 // that has already built the account, authentication and capacity.
-export const SLICE_STEPS: ProvisioningStep[] = [tariffStep, servicePlanStep, accountStep, authenticationStep, capacityStep, ratesStep];
+// accountEmailStep LAST (order 100) and non-blocking. It used to run in a detached
+// `.then()` after the run resolved, gated on the status being 'completed' or
+// 'completed_with_warnings' — so its outcome never appeared on the card and an operator
+// could not tell whether the customer had their credentials. A last-ordered step is the
+// same gate expressed by the framework: the runner halts on a blocking failure, so this
+// cannot run when the account is not live, and an earlier non-blocking failure does not
+// stop it.
+export const SLICE_STEPS: ProvisioningStep[] = [tariffStep, servicePlanStep, accountStep, authenticationStep, capacityStep, ratesStep, accountEmailStep];
 
 /** Stages written but not yet in the pipeline — shown in the dry-run plan so an operator
  *  sees what is NOT yet automated rather than assuming full coverage. */
@@ -122,25 +129,19 @@ export async function provisionSlice(opts: {
   // durable in provisioning_steps.
   void executeRun(runId, SLICE_STEPS, { actor: opts.actor })
     .then(async (result) => {
-      // Account details go out ONLY on a terminal success. A customer holding credentials
-      // for an account that failed verification is worse than no email: they will try to
-      // send traffic and blame the carrier. 'completed_with_warnings' still qualifies —
-      // the account is live and carrying calls; a skipped non-blocking stage does not
-      // change what the customer needs to connect.
-      if (result.status !== 'completed' && result.status !== 'completed_with_warnings') return;
-      const sent = await sendAccountDetailsEmail(opts.companyId);
-      if (sent.ok) {
-        console.log(`[provisioning] ${runRef} account details emailed to ${sent.recipients?.join(', ')}`);
-      } else {
-        // Never downgrades the run: provisioning succeeded, delivery did not. Recorded so
-        // an operator can resend rather than discovering the gap from the customer.
-        console.warn(`[provisioning] ${runRef} account details NOT sent — ${sent.error}`);
-      }
+      // The send itself moved into accountEmailStep so its outcome lands on the card with
+      // every other stage. Sending here as well would email the customer twice.
+      //
+      // The AUDIT stays, because it answers a different question from the run record: "was
+      // this customer ever sent their credentials, and when" is asked months later, long
+      // after anyone is looking at a provisioning run.
+      const email = result.steps?.find(s => s.key === 'account_email');
+      if (!email) return;
       void writeAudit({
         category: 'operational', action: 'company.account_details_emailed',
         actor: opts.actor, actorType: 'user',
         targetType: 'company', targetId: String(opts.companyId),
-        metadata: { runRef, sent: sent.ok, recipients: sent.recipients ?? [], error: sent.error ?? null },
+        metadata: { runRef, sent: email.status === 'success', error: email.error ?? null },
       });
     })
     .catch(e => console.error(`[provisioning] ${runRef} run failed outside step handling:`, e?.message));
