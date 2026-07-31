@@ -90,30 +90,43 @@ export const authenticationStep: ProvisioningStep = {
     const ips  = await authorisedIpsFor(ctx.companyId);
     const plan = await planAuthRuleSet(ctx.companyId, ips);
 
-    // ── Reuse before create ────────────────────────────────────────────────
-    let existing = new Set<string>();
+    // ── Read back what is already in Sippy ────────────────────────────────
+    // Keep the full rule (including iAuthentication) so stale rules can be
+    // patched. A Set-of-keys is not enough: rules created before the routing
+    // matrix was populated have the right IP+CLD but the wrong (or absent)
+    // routing group, and skipping them would leave a broken account.
+    type ExistingRule = { iAuthentication: number | null; cldRule: string };
+    let existingMap = new Map<string, ExistingRule>();
     try {
       const listed = await sippy.listSippyAuthRules(
         ctx.sippy.username, ctx.sippy.password, { iAccount, iCustomer }, ctx.sippy.portalUrl);
-      existing = new Set((listed.authRules ?? [])
-        .map(readRule)
-        .filter(r => r.remoteIp && r.incomingCld)
-        .map(r => ruleKey(r.remoteIp, r.incomingCld)));
+      for (const r of listed.authRules ?? []) {
+        const rule = readRule(r);
+        if (rule.remoteIp && rule.incomingCld) {
+          existingMap.set(ruleKey(rule.remoteIp, rule.incomingCld), {
+            iAuthentication: rule.iAuthentication,
+            cldRule: rule.cldRule,
+          });
+        }
+      }
     } catch {
-      // A failed listing is not evidence the rules are absent. Fall through — Sippy
-      // rejects duplicates itself, and verify() below is the real check.
+      // A failed listing is not evidence the rules are absent. Fall through —
+      // Sippy rejects duplicates itself and verify() is the real check.
     }
 
     const cells   = plan.ips.length ? plan.rules.length / plan.ips.length : 0;
-    const missing = plan.rules.filter(r => !existing.has(ruleKey(r.remoteIp, r.incomingCld)));
+    const missing = plan.rules.filter(r => !existingMap.has(ruleKey(r.remoteIp, r.incomingCld)));
+    const present = plan.rules.filter(r =>  existingMap.has(ruleKey(r.remoteIp, r.incomingCld)));
     const detail: string[] = [
       `${plan.rules.length} rule(s) planned — ${plan.ips.length} IP(s) x ${cells} routing cell(s)`,
     ];
-    if (existing.size) detail.push(`${existing.size} rule(s) already present`);
+    if (existingMap.size) detail.push(`${existingMap.size} rule(s) already present`);
 
     const failures: string[] = [];
     let createdCount = 0;
+    let updatedCount = 0;
 
+    // ── Create rules that do not exist yet ────────────────────────────────
     for (const rule of missing) {
       const res = await sippy.addSippyAuthRule(
         ctx.sippy.username, ctx.sippy.password,
@@ -131,18 +144,39 @@ export const authenticationStep: ProvisioningStep = {
       else failures.push(`${rule.remoteIp} ${rule.incomingCld} (${rule.country}/${rule.product}): ${res.message}`);
     }
 
-    // A partial matrix is a failure, not a qualified success. Ten of twelve rules leaves a
-    // customer whose traffic works for some products and silently fails for others — far
-    // harder to diagnose than a customer that plainly does not work.
+    // ── Patch rules that exist but may be missing their routing group ─────
+    // Rules created before the routing matrix was populated have iRoutingGroup
+    // null in Sippy. Updating them is idempotent — if values are already
+    // correct, updateAuthRule is a silent no-op on the switch.
+    for (const rule of present) {
+      const ex = existingMap.get(ruleKey(rule.remoteIp, rule.incomingCld))!;
+      if (!ex.iAuthentication) {
+        // No ID to update with — verify() will catch the field mismatch.
+        continue;
+      }
+      const upd = await sippy.updateSippyAuthRule(
+        ctx.sippy.username, ctx.sippy.password,
+        {
+          iAuthentication:    ex.iAuthentication,
+          iCustomer,
+          cldTranslationRule: rule.cldTranslationRule,
+          iRoutingGroup:      rule.iRoutingGroup,
+        },
+        ctx.sippy.portalUrl,
+      );
+      if (upd.success) updatedCount++;
+      else failures.push(`${rule.remoteIp} ${rule.incomingCld} (${rule.country}/${rule.product}) update: ${upd.message}`);
+    }
+
+    // A partial matrix is a failure, not a qualified success. Ten of twelve
+    // rules leaves a customer whose traffic works for some products and
+    // silently fails for others — far harder to diagnose than a customer that
+    // plainly does not work at all.
     if (failures.length > 0) {
       return {
         status: "failed",
         reasonCode: "AUTH_RULE_CREATE_FAILED",
-        // The COUNT alone sends an operator to the logs. Every rule carries Sippy's own
-        // message; the first one is almost always the reason for all of them, since 12 of
-        // 12 failing means a systemic cause — a rejected routing group, a duplicate rule,
-        // a permission — not twelve unrelated problems.
-        error: `${failures.length} of ${missing.length} rule(s) could not be created. First: ${failures[0]}`,
+        error: `${failures.length} of ${plan.rules.length} rule(s) could not be created/updated. First: ${failures[0]}`,
         detail: [...detail, `${failures.length} failed:`, ...failures.slice(0, 12)],
         result: { iAccount, planned: plan.rules },
       };
@@ -150,8 +184,8 @@ export const authenticationStep: ProvisioningStep = {
 
     return {
       status: "success",
-      result: { iAccount, planned: plan.rules, created: createdCount, reused: plan.rules.length - createdCount },
-      detail: [...detail, `created ${createdCount}, reused ${plan.rules.length - createdCount}`],
+      result: { iAccount, planned: plan.rules, created: createdCount, updated: updatedCount, reused: plan.rules.length - createdCount - updatedCount },
+      detail: [...detail, `created ${createdCount}, updated ${updatedCount}, already correct ${plan.rules.length - createdCount - updatedCount}`],
     };
   },
 
