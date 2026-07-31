@@ -38,11 +38,25 @@ export const ratesStep: ProvisioningStep = {
   async validate(ctx: StepContext): Promise<string | null> {
     const iTariff = (ctx.results?.tariff as any)?.iTariff;
     if (!iTariff) return 'No tariff id from the tariff step — rates have nowhere to go.';
+    // Checked here so a bad id is named by this step rather than by Postgres. The operator
+    // saw `invalid input syntax for type integer: "NaN"` on a stage called Upload Rates,
+    // which says nothing about what was wrong or where.
+    if (!Number.isInteger(ctx.companyId) || ctx.companyId <= 0) {
+      return `No usable company id on the run context (${String(ctx.companyId)}) — rates cannot be looked up.`;
+    }
     return null;
   },
 
   async execute(ctx: StepContext): Promise<StepOutcome> {
-    const companyId = Number((ctx.input as any).companyId);
+    // ctx.companyId, not ctx.input.companyId. `input` is the FROZEN SNAPSHOT of the
+    // onboarding form — it deliberately does not carry the company id, which lives on the
+    // context. Reading it through `as any` produced Number(undefined) === NaN, which
+    // Drizzle passed straight to Postgres:
+    //
+    //   invalid input syntax for type integer: "NaN"
+    //
+    // Every other step already uses ctx.companyId. The cast is what let this one differ.
+    const companyId = ctx.companyId;
     const iTariff   = Number((ctx.results?.tariff as any)?.iTariff);
     const asOf      = new Date().toISOString().slice(0, 10);
 
