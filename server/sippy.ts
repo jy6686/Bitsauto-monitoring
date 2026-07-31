@@ -11002,6 +11002,10 @@ export async function updateAccountSettings(
     iCustomer?: number;
     creditLimit?: number;
     iRoutingGroup?: number;
+    /** The account's billing plan, which carries its tariff — and therefore decides what
+     *  every call costs. Settable here so an account already on the wrong plan can be
+     *  corrected without deleting and recreating it. */
+    iBillingPlan?: number;
   },
 ): Promise<{ success: boolean; message: string; method?: string }> {
   const apiUrl = `${sippyBase(portalUrl)}/xmlapi/xmlapi`;
@@ -11014,6 +11018,7 @@ export async function updateAccountSettings(
   if (opts.iCustomer          !== undefined) params.i_customer            = opts.iCustomer;
   if (opts.creditLimit        !== undefined) params.credit_limit          = opts.creditLimit;
   if (opts.iRoutingGroup      !== undefined) params.i_routing_group       = opts.iRoutingGroup;
+  if (opts.iBillingPlan       !== undefined) params.i_billing_plan        = opts.iBillingPlan;
 
   const lastErrors: string[] = [];
 

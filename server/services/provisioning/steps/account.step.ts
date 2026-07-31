@@ -72,10 +72,37 @@ export const accountStep: ProvisioningStep = {
         // intendedPlan travels with the result so verify() checks a REUSED account too.
         // An account created before this bug was fixed carries the wrong plan permanently,
         // and reuse would otherwise mean it is never looked at again.
+        const detail = [`Reused existing account "${username}" (i_account=${existing.iAccount})`];
+
+        // ── Correct a wrong plan rather than only reporting it ─────────────────
+        // Converging Sippy onto the intended state is what every other step already
+        // does — the authentication step creates whichever rules are missing on a
+        // re-run rather than refusing because some exist. An account on the wrong plan
+        // bills on another customer's tariff, and there is no other way for an operator
+        // to fix it from this platform: the account cannot be recreated without
+        // destroying its authentication rules.
+        //
+        // The patch does NOT make the step pass. verify() re-reads afterwards and is
+        // still the judge — if updateAccount silently ignored the field, the step fails
+        // exactly as it did before.
+        const actualPlan = existing.iBillingPlan == null ? null : Number(existing.iBillingPlan);
+        let patched = false;
+        if (intendedPlan && actualPlan !== intendedPlan) {
+          detail.push(`Service plan mismatch (actual ${actualPlan ?? "none"}, expected ${intendedPlan}) — correcting via updateAccount`);
+          const upd = await sippy.updateAccountSettings(
+            ctx.sippy.username, ctx.sippy.password, ctx.sippy.portalUrl,
+            existing.iAccount, { iBillingPlan: intendedPlan });
+          patched = upd.success;
+          detail.push(upd.success
+            ? `Service plan set to ${intendedPlan} via ${upd.method ?? "updateAccount"}`
+            : `Could not correct the service plan — ${upd.message}`);
+        }
+
         return {
           status: "success",
           result: { iAccount: existing.iAccount, username, reused: true, intendedPlan: intendedPlan ?? null },
-          detail: [`Reused existing account "${username}" (i_account=${existing.iAccount})`],
+          detail,
+          metrics: { requested: 1, created: 0, reused: 1, servicePlanPatched: patched },
         };
       }
     } catch {
