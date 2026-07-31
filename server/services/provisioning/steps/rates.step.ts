@@ -123,11 +123,57 @@ export const ratesStep: ProvisioningStep = {
     //
     // destination_id still wins where it is set. It is the stronger statement — it names
     // one catalogue row rather than a number that has to be looked up.
-    const byDialPrefix = new Map(destinations.filter(d => d.dialPrefix).map(d => [String(d.dialPrefix), d.id]));
-    const unmatchedPrefixes = new Set<string>();
+    //
+    // FALLBACK: when a company has explicit markets (company_markets is non-empty), the
+    // destinations set is limited to those markets. A rate entered for prefix "92"
+    // (Pakistan) is not in the set if the company only selected US/Canada at sign-up.
+    // Rather than silently dropping valid rates, we do a secondary lookup against ALL
+    // approved global_destinations for any unresolved prefix, then expand the matrix to
+    // include those destinations. The rate sheet is the authoritative signal: if it is
+    // priced, it is meant to be uploaded.
+    let byDialPrefix = new Map(destinations.filter(d => d.dialPrefix).map(d => [String(d.dialPrefix), d.id]));
+    const needsFallback = new Set<string>();
 
-    const rates: GeneratorRate[] = priced.flatMap(r => {
+    // First pass — resolve against the company's destination set.
+    const firstPass: Array<{ r: typeof priced[number]; destinationId: number | null }> = priced.map(r => {
       let destinationId = r.destinationId;
+      if (destinationId == null && r.prefix) {
+        destinationId = byDialPrefix.get(String(r.prefix).trim()) ?? null;
+        if (destinationId == null) needsFallback.add(String(r.prefix).trim());
+      }
+      return { r, destinationId };
+    });
+
+    // Second pass — for unresolved prefixes, look up across ALL approved destinations.
+    if (needsFallback.size > 0) {
+      const extra: CatalogueDestination[] = await db
+        .select({
+          id: globalDestinations.id, dialPrefix: globalDestinations.dialPrefix,
+          name: globalDestinations.name, country: globalDestinations.countryCode,
+          commercialStatus: globalDestinations.commercialStatus,
+        })
+        .from(globalDestinations)
+        .where(and(
+          eq(globalDestinations.commercialStatus, 'approved'),
+          isNotNull(globalDestinations.dialPrefix),
+          inArray(globalDestinations.dialPrefix as any, Array.from(needsFallback)),
+        ));
+
+      // Expand the destinations list (for matrix building) and prefix map.
+      const existingIds = new Set(destinations.map(d => d.id));
+      for (const d of extra) {
+        if (!existingIds.has(d.id)) {
+          destinations.push(d);
+          existingIds.add(d.id);
+        }
+        if (d.dialPrefix) byDialPrefix.set(String(d.dialPrefix), d.id);
+      }
+    }
+
+    const unmatchedPrefixes = new Set<string>();
+    const rates: GeneratorRate[] = firstPass.flatMap(({ r, destinationId: first }) => {
+      let destinationId = first;
+      // Re-attempt with the expanded map for previously unresolved prefixes.
       if (destinationId == null && r.prefix) {
         destinationId = byDialPrefix.get(String(r.prefix).trim()) ?? null;
         if (destinationId == null) { unmatchedPrefixes.add(String(r.prefix).trim()); return []; }
