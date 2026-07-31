@@ -97,16 +97,44 @@ export const ratesStep: ProvisioningStep = {
 
     // Prices effective today. Same filter Rate Manager uses, so the automated path and
     // the operator path cannot read different numbers on the same day.
-    const rates: GeneratorRate[] = (await db
-      .select({ destinationId: productRates.destinationId, productId: productRates.productId, rate: productRates.rate })
+    const priced = await db
+      .select({
+        destinationId: productRates.destinationId, productId: productRates.productId,
+        rate: productRates.rate, prefix: productRates.prefix,
+      })
       .from(productRates)
       .where(and(
         inArray(productRates.productId, products.map(p => p.id)),
         sql`${productRates.effectiveFrom} <= ${asOf}`,
         or(sql`${productRates.effectiveTo} IS NULL`, sql`${productRates.effectiveTo} >= ${asOf}`),
-      )))
-      .filter(r => r.destinationId !== null)
-      .map(r => ({ destinationId: r.destinationId as number, productId: r.productId, rate: Number(r.rate) }));
+      ));
+
+    // ── A price may name its destination, or name a prefix ─────────────────
+    // product_rates carries BOTH columns and Rate Manager's form only fills `prefix` —
+    // it has no destination picker. This step used to `.filter(r => r.destinationId !==
+    // null)`, so every price an operator entered through the UI was dropped before the
+    // matrix saw it, and the run reported "no approved destination has a price for any
+    // product". Which was true of the rows that survived the filter, and said nothing
+    // about the rows that did not.
+    //
+    // Resolving prefix → destination is what the catalogue is for, and the join is exact:
+    // dial_prefix is unique within the commercial set the matrix was built from. A price
+    // for "92" is a price for whatever destination owns 92.
+    //
+    // destination_id still wins where it is set. It is the stronger statement — it names
+    // one catalogue row rather than a number that has to be looked up.
+    const byDialPrefix = new Map(destinations.filter(d => d.dialPrefix).map(d => [String(d.dialPrefix), d.id]));
+    const unmatchedPrefixes = new Set<string>();
+
+    const rates: GeneratorRate[] = priced.flatMap(r => {
+      let destinationId = r.destinationId;
+      if (destinationId == null && r.prefix) {
+        destinationId = byDialPrefix.get(String(r.prefix).trim()) ?? null;
+        if (destinationId == null) { unmatchedPrefixes.add(String(r.prefix).trim()); return []; }
+      }
+      if (destinationId == null) return [];
+      return [{ destinationId, productId: r.productId, rate: Number(r.rate) }];
+    });
 
     const matrix = generateRateMatrix({ destinations, products, rates });
 
@@ -127,6 +155,13 @@ export const ratesStep: ProvisioningStep = {
         status: 'skipped',
         detail: [
           `Nothing to upload — no price is effective today for any of the ${destinations.length} destination(s) x ${products.length} product(s).`,
+          `${priced.length} price(s) effective today, ${rates.length} matched to a destination.`,
+          // A price that resolved to nothing is the difference between "no prices exist"
+          // and "prices exist for destinations this customer is not sold", and the
+          // operator's next action is completely different in each case.
+          ...(unmatchedPrefixes.size
+            ? [`${unmatchedPrefixes.size} price(s) name a prefix with no destination in this customer's set: ${Array.from(unmatchedPrefixes).slice(0, 6).join(', ')}`]
+            : []),
           `${matrix.summary.rowsSkipped} cell(s) skipped.`,
           'Load prices in Rate Manager; the account is provisioned and will carry traffic unpriced until then.',
         ],
