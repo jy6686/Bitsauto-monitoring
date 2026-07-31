@@ -11,7 +11,7 @@
  * calls authenticate against the wrong account and bill the wrong customer. That check
  * therefore moves here rather than disappearing.
  */
-import { db } from "../../db";
+import { db, pool } from "../../db";
 import { companies, clientIpRequests, ipSharingApprovals, companyContacts,
          provisioningProfiles, routingPackages, routingPackageEntries,
          notificationProfiles, rateCards,
@@ -99,6 +99,77 @@ export async function runPreflight(companyId: number): Promise<PreflightResult> 
   } else {
     checks.push(fail("routing", "Routing package", "No routing package assigned",
                      "Assign a provisioning profile to the company so its routing package resolves."));
+  }
+
+  // ── Commercial scope must agree with what the customer routes ──────────────
+  // TWO ANSWERS TO THE SAME QUESTION. The routing package says which countries this
+  // customer's traffic is routed for; company_markets says which destinations they were
+  // SOLD. Nothing forced them to agree, and on Aura they did not: a Wholesale Default
+  // package routing Pakistan, India and Bangladesh, against 24 US/Canada markets.
+  //
+  // That contradiction produced twelve verified authentication rules for countries the
+  // customer is not commercially assigned, and a rate upload that found nothing to send.
+  // The rate step was the only thing that noticed, and only indirectly.
+  //
+  // BLOCKING, and it must be. The tempting alternative — falling back to the global
+  // catalogue when a priced prefix is not in the customer's markets — was rejected: it
+  // makes provisioning look successful by silently widening the customer's commercial
+  // scope, which is exactly what company_markets exists to prevent. A contradiction
+  // between two sources of truth is repaired by an operator choosing which is right, not
+  // by the engine picking one.
+  //
+  // AN EMPTY SELECTION IS NOT A CONTRADICTION. Empty means the platform default set
+  // applies (migration 054), so there is nothing to disagree with.
+  if (company.routingPackageId) {
+    // The catalogue is a TREE. Rather than matching country names against destination
+    // names — the guess that produced the hardcoded COUNTRY_CODE map — walk each market
+    // up to its root and compare the root's name. Same vocabulary on both sides.
+    const { rows: covered } = await pool.query<{ country: string }>(
+      `WITH RECURSIVE up AS (
+         SELECT d.id, d.parent_id, d.name
+           FROM company_markets cm
+           JOIN global_destinations d ON d.id = cm.destination_id
+          WHERE cm.company_id = $1
+         UNION ALL
+         SELECT p.id, p.parent_id, p.name
+           FROM up u JOIN global_destinations p ON p.id = u.parent_id
+       )
+       SELECT DISTINCT lower(trim(name)) AS country FROM up WHERE parent_id IS NULL`,
+      [companyId],
+    );
+
+    if (covered.length) {
+      const { rows: required } = await pool.query<{ country: string }>(
+        `SELECT DISTINCT lower(trim(country)) AS country
+           FROM routing_package_entries WHERE package_id = $1 AND active`,
+        [company.routingPackageId],
+      );
+      const have    = new Set<string>(covered.map(r => r.country));
+      const need: string[] = required.map(r => r.country);
+      const missing = need.filter(c => !have.has(c));
+      const extra   = Array.from(have).filter(c => !need.includes(c));
+
+      const title = (s: string) => s.replace(/\b\w/g, m => m.toUpperCase());
+
+      if (missing.length) {
+        checks.push(fail("markets_routing", "Markets vs routing package",
+          `Routes ${need.map(title).join(', ')} but the customer's markets cover ${Array.from(have).map(title).join(', ')} — ${missing.map(title).join(', ')} not sold`,
+          `The routing package and the commercial scope disagree, and only one is right. Either add ${missing.map(title).join(', ')} to the company's destinations, or assign a routing package that matches what this customer actually bought. Provisioning would otherwise build authentication rules for countries they were never sold, and their rates would have nowhere to go.`));
+      } else if (extra.length) {
+        // Not blocking: dead scope wastes nothing and breaks nothing. Named because a
+        // destination the customer bought and cannot route to is still a commercial
+        // promise the platform is not keeping.
+        checks.push(warn("markets_routing", "Markets vs routing package",
+          `Covers ${need.map(title).join(', ')}; ${extra.map(title).join(', ')} also sold but not routed`,
+          `Those destinations cannot carry traffic under this routing package. Add routes for them, or remove them from the customer's markets.`));
+      } else {
+        checks.push(pass("markets_routing", "Markets vs routing package",
+          `Both cover ${need.map(title).join(', ')}`));
+      }
+    } else {
+      checks.push(pass("markets_routing", "Markets vs routing package",
+        "No explicit markets — the platform default commercial set applies, so nothing can disagree"));
+    }
   }
 
   let notificationProfileName: string | null = null;
