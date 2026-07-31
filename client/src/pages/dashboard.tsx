@@ -586,7 +586,11 @@ export default function DashboardPage() {
 
   const { data: carrierScoresRaw } = useQuery<any[]>({
     queryKey: ['/api/carrier-scores', 24],
-    queryFn: () => fetch('/api/carrier-scores?window=24').then(r => r.json()),
+    queryFn: async () => {
+      const r = await fetch('/api/carrier-scores?window=24');
+      if (!r.ok) throw new Error(`carrier-scores ${r.status}`);
+      return r.json();
+    },
     refetchInterval: 60_000,
     staleTime: 55_000,
     enabled: isSippyReachable,
