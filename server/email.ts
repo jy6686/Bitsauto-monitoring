@@ -63,10 +63,65 @@ async function getTransporter(): Promise<{ transporter: nodemailer.Transporter; 
 }
 
 /**
+ * Which mailbox a given kind of message is sent from.
+ *
+ * smtp_sender_profiles has existed with full CRUD since before this, and nothing ever
+ * resolved one — so every email left from the single Gmail account in settings regardless
+ * of what it was. The tempting alternative was three literals in the code: noc1@ for
+ * credentials, pricing@ for rates, billing@ for invoices.
+ *
+ * That would have been wrong twice. Addresses in code make a mailbox change a deployment,
+ * and — the part that matters operationally — aliases on ONE authenticated account share
+ * ONE quota. Gmail counts 500/day for the mailbox, not per From header, which is why
+ * "spread the sends across three addresses" does not spread anything.
+ *
+ * A sender profile carries its own smtpHost/User/Pass, so each communication type can
+ * authenticate as its own mailbox and draw on its own quota. That is the difference
+ * between three labels and three mailboxes.
+ */
+export type CommunicationType = 'billing' | 'pricing' | 'rates' | 'support' | 'noc' | 'general';
+
+export type ResolvedSenderProfile = {
+  id: number; name: string; emailAddress: string; replyTo: string | null;
+  smtpHost: string; smtpPort: number; smtpUser: string; smtpPass: string;
+  smtpSecure: boolean | null; communicationType: string;
+};
+
+/**
+ * Resolve the profile for a communication type. Prefers the type's default, then any
+ * profile of that type, then the general default. Returns null when nothing is
+ * configured — sendViaProfile already treats null as "use the system transport", so an
+ * unconfigured platform keeps working exactly as it does today.
+ */
+export async function resolveSenderProfile(type: CommunicationType): Promise<ResolvedSenderProfile | null> {
+  try {
+    const all = await storage.listSmtpSenderProfiles() as any[];
+    const of = (t: string) => all.filter(p => String(p.communicationType).toLowerCase() === t);
+    const pick = (rows: any[]) => rows.find(p => p.isDefault) ?? rows[0] ?? null;
+    const chosen = pick(of(type)) ?? pick(of('general'));
+    if (chosen) console.log(`[email] ${type} → ${chosen.emailAddress} (profile ${chosen.id} "${chosen.name}")`);
+    return chosen ?? null;
+  } catch (e: any) {
+    // Never let sender resolution stop a send. Falling back to the system transport
+    // delivers the message from the wrong address; failing here delivers nothing.
+    console.warn(`[email] could not resolve a sender profile for "${type}" (${e?.message}) — using the system transport.`);
+    return null;
+  }
+}
+
+/**
  * Build a transporter from a specific SMTP sender profile.
  * Used by the Commercial Notifications dispatch engine.
+ *
+ * CACHED per profile. Each call used to open a new connection pool, so a batch of rate
+ * notifications built one per message and left the previous ones to be garbage collected
+ * with their sockets still open. Keyed on the credentials as well as the id, so editing a
+ * profile's password takes effect on the next send rather than after a restart.
  */
+const _profileTransports = new Map<string, nodemailer.Transporter>();
+
 export async function buildProfileTransporter(profile: {
+  id?: number;
   smtpHost: string;
   smtpPort: number;
   smtpUser: string;
@@ -75,7 +130,11 @@ export async function buildProfileTransporter(profile: {
   emailAddress: string;
   name: string;
 }): Promise<nodemailer.Transporter> {
-  return nodemailer.createTransport({
+  const key = `${profile.id ?? 'x'}|${profile.smtpHost}|${profile.smtpPort}|${profile.smtpUser}|${profile.smtpPass}|${profile.smtpSecure ?? false}`;
+  const cached = _profileTransports.get(key);
+  if (cached) return cached;
+
+  const t = nodemailer.createTransport({
     host: profile.smtpHost,
     port: profile.smtpPort,
     secure: profile.smtpSecure ?? false,
@@ -84,6 +143,8 @@ export async function buildProfileTransporter(profile: {
     socketTimeout:     12_000,
     greetingTimeout:    8_000,
   } as any);
+  _profileTransports.set(key, t);
+  return t;
 }
 
 /**
