@@ -86,6 +86,10 @@ DECLARE
   adopted_n    INTEGER := 0;
   conflict_n   INTEGER := 0;
   alloc_n      INTEGER := 0;
+  needed_n     INTEGER := 0;
+  reachable_n  INTEGER := 0;
+  seq_last     BIGINT;
+  seq_called   BOOLEAN;
 BEGIN
   -- Pass 1 — adopt, oldest account first so the longest-standing customer wins a clash.
   FOR r IN
@@ -142,6 +146,52 @@ BEGIN
   --
   -- No setval at all now: the sequence is left exactly where it is. Calling it here would
   -- also mark 1001 as consumed on a fresh sequence, quietly skipping the first prefix.
+
+  -- ── Repair the sequence before drawing from it ─────────────────────────────
+  -- SEQUENCES ARE NOT TRANSACTIONAL, and that is why removing the setval above was
+  -- not enough to unblock a database the original version had already run on.
+  --
+  -- When the first version failed with "reached maximum value of sequence", the
+  -- ROLLBACK undid the companies updates and left no ledger row — so the file counts
+  -- as never applied. It did NOT undo the setval that pushed account_prefix_seq to
+  -- 9989, nor the ten nextval() calls that finished it at 9999. The database was left
+  -- with 049 unapplied AND its sequence exhausted, which is a state no amount of
+  -- fixing the allocation logic can escape: every later boot re-ran this file, raised
+  -- on the very first nextval(), and halted the runner again. On the deployment
+  -- database that left EIGHT migrations pending behind it (050-056) and provisioning
+  -- failing on a column that migration 055 adds.
+  --
+  -- Migration 051 exists to repair exactly this and can never help, because the
+  -- runner halts here. A file that can leave the database in a state only a LATER
+  -- file can fix has to be able to fix it itself.
+  --
+  -- REWINDING IS SAFE, and only because Pass 2 checks every candidate. A value below
+  -- the current position is either free — which is precisely what we want — or taken,
+  -- in which case the loop skips it. No prefix can be reissued, which is the property
+  -- that matters: these numbers are live inside Sippy authentication and CLD rules.
+  --
+  -- Conditional, not unconditional. On a healthy database the sequence position is the
+  -- record of what has been handed out; resetting it for no reason would make nextval()
+  -- re-offer numbers the skip-loop then has to walk past, one lookup at a time.
+  SELECT count(*) INTO needed_n
+    FROM companies
+   WHERE account_prefix IS NULL AND sippy_i_account IS NULL;
+
+  SELECT last_value, is_called INTO seq_last, seq_called FROM account_prefix_seq;
+  reachable_n := 9999 - (CASE WHEN seq_called THEN seq_last ELSE seq_last - 1 END);
+
+  -- `reachable_n <= 0` is checked on its own, not folded into the comparison. A sequence
+  -- with nothing left is dead for RUNTIME allocation too, not just for this backfill —
+  -- account-prefix.ts would fall back to a generate_series scan on every company created
+  -- from then on, correct but silently degraded. Rewinding costs nothing here.
+  IF reachable_n <= 0 OR needed_n > reachable_n THEN
+    -- 1001 is the sequence's own MINVALUE. `false` for is_called so the very first
+    -- nextval() returns 1001 itself rather than 1002 — otherwise the lowest prefix in
+    -- the range is silently unusable.
+    PERFORM setval('account_prefix_seq', 1001, false);
+    RAISE NOTICE 'account_prefix_seq was at % with % value(s) left but % companies need a prefix — rewound to 1001. Taken values are skipped during allocation, so nothing is reissued.',
+                 seq_last, GREATEST(reachable_n, 0), needed_n;
+  END IF;
 
   -- Pass 2 — allocate for everyone else, row by row: nextval() in a set-returning
   -- UPDATE has no guaranteed ordering, and these values are permanent.
