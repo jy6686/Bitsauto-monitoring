@@ -110,9 +110,37 @@ export const ratesStep: ProvisioningStep = {
 
     const matrix = generateRateMatrix({ destinations, products, rates });
 
+    // ── Nothing priced is not a failure ────────────────────────────────────
+    // The generator reports two unrelated things through one `errors` array, and it is
+    // right to: a duplicate prefix means one row would overwrite another, and an operator
+    // uploading by hand from Rate Manager genuinely wants "no rows" to be an error there.
+    //
+    // This caller knows something Rate Manager does not — that an unpriced platform is the
+    // EXPECTED state right now. Preflight already says so on the card, in these words:
+    // "the rate upload step will report that it had nothing to send". It did not; it failed
+    // the stage, and a run that is behaving exactly as designed came out red.
+    //
+    // The split is exact, and needs no matching on message text: a duplicate prefix
+    // requires two rows to collide, so zero rows can only mean nothing is priced.
+    if (!matrix.rows.length) {
+      return {
+        status: 'skipped',
+        detail: [
+          `Nothing to upload — no price is effective today for any of the ${destinations.length} destination(s) x ${products.length} product(s).`,
+          `${matrix.summary.rowsSkipped} cell(s) skipped.`,
+          'Load prices in Rate Manager; the account is provisioned and will carry traffic unpriced until then.',
+        ],
+        metrics: {
+          requested: 0, skipped: matrix.summary.rowsSkipped,
+          products: products.length, destinations: destinations.length, iTariff,
+        },
+      };
+    }
+
     if (!matrix.ok) {
-      // Reported, never uploaded. A matrix with a duplicate prefix or an unpriced product
-      // would produce a tariff nobody can reason about, and the errors name exactly which.
+      // Rows exist AND the matrix is malformed — a duplicate prefix, so one row would
+      // overwrite another in the tariff. Reported, never uploaded: a tariff nobody can
+      // reason about is worse than no tariff, and the errors name exactly which cells.
       return {
         status: 'failed',
         reasonCode: 'RATE_MATRIX_INVALID',
