@@ -133,7 +133,7 @@ Two entries deserve their own attention, neither blocking:
 
 - **`vendor_rate_normalized_prefixes`: 46,154 rows, every bucket zero.** Every
   `destination_id` is NULL. The vendor rate normalisation pipeline has never resolved a
-  single prefix to a catalogue destination.
+  single prefix to a catalogue destination. Tracked as [TD-003](TECH-DEBT.md).
 - **`product_rates`: 0 rows.** The rate matrix the provisioning engine reads is empty on the
   deployment.
 
@@ -178,7 +178,9 @@ has no markets — which today is every company, because the `company_markets` F
 catalogue ids. Against `global_destinations` that yields **17 destinations × 4 products = 68
 cells**. Against `destinations`, where all 150,408 rows are currently approved, the same
 query yields **601,632 cells** for a single customer tariff, and `matrix-generator` has no
-row cap.
+row cap, and it allocates a skip object with an interpolated string per unemitted cell —
+tracked as [TD-001](TECH-DEBT.md), where the ordering here is recorded as a mitigation
+rather than a fix.
 
 So the cutover must not land while everything is approved. Reset first, then repoint. The
 reset is invisible until the cutover anyway: the live path still reads
