@@ -123,3 +123,51 @@ commercial approval or cost comparison.
 
 **Related:** Vendor Sheets Sprint 2, which also owns the Bulk Import parser that put 1,135
 IBIS codes into `dial_prefix` (cleaned by migration 052).
+
+---
+
+## TD-004 · The catalogue shows a routing table to commercial users
+
+**Found:** 2026-08-01, asking whether the 150k prefix rows should be deleted.
+
+**The question.** The catalogue lists ~150,408 rows. A commercial user sells a few thousand
+destinations. "Why do I have 150,000 destinations when I only sell 3,000?" is a fair question
+and it will be asked repeatedly.
+
+**They must not be deleted.** The operator-series detail (`9370 Afghanistan Mobile AWCC`) is
+what vendor comparison, LCR, fraud scoring and prefix matching all resolve against. When a
+vendor quotes `92308`, resolving it to Jazz / Karachi / Pakistan Mobile is only possible with
+these rows. Deleting them means re-importing them, and 150k rows costs Postgres nothing. The
+problem is presentation, not storage.
+
+**The type dimension already exists — do not add another.** From the schema's own comment on
+`global_destinations`:
+
+```
+level: 1=Country, 2=Type(Fixed/Mobile), 3=Operator, 4=Sub-type
+```
+
+Levels 1-2 are the commercial layer, 3-4 the technical one, and the catalogue UI already
+reads it (`LEVEL_LABELS`, level-coloured rows, expand/collapse on `level === 1`). Adding a
+`destination_type` column beside `level` would be two columns describing one thing, free to
+disagree, with no rule for which wins. The default view is a `WHERE level <= 2` filter, not a
+migration.
+
+`commercial_status` stays a separate axis. What kind of node this is, and whether we may sell
+it, are different questions.
+
+**Blocked on the commercial layer existing.** Migration 053 created FOUR commercial nodes.
+Hiding levels 3-4 today yields a catalogue of about four rows — an empty catalogue, not a
+clean one. The layer has to be built before the detail can be hidden behind it.
+
+**It is derivable, not importable.** The names already carry the structure — country, type
+and operator are in the string, against 363 country roots — so Country -> Type -> Operator
+falls out of grouping data that is already present. No vendor re-import, and additive only.
+
+**Order:** derive the commercial layer · reparent the prefix rows beneath it, which makes
+`level` true rather than nominal · default the UI to `level <= 2` with a toggle for NOC and
+engineering · point pricing and provisioning at the commercial layer.
+
+That last step is [TD-001](#td-001--rate-matrix-generator-materialises-one-object-per-skipped-cell)
+arriving from the other direction: an assignment-driven generator and a commercial-layer
+catalogue are the same change seen from the code and from the data.
