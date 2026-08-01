@@ -1,7 +1,7 @@
 # Destination Catalogue v2 — Architecture
 
 **Status:** frozen 2026-08-01. Target architecture for migrations 060 onward.
-**Principles:** one entity one id · structure before status · resolution is one-way
+**Principles:** one entity one id · structure before status · resolution is one-way · outputs are never sources
 **Prerequisite:** [DESTINATION-MIGRATION-REPORT.md](DESTINATION-MIGRATION-REPORT.md) — v2
 assumes `destinations` is canonical and `global_destinations` is retired.
 
@@ -93,6 +93,26 @@ pointing at the wrong catalogue.
 
 A status set on an entity whose identity is still moving is not a decision — it is a guess that
 will need re-making, and it looks exactly like a decision until someone queries it.
+
+### Outputs are never sources
+
+**No external system owns destination data.** Sippy tariffs, Sippy's own destination table,
+customer rate sheets, rate notification workbooks and provisioning payloads are all
+GENERATED from the catalogue. None of them is a place destination truth is maintained.
+
+This is the identity principle at the system boundary rather than the table boundary, and it
+is the one that decays quietly. Editing a destination name directly in Sippy is fast, works
+immediately, and creates a second source that nothing reconciles — the same shape as
+`destinations` / `global_destinations`, one layer out, and with no migration able to detect
+it.
+
+Concretely: Sippy's destination table is a publish target. It is written by the catalogue and
+read by the switch. It is never edited in place, and anything found there that the catalogue
+does not know about is drift to be resolved, not data to be preserved.
+
+See [SIPPY-DESTINATION-PUBLISH.md](SIPPY-DESTINATION-PUBLISH.md) for the transport this
+publishing uses and why the row strategy is safe without knowing whether Sippy merges or
+replaces.
 
 ### The rule, without exceptions
 
