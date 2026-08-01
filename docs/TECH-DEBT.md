@@ -263,3 +263,61 @@ their reason rather than failing the upload — the same contract the provisioni
 
 **Sequencing:** after certification. It is a new write path into the table the rate engine
 reads, and adding one while proving that engine works is how the two get confused.
+
+---
+
+## TD-007 · Rate notifications are sent regardless of whether the rate upload succeeded
+
+**Found:** 2026-08-01, in the first end-to-end provisioning run that reached a Sippy tariff.
+
+`account-email.step.ts` calls `sendRateNotificationEmails(ctx.companyId)` unconditionally. It
+reads `product_rates` — what the platform *intends* to charge — and never consults
+`ctx.results.rates`. The rate upload's outcome does not reach it.
+
+Observed on run `PROV-20260801-5DTO9F`:
+
+```
+x Upload Rates          "the tariff does not hold what was sent"
+v Send Account Details  "Rate notifications: 4 sent, 0 failed, 0 skipped"
+```
+
+Four rate sheets went to the customer for a push the platform believed had failed. In this
+instance the upload had in fact succeeded — the rows are on tariff 66 — so the emails were
+truthful by luck rather than by design.
+
+**Why it matters:** on a genuinely failed upload the customer is told prices the switch is not
+using. Violates the frozen invariant in
+[DESTINATION-CATALOGUE-V2.md](DESTINATION-CATALOGUE-V2.md): *billing notifications follow
+verified provisioning*.
+
+**Fix, and its order dependency.** The gate is `ctx.results.rates?.verified > 0`. **Do not add
+it before the read-back is fixed** — verification currently returns false negatives
+([TD-008](#td-008)), so gating today would suppress notifications on runs that succeeded, which
+is the harder failure to notice. Read-back first, gate second.
+
+---
+
+## TD-008 · Rate verification reports a false negative on a successful upload
+
+**Found:** 2026-08-01, same run.
+
+The step reported `only 0/3 sampled rate(s) read back — the tariff does not hold what was sent`
+while all 11 uploaded rows were visibly present in Sippy tariff 66 three minutes later, with
+correct product-digit prefixes and prices.
+
+The sample is drawn from the rows that were built, so all three sampled prefixes were among the
+eleven that landed. Partial pricing explains 11 rows instead of 52; it cannot explain 0/3.
+
+**Two candidates, distinguished by one log line** — `[RateManager] bulk verify <prefix>: …`:
+
+- `prefix N not found in tariff after push` -> Sippy's import had not applied at +35s. Fix is to
+  poll until present rather than verify once. `getUploadStatus` never reaches `DONE` on this
+  build, so the 15x2s poll always runs its full course and then verifies regardless.
+- anything else -> `getSippyRateList` itself failed. It declares `tariffId: string` and passes
+  it as `i_tariff`; the serialiser emits `<int>` only for a `number`, so this asks Sippy for
+  `<string>66</string>`. Every tariff call that works declares `iTariff: number`.
+
+**Consequence while unfixed:** a successful provisioning run reports COMPLETED_WITH_WARNINGS
+saying the tariff does not hold what was sent. That message is what would stop an operator
+trusting a run that worked — and it is the likeliest explanation for the tariff-33 defect
+having stayed open for two weeks against a path that may have been functioning throughout.
