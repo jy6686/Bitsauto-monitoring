@@ -1,6 +1,21 @@
--- 059_clear_ibis_codes_from_dial_prefix.sql
+-- 052_clear_ibis_codes_from_dial_prefix.sql
 --
 -- A dial prefix is digits. Some rows hold a vendor's IBIS code instead.
+--
+-- ── Why 052 and not 059 ────────────────────────────────────────────────────────
+-- This was written as 059 and could never have run. The runner HALTS on the first
+-- failure, so 053 fails, 054-059 are never reached, and the migration that makes 053
+-- pass sits permanently behind the migration it fixes. Exactly the trap 051 fell into
+-- against 049 earlier in the same week: "051 exists to repair this and can never help,
+-- because the runner halts at 049."
+--
+-- A repair has to sort BEFORE the check it satisfies. Files are identified by NAME, not
+-- by number — there are already two 030_ files — so this takes 052 and sorts ahead of
+-- 052_seed_commercial_destinations.sql on the 'c' < 's', which is harmless: that file is
+-- already in the ledger and is skipped. The runner then reaches 053 with the data clean.
+--
+-- Rule worth keeping: if a migration exists to unblock another, its number must be lower.
+-- The ledger will not save you — an unreachable file is never recorded as failed either.
 --
 -- ── What happened ──────────────────────────────────────────────────────────────
 -- 053 halts the deployment with:
