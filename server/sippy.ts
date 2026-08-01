@@ -957,7 +957,11 @@ async function provisioningLogin(base: string, timeoutMs = 20000, attempts?: str
   throw new Error('PROVISIONING_NOT_CONFIGURED');
 }
 
-async function portalGet(path: string, cookies: CookieJar, base: string): Promise<{ html: string; cookies: CookieJar }> {
+// EXPORTED for diagnostic scripts, under the same rule as sippyRawCall. It matters that a
+// probe uses THIS rather than fetch(): Sippy runs a self-signed certificate, so Node's
+// built-in fetch fails with UNABLE_TO_VERIFY_LEAF_SIGNATURE while production succeeds
+// through lenientHttpsAgent. A probe on a different network path measures a different system.
+export async function portalGet(path: string, cookies: CookieJar, base: string): Promise<{ html: string; cookies: CookieJar }> {
   const url = `${base}${path}`;
   try {
     const resp = await rawRequest('GET', url, null, { 'User-Agent': PORTAL_USER_AGENT }, cookies);

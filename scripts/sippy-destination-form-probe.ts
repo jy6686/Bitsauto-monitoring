@@ -112,10 +112,13 @@ async function main() {
   }
   console.log("Portal session obtained.\n");
 
-  const cookieHeader = [...cookies.entries()].map(([k, v]) => `${k}=${v}`).join("; ");
-  const resp = await fetch(`${base}${DEST_PATH}`, { headers: { Cookie: cookieHeader } });
-  const html = await resp.text();
-  console.log(`GET ${DEST_PATH} -> HTTP ${resp.status}, ${html.length} bytes`);
+  // portalGet, not fetch(). The first version used Node's fetch and died with
+  // UNABLE_TO_VERIFY_LEAF_SIGNATURE — Sippy runs a self-signed certificate, and production
+  // reaches it through lenientHttpsAgent. A probe that takes a different network path than
+  // production is measuring a different system, which is the whole failure mode this file
+  // exists to avoid.
+  const { html } = await sippy.portalGet(DEST_PATH, cookies, base);
+  console.log(`GET ${DEST_PATH} -> ${html.length} bytes`);
 
   if (/name=["']?(login|username|passwd|password)/i.test(html) && !/destination/i.test(html)) {
     console.error("\nThe page returned a LOGIN form — this credential cannot reach the destinations page.");
