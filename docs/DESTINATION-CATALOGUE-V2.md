@@ -413,6 +413,60 @@ discovered in the CDRs. "Assigned but unpriced" is a state the platform shows an
 never sees. `matrix-generator` implements this today — `rate === undefined` pushes a `no-rate`
 skip and `continue`s — and the assignment-driven rewrite must preserve it exactly.
 
+### Extended: missing commercial data is an error, never a default
+
+> **Only fully defined commercial products may leave the platform.**
+
+The rate is not the only field that can be missing. `rate-matrix.ts:91` emits `1, 1` for
+Interval 1 and Interval N — hardcoded — while `destination_product_rates` holds **356,820 rows
+(47.5%) specifying 60/60, 60/1 or 30/6**. A workbook built from a row with no interval is not
+incomplete, it is *wrong*: it silently asserts per-second billing on a contract that says
+otherwise.
+
+Eligibility therefore requires the whole commercial definition, not just a price:
+
+```
+approved + assigned + rate + interval + connect fee + grace period + effective date
+        -> eligible for the workbook
+anything missing -> REJECTED, reason named, no row, no push, no notification
+```
+
+This is already how the migrations behave — 050 refused to decide commercial routing, 052
+refused to invent a dial prefix and NULLed instead, 059 refuses on a NOT NULL column it cannot
+fill. Each chose "explicitly unknown" over "confidently wrong". The workbook builder is the one
+component that does the opposite, and it does it on nearly half the priced rows.
+
+### Notification follows verification, for anything that changes billing
+
+| Class | Examples | Order |
+|---|---|---|
+| **A — billing** | rate, interval, connect fee, grace period | change → provision → **verify** → notify |
+| **B — catalogue** | destination added or removed, product availability | change → notify → provision |
+
+Class A notifies only after the switch confirms, because telling a customer their billing
+changed while the switch still bills the old tariff is a written statement that is not true.
+
+**A failed Class A notification must raise an alert, not record a status.** If the push
+verifies and the email does not send, the customer is billed something they were never told —
+worse than the reverse. This is not hypothetical: the deployment's Push History already shows
+`Notifications` jobs at `Failed`, unattended.
+
+### Job status is derived, not stored alongside the metrics
+
+`rate_push_jobs.status` must be computed from the frozen step metrics
+([PROVISIONING-STEP-METRICS.md](PROVISIONING-STEP-METRICS.md)), never maintained in parallel —
+a status that can disagree with the numbers it summarises is another second identity.
+
+```
+verified > 0                 Completed
+created > 0, verified = 0    Pushed, not verified      (the tariff-33 signature)
+created > 0, skipped > 0     Completed with warnings
+requested = 0                Rejected — nothing to send  (NEVER Completed)
+```
+
+The deployment currently shows `Completed` jobs with `Dests —`. A job that delivered an empty
+payload reporting success is what lets someone believe rates have shipped.
+
 ### What actually changes in the generator
 
 Only the iterator. `for each APPROVED destination` becomes `for each ASSIGNED destination`;
