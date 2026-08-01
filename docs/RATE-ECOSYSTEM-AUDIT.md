@@ -144,3 +144,65 @@ Recorded because these were live hypotheses and the code says otherwise.
 only path that reaches Sippy, and it is unblocked) → decide `product_rates` vs
 `destination_product_rates` and write the decision down → then the catalogue work, which now
 has a reason to exist beyond tidiness.
+
+---
+
+## Appendix — `product_rates` vs `destination_product_rates`, column by column
+
+Requested before choosing a canonical pricing model. **Neither table is a superset of the
+other**, which is why "pick the one that's wired" and "pick the richer one" are both wrong.
+
+| Capability | `product_rates` | `destination_product_rates` |
+|---|---|---|
+| Product reference | `product_id` **integer FK** | `product_prefix` varchar(16) + `product_code` varchar(4) — **by name** |
+| Destination reference | `destination_id`, or `prefix` | `destination_id`, `dial_prefix`, **and `destination_name` (denormalised)** |
+| Sell rate | `rate` | `sell_rate` |
+| **Buy rate** | — | `buy_rate` |
+| **Billing intervals** | — | `interval_1`, `interval_n` |
+| **CLI flag** | — | `cli_enabled` |
+| **Approval workflow** | — | `approval_status`, `approved_by`, `approved_at` |
+| **Provenance** | — | `source`, `source_file` (which vendor sheet) |
+| Authorship | `created_by` | — |
+| Effective from | `effective_from` `date` NOT NULL | `activation_date` `timestamptz` |
+| Effective to | `effective_to` `date` | `expiration_date` `timestamptz` |
+| Price status | — | `price_status` |
+| **Read by provisioning** | **yes** | no |
+
+### The three findings that decide it
+
+**1. `destination_product_rates` identifies products by NAME.** `product_prefix` and
+`product_code` are varchars, not a foreign key. Rename a product code and every row silently
+orphans — the same defect class as `destinations`/`global_destinations`, `AF`/`93`, and
+`UAE`/`United Arab Emirates`. `destination_name` is denormalised for the same reason and can
+drift from the catalogue. This codebase has now demonstrated four times that it cannot keep two
+copies of an identity in agreement.
+
+**2. The workbook hardcodes 1/1 billing.** `rate-matrix.ts:91` emits `1, 1` for Interval 1 and
+Interval N, and its own comment says *"both the per-minute rate with 1/1 intervals —
+per-second"*. `destination_product_rates` has `interval_1`/`interval_n` to express 30/6 or
+60/60; the path that reaches Sippy cannot carry them.
+
+**If any customer contract specifies anything other than per-second billing, the provisioned
+tariff does not match the contract.** That is not a modelling preference — it is a billing
+discrepancy on live traffic, and it exists on the only path that reaches a tariff.
+
+**3. `product_rates` cannot answer "where did this price come from".** No `source`,
+no `source_file`. Once vendor sheets feed pricing, that becomes the first question asked in
+any margin dispute.
+
+### What this argues for
+
+Not "pick one". **Keep `product_rates`' identity model — an integer FK to `product_registry`,
+no denormalised names — and add the commercial columns it lacks:** `buy_rate`, `interval_1`,
+`interval_n`, `cli_enabled`, approval fields, `source`/`source_file`, and timestamptz effective
+dates.
+
+The reasoning: a missing column is a migration. A wrong identity is a class of silent failure
+this platform has spent a week recovering from. Wiring `destination_product_rates` into
+provisioning would import its identity model along with its better columns.
+
+`destination_product_rates` then becomes what its data already is — a vendor-sheet staging and
+approval surface — feeding `product_rates` on approval rather than competing with it.
+
+**Do not act on this appendix yet.** It is a comparison, not a decision, and the billing
+interval finding needs a commercial answer first: what do the contracts actually say?
