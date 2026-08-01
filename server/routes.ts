@@ -36948,9 +36948,25 @@ ${footer}
           commercial_status AS "commercialStatus",
           sort_order        AS "sortOrder",
           notes,
-          blocked_reason    AS "blockedReason"
-        FROM destinations
-        ORDER BY level, sort_order, name
+          blocked_reason    AS "blockedReason",
+          -- Was this row merged in from global_destinations by migration 059?
+          --
+          -- It matters because 059 gives merged rows the canonical ROOT level when they had
+          -- no parent, and 2,399 of the 2,697 had none. So ~2,540 operator and service rows
+          -- became level 1, and every consumer reading "level 1" as "country" started
+          -- listing PAK Mobile MOBLIN beside Poland.
+          --
+          -- They are legitimate catalogue rows and are NOT filtered out here. The flag lets
+          -- a COUNTRY picker exclude them without anything else losing them, and
+          -- destination_id_map identifies them exactly rather than by matching on a name.
+          --
+          -- Mitigation, not the fix. The level column was already unreliable before 059:
+          -- 150,011 rows claim level 2 with no parent. 063A/B is what repairs it.
+          (m.gd_id IS NOT NULL) AS "mergedFromLegacy"
+        FROM destinations d
+        LEFT JOIN destination_id_map m
+               ON m.destination_id = d.id AND m.matched_by = 'inserted'
+        ORDER BY d.level, d.sort_order, d.name
       `);
       const _dr = Array.isArray(rows) ? rows : ((rows as any).rows ?? []); console.log("[dest] rows:", _dr.length, _dr[0] && JSON.stringify(_dr[0]).substring(0,100)); res.json(_dr);
     } catch (e: any) { res.status(500).json({ error: e.message }); }

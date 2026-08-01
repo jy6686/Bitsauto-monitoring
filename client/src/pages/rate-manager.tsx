@@ -35,6 +35,8 @@ interface SippyAccount { iAccount: number; username: string; balance: number; ca
 interface DestNode {
   id: number; parentId: number | null; level: number; name: string;
   countryCode: string | null; dialPrefix: string | null; commercialStatus: string;
+  /** Merged in from global_destinations by migration 059 — a root, but not a country. */
+  mergedFromLegacy?: boolean;
 }
 interface RateEntry {
   iRate: number; prefix: string; price1: number | null;
@@ -1627,8 +1629,20 @@ function AnalysisTab({
   const product = products.find(p => String(p.id) === selectedProduct);
   const trunkPrefix = product?.trunkPrefix ?? "";
 
-  // Destination hierarchy
-  const countries = useMemo(() => allDests.filter(d => d.level === 1), [allDests]);
+  // Destination hierarchy.
+  //
+  // `level === 1` alone is not "country" any more. Migration 059 merged ~2,540 rows from
+  // global_destinations, and a row with no parent takes the canonical root level — so
+  // operator and service rows like `PAK Mobile MOBLIN` and `PAK Fixed SCOGSM` are level 1
+  // and were appearing in this list beside Poland and Peru.
+  //
+  // Excluded here only. They remain in the catalogue and in every other consumer; this list
+  // answers "which country" and they are not one. destination_id_map identifies them
+  // exactly, so nothing is matched by name.
+  const countries = useMemo(
+    () => allDests.filter(d => d.level === 1 && !d.mergedFromLegacy),
+    [allDests],
+  );
   const operators = useMemo(
     () => allDests.filter(d => d.level === 2 && selectedCountries.includes(String(d.parentId))),
     [allDests, selectedCountries],
