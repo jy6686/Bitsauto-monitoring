@@ -44,7 +44,29 @@ the write path, so the destination set never reaches that size unreviewed. That 
 margin, not a fix — a deliberate approval of a few thousand destinations would reach the same
 condition legitimately.
 
-**Intended fix.** Count exactly, retain a bounded sample:
+**Intended fix — the cause, not the ledger.** `product_destination_assignments` exists, 053
+populated it, and the rate path consults it nowhere:
+
+```
+grep productDestinationAssignments server/services/rates/ server/services/provisioning/
+-> no matches
+```
+
+The generator loops destination x every product the COMPANY bought, rather than destination x
+the products that DESTINATION is sold on. That is where the Cartesian product comes from. The
+storage format is already correct — `dial_prefix` holds the base code and the product digit is
+composed at export (`trunkPrefix + dialPrefix`, "computed here, stored nowhere"), so there are
+no per-product duplicate rows to remove.
+
+Driving generation from the assignments removes the cells instead of counting them: the loop
+never visits a destination/product pair nobody sells, so the skip ledger cannot grow large.
+
+**Sequencing catch.** Only 52 assignments exist today. Switching the generator to treat them
+as authoritative before they are populated would silently narrow what gets sold — the same
+failure mode as the `2b8c7c71` fallback in the opposite direction. Populate first, switch
+second.
+
+**Interim fix, if the assignment work lands later.** Count exactly, retain a bounded sample:
 
 ```ts
 rowsSkipped++;
