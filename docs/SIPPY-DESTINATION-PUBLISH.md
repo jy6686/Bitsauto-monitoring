@@ -121,6 +121,39 @@ different system** — same credentials, same HTTP helper, same order. That is w
 
 ---
 
+## Drift detection — report, never adopt
+
+Rule 4 of [CATALOGUE-V2](DESTINATION-CATALOGUE-V2.md) says outputs are never sources. Sippy's
+destination table is a publish target, so it needs a way to notice when someone has edited it
+in place — and a hard rule about what happens next.
+
+**Record a signature at publish time**, then compare against a fresh download:
+
+```
+publish  ->  store row count, prefix count, and a content hash of the workbook
+check    ->  download current destinations, recompute, compare
+
+  match     Sippy holds what we published
+  differ    "Destination database differs from the last published version.
+             Manual changes may have been made directly in Sippy."
+```
+
+`rate_notification_jobs.generated_attachment_hash` already does exactly this for notification
+workbooks — the pattern exists and should be reused rather than reinvented.
+
+**The check must NEVER sync Sippy back into the catalogue.** That will look like an obvious
+improvement to someone later: drift is detected, the switch has newer data, adopting it is one
+query. It is the thing Rule 4 exists to forbid.
+
+The moment Sippy's edits flow back, Sippy is a source. Two writers, no declared canonical, and
+the reconciliation is invisible because both sides look authoritative — the exact shape of
+`destinations` / `global_destinations`, relocated to a boundary no migration can inspect.
+
+Drift is a **defect report**: someone bypassed the catalogue. The fix is to make the change in
+the catalogue and republish, never to import the switch's opinion.
+
+---
+
 ## What is left to build
 
 ```
