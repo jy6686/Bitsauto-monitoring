@@ -388,7 +388,53 @@ This is the same change as the commercial layer, seen from the code rather than 
 Both arrive at: *only commercially valid combinations are ever visited.*
 
 **Sequencing:** populate assignments, validate coverage, then switch the generator. Switching
-first would silently narrow what gets sold.
+first would silently narrow what gets sold — with 52 assignments in existence, an
+assignment-driven generator produces almost nothing.
+
+### The invariant at the workbook boundary
+
+> **Assignment answers "should this destination exist for this product?"**
+> **Price answers "can it be provisioned?"**
+> **Only Yes + Yes reaches the workbook.**
+
+Commercial state may exist without a price. Provisioning output may not.
+
+| Stage | Missing price allowed | Visible to the operator |
+|---|---|---|
+| Destination Catalogue | yes | yes |
+| Assignments | yes | yes |
+| Product Rates | yes — shown as `⚠ Unpriced` | yes |
+| Generator report | yes — `skipped: no-rate` | yes |
+| **Workbook** | **never** | — |
+| **Sippy** | **never** | — |
+
+A row reaching a tariff with a missing or zero rate is free termination on a live switch,
+discovered in the CDRs. "Assigned but unpriced" is a state the platform shows and the switch
+never sees. `matrix-generator` implements this today — `rate === undefined` pushes a `no-rate`
+skip and `continue`s — and the assignment-driven rewrite must preserve it exactly.
+
+### What actually changes in the generator
+
+Only the iterator. `for each APPROVED destination` becomes `for each ASSIGNED destination`;
+the price lookup, the skip contract, the prefix composition and the workbook builder are
+untouched. That is the whole change, and it is why the regression surface is small.
+
+The fallback becomes a commercial statement rather than a technical shortcut. Today "no
+explicit markets" means *the whole approved catalogue*. After the switch it means *the
+destinations attached to the products this customer bought* — which is a rule someone decided,
+rather than a default nobody chose. It also retires the `2b8c7c71` global-catalogue fallback
+by making it unnecessary, instead of deleting it and restoring the symptom it was papering
+over.
+
+### 063 is not a prerequisite for this
+
+Assignments key on `destination_id`. A destination is a row whatever its `level` or `parent_id`
+says, so assignments can be populated against today's flat catalogue and the generator switched
+immediately — at 17 destinations if that is what resolves.
+
+What 063 buys is the selection experience: ticking `Pakistan Mobile` in a tree requires a tree
+containing `Pakistan Mobile`. Valuable, and not a dependency. Recognising that reorders the
+work — the commercial model can be corrected before the catalogue is beautiful.
 
 ---
 
