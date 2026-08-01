@@ -23,6 +23,9 @@ function displayPrefix(sippyPrefix: string | null | undefined): string {
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────────
+interface CommercialDest {
+  id: number; prefix: string; name: string; countryCode: string | null; products: string[];
+}
 interface Product {
   id: number; code: string; name: string;
   trunkPrefix: string | null; status: string; color: string;
@@ -2805,6 +2808,39 @@ function ProductRatesTab({ products }: { products: Product[] }) {
     enabled: true,
   });
 
+  // The destinations this product is SOLD on — approved in the catalogue and assigned to a
+  // product. Pricing works from this list, not from whatever happens to have a rate already:
+  // an operator loading opening rates needs to see the destinations still waiting for one,
+  // and the previous grid could only show rows that already existed.
+  const { data: commercial } = useQuery<{ destinations: CommercialDest[] }>({
+    queryKey: ["/api/commercial-destinations"],
+    queryFn: () => fetch("/api/commercial-destinations").then(r => r.json()),
+    staleTime: 60_000,
+  });
+
+  const productCode = products.find(p => String(p.id) === selectedProductId)?.code ?? "";
+
+  // Assigned destinations LEFT JOIN their rate, plus any rate whose prefix is NOT assigned.
+  //
+  // That second group is deliberately kept rather than filtered away. A price on a
+  // destination this product is not sold on is a real thing that will be uploaded, and
+  // hiding it would make the grid disagree with what provisioning does — the exact class of
+  // problem this screen exists to end.
+  const grid = useMemo(() => {
+    const assigned = (commercial?.destinations ?? []).filter(d => d.products.includes(productCode));
+    const byPrefix = new Map(rates.map((r: any) => [String(r.prefix ?? ""), r]));
+    const rows = assigned.map(d => ({ dest: d, rate: byPrefix.get(d.prefix) ?? null, unassigned: false }));
+    const assignedPrefixes = new Set(assigned.map(d => d.prefix));
+    for (const r of rates) {
+      const p = String(r.prefix ?? "");
+      if (p && !assignedPrefixes.has(p)) rows.push({ dest: null as any, rate: r, unassigned: true });
+    }
+    return rows;
+  }, [commercial, rates, productCode]);
+
+  const priced  = grid.filter(g => g.rate && !g.unassigned).length;
+  const missing = grid.filter(g => !g.rate).length;
+
   const createMut = useMutation({
     mutationFn: (body: any) => apiRequest("POST", "/api/product-rates", body),
     onSuccess: () => {
@@ -2883,17 +2919,20 @@ function ProductRatesTab({ products }: { products: Product[] }) {
           </div>
         </div>
         {/* Product Rates KPI Strip */}
-        {selectedProductId && rates.length > 0 && (() => {
+        {selectedProductId && grid.length > 0 && (() => {
           const now = new Date();
-          const active    = rates.filter((r: any) => !r.effectiveTo || new Date(r.effectiveTo) >= now).length;
           const scheduled = rates.filter((r: any) => new Date(r.effectiveFrom) > now).length;
-          const latestMs  = Math.max(...rates.map((r: any) => new Date(r.effectiveFrom).getTime()));
+          const latestMs  = rates.length ? Math.max(...rates.map((r: any) => new Date(r.effectiveFrom).getTime())) : NaN;
           const latest    = isFinite(latestMs) ? new Date(latestMs).toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" }) : "—";
+          // Assigned first, then priced against it. "6 destinations" used to mean "6 rows
+          // exist", which is a count of work done with no denominator — the number an
+          // operator actually needs is how many are still waiting.
           const tiles = [
-            { label: "Destinations",  value: String(rates.length), cls: "text-blue-400   border-blue-500/20  bg-blue-500/8"   },
-            { label: "Active",        value: String(active),        cls: "text-green-400  border-green-500/20 bg-green-500/8"  },
-            { label: "Scheduled",     value: String(scheduled),     cls: "text-amber-400  border-amber-500/20 bg-amber-500/8"  },
-            { label: "Last Effective",value: latest,                cls: "text-purple-400 border-purple-500/20 bg-purple-500/8" },
+            { label: "Assigned",      value: String(grid.filter(g => !g.unassigned).length), cls: "text-blue-400   border-blue-500/20  bg-blue-500/8"   },
+            { label: "Priced",        value: String(priced),        cls: "text-green-400  border-green-500/20 bg-green-500/8"  },
+            { label: "Missing Rate",  value: String(missing),       cls: missing > 0 ? "text-amber-400 border-amber-500/20 bg-amber-500/8" : "text-muted-foreground border-border/40 bg-muted/10" },
+            { label: "Scheduled",     value: String(scheduled),     cls: "text-purple-400 border-purple-500/20 bg-purple-500/8" },
+            { label: "Last Effective",value: latest,                cls: "text-muted-foreground border-border/40 bg-muted/10" },
           ];
           return (
             <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border/20 flex-shrink-0 overflow-x-auto">
@@ -2942,37 +2981,67 @@ function ProductRatesTab({ products }: { products: Product[] }) {
         <div className="flex-1 overflow-auto">
           {isLoading ? (
             <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
-          ) : rates.length === 0 ? (
+          ) : grid.length === 0 ? (
             <div className="text-center text-xs text-muted-foreground py-12">
-              {selectedProductId ? "No rates configured for this product yet" : "Select a product to view its rates"}
+              {selectedProductId
+                ? "No destinations are assigned to this product — assign them in the Destination Catalogue first"
+                : "Select a product to view its destinations"}
             </div>
           ) : (
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="border-b border-border/50 bg-muted/20 sticky top-0">
-                  {["Prefix", "Rate (USD/min)", "Currency", "Effective From", "Effective To", "Notes", "Created By", ""].map(h => (
+                  {["Destination", "Prefix", "Rate (USD/min)", "Effective From", "Effective To", "Status", ""].map(h => (
                     <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {rates.map((r: any) => (
-                  <tr key={r.id} className="border-b border-border/20 hover:bg-muted/10" data-testid={`row-rate-${r.id}`}>
-                    <td className="py-2 px-3 font-mono text-amber-400">{displayPrefix(r.prefix)}</td>
-                    <td className="py-2 px-3 font-mono tabular-nums">{Number(r.rate).toFixed(6)}</td>
-                    <td className="py-2 px-3">{r.currency}</td>
-                    <td className="py-2 px-3 tabular-nums">{r.effectiveFrom}</td>
-                    <td className="py-2 px-3 tabular-nums text-muted-foreground">{r.effectiveTo || "—"}</td>
-                    <td className="py-2 px-3 text-muted-foreground truncate max-w-xs">{r.notes || "—"}</td>
-                    <td className="py-2 px-3 text-muted-foreground">{r.createdBy || "—"}</td>
-                    <td className="py-2 px-3">
-                      <button onClick={() => deleteMut.mutate(r.id)} data-testid={`btn-delete-rate-${r.id}`}
-                        className="text-red-400 hover:text-red-300 transition-colors">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {grid.map((g, i) => {
+                  const r = g.rate;
+                  const prefix = g.dest?.prefix ?? String(r?.prefix ?? "");
+                  return (
+                    <tr key={g.dest ? `d${g.dest.id}` : `r${r.id}`}
+                        className={cn("border-b border-border/20 hover:bg-muted/10", !r && "bg-amber-500/[0.04]")}
+                        data-testid={r ? `row-rate-${r.id}` : `row-unpriced-${prefix}`}>
+                      <td className="py-2 px-3">
+                        {g.dest
+                          ? <span className="text-foreground">{g.dest.name}</span>
+                          : <span className="text-muted-foreground italic">not assigned to this product</span>}
+                      </td>
+                      <td className="py-2 px-3 font-mono text-amber-400">{displayPrefix(prefix)}</td>
+                      <td className="py-2 px-3 font-mono tabular-nums">
+                        {r ? Number(r.rate).toFixed(6) : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="py-2 px-3 tabular-nums">{r?.effectiveFrom ?? "—"}</td>
+                      <td className="py-2 px-3 tabular-nums text-muted-foreground">{r?.effectiveTo || "—"}</td>
+                      <td className="py-2 px-3">
+                        {!r
+                          ? <span className="text-amber-400">⚠ Unpriced</span>
+                          : g.unassigned
+                            ? <span className="text-orange-400" title="This prefix has a price but the product is not sold on it">priced, not assigned</span>
+                            : <span className="text-green-400">Active</span>}
+                      </td>
+                      <td className="py-2 px-3">
+                        {r ? (
+                          <button onClick={() => deleteMut.mutate(r.id)} data-testid={`btn-delete-rate-${r.id}`}
+                            className="text-red-400 hover:text-red-300 transition-colors">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          // Pre-fills the prefix. The operator supplies the number and the
+                          // date; the destination is never typed, so it cannot be mistyped.
+                          <button
+                            data-testid={`btn-price-${prefix}`}
+                            onClick={() => { setForm(f => ({ ...f, prefix })); setShowForm(true); }}
+                            className="text-primary hover:underline whitespace-nowrap">
+                            Add rate
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
