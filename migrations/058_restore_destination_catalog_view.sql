@@ -24,9 +24,25 @@
 -- so on this database no customer can have a market recorded at all: the wizard sends ids
 -- from the catalogue, the FK rejects them, and the insert is caught by a non-fatal handler.
 --
--- global_destinations is still the right canonical store — every stored destination id on
--- this database is one of its ids, by FK and by construction. The defect is that it is
--- incompletely populated here. Populating it is migration 059; re-pointing the view is 060.
+-- The first reading of this was that global_destinations remains canonical and is merely
+-- under-populated, so 059 should insert the 150k catalogue into it. The second run of the
+-- report argued against that:
+--
+--     shape      : 35 approved of 2,697; 2,421 rows carry no dial prefix at all
+--     provenance : 1,135 rows had an IBIS code cleared out of dial_prefix by 052
+--     created    : global_destinations 2026-06-05..2026-08-01, destinations 2026-07-04 only
+--     FKs        : destination_group_members, destination_health and destination_routing
+--                  already reference `destinations`
+--
+-- So the July 4 bulk import went into `destinations` and never into global_destinations,
+-- which has since received only migration and UI writes and is substantially the residue
+-- of the Bulk Import parser defect. `destinations` is both the real catalogue and Phase 1's
+-- intended canonical store, and three tables already point at it.
+--
+-- The merge therefore runs toward the LARGER table: 2,697 rows into `destinations`, not
+-- 150,408 into global_destinations. What decides whether that is possible is how many
+-- stored destination ids resolve only in global_destinations — those would have to be
+-- remapped first. The report below counts them per table.
 --
 -- WHAT THIS FILE DOES NOW: it refuses, and its refusal carries the composition of those
 -- 2,697 rows, so 059 can be written against evidence rather than a guess about what they
@@ -99,7 +115,11 @@ DECLARE
   refs       TEXT := '';
   t          RECORD;
   n_only_d   BIGINT;
+  n_only_g   BIGINT;
+  n_both     BIGINT;
+  n_neither  BIGINT;
   n_total    BIGINT;
+  gd_overlap TEXT;
 BEGIN
   IF to_regclass('public.global_destinations') IS NULL THEN
     RAISE EXCEPTION 'global_destinations does not exist — this database is not in the state 058 expects.';
@@ -139,9 +159,8 @@ BEGIN
       EXECUTE 'SELECT min(id), max(id) FROM global_destinations'  INTO g_min, g_max;
 
       -- ── WHAT the small table is made of ─────────────────────────────────────
-      -- 059 has to insert ~150k rows into global_destinations, and what it must NOT do is
-      -- duplicate or displace whatever is already there. Three questions decide that, and
-      -- none of them can be answered from outside this database.
+      -- Whichever direction the merge runs, the 2,697 rows must survive it. Three questions
+      -- say what they are, and none can be answered from outside this database.
 
       -- 1. Shape. A commercial-only tree looks nothing like a partial catalogue import:
       --    the first is a handful of levels with every row approved, the second is one
@@ -197,26 +216,58 @@ BEGIN
          WHERE c.contype = 'f' AND c.confrelid = 'destinations'::regclass
       $q$ INTO fk_to_dest;
 
-      -- — and then the data itself, which is what actually matters. A column with no FK can
-      -- still be full of ids that only resolve in `destinations`, and every one of those is
-      -- a row 059 would have to remap. Counted per table so the answer names the work.
+      -- — and then the data itself, which is what actually matters and which the first
+      -- version of this check got wrong. It counted only ids resolving in `destinations`
+      -- and NOT in global_destinations, which by construction cannot see anything in the
+      -- 1-2777 range where the two id spaces overlap. It reported "none" while saying
+      -- nothing about the rows that decide the cost of the migration.
+      --
+      -- The question is not "does anything reference destinations". It is: if the canonical
+      -- store changes, HOW MANY STORED IDS BECOME WRONG. That needs all four buckets —
+      -- resolvable in both (safe either way), in one only (breaks if the other is chosen),
+      -- and in neither (already broken, and worth knowing about separately).
       FOR t IN
         SELECT c.table_name AS tbl
           FROM information_schema.columns c
          WHERE c.table_schema = 'public' AND c.column_name = 'destination_id'
            AND c.table_name <> 'destinations'
+           AND EXISTS (SELECT 1 FROM information_schema.tables x
+                        WHERE x.table_schema = 'public' AND x.table_name = c.table_name
+                          AND x.table_type = 'BASE TABLE')
          ORDER BY c.table_name
       LOOP
-        EXECUTE format(
-          'SELECT count(*), count(*) FILTER (WHERE destination_id IS NOT NULL
-             AND EXISTS (SELECT 1 FROM destinations d WHERE d.id = destination_id)
-             AND NOT EXISTS (SELECT 1 FROM global_destinations g WHERE g.id = destination_id))
-             FROM %I', t.tbl) INTO n_total, n_only_d;
-        IF n_only_d > 0 THEN
-          refs := refs || format(E'\n    %s : %s of %s rows resolve ONLY in destinations', t.tbl, n_only_d, n_total);
-        END IF;
+        EXECUTE format($f$
+          SELECT count(*),
+                 count(*) FILTER (WHERE destination_id IS NOT NULL
+                   AND EXISTS     (SELECT 1 FROM global_destinations g WHERE g.id = destination_id)
+                   AND EXISTS     (SELECT 1 FROM destinations        d WHERE d.id = destination_id)),
+                 count(*) FILTER (WHERE destination_id IS NOT NULL
+                   AND EXISTS     (SELECT 1 FROM global_destinations g WHERE g.id = destination_id)
+                   AND NOT EXISTS (SELECT 1 FROM destinations        d WHERE d.id = destination_id)),
+                 count(*) FILTER (WHERE destination_id IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM global_destinations g WHERE g.id = destination_id)
+                   AND EXISTS     (SELECT 1 FROM destinations        d WHERE d.id = destination_id)),
+                 count(*) FILTER (WHERE destination_id IS NOT NULL
+                   AND NOT EXISTS (SELECT 1 FROM global_destinations g WHERE g.id = destination_id)
+                   AND NOT EXISTS (SELECT 1 FROM destinations        d WHERE d.id = destination_id))
+            FROM %I $f$, t.tbl)
+          INTO n_total, n_both, n_only_g, n_only_d, n_neither;
+        -- Empty tables are the answer to "how much work is this", so they are listed too.
+        refs := refs || format(E'\n    %-34s total %s | both %s | gd-only %s | dest-only %s | orphan %s',
+                               t.tbl, n_total, n_both, n_only_g, n_only_d, n_neither);
       END LOOP;
-      IF refs = '' THEN refs := E'\n    none — every stored destination_id resolves in global_destinations'; END IF;
+
+      -- Which direction is the smaller merge. `destinations` is 150k and global_destinations
+      -- is 2.7k, so the row counts already imply the answer, but overlap decides how much of
+      -- the smaller table is genuinely new rather than a duplicate of something already there.
+      EXECUTE $q$
+        SELECT 'global_destinations rows with a (name, dial_prefix) match in destinations: '
+            || (SELECT count(*) FROM global_destinations g
+                 WHERE EXISTS (SELECT 1 FROM destinations d
+                                WHERE lower(trim(d.name)) = lower(trim(g.name))
+                                  AND coalesce(d.dial_prefix,'') = coalesce(g.dial_prefix,'')))
+            || ' of ' || (SELECT count(*) FROM global_destinations)
+      $q$ INTO gd_overlap;
 
       RAISE EXCEPTION E'Cannot re-point the view — the two tables disagree.\n'
         '  global_destinations : % rows, ids %-%, created %\n'
@@ -227,17 +278,19 @@ BEGIN
         '  shape      : %\n'
         '  prefixes   : %\n'
         '  provenance : %\n\n'
-        'IS `destinations` ALREADY AN IDENTITY?\n'
+        'WHICH IDS ARE STORED, AND WHERE THEY RESOLVE:\n'
         '  declared FKs to destinations : %\n'
-        '  stored ids that resolve only in destinations :%\n\n'
-        'If the last section is empty, global_destinations is the sole identity store and 059 '
-        'can populate it additively. If it is not, those rows must be remapped first and 059 '
-        'is no longer a simple insert.',
+        '  %\n'
+        '  per table (gd-only breaks if destinations wins; dest-only breaks if it does not):%\n\n'
+        'gd-only totalling zero across every table means the canonical store can move to '
+        '`destinations` without remapping a single stored id, and 059 is a 2,697-row merge '
+        'in the cheap direction. Any non-zero gd-only count is rows that must be remapped '
+        'first, and names exactly which table owns the work.',
         gd_count, g_min, g_max, gd_age,
         d_count, d_min, d_max, d_age,
         orphans, by_identity,
         gd_shape, gd_prefix, gd_origin,
-        fk_to_dest, refs;
+        fk_to_dest, gd_overlap, refs;
     END IF;
 
     -- Both directions, recorded even though only one of them can block. In six months
