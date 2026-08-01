@@ -66,7 +66,23 @@ interface UseNocWebSocketResult {
   lastSipSpike: SipSpikeEvent | null;
   lastIncidentUpdated: IncidentUpdatedEvent | null;
   connected: boolean;
+  /**
+   * True once fast reconnects have been exhausted — the live push channel is
+   * unavailable (e.g. the environment's proxy blocks WebSocket upgrades) and
+   * the UI should rely on its polling queries. The hook still retries in the
+   * background at a slow interval, so this can flip back to false if the
+   * channel recovers. Use it to show a "polling mode" badge.
+   */
+  liveUnavailable: boolean;
 }
+
+// After this many consecutive failures, stop the fast reconnect loop (which
+// otherwise hammers the server and floods the console) and drop to a slow
+// background retry. Kept small so a genuinely transient blip still recovers
+// quickly, but a hard block (proxy/auth-shield rejecting the upgrade) settles
+// into polling mode within a few seconds instead of looping forever.
+const MAX_FAST_ATTEMPTS = 4;
+const SLOW_RETRY_MS     = 180_000; // 3 min — occasional probe once degraded
 
 export function useNocWebSocket(): UseNocWebSocketResult {
   const [lastTick, setLastTick] = useState<NocTickData | null>(null);
@@ -77,9 +93,26 @@ export function useNocWebSocket(): UseNocWebSocketResult {
   const [lastSipSpike, setLastSipSpike] = useState<SipSpikeEvent | null>(null);
   const [lastIncidentUpdated, setLastIncidentUpdated] = useState<IncidentUpdatedEvent | null>(null);
   const [connected, setConnected] = useState(false);
+  const [liveUnavailable, setLiveUnavailable] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
+  const attemptsRef = useRef(0);
+
+  // Schedule the next reconnect. Fast backoff (1s→8s) for the first few
+  // attempts, then settle into a slow periodic probe and flag the channel as
+  // unavailable so the UI can fall back to polling instead of the console
+  // filling with failed-handshake errors every 5s forever.
+  const scheduleReconnect = useCallback((connectFn: () => void) => {
+    if (!mountedRef.current) return;
+    attemptsRef.current += 1;
+    const fast = attemptsRef.current <= MAX_FAST_ATTEMPTS;
+    if (!fast) setLiveUnavailable(true);
+    const delay = fast
+      ? Math.min(1000 * 2 ** (attemptsRef.current - 1), 8000)
+      : SLOW_RETRY_MS;
+    reconnectRef.current = setTimeout(connectFn, delay);
+  }, []);
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
@@ -90,6 +123,8 @@ export function useNocWebSocket(): UseNocWebSocketResult {
 
       ws.onopen = () => {
         if (!mountedRef.current) { ws.close(); return; }
+        attemptsRef.current = 0;      // reset backoff on a healthy connection
+        setLiveUnavailable(false);
         setConnected(true);
       };
 
@@ -156,16 +191,18 @@ export function useNocWebSocket(): UseNocWebSocketResult {
 
       ws.onclose = () => {
         setConnected(false);
-        if (mountedRef.current) {
-          reconnectRef.current = setTimeout(connect, 5000);
-        }
+        scheduleReconnect(connect);
       };
 
       ws.onerror = () => {
-        ws.close();
+        ws.close();   // triggers onclose → scheduleReconnect
       };
-    } catch { /* ignore connection errors — reconnect will handle */ }
-  }, []);
+    } catch {
+      // new WebSocket() threw synchronously — no onclose will fire, so
+      // schedule the retry here instead.
+      scheduleReconnect(connect);
+    }
+  }, [scheduleReconnect]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -177,5 +214,5 @@ export function useNocWebSocket(): UseNocWebSocketResult {
     };
   }, [connect]);
 
-  return { lastTick, lastVoiceOtpUpdate, lastRollbackFailure, lastPendingApproval, lastApprovalExpired, lastSipSpike, lastIncidentUpdated, connected };
+  return { lastTick, lastVoiceOtpUpdate, lastRollbackFailure, lastPendingApproval, lastApprovalExpired, lastSipSpike, lastIncidentUpdated, connected, liveUnavailable };
 }
