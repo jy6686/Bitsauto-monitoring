@@ -229,3 +229,37 @@ what they currently are. Do not leave a screen claiming an effect it does not ha
 
 **Related:** [[audit-before-building]] — this is the eighth capability found built and
 disconnected. Check before implementing, and check the claim in the UI copy too.
+
+---
+
+## TD-006 · `product_rates` has no bulk entry path
+
+**Found:** 2026-08-01, loading opening rates for provisioning certification.
+
+`POST /api/product-rates` accepts one row. It is the only writer —
+[routes-rate-manager.ts:214](../server/routes-rate-manager.ts:214) is the single insert into
+the table. There is no CSV paste, no XLSX import, no array endpoint.
+
+`buildBulkRateXlsx` exists but runs the other way: it builds the workbook sent OUT to Sippy.
+Nothing loads rates IN.
+
+**Impact today: small.** 17 commercial destinations x 4 products = 68 rows, a one-off of about
+twenty minutes.
+
+**Impact at the next step: this becomes the bottleneck.** Migration 053 sizes a customer
+tariff at ~128 rows, and prices change — a vendor sheet lands, a market is repriced, a quarter
+turns. Re-typing 128 rows per revision is where an operator starts keeping the real prices in
+a spreadsheet and the platform stops being the source of truth.
+
+**Not the 601,688-row problem it first looks like.** Pricing is per COMMERCIAL destination, and
+one tariff row at `923` already covers every operator series beneath it — see
+[CATALOGUE-V2](DESTINATION-CATALOGUE-V2.md), expansion is inbound only. The number is hundreds,
+not hundreds of thousands. But hundreds, re-entered by hand every revision, is still the wrong
+shape.
+
+**Fix:** a bulk endpoint taking an array, plus paste-a-column or XLSX upload on the Product
+Rates tab. Validate the whole batch before writing any of it, and report rejected rows with
+their reason rather than failing the upload — the same contract the provisioning steps use.
+
+**Sequencing:** after certification. It is a new write path into the table the rate engine
+reads, and adding one while proving that engine works is how the two get confused.
