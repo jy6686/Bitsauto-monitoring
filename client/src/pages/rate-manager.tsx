@@ -2925,19 +2925,31 @@ function ProductRatesTab({ products }: { products: Product[] }) {
         </div>
         {/* Product Rates KPI Strip */}
         {selectedProductId && grid.length > 0 && (() => {
-          const now = new Date();
-          const scheduled = rates.filter((r: any) => new Date(r.effectiveFrom) > now).length;
-          const latestMs  = rates.length ? Math.max(...rates.map((r: any) => new Date(r.effectiveFrom).getTime())) : NaN;
-          const latest    = isFinite(latestMs) ? new Date(latestMs).toLocaleDateString("en-GB", { day:"2-digit", month:"short", year:"numeric" }) : "—";
+          const today = new Date().toISOString().slice(0, 10);
+          // Counted over ASSIGNED rows only. A rate on a prefix this product is not sold on
+          // is shown in the grid but is not part of the offer, so it must not inflate the
+          // completeness numbers a product manager reads before sending rates.
+          const withRate = grid.filter(g => g.rate && !g.unassigned).map(g => g.rate as any);
+          // "Priced" is not "will upload". A row priced from next Monday, or one that expired
+          // last week, counts as priced and produces nothing — matrix-generator filters on
+          // effective_from <= today AND (effective_to IS NULL OR >= today). These three tiles
+          // exist so that gap is visible on the page rather than in a provisioning report.
+          const effectiveToday = withRate.filter(r => r.effectiveFrom <= today && (!r.effectiveTo || r.effectiveTo >= today)).length;
+          const scheduled      = withRate.filter(r => r.effectiveFrom > today).length;
+          const expired        = withRate.filter(r => r.effectiveTo && r.effectiveTo < today).length;
           // Assigned first, then priced against it. "6 destinations" used to mean "6 rows
           // exist", which is a count of work done with no denominator — the number an
           // operator actually needs is how many are still waiting.
+          //
+          // No "Approved" tile: /api/commercial-destinations already filters to approved, so
+          // it could only ever equal Assigned.
           const tiles = [
-            { label: "Assigned",      value: String(grid.filter(g => !g.unassigned).length), cls: "text-blue-400   border-blue-500/20  bg-blue-500/8"   },
-            { label: "Priced",        value: String(priced),        cls: "text-green-400  border-green-500/20 bg-green-500/8"  },
-            { label: "Missing Rate",  value: String(missing),       cls: missing > 0 ? "text-amber-400 border-amber-500/20 bg-amber-500/8" : "text-muted-foreground border-border/40 bg-muted/10" },
-            { label: "Scheduled",     value: String(scheduled),     cls: "text-purple-400 border-purple-500/20 bg-purple-500/8" },
-            { label: "Last Effective",value: latest,                cls: "text-muted-foreground border-border/40 bg-muted/10" },
+            { label: "Assigned",        value: String(grid.filter(g => !g.unassigned).length), cls: "text-blue-400   border-blue-500/20  bg-blue-500/8"   },
+            { label: "Priced",          value: String(priced),        cls: "text-green-400  border-green-500/20 bg-green-500/8"  },
+            { label: "Missing Rate",    value: String(missing),       cls: missing > 0 ? "text-amber-400 border-amber-500/20 bg-amber-500/8" : "text-muted-foreground border-border/40 bg-muted/10" },
+            { label: "Effective Today", value: String(effectiveToday), cls: "text-emerald-400 border-emerald-500/20 bg-emerald-500/8" },
+            { label: "Scheduled",       value: String(scheduled),     cls: "text-purple-400 border-purple-500/20 bg-purple-500/8" },
+            { label: "Expired",         value: String(expired),       cls: expired > 0 ? "text-rose-400 border-rose-500/20 bg-rose-500/8" : "text-muted-foreground border-border/40 bg-muted/10" },
           ];
           return (
             <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border/20 flex-shrink-0 overflow-x-auto">
