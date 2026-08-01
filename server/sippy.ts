@@ -149,8 +149,10 @@ const adminPortalCacheByUrl = new Map<string, { cookies: CookieJar; expiresAt: n
 const adminPortalNegCacheByUrl = new Map<string, number>(); // url → expiresAt epoch ms
 const ADMIN_NEG_CACHE_TTL_MS = 5 * 60_000;
 
-// Get any valid portal session (used by listActiveCalls portal scraping fallback)
-async function getAnyPortalSession(
+// Get any valid portal session (used by listActiveCalls portal scraping fallback).
+// EXPORTED for diagnostic scripts only — same rule as sippyRawCall. Application code
+// should use ensurePortalSession or a typed scraper, not drive a raw session itself.
+export async function getAnyPortalSession(
   base: string,
   ...pairs: Array<[string, string]>
 ): Promise<CookieJar | null> {
@@ -653,7 +655,8 @@ async function sippyPost(
   return { statusCode: basic.statusCode, body: basic.body };
 }
 
-function sippyBase(portalUrl: string): string {
+// EXPORTED for diagnostic scripts, so a probe normalises the URL exactly as production does.
+export function sippyBase(portalUrl: string): string {
   return portalUrl.replace(/\/$/, '');
 }
 
