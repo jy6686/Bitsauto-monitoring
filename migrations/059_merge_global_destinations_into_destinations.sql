@@ -40,13 +40,17 @@
 -- would collapse them into a single bucket.
 --
 -- ── What is preserved ──────────────────────────────────────────────────────────
--- commercial_status, blocked_reason, notes, level, country_code, operator_name, sort_order —
+-- commercial_status, blocked_reason, notes, country_code, operator_name, sort_order —
 -- carried across as-is. Approvals recorded in global_destinations survive the move even
 -- though only 35 of 2,697 rows are approved. The IBIS codes 052 parked in `notes` come with
 -- them, so the vendor sheet mapping is still reconstructible afterwards.
 --
 -- parent_id is remapped through the map in a second pass, because a parent may itself be a
 -- row this migration is inserting and its new id is not known until it exists.
+--
+-- `level` is NOT copied. It is the one column in the intersection that describes a row's
+-- position in a tree rather than the destination itself, and this migration moves the row
+-- into a different tree. It is recomputed from the final parent in a third pass.
 --
 -- ── Column handling ────────────────────────────────────────────────────────────
 -- The two tables were created by different migrations and are not guaranteed to have the
@@ -82,6 +86,10 @@ DECLARE
   n_inserted  INTEGER := 0;
   n_parents   INTEGER := 0;
   n_dupes     INTEGER := 0;
+  n_levels    INTEGER := 0;
+  n_level_total INTEGER := 0;
+  root_level  INTEGER;
+  i           INTEGER;
   n_total     INTEGER := 0;
 BEGIN
   IF to_regclass('public.global_destinations') IS NULL THEN
@@ -198,8 +206,43 @@ BEGIN
        AND d.parent_id IS DISTINCT FROM pm.destination_id';
   GET DIAGNOSTICS n_parents = ROW_COUNT;
 
-  RAISE NOTICE '059: % global_destinations row(s) — % matched an existing destination by identity, % inserted, % parent link(s) remapped.',
-               n_total, n_identity, n_inserted, n_parents;
+  -- ── Pass 3: level, which is the one copied column that is not an attribute ───
+  -- Nine of the copied columns describe the destination — name, prefix, status, notes.
+  -- `level` describes its POSITION IN A TREE, and this migration moves it to a different
+  -- tree. A gd row at level 3 whose parent maps to a destinations row at level 5 would
+  -- arrive claiming depth 3 under a depth-5 parent, and every walk of the hierarchy after
+  -- that disagrees with parent_id.
+  --
+  -- Recomputed from the final parent rather than carried across. Bounded loop because a
+  -- chain of inserted rows resolves one level per statement — global_destinations is three
+  -- deep, so this settles in three passes; the bound is there so a cycle cannot hang a
+  -- deployment boot.
+  FOR i IN 1..12 LOOP
+    UPDATE destinations d
+       SET level = p.level + 1
+      FROM destination_id_map m, destinations p
+     WHERE d.id = m.destination_id
+       AND m.matched_by = 'inserted'
+       AND d.parent_id = p.id
+       AND d.level IS DISTINCT FROM p.level + 1;
+    GET DIAGNOSTICS n_levels = ROW_COUNT;
+    n_level_total := n_level_total + n_levels;
+    EXIT WHEN n_levels = 0;
+  END LOOP;
+
+  -- Merged rows with no parent are roots in the canonical tree, whatever depth they claimed
+  -- in the legacy one. 2,399 of the 2,697 are roots, so this is most of them.
+  SELECT COALESCE(min(level), 1) INTO root_level FROM destinations WHERE parent_id IS NULL;
+  UPDATE destinations d
+     SET level = root_level
+    FROM destination_id_map m
+   WHERE d.id = m.destination_id AND m.matched_by = 'inserted'
+     AND d.parent_id IS NULL AND d.level IS DISTINCT FROM root_level;
+  GET DIAGNOSTICS n_levels = ROW_COUNT;
+  n_level_total := n_level_total + n_levels;
+
+  RAISE NOTICE '059: % global_destinations row(s) — % matched an existing destination by identity, % inserted, % parent link(s) remapped, % level(s) recomputed from the canonical tree.',
+               n_total, n_identity, n_inserted, n_parents, n_level_total;
   IF n_dupes > 0 THEN
     RAISE NOTICE '059: % of the matched row(s) were duplicate identities within global_destinations itself, mapped onto the single canonical row rather than imported twice.', n_dupes;
   END IF;
