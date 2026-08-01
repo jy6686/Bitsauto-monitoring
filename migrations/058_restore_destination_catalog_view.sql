@@ -2,6 +2,37 @@
 --
 -- RECOVERY MIGRATION. Re-points destinations_v at global_destinations.
 --
+-- ── READ THIS FIRST: what the deployment actually reported ─────────────────────
+-- On 2026-08-01 this migration refused on the deployment with:
+--
+--     global_destinations : 2697 rows,    ids 1-2777
+--     destinations        : 150408 rows,  ids 1-375977
+--       differ by id       : 149547
+--       differ by identity : 150255
+--
+-- That inverts the assumption the rest of this file was written under. It is not that
+-- `destinations` is a stale backfill of a healthy global_destinations — on the deployment
+-- global_destinations holds 2,697 rows and the operational catalogue lives in
+-- `destinations`. Re-pointing the view there would cut the catalogue by 98%.
+--
+-- It also explains the disappearing approvals exactly. The UI lists rows from
+-- destinations_v -> destinations (ids up to 375,977), the operator clicks Approve, and the
+-- endpoint runs UPDATE global_destinations ... WHERE id = <that id> against a table whose
+-- ids stop at 2,777. Zero rows updated, no error raised.
+--
+-- And company_markets.destination_id REFERENCES global_destinations(id) (migration 054),
+-- so on this database no customer can have a market recorded at all: the wizard sends ids
+-- from the catalogue, the FK rejects them, and the insert is caught by a non-fatal handler.
+--
+-- global_destinations is still the right canonical store — every stored destination id on
+-- this database is one of its ids, by FK and by construction. The defect is that it is
+-- incompletely populated here. Populating it is migration 059; re-pointing the view is 060.
+--
+-- WHAT THIS FILE DOES NOW: it refuses, and its refusal carries the composition of those
+-- 2,697 rows, so 059 can be written against evidence rather than a guess about what they
+-- are. RAISE NOTICE would go to the log pane; the refusal text is what /api/admin/migrations
+-- surfaces in lastRun.failed.error, which is the channel proven to work on this deployment.
+--
 -- ── Why ────────────────────────────────────────────────────────────────────────
 -- Phase 1 of the destination migration introduced a canonical `destinations` table
 -- (Step 1), backfilled it from global_destinations (Step 2), and created destinations_v
@@ -59,6 +90,16 @@ DECLARE
   shared_n   BIGINT := 0;
   by_identity BIGINT := 0;
   d_min BIGINT; d_max BIGINT; g_min BIGINT; g_max BIGINT;
+  gd_shape   TEXT;
+  gd_prefix  TEXT;
+  gd_origin  TEXT;
+  gd_age     TEXT;
+  d_age      TEXT;
+  fk_to_dest TEXT;
+  refs       TEXT := '';
+  t          RECORD;
+  n_only_d   BIGINT;
+  n_total    BIGINT;
 BEGIN
   IF to_regclass('public.global_destinations') IS NULL THEN
     RAISE EXCEPTION 'global_destinations does not exist — this database is not in the state 058 expects.';
@@ -97,16 +138,106 @@ BEGIN
       EXECUTE 'SELECT min(id), max(id) FROM destinations'         INTO d_min, d_max;
       EXECUTE 'SELECT min(id), max(id) FROM global_destinations'  INTO g_min, g_max;
 
+      -- ── WHAT the small table is made of ─────────────────────────────────────
+      -- 059 has to insert ~150k rows into global_destinations, and what it must NOT do is
+      -- duplicate or displace whatever is already there. Three questions decide that, and
+      -- none of them can be answered from outside this database.
+
+      -- 1. Shape. A commercial-only tree looks nothing like a partial catalogue import:
+      --    the first is a handful of levels with every row approved, the second is one
+      --    level with mixed status.
+      EXECUTE $q$
+        SELECT COALESCE(string_agg(txt, ', ' ORDER BY lvl, txt), 'none') FROM (
+          SELECT COALESCE(level, -1) AS lvl,
+                 'L' || COALESCE(level::TEXT,'?') || '/' || COALESCE(commercial_status,'(null)')
+                   || ' ' || count(*) AS txt
+            FROM global_destinations GROUP BY level, commercial_status) s
+      $q$ INTO gd_shape;
+
+      -- 2. Prefixes vs hierarchy nodes. Rows with no dial_prefix are structure; rows with
+      --    one are sellable. The ratio says whether this is a tree or a price list.
+      EXECUTE $q$
+        SELECT 'with prefix ' || count(*) FILTER (WHERE dial_prefix IS NOT NULL)
+            || ', without ' || count(*) FILTER (WHERE dial_prefix IS NULL)
+            || ', roots '   || count(*) FILTER (WHERE parent_id IS NULL)
+          FROM global_destinations
+      $q$ INTO gd_prefix;
+
+      -- 3. Provenance. 053 stamps its rows in notes, and anything else with a note is a
+      --    row somebody touched deliberately. Both must survive 059 untouched.
+      EXECUTE $q$
+        SELECT 'from migration 053: ' || count(*) FILTER (WHERE notes LIKE '%migration 053%')
+            || ', IBIS cleared by 052: ' || count(*) FILTER (WHERE notes LIKE '%IBIS code:%')
+            || ', other noted: ' || count(*) FILTER (WHERE notes IS NOT NULL
+                                                       AND notes NOT LIKE '%migration 053%'
+                                                       AND notes NOT LIKE '%IBIS code:%')
+          FROM global_destinations
+      $q$ INTO gd_origin;
+
+      -- WHEN each table was written. If global_destinations stopped receiving rows on the
+      -- day `destinations` was populated, the import went to the wrong table; if it is
+      -- still being written today, both are live and 059 is riskier than it looks.
+      EXECUTE $q$SELECT COALESCE(min(created_at)::DATE || ' .. ' || max(created_at)::DATE, 'no created_at values')
+                   FROM global_destinations$q$ INTO gd_age;
+      BEGIN
+        EXECUTE $q$SELECT COALESCE(min(created_at)::DATE || ' .. ' || max(created_at)::DATE, 'no created_at values')
+                     FROM destinations$q$ INTO d_age;
+      EXCEPTION WHEN undefined_column THEN d_age := 'no created_at column';
+      END;
+
+      -- ── Is `destinations` ALREADY an identity anybody stores? ────────────────
+      -- The whole case for populating global_destinations rather than switching to
+      -- destinations rests on nothing storing a destinations id. That is an assumption
+      -- until it is counted. Declared FKs first —
+      EXECUTE $q$
+        SELECT COALESCE(string_agg(DISTINCT conrelid::regclass || '.' || a.attname, ', '), 'none')
+          FROM pg_constraint c
+          JOIN unnest(c.conkey) WITH ORDINALITY k(attnum, ord) ON TRUE
+          JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+         WHERE c.contype = 'f' AND c.confrelid = 'destinations'::regclass
+      $q$ INTO fk_to_dest;
+
+      -- — and then the data itself, which is what actually matters. A column with no FK can
+      -- still be full of ids that only resolve in `destinations`, and every one of those is
+      -- a row 059 would have to remap. Counted per table so the answer names the work.
+      FOR t IN
+        SELECT c.table_name AS tbl
+          FROM information_schema.columns c
+         WHERE c.table_schema = 'public' AND c.column_name = 'destination_id'
+           AND c.table_name <> 'destinations'
+         ORDER BY c.table_name
+      LOOP
+        EXECUTE format(
+          'SELECT count(*), count(*) FILTER (WHERE destination_id IS NOT NULL
+             AND EXISTS (SELECT 1 FROM destinations d WHERE d.id = destination_id)
+             AND NOT EXISTS (SELECT 1 FROM global_destinations g WHERE g.id = destination_id))
+             FROM %I', t.tbl) INTO n_total, n_only_d;
+        IF n_only_d > 0 THEN
+          refs := refs || format(E'\n    %s : %s of %s rows resolve ONLY in destinations', t.tbl, n_only_d, n_total);
+        END IF;
+      END LOOP;
+      IF refs = '' THEN refs := E'\n    none — every stored destination_id resolves in global_destinations'; END IF;
+
       RAISE EXCEPTION E'Cannot re-point the view — the two tables disagree.\n'
-        '  global_destinations : % rows, ids %-%\n'
-        '  destinations        : % rows, ids %-%\n'
+        '  global_destinations : % rows, ids %-%, created %\n'
+        '  destinations        : % rows, ids %-%, created %\n'
         '  rows in destinations with an id global_destinations lacks   : %\n'
         '  rows in destinations with a (name, dial_prefix) it lacks     : %\n\n'
-        'If the second number is near zero the ids were RENUMBERED by the Step 2 backfill '
-        'and the same destinations exist in both — the fix is to compare on identity, not id. '
-        'If it is close to the first, the tables genuinely hold different data and this needs '
-        'a reconciliation before anything is re-pointed.',
-        gd_count, g_min, g_max, d_count, d_min, d_max, orphans, by_identity;
+        'COMPOSITION of global_destinations — what 059 must not disturb:\n'
+        '  shape      : %\n'
+        '  prefixes   : %\n'
+        '  provenance : %\n\n'
+        'IS `destinations` ALREADY AN IDENTITY?\n'
+        '  declared FKs to destinations : %\n'
+        '  stored ids that resolve only in destinations :%\n\n'
+        'If the last section is empty, global_destinations is the sole identity store and 059 '
+        'can populate it additively. If it is not, those rows must be remapped first and 059 '
+        'is no longer a simple insert.',
+        gd_count, g_min, g_max, gd_age,
+        d_count, d_min, d_max, d_age,
+        orphans, by_identity,
+        gd_shape, gd_prefix, gd_origin,
+        fk_to_dest, refs;
     END IF;
 
     -- Both directions, recorded even though only one of them can block. In six months
@@ -132,8 +263,12 @@ END $$;
 -- and say so rather than drop the dependent object.
 DROP VIEW IF EXISTS destinations_v;
 
--- Exactly the 11 columns Step 3 defined. Not ten, not twelve — the whole point of the
--- shim is that Drizzle read consumers need zero changes.
+-- TWELVE columns, not eleven. This file said "exactly the 11 columns Step 3 defined" and
+-- asserted 11 below, but shared/destinations-view.ts declares TWELVE — the eleven plus
+-- created_at. Drizzle's .existing() means nothing validates that at build time, so the
+-- mismatch would have surfaced as a runtime error on any consumer selecting createdAt, or
+-- as this migration failing its own verify. Caught before it ever applied; the interface
+-- the read consumers actually use is the one that has to be reproduced here.
 CREATE VIEW destinations_v AS
 SELECT
   id,
@@ -146,7 +281,8 @@ SELECT
   commercial_status,
   sort_order,
   notes,
-  blocked_reason
+  blocked_reason,
+  created_at
 FROM global_destinations;
 
 COMMENT ON VIEW destinations_v IS
@@ -164,8 +300,8 @@ BEGIN
     FROM information_schema.columns
    WHERE table_schema = 'public' AND table_name = 'destinations_v';
 
-  IF n_cols <> 11 THEN
-    RAISE EXCEPTION 'destinations_v has % columns, expected 11 — the read consumers depend on this exact interface.', n_cols;
+  IF n_cols <> 12 THEN
+    RAISE EXCEPTION 'destinations_v has % columns, expected 12 (the 11 of Step 3 plus created_at, which shared/destinations-view.ts declares) — the read consumers depend on this exact interface.', n_cols;
   END IF;
 
   -- The status breakdown the catalogue header will now show, recorded here so validating
