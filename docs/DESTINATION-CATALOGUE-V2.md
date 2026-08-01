@@ -540,6 +540,45 @@ work — the commercial model can be corrected before the catalogue is beautiful
 Steps 1–4 are the recovery. What follows is v2 proper, and it is ordered by **structure before
 status** — identity first, hierarchy second, commercial decisions last.
 
+### Phase 1 owns exactly four things
+
+Destination Master Data. Nothing below it owns data; every lower layer projects.
+
+```
+Hierarchy           Country -> Type -> Operator
+Destination Codes   the technical prefixes beneath a commercial destination
+Product Assignment  which products may sell it
+Approval            the ONLY place a destination is approved or blocked
+```
+
+**Approval exists in one place.** No approve control on Product Rates, on a rate sheet, or
+anywhere a price is entered — that is how five screens came to own the same decision.
+
+### Codes get their own page, and the charging prefix is not one of them
+
+Codes are a routing concern; the hierarchy is a commercial identity concern. Separate pages,
+per Rule 2.
+
+The distinction that must survive that split:
+
+```
+Pakistan Mobile Jazz        commercial entity
+  charging prefix   9230    ATTRIBUTE of the entity. One. Produces the tariff row.
+  technical codes   92301   CHILDREN. Many. Inbound resolution only.
+                    92302
+                    92303
+```
+
+If the Codes page lists `9230` as a peer of `92301`, the outbound value becomes
+indistinguishable from the inbound ones and *resolution is one-way* quietly stops holding —
+someone will then "expand" a commercial destination into its codes at export, which is the
+thing 053 exists to prevent.
+
+The charging prefix belongs on the commercial destination, edited where the destination is
+edited. The Codes page manages what sits beneath it.
+
+---
+
 ### 063A — Country identity
 
 Reference-driven, not catalogue-driven. For every row in the seeded `countries` table, look for
