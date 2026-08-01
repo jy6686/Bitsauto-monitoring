@@ -196,3 +196,36 @@ materialise on write (cascade an UPDATE, existing queries unchanged, flag can dr
 materialising — but the cascade belongs in one migration or one service function, never spread
 across the eleven write sites. A derived flag maintained in eleven places is how `destinations`
 and `global_destinations` diverged.
+
+---
+
+## TD-005 · Pricing and Routing Templates are built, documented in the UI, and read by nothing
+
+**Found:** 2026-08-01, looking for where to enter opening rates for provisioning certification.
+
+Product Registry → **Pricing Templates** says *"Define buy rates and margin per destination.
+Used when auto-provisioning Sippy tariffs."* Product Registry → **Routing Templates** says
+*"Define vendor priority order per product. Used when auto-provisioning new accounts."*
+
+Neither statement is true. Both have complete CRUD in
+[routes-product-templates.ts](../server/routes-product-templates.ts) — create, update, delete,
+per-prefix rates — and no consumer:
+
+```
+pricingTemplateRates  -> shared/schema.ts + its own CRUD file. Nothing else.
+routingTemplate       -> its own CRUD file. Nothing else.
+```
+
+`rates.step` reads `product_rates`, written by Rate Manager → Product Rates
+(`POST /api/product-rates`). The provisioning engine never touches either template table.
+
+**Why this matters more than an unused table.** The screen tells an operator it feeds
+provisioning. Someone will fill in a pricing template, provision an account, and get an
+unpriced tariff with no error anywhere — the same silent-wrong-answer shape as approvals
+landing in a table nobody read.
+
+**Fix, in order of honesty:** either wire them into provisioning, or change the copy to say
+what they currently are. Do not leave a screen claiming an effect it does not have.
+
+**Related:** [[audit-before-building]] — this is the eighth capability found built and
+disconnected. Check before implementing, and check the claim in the UI copy too.
