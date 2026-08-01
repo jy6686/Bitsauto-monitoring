@@ -120,6 +120,7 @@ DECLARE
   n_neither  BIGINT;
   n_total    BIGINT;
   gd_overlap TEXT;
+  deps       TEXT := '';
 BEGIN
   IF to_regclass('public.global_destinations') IS NULL THEN
     RAISE EXCEPTION 'global_destinations does not exist — this database is not in the state 058 expects.';
@@ -257,6 +258,66 @@ BEGIN
                                t.tbl, n_total, n_both, n_only_g, n_only_d, n_neither);
       END LOOP;
 
+      -- ── EVERY DATABASE OBJECT THAT DEPENDS ON EITHER TABLE ──────────────────
+      -- 060 moves the write path. Grepping the repository finds call sites; it does not
+      -- find a trigger, a materialised view, a default expression or a function body that
+      -- names one of these tables, and any of those breaks silently at cutover. The
+      -- catalogue knows, so ask the catalogue and let 060 work from a checklist rather than
+      -- from confidence.
+      --
+      -- pg_depend walks views and matviews; pg_trigger and pg_proc cover the rest; pg_cron
+      -- is checked only if installed. Objects are labelled with which table they hang off,
+      -- because "depends on destinations" and "depends on global_destinations" imply
+      -- opposite work.
+      -- DISTINCT over the union, not inside it: pg_depend records one row per COLUMN a view
+      -- references, so a 12-column view over destinations appears twelve times otherwise.
+      FOR t IN
+        SELECT DISTINCT kind, obj, onto FROM (
+        SELECT 'FK   ' AS kind,
+               c.conrelid::regclass::TEXT || '.' || a.attname AS obj,
+               c.confrelid::regclass::TEXT AS onto
+          FROM pg_constraint c
+          JOIN unnest(c.conkey) WITH ORDINALITY k(attnum, ord) ON TRUE
+          JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+         WHERE c.contype = 'f'
+           AND c.confrelid IN ('destinations'::regclass, 'global_destinations'::regclass)
+        UNION ALL
+        SELECT CASE dep.relkind WHEN 'm' THEN 'MVIEW' WHEN 'v' THEN 'VIEW ' ELSE 'REL  ' END,
+               dep.relname::TEXT, src.relname::TEXT
+          FROM pg_depend d
+          JOIN pg_rewrite r  ON r.oid = d.objid
+          JOIN pg_class dep  ON dep.oid = r.ev_class
+          JOIN pg_class src  ON src.oid = d.refobjid
+         WHERE src.relname IN ('destinations', 'global_destinations')
+           AND dep.relname NOT IN ('destinations', 'global_destinations')
+        UNION ALL
+        SELECT 'TRIG ', tg.tgname::TEXT, c.relname::TEXT
+          FROM pg_trigger tg JOIN pg_class c ON c.oid = tg.tgrelid
+         WHERE NOT tg.tgisinternal AND c.relname IN ('destinations', 'global_destinations')
+        UNION ALL
+        SELECT 'FUNC ', p.proname::TEXT,
+               CASE WHEN p.prosrc ILIKE '%global_destinations%' AND p.prosrc ILIKE '%destinations%'
+                      AND p.prosrc NOT ILIKE '%global_destinations%' THEN 'destinations'
+                    WHEN p.prosrc ILIKE '%global_destinations%' THEN 'global_destinations'
+                    ELSE 'destinations' END
+          FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
+           AND p.prosrc ILIKE '%destinations%'
+        ) z ORDER BY onto, kind, obj
+      LOOP
+        deps := deps || format(E'\n    %s %-44s -> %s', t.kind, t.obj, t.onto);
+      END LOOP;
+      IF to_regclass('cron.job') IS NOT NULL THEN
+        FOR t IN EXECUTE $q$SELECT 'CRON ' AS kind, jobname::TEXT AS obj, 'command names it' AS onto
+                              FROM cron.job WHERE command ILIKE '%destinations%'$q$
+        LOOP
+          deps := deps || format(E'\n    %s %-44s -> %s', t.kind, t.obj, t.onto);
+        END LOOP;
+      ELSE
+        deps := deps || E'\n    (pg_cron not installed — no scheduled jobs to check)';
+      END IF;
+      IF deps = '' THEN deps := E'\n    none'; END IF;
+
       -- Which direction is the smaller merge. `destinations` is 150k and global_destinations
       -- is 2.7k, so the row counts already imply the answer, but overlap decides how much of
       -- the smaller table is genuinely new rather than a duplicate of something already there.
@@ -282,6 +343,8 @@ BEGIN
         '  declared FKs to destinations : %\n'
         '  %\n'
         '  per table (gd-only breaks if destinations wins; dest-only breaks if it does not):%\n\n'
+        'DEPENDENCY INVENTORY — every database object naming either table. 060 has to\n'
+        'account for each line; a grep of the repository cannot see these:%\n\n'
         'gd-only totalling zero across every table means the canonical store can move to '
         '`destinations` without remapping a single stored id, and 059 is a 2,697-row merge '
         'in the cheap direction. Any non-zero gd-only count is rows that must be remapped '
@@ -290,7 +353,7 @@ BEGIN
         d_count, d_min, d_max, d_age,
         orphans, by_identity,
         gd_shape, gd_prefix, gd_origin,
-        fk_to_dest, gd_overlap, refs;
+        fk_to_dest, gd_overlap, refs, deps;
     END IF;
 
     -- Both directions, recorded even though only one of them can block. In six months
