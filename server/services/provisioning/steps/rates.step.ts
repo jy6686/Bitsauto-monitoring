@@ -203,6 +203,16 @@ export const ratesStep: ProvisioningStep = {
           `Nothing to upload — no price is effective today for any of the ${destinations.length} destination(s) x ${products.length} product(s).`,
           `${priced.length} price(s) effective today, ${rates.length} matched to a destination.`,
           `To load opening rates: go to Rate Manager → add a price row for each product (FC / BC / SB / SC) and prefix. Prices saved there will be picked up on the next provisioning run.`,
+          // NAME THE PREFIXES. "17 destination(s)" says how much work there is and not what to
+          // do, and prices are matched to this exact set — a price entered against any other
+          // prefix resolves to nothing and is reported as unmatched on the next run. Without
+          // this line an operator loading opening rates has to guess which 17.
+          //
+          // Capped at 25: this same set is 150k+ once the catalogue cutover lands, and a step
+          // report is not the place to render it.
+          ...(destinations.some(d => d.dialPrefix)
+            ? [`Prefixes awaiting a price: ${destinations.filter(d => d.dialPrefix).slice(0, 25).map(d => `${d.dialPrefix} (${d.name})`).join(' · ')}${destinations.length > 25 ? ` … and ${destinations.length - 25} more` : ''}`]
+            : []),
           // A price that resolved to nothing is the difference between "no prices exist"
           // and "prices exist for destinations this customer is not sold", and the
           // operator's next action is completely different in each case.
