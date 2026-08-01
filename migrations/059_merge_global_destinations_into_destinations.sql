@@ -70,7 +70,7 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS destination_id_map (
   gd_id          INTEGER PRIMARY KEY,
   destination_id INTEGER NOT NULL,
-  matched_by     VARCHAR(16) NOT NULL,   -- 'identity' | 'inserted'
+  matched_by     VARCHAR(24) NOT NULL,   -- 'identity' | 'inserted' | 'duplicate_identity'
   gd_name        VARCHAR(128),
   gd_dial_prefix VARCHAR(32),
   created_at     TIMESTAMP NOT NULL DEFAULT NOW()
@@ -178,9 +178,15 @@ BEGIN
 
   -- 1c. The duplicates 1b deduplicated still need a mapping — onto the row 1b just inserted.
   -- Without this they would be left unmapped and the verify below would refuse.
+  --
+  -- Recorded as 'duplicate_identity', NOT 'identity'. They are a different provenance: an
+  -- 'identity' row already existed in `destinations` before this migration, whereas these
+  -- are rows global_destinations held more than once, collapsed onto the single canonical
+  -- copy. Someone asking later why two legacy ids resolve to one destination should find
+  -- the answer in the column rather than infer it.
   EXECUTE '
     INSERT INTO destination_id_map (gd_id, destination_id, matched_by, gd_name, gd_dial_prefix)
-    SELECT g.id, d.id, ''identity'', g.name, g.dial_prefix
+    SELECT g.id, d.id, ''duplicate_identity'', g.name, g.dial_prefix
       FROM global_destinations g
       JOIN LATERAL (SELECT dd.id FROM destinations dd
                      WHERE lower(trim(dd.name)) = lower(trim(g.name))
@@ -188,7 +194,6 @@ BEGIN
                      ORDER BY dd.id LIMIT 1) d ON TRUE
      WHERE NOT EXISTS (SELECT 1 FROM destination_id_map m WHERE m.gd_id = g.id)';
   GET DIAGNOSTICS n_dupes = ROW_COUNT;
-  n_identity := n_identity + n_dupes;
 
   -- ── Pass 2: parent_id, now that every id is known ────────────────────────────
   -- Only for rows this migration inserted. A row matched by identity already existed in
@@ -241,10 +246,10 @@ BEGIN
   GET DIAGNOSTICS n_levels = ROW_COUNT;
   n_level_total := n_level_total + n_levels;
 
-  RAISE NOTICE '059: % global_destinations row(s) — % matched an existing destination by identity, % inserted, % parent link(s) remapped, % level(s) recomputed from the canonical tree.',
-               n_total, n_identity, n_inserted, n_parents, n_level_total;
+  RAISE NOTICE '059: % global_destinations row(s) — % matched an existing destination by identity, % inserted, % duplicate identities collapsed, % parent link(s) remapped, % level(s) recomputed from the canonical tree.',
+               n_total, n_identity, n_inserted, n_dupes, n_parents, n_level_total;
   IF n_dupes > 0 THEN
-    RAISE NOTICE '059: % of the matched row(s) were duplicate identities within global_destinations itself, mapped onto the single canonical row rather than imported twice.', n_dupes;
+    RAISE NOTICE '059: the % duplicate(s) are rows global_destinations held more than once — mapped onto one canonical row rather than imported twice, and recorded as matched_by = ''duplicate_identity''.', n_dupes;
   END IF;
 END $$;
 
