@@ -50,7 +50,9 @@ async function main() {
 
   const pool = new Pool({ connectionString: url });
   const { rows } = await pool.query(`
-    SELECT portal_url, portal_username, portal_password, api_admin_username, api_admin_password, admin_web_password
+    SELECT portal_url, portal_username, portal_password,
+           api_admin_username, api_admin_password, admin_web_password,
+           sippy_rate_admin_user, sippy_rate_admin_pass
       FROM settings ORDER BY id LIMIT 1
   `);
   await pool.end();
@@ -60,21 +62,52 @@ async function main() {
   const base = sippy.sippyBase(s.portal_url ?? "");
   if (!base) { console.error("settings.portal_url is empty."); process.exit(2); }
 
-  // Same pair order production uses, so a failure here means the same failure there.
+  // ── Credential order, copied from findRatesCapableSession ────────────────────
+  // The first version of this probe tried only the four pairs on the settings row and
+  // reported "portal login failed on every pair", which reads as "no credential works" and
+  // is not what it measured. The codebase says plainly why:
+  //
+  //   "ssp-root (reseller) CAN log into the portal but is ACL-blocked from /c1/rates.php.
+  //    A dedicated rate-admin account (e.g. RTST1) or the SIPPY_PROV env var account may
+  //    have the necessary permission."
+  //
+  // So the credentials that actually reach portal pages — sippy_rate_admin_* and the
+  // SIPPY_PROV env vars — were the two the probe never tried. Same order as production, so
+  // a failure here means the same failure there.
   const pairs: Array<[string, string]> = [];
-  const add = (u?: string | null, p?: string | null) => { if (u && p) pairs.push([u, p]); };
-  add(s.portal_username, s.portal_password);
-  add(s.api_admin_username, s.api_admin_password);
-  add(s.portal_username, s.admin_web_password);
-  add(s.api_admin_username, s.admin_web_password);
+  const origins: string[] = [];
+  const add = (u?: string | null, p?: string | null, origin = "") => {
+    if (!u || !p) return;
+    if (pairs.some(([pu, pp]) => pu === u && pp === p)) return;
+    pairs.push([u, p]); origins.push(origin);
+  };
+
+  const provUser = (process.env.SIPPY_PROV_USERNAME ?? "").trim();
+  const provPass = (process.env.SIPPY_PROV_PASSWORD ?? "").trim();
+
+  add(s.sippy_rate_admin_user, s.sippy_rate_admin_pass, "rate-admin (settings)");
+  add(s.sippy_rate_admin_user, s.admin_web_password,    "rate-admin user + adminWebPassword");
+  add(provUser, provPass,                               "SIPPY_PROV env");
+  add(s.api_admin_username, s.api_admin_password,       "apiAdmin");
+  add(s.portal_username, s.portal_password,             "portal");
+  add(s.api_admin_username, s.admin_web_password,       "apiAdmin user + adminWebPassword");
+  add(s.portal_username, s.admin_web_password,          "portal user + adminWebPassword");
 
   console.log(`Sippy destination FORM probe — ${base}${DEST_PATH}`);
-  console.log(`${pairs.length} credential pair(s) to try.\n`);
+  console.log(`${pairs.length} credential pair(s) to try, in production order:`);
+  pairs.forEach(([u], i) => console.log(`  ${i + 1}. ${u} — ${origins[i]}`));
+  if (!s.sippy_rate_admin_user) console.log("  NOTE: settings.sippy_rate_admin_user is empty — the account the code says is needed is not configured.");
+  if (!provUser)                console.log("  NOTE: SIPPY_PROV_USERNAME is not set in this environment.");
+  console.log("");
 
   const cookies = await sippy.getAnyPortalSession(base, ...pairs);
   if (!cookies) {
-    console.error("Portal login failed on every pair — cannot read the form.");
-    console.error("That is itself a finding: the portal upload path needs a credential that can reach this page.");
+    console.error(`Portal login failed on all ${pairs.length} pair(s) — cannot read the form.`);
+    console.error("");
+    console.error("This does NOT mean the portal upload path is unavailable. It means no");
+    console.error("configured credential can log in. The likely fix is a dedicated Sippy admin");
+    console.error("account with portal access, set in Settings -> Rate Admin Credentials");
+    console.error("(settings.sippy_rate_admin_user / _pass) — the same account /c1/rates.php needs.");
     process.exit(1);
   }
   console.log("Portal session obtained.\n");
