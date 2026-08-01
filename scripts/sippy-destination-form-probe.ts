@@ -154,6 +154,23 @@ async function main() {
     console.log("");
   }
 
+  // ── The Upload button is JavaScript, not a submit ───────────────────────────
+  // <input type="button" onClick="import_destinations()"> means the browser never submits
+  // this form directly — the handler builds the request. Reconstructing the POST from the
+  // visible fields alone would be a plausible guess, and a plausible guess about a live
+  // switch is what this whole sequence of probes exists to avoid. The handler is in the
+  // page we already have, so read it.
+  const handler = /function\s+import_destinations\s*\([^)]*\)\s*\{[\s\S]*?\n\s*\}/i.exec(html)?.[0]
+    ?? /import_destinations\s*=\s*function[\s\S]*?\n\s*\}/i.exec(html)?.[0];
+  console.log("── import_destinations() — what the Upload button actually does ────");
+  if (handler) {
+    for (const line of handler.split("\n")) console.log(`   ${line.trim()}`);
+  } else {
+    console.log("   not found inline — it may live in an external .js file. Candidates:");
+    for (const m of html.matchAll(/<script[^>]*src=["']([^"']+)["']/gi)) console.log(`     ${m[1]}`);
+  }
+  console.log("");
+
   console.log("── HOW TO READ THIS ───────────────────────────────────────────────");
   console.log("  A select or radio naming replace / merge / append / overwrite  -> answered.");
   console.log("  A hidden field carrying an import MODE                          -> answered.");
