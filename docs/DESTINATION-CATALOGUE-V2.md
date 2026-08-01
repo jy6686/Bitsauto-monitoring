@@ -7,6 +7,45 @@ assumes `destinations` is canonical and `global_destinations` is retired.
 
 ---
 
+> ## Commercial decisions are made on commercial entities.
+> ## Technical prefixes inherit those decisions; they never own them.
+
+If a rule in this document is ever unclear, that sentence decides it.
+
+```
+WRONG                            RIGHT
+approve 923081                   approve Pakistan Mobile Jazz
+assign FC to 923081              assign FC to Pakistan Mobile Jazz
+price 923081                     price Pakistan Mobile Jazz
+```
+
+150,422 rows are approved today because the catalogue let a prefix own a commercial decision.
+Nobody approved 150,422 destinations; a bulk operation did, because there was no entity to
+approve instead.
+
+---
+
+## Three models that had become one
+
+Most of the confusion came from three different kinds of data living in one table with one
+vocabulary. They have different owners, different change rates, and different rules.
+
+| Model | Holds | Changes | Owned by | Rows |
+|---|---|---|---|---|
+| **Reference** | countries, ISO2, dial codes, aliases | almost never | ISO 3166 / ITU E.164 — external | ~300 |
+| **Commercial** | what we approve, assign, price and sell | daily | Sales · Pricing · Product | 2,000–5,000 |
+| **Technical** | operator prefix series | on every vendor import | the network — vendor sheets, CDRs | ~150,000 |
+
+Reference data is seeded and never derived from our own catalogue. Commercial entities carry
+`commercial_status` and product assignments. Technical prefixes carry neither — they resolve
+upward and inherit.
+
+Deleting the technical layer was considered and rejected: it is what vendor matching, LCR,
+fraud scoring and CDR classification resolve against. It was never too large. It was playing
+the wrong role.
+
+---
+
 ## The lesson underneath all of this: identity
 
 The catalogue did not break because there were two tables. It broke because there were two
