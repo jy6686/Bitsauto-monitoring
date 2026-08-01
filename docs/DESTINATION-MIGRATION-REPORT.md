@@ -4,6 +4,7 @@
 **Date:** 2026-08-01
 **Evidence:** migration 058's refusal against the deployment, three rounds
 **Supersedes:** the assumption that `global_destinations` is canonical
+**Target architecture:** [DESTINATION-CATALOGUE-V2.md](DESTINATION-CATALOGUE-V2.md)
 
 ---
 
