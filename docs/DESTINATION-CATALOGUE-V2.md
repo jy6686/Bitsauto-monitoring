@@ -6,6 +6,33 @@ assumes `destinations` is canonical and `global_destinations` is retired.
 
 ---
 
+## The lesson underneath all of this: identity
+
+The catalogue did not break because there were two tables. It broke because there were two
+**authoritative id spaces** whose ranges overlapped:
+
+```
+destinations         ids 1-375977
+global_destinations  ids 1-2777
+  -> id 1500 is a VALID id in both, naming a DIFFERENT destination in each
+```
+
+An FK pointing at the wrong table still resolves. It does not error, it does not warn, and
+the row it finds is plausible. That is strictly more dangerous than a broken FK, which at
+least announces itself. `product_destination_assignments` held 52 rows in exactly this state
+and every one of them would have silently re-pointed at a different country.
+
+Everything below follows from refusing to allow a second id space to exist.
+
+### The rule, without exceptions
+
+**Every foreign key referencing a destination references `destinations.id`. Nowhere else.**
+
+No aliases. No compatibility ids. No "temporary" FK to something else. If a translation is
+ever needed it exists for the duration of a migration and is never read at runtime after it.
+
+---
+
 ## The root confusion
 
 "Destination" names two different things, and every ambiguity in the catalogue descends from
@@ -68,6 +95,9 @@ Every FK has to choose a side, and the ones that choose wrong fail silently.
 weeks — swallowed by a non-fatal handler, so no customer had a market recorded and nobody
 saw it. One table, one id space, and a prefix cannot drift away from its operator because
 `parent_id` points at it.
+
+**Never create another table that represents a destination.** `destinations` is the entity.
+Everything else referencing it is a view, a lookup, an assignment, or a history table.
 
 **If the names are wanted in SQL,** define read-only views — `commercial_destinations` as
 `WHERE level <= 3`, `destination_prefixes` as `WHERE level >= 4`. Views over one table share
@@ -191,3 +221,20 @@ first would silently narrow what gets sold.
 7. **Switch the generator to assignment-driven** once assignments are populated.
 
 Steps 5–7 are v2 proper. Steps 1–4 are the recovery that makes them possible.
+
+### Two sequencing constraints that are easy to drop
+
+**The commercial reset stays its own step, before the cutover.** It is tempting to fold it
+away on the grounds that assignment-driven generation makes it unnecessary — and it would,
+if both landed in the same migration. They cannot reliably: assignment-driven generation
+depends on `product_destination_assignments` being populated, which is separate work with 52
+rows done. If the cutover lands first with everything approved, the generator visits 601,632
+cells before the assignment change is anywhere near it. The reset makes the cutover safe
+whether or not the generator change is ready.
+
+**`destination_id_map` is retained, not dropped.** It looks like a translation layer, which
+v2 forbids, and the distinction is what "translation layer" means: **nothing reads it at
+runtime.** After 061 no query resolves an id through it. It survives as the only answer to
+"which destination was legacy id 1500?" — a question asked by old provisioning records, CDR
+exports and any audit of what 053 assigned. Dropping it makes those permanently unanswerable
+to save one small table.
