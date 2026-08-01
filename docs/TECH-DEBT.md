@@ -171,3 +171,28 @@ engineering · point pricing and provisioning at the commercial layer.
 That last step is [TD-001](#td-001--rate-matrix-generator-materialises-one-object-per-skipped-cell)
 arriving from the other direction: an assignment-driven generator and a commercial-layer
 catalogue are the same change seen from the code and from the data.
+
+**Expansion runs INBOUND only.** A proposal to expand a commercial destination into its
+technical prefixes when generating a tariff would undo migration 053, whose comment answers
+it directly: "1923 rates every 923xxxxxxx call... Pricing per operator series instead would
+mean thousands of rows per customer rather than 128." A customer tariff contains only the
+rows we put in it, so one row at the commercial prefix already covers every operator series
+beneath it.
+
+The two layers are used in opposite directions, and conflating them is the trap:
+
+```
+technical prefixes  INBOUND   given a number, what is it?   vendor matching, CDR, fraud, LCR
+commercial dests    OUTBOUND  what do we charge?            approval, assignment, tariff
+```
+
+`923081` from a vendor resolves UP to Jazz -> Pakistan Mobile -> an FC price. That lookup
+needs all 150k. The tariff still receives one row.
+
+**Inheritance changes what `commercial_status` means on a child row.** Eight read sites query
+`commercial_status = 'approved'` directly. Under "approve Jazz, children inherit" the child's
+status is derived, so either compute on read (recursive CTE, all eight queries change) or
+materialise on write (cascade an UPDATE, existing queries unchanged, flag can drift). Prefer
+materialising — but the cascade belongs in one migration or one service function, never spread
+across the eleven write sites. A derived flag maintained in eleven places is how `destinations`
+and `global_destinations` diverged.
