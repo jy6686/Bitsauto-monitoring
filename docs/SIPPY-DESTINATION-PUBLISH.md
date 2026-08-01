@@ -141,6 +141,29 @@ check    ->  download current destinations, recompute, compare
 `rate_notification_jobs.generated_attachment_hash` already does exactly this for notification
 workbooks — the pattern exists and should be reused rather than reinvented.
 
+### Three questions, kept separate
+
+A single "published OK" flag collapses three things that fail independently:
+
+| Question | Answered by | Failure it catches |
+|---|---|---|
+| Was the same content **generated**? | hash of the built workbook | the generator changed, or the catalogue did |
+| Was the same content **published**? | upload accepted, rows counted | transport succeeded but sent nothing |
+| Is the target **still identical**? | fresh download, recompute, compare | someone edited Sippy directly |
+
+Collapsing them is not hypothetical — it is the shape of both defects found on the first
+successful provisioning run. `Completed` with `Dests —` merged the first two: the job ran, so
+it reported success, having sent nothing. `verified 0` on eleven rows that were sitting in the
+tariff merged the second and third: the upload was fine and the read-back was wrong, and the
+message blamed the upload.
+
+The pattern in both: **"we did the thing" reported as "the thing is true."** Three answers, or
+the report cannot distinguish a broken generator from a broken transport from a hand-edited
+switch.
+
+> **BitsAuto is the master data system. Sippy is an execution system.**
+> **Drift from Sippy is detected and reported. It is never adopted automatically.**
+
 **The check must NEVER sync Sippy back into the catalogue.** That will look like an obvious
 improvement to someone later: drift is detected, the switch has newer data, adopting it is one
 query. It is the thing Rule 4 exists to forbid.
