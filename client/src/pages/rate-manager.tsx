@@ -2859,8 +2859,13 @@ function ProductRatesTab({ products }: { products: Product[] }) {
   });
 
   const handleCreate = () => {
-    if (!selectedProductId || !form.rate || !form.effectiveFrom) {
-      toast({ title: "Select a product and fill rate + effective date", variant: "destructive" }); return;
+    // Prefix is now chosen from a list, so an empty one means nothing was selected — worth
+    // its own message rather than being folded into "fill rate + effective date", which
+    // would leave an operator hunting for which field is missing.
+    if (!selectedProductId) { toast({ title: "Select a product first", variant: "destructive" }); return; }
+    if (!form.prefix)       { toast({ title: "Select a destination", variant: "destructive" }); return; }
+    if (!form.rate || !form.effectiveFrom) {
+      toast({ title: "Enter a rate and an effective date", variant: "destructive" }); return;
     }
     createMut.mutate({ productId: Number(selectedProductId), ...form });
   };
@@ -2950,9 +2955,28 @@ function ProductRatesTab({ products }: { products: Product[] }) {
 
         {showForm && (
           <div className="border-b border-border/30 bg-muted/5 px-4 py-3 flex flex-wrap gap-3 items-end">
+            {/* Destination, not a typed prefix.
+                A free-text box asks the operator to remember that Pakistan Mobile Jazz is
+                9230 — and a typo there does not fail, it prices a different country. The
+                list is the destinations this product is SOLD on, so an unassigned prefix
+                cannot be entered by accident either. */}
             <div className="flex flex-col gap-1">
-              <label className="text-[10px] text-muted-foreground">Prefix</label>
-              <input data-testid="input-rate-prefix" className="bg-muted border border-border rounded px-2 py-1 text-xs w-32 font-mono" placeholder="e.g. 9230" value={form.prefix} onChange={e => setForm(f => ({ ...f, prefix: e.target.value }))} />
+              <label className="text-[10px] text-muted-foreground">Destination</label>
+              <select
+                data-testid="select-rate-destination"
+                className="bg-muted border border-border rounded px-2 py-1 text-xs w-64"
+                value={form.prefix}
+                onChange={e => setForm(f => ({ ...f, prefix: e.target.value }))}
+              >
+                <option value="">Select a destination…</option>
+                {(commercial?.destinations ?? [])
+                  .filter(d => d.products.includes(productCode))
+                  .map(d => (
+                    <option key={d.id} value={d.prefix}>
+                      {d.name} — {d.prefix}
+                    </option>
+                  ))}
+              </select>
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] text-muted-foreground">Rate (USD/min)</label>
@@ -2981,11 +3005,17 @@ function ProductRatesTab({ products }: { products: Product[] }) {
         <div className="flex-1 overflow-auto">
           {isLoading ? (
             <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
+          ) : !selectedProductId ? (
+            // Without a product there is nothing to join against: /api/product-rates returns
+            // EVERY product's rates, so the same prefix appears once per product and every row
+            // would be labelled "not assigned". A prompt is the honest rendering of "no
+            // question has been asked yet".
+            <div className="text-center text-xs text-muted-foreground py-12">
+              Select a product to see the destinations it is sold on
+            </div>
           ) : grid.length === 0 ? (
             <div className="text-center text-xs text-muted-foreground py-12">
-              {selectedProductId
-                ? "No destinations are assigned to this product — assign them in the Destination Catalogue first"
-                : "Select a product to view its destinations"}
+              No destinations are assigned to this product — assign them in the Destination Catalogue first
             </div>
           ) : (
             <table className="w-full text-xs border-collapse">
