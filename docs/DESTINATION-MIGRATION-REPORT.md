@@ -166,9 +166,23 @@ recorded**, and the rate step falls through to "all approved destinations".
 |---|------|-------|
 | **058** | Abandoned. No-op, retained under its original filename with the evidence. | written |
 | **059** | Merge `global_destinations` into `destinations`; write `destination_id_map`. Data only. | written |
-| **060** | Translate the 52 assignments; repoint 5 FKs and 1 view; move the 11 write sites; point `destinations_v` at `destinations`. | not started |
-| **061** | Retire `global_destinations` after a soak. | not started |
-| **062** | Commercial reset: `approved` → `unapproved` with `destination_status_history` preserved. | not started |
+| **060** | Commercial reset in `destinations`: `approved` → `unapproved`, history preserved. **Must precede the cutover** — see below. | not started |
+| **061** | Translate the 52 assignments; repoint 5 FKs and 1 view; move the 11 write sites; point `destinations_v` at `destinations`. | not started |
+| **062** | Retire `global_destinations` after a soak. | not started |
+
+### Why the reset comes BEFORE the cutover
+
+Originally sequenced after it. That was wrong, and a provisioning run on 2026-08-01 showed
+why. `rates.step` falls through to `approved AND dial_prefix IS NOT NULL` whenever a company
+has no markets — which today is every company, because the `company_markets` FK rejects
+catalogue ids. Against `global_destinations` that yields **17 destinations × 4 products = 68
+cells**. Against `destinations`, where all 150,408 rows are currently approved, the same
+query yields **601,632 cells** for a single customer tariff, and `matrix-generator` has no
+row cap.
+
+So the cutover must not land while everything is approved. Reset first, then repoint. The
+reset is invisible until the cutover anyway: the live path still reads
+`global_destinations`, so nothing a customer sees changes between 060 and 061.
 
 ### Why 058 is a no-op rather than deleted
 
@@ -192,7 +206,7 @@ duplication) and a `destinations` table with an unfillable NOT NULL column (refu
 
 ---
 
-## Commercial reset (062), after the cutover
+## Commercial reset (060), before the cutover
 
 The governance goal: `approved` means "commercially validated and offerable", not "exists".
 
@@ -207,8 +221,9 @@ The governance goal: `approved` means "commercially validated and offerable", no
    approved entry, and approving everything at once is what exposed `PAK`.
 
 **Sequencing:** the reset makes every destination unsellable until re-approved
-(`matrix-generator.ts:128` drops non-approved rows), so it comes **after** Test-31 is
-certified, not before.
+(`matrix-generator.ts:128` drops non-approved rows). That cost is already paid — the
+deployment has 0 rows in `product_rates`, so no customer is being priced from the catalogue
+today and the reset takes nothing away. It runs before the cutover, for the reason above.
 
 ---
 
