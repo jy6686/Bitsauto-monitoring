@@ -57,6 +57,8 @@ DECLARE
   orphans    BIGINT := 0;
   gd_only    BIGINT := 0;
   shared_n   BIGINT := 0;
+  by_identity BIGINT := 0;
+  d_min BIGINT; d_max BIGINT; g_min BIGINT; g_max BIGINT;
 BEGIN
   IF to_regclass('public.global_destinations') IS NULL THEN
     RAISE EXCEPTION 'global_destinations does not exist — this database is not in the state 058 expects.';
@@ -76,8 +78,35 @@ BEGIN
        INTO orphans;
 
     IF orphans > 0 THEN
-      RAISE EXCEPTION
-        'destinations holds % row(s) that global_destinations does not. Re-pointing the view would hide them. This needs a reconciliation, not a rollback — compare the two tables before proceeding.', orphans;
+      -- REPORT ENOUGH TO DECIDE, not just enough to stop. The first run of this guard
+      -- said only "destinations holds 149547 row(s) that global_destinations does not",
+      -- which is true and does not distinguish the two cases that matter:
+      --
+      --   ids preserved   -> the tables genuinely hold different populations
+      --   ids renumbered  -> the same destinations exist in both under different ids,
+      --                      and an id-based comparison means nothing
+      --
+      -- Step 2 used a backfill this migration cannot see, so the second is entirely
+      -- possible. Comparing on (name, dial_prefix) as well as on id separates them, and
+      -- there is no way to run that query by hand against this database.
+      EXECUTE 'SELECT count(*) FROM (
+                 SELECT lower(trim(name)) n, coalesce(dial_prefix,'''') p FROM destinations
+                 EXCEPT
+                 SELECT lower(trim(name)) n, coalesce(dial_prefix,'''') p FROM global_destinations) x'
+         INTO by_identity;
+      EXECUTE 'SELECT min(id), max(id) FROM destinations'         INTO d_min, d_max;
+      EXECUTE 'SELECT min(id), max(id) FROM global_destinations'  INTO g_min, g_max;
+
+      RAISE EXCEPTION E'Cannot re-point the view — the two tables disagree.\n'
+        '  global_destinations : % rows, ids %-%\n'
+        '  destinations        : % rows, ids %-%\n'
+        '  rows in destinations with an id global_destinations lacks   : %\n'
+        '  rows in destinations with a (name, dial_prefix) it lacks     : %\n\n'
+        'If the second number is near zero the ids were RENUMBERED by the Step 2 backfill '
+        'and the same destinations exist in both — the fix is to compare on identity, not id. '
+        'If it is close to the first, the tables genuinely hold different data and this needs '
+        'a reconciliation before anything is re-pointed.',
+        gd_count, g_min, g_max, d_count, d_min, d_max, orphans, by_identity;
     END IF;
 
     -- Both directions, recorded even though only one of them can block. In six months
