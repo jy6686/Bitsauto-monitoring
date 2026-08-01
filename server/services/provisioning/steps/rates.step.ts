@@ -294,6 +294,27 @@ export const ratesStep: ProvisioningStep = {
         'Effective immediately — no activation date set',
         `${matrix.byProduct.map(p => `${p.code} ${p.count}`).join(' · ')}`,
         res.message,
+        // WHAT DID NOT GO. A partly-priced matrix uploaded silently: "12 rate(s) uploaded"
+        // is true, reads as success, and says nothing about the 56 cells dropped for having
+        // no price. The customer ends up with a tariff covering a fifth of what they bought
+        // and the run that produced it looks clean.
+        //
+        // Grouped by destination with the missing product codes, because "56 cells" is a
+        // quantity and "PAKISTAN MOBILE (BC/SB)" is an instruction. Same reason the empty
+        // case names its prefixes.
+        ...(() => {
+          const noRate = matrix.skipped.filter(s => s.reason === 'no-rate');
+          if (!noRate.length) return [];
+          const byDest = new Map<string, string[]>();
+          for (const s of noRate) {
+            const list = byDest.get(s.destinationName) ?? [];
+            if (s.productCode) list.push(s.productCode);
+            byDest.set(s.destinationName, list);
+          }
+          const shown = [...byDest.entries()].slice(0, 15)
+            .map(([name, codes]) => `${name}${codes.length ? ` (${codes.join('/')})` : ''}`);
+          return [`${noRate.length} cell(s) NOT uploaded — no price for: ${shown.join(' · ')}${byDest.size > 15 ? ` … and ${byDest.size - 15} more destination(s)` : ''}`];
+        })(),
         ...(matrix.warnings.length ? [`Warnings: ${matrix.warnings.join(' · ')}`] : []),
       ],
       metrics: {
@@ -303,6 +324,10 @@ export const ratesStep: ProvisioningStep = {
         // and did not import reports created without verified, and that gap is the signal.
         verified:  res.verified ? rows.length : 0,
         failed:    0,
+        // Countable, not only prose. `skipped` is part of the frozen metrics vocabulary and
+        // was being left at zero on a run that dropped cells — so a partial upload was
+        // indistinguishable from a complete one to anything reading metrics rather than detail.
+        skipped:   matrix.summary.rowsSkipped,
         iTariff,
         products: products.length, destinations: destinations.length,
         byProduct: Object.fromEntries(matrix.byProduct.map(p => [p.code, p.count])),
