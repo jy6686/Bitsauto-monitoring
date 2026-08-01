@@ -94,3 +94,43 @@ The types are in [`server/services/provisioning/types.ts`](../server/services/pr
 The UI renders `detail` verbatim and does not format `metrics`. A client-side renderer would need a case per step, so adding a step would mean changing the browser code — and some lines are not derivable from counts at all. *"Effective immediately — no activation date set"* is a fact about how the workbook is built, which is knowledge that belongs with the step.
 
 `metrics` is returned by `GET /api/provisioning/jobs/:id` for callers that chart it.
+
+---
+
+## Generated, published, verified — three states, never one
+
+`created` and `verified` are separate keys for a reason that generalises past provisioning.
+Every subsystem that produces something and hands it to another system has **three** states,
+and a single "success" flag collapses at least two of them:
+
+| State | Question | Collapsed form that hides it |
+|---|---|---|
+| **Generated** | did we produce the expected output? | — |
+| **Published** | did the target accept it? | "Completed" on a job that sent nothing |
+| **Verified** | does the target still hold what we sent? | `created` reported without `verified` |
+
+Both failures were observed on the first end-to-end provisioning run, 2026-08-01:
+
+- **`Completed` with `Dests —`** merged generated and published. The job ran, so it reported
+  success, having delivered an empty payload.
+- **`0/3 sampled rate(s) read back`** on eleven rows that were sitting in the tariff merged
+  published and verified. The upload was fine, the read-back was wrong, and the message
+  blamed the upload.
+
+And in the same run, the notification step reported `4 sent, 0 failed`. **`sent` means SMTP
+accepted four messages, not that four arrived** — the same collapse, in a different subsystem,
+unnoticed because the wording sounds conclusive.
+
+### Where it applies
+
+| Subsystem | Generated | Published | Verified |
+|---|---|---|---|
+| Tariff rates | XLSX built | upload accepted | sampled read-back matches |
+| Sippy destinations | workbook built | portal import accepted | destinations present and identical |
+| Rate notifications | workbook built | provider accepted | delivery confirmed, where supported |
+| Account provisioning | configuration assembled | XML-RPC executed | account, plan, tariff and auth rules all read back |
+
+**The rule:** a status may summarise the three, but must be derived from them and must never
+replace them. If a report cannot distinguish a broken generator from a broken transport from a
+target that has since drifted, it will attribute every failure to whichever one is easiest to
+blame — which is how a working rate upload spent two weeks recorded as a defect.
