@@ -43,6 +43,42 @@ interface RateEntry {
   activationDate: string | null; expirationDate: string | null; forbidden: boolean | null;
 }
 
+/**
+ * The level-1 rows that are actually countries, one per country.
+ *
+ * `level === 1` does not mean "country". The catalogue holds ~1,145 operator and service rows
+ * at the root — `PAK Mobile MOBLIN`, `COL Mobile MOVIST`, `AFG Mobile AREEBA` — and they were
+ * listed beside Poland and Peru in every picker that read the level alone.
+ *
+ * `countryCode !== null` separates them exactly. Measured against the production catalogue
+ * 2026-08-03: of 1,497 level-1 rows, all 352 carrying a country code are countries and none of
+ * the 1,145 without one is. Zero misclassification in either direction, and no name is matched
+ * — unlike `mergedFromLegacy`, which is provenance rather than identity and misses every
+ * operator row that predates 059.
+ *
+ * Countries are then deduplicated by name, because each appears twice: once ISO-coded
+ * (`Pakistan`/`PK`) and once dial-coded (`Pakistan`/`92`). **The twin with children wins.**
+ * The pickers resolve operators by `parentId`, so keeping the childless row would empty the
+ * operator dropdown while the country list looked correct. Pakistan is exactly that case —
+ * id 1 has no children and no product assignments; id 374639 has both.
+ *
+ * Temporary. 063A/B repairs `parent_id` and `level`, after which this keys off the tree
+ * instead of inferring a country from a nullable column.
+ */
+function countryNodes(allDests: DestNode[]): DestNode[] {
+  const parented = new Set(
+    allDests.map(d => d.parentId).filter((p): p is number => p !== null),
+  );
+  const byName = new Map<string, DestNode>();
+  for (const d of allDests) {
+    if (d.level !== 1 || d.countryCode === null) continue;
+    const key = d.name.trim().toLowerCase();
+    const held = byName.get(key);
+    if (!held || (!parented.has(held.id) && parented.has(d.id))) byName.set(key, d);
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // ── MultiSelect Dropdown ───────────────────────────────────────────────────────
 function MultiSelect({
   options,
@@ -1629,20 +1665,8 @@ function AnalysisTab({
   const product = products.find(p => String(p.id) === selectedProduct);
   const trunkPrefix = product?.trunkPrefix ?? "";
 
-  // Destination hierarchy.
-  //
-  // `level === 1` alone is not "country" any more. Migration 059 merged ~2,540 rows from
-  // global_destinations, and a row with no parent takes the canonical root level — so
-  // operator and service rows like `PAK Mobile MOBLIN` and `PAK Fixed SCOGSM` are level 1
-  // and were appearing in this list beside Poland and Peru.
-  //
-  // Excluded here only. They remain in the catalogue and in every other consumer; this list
-  // answers "which country" and they are not one. destination_id_map identifies them
-  // exactly, so nothing is matched by name.
-  const countries = useMemo(
-    () => allDests.filter(d => d.level === 1 && !d.mergedFromLegacy),
-    [allDests],
-  );
+  // Destination hierarchy. See countryNodes() — `level === 1` is not "country".
+  const countries = useMemo(() => countryNodes(allDests), [allDests]);
   const operators = useMemo(
     () => allDests.filter(d => d.level === 2 && selectedCountries.includes(String(d.parentId))),
     [allDests, selectedCountries],
@@ -2054,7 +2078,10 @@ function SendRateTab({
   const trunkPrefix = product?.trunkPrefix ?? "";
   const stripPlus = (s: string) => s.replace(/^\+/, '');
 
-  const countries = useMemo(() => allDests.filter(d => d.level === 1), [allDests]);
+  // Same source as Rate Analysis — /api/product-registry/destinations — and it was never
+  // filtered here, which is why this picker still listed `PAK Mobile MOBLIN` and `PAK Mobile
+  // PAKTEL`. cb62b68f scoped its fix to Rate Analysis alone. See countryNodes().
+  const countries = useMemo(() => countryNodes(allDests), [allDests]);
   const operators = useMemo(
     () => notifCountry ? allDests.filter(d => d.level === 2 && String(d.parentId) === notifCountry) : [],
     [allDests, notifCountry],
