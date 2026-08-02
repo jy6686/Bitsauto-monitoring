@@ -59,6 +59,27 @@ The specific query or procedure. Not "audit destination ids", but:
 The test: **can this produce "no"?** If no outcome of the procedure would stop you, it is not
 a measurement, it is a formality.
 
+> **Every measurement shall explicitly define its population before defining its metric.**
+> Metrics without an explicitly stated population are invalid for decision-making, because
+> identical values measured over different populations answer different engineering questions.
+> Population is part of the measurement definition, not explanatory text.
+
+Independent of the falsifier rule below, and not covered by it. A measurement can be
+structurally capable of every outcome, syntactically correct and semantically correct, and
+still answer the wrong engineering question by ranging over the wrong set.
+
+This session produced the example. Two measurements, both valid, both returning 62:
+
+| | Population | Result |
+|---|---|---|
+| A | countries the shipped picker filter would remove | **1** — United Arab Emirates |
+| B | countries needing dial-root reconciliation under 063A | **62** |
+
+The claim under test — "the filter removes 62 countries" — required population A and was
+argued from B. Nothing was borrowed or misquoted; two adjacent, correct measurements were
+substituted for one another because the figures were similar and the populations were
+implicit. State the population and they stop being interchangeable.
+
 > **The implementation of the measurement must itself be reviewed against its falsifier. A
 > measurement that cannot produce every specified outcome is invalid, regardless of the data.**
 
@@ -137,3 +158,19 @@ review, not a refactor.
 The four items above, on `product_rates.destination_id` — a query, not a migration. It sits
 under the certified path, and the only existing evidence about it is co-occurrence, which
 cannot answer the question.
+
+It has **two** populations, and the population rule requires both to be reported:
+
+```
+Population A: distinct destination identities referenced by product_rates
+Metric:       canonical / legacy / ambiguous / orphaned identities
+Answers:      which identities require translation      → the decision rule consumes this
+
+Population B: rows in product_rates referencing those identities
+Metric:       canonical / legacy / ambiguous / orphaned rows
+Answers:      how much of the certified rate engine is affected   → blast radius
+```
+
+Not extra reporting — the same classification counted over the two sets, answering two
+different engineering questions. Reporting either number without naming its population is the
+substitution above, repeated.
