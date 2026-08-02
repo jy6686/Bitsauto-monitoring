@@ -59,6 +59,37 @@ The specific query or procedure. Not "audit destination ids", but:
 The test: **can this produce "no"?** If no outcome of the procedure would stop you, it is not
 a measurement, it is a formality.
 
+> **The implementation of the measurement must itself be reviewed against its falsifier. A
+> measurement that cannot produce every specified outcome is invalid, regardless of the data.**
+
+Measurements contain assumptions exactly as migrations do, and those assumptions are testable
+too. The worked example, because it is subtle and it is the first thing Sprint 1 does:
+
+```sql
+CASE WHEN EXISTS (SELECT 1 FROM destinations …)        THEN 'Canonical'
+     WHEN EXISTS (SELECT 1 FROM destination_id_map …)  THEN 'Legacy'
+     ELSE 'Orphaned' END
+```
+
+That is a three-bucket classifier wearing four buckets. The `Canonical` branch short-circuits,
+so it masks the precise condition being hunted — an id that is valid in `destinations` *and*
+mapped to a different destination. `Ambiguous` is unreachable, and the query has decided the
+answer before reading a row.
+
+The two facts must be computed independently and compared afterwards:
+
+| in `destinations` | in map | maps to same destination | Classification |
+|---|---|---|---|
+| no | no | — | Orphaned |
+| yes | no | — | Canonical |
+| no | yes | — | Legacy |
+| yes | yes | yes | Canonical (already translated) |
+| **yes** | **yes** | **no** | **Ambiguous — stop immediately** |
+
+The last row is why the measurement exists. Any query structure that cannot emit it is invalid
+before the data is considered. Same failure as the co-occurrence count above, one level deeper:
+not a wrong answer, but an instrument that cannot register the reading you need.
+
 ### 4. Decision rule, written before the result is seen
 
 | Result | Action |
