@@ -597,6 +597,15 @@ confidently. A non-country must never remain a root.
 Refuses if a root would be removed while it still has children. Cheap today: 48 parented rows
 in the whole catalogue.
 
+> **Scope note — 059 changed the volumetrics, not the design.** The "11 operator rows at
+> level 1" above was measured before 059 ran. On the workspace after 059 there are **1,145**
+> level-1 rows with no `country_code`; the original 11 are among 16 with pre-059 ids and the
+> rest arrived in one id block above 370,000. The three reconciliation cases still measure
+> 62 and 6 exactly. Rules unchanged, execution set ~100× larger, and at that size the run
+> must emit a summary and persist exceptions rather than complete silently. Measurements,
+> projected placement counts and the reporting requirement:
+> `DESTINATION-HIERARCHY-REPAIR-063.md`.
+
 ### 063B — Deterministic type layer
 
 `Country → Mobile | Fixed | Services | Unclassified`, on whole-word matching only. Classifies
@@ -627,6 +636,13 @@ than the operation that produced it.
 
 Done per country, prioritised by what is actually sold — not swept across 150k rows in one
 pass.
+
+> **Enrichment only, and the measurement says so.** Operator tokens resolved against the 264
+> operator entries in `server/country-codes.json`: of 627 rows carrying one, 6 match exactly,
+> 43 as a prefix, 578 not at all. Nowhere near the confidence to derive structure, which is
+> why it does not have to — 063A/B establish parentage from tokens 1 and 2 alone, and the
+> operator token stays the node's own name. `MOVIST` / `MOVISTAR` / `MOBLIN` / `MOBILINK`
+> never become a parsing problem for the structural repair.
 
 ### 063D — Commercial decisions
 
