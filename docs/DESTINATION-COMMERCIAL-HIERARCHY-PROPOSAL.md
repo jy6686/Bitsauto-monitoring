@@ -117,6 +117,34 @@ the strongest argument for adopting the model.
 
 ---
 
+## Measured 2026-08-03 — three prefixes compete for the same traffic, all approved
+
+On `heliumdb`, Pakistan mobile is priced at three levels of specificity simultaneously:
+
+| id | name | prefix | level | parent | status |
+|---|---|---|---|---|---|
+| 375991 | `PAKISTAN MOBILE` | `923` | 2 | 374639 | approved |
+| 374641 | `Pakistan Mobile Jazz` | `9230` | 2 | **NULL** | approved |
+| 374643 | `Pakistan Mobile Jazz` | `9232` | 2 | **NULL** | approved |
+| 9 | `Jazz` | `92300` | 3 | 8 | approved |
+
+Sippy matches longest prefix, so `923001234567` prices against **`92300`** — the routing-series
+row — and never reaches the commercial Jazz destination. Publishing all three gives one
+operator three prices and lets the most specific silently win.
+
+Two consequences for this proposal:
+
+- **`destination_prefixes` alone does not finish the job.** Attaching `{9230, 9232}` to a Jazz
+  node leaves `92300` and `923` still approved and still winning. Consolidation must decide
+  which rows are absorbed and which survive — Q4, with a measurable cost for getting it wrong.
+- **The commercial rows are orphans.** Every `9230`–`92391` row has `parent_id = NULL`. The
+  `Pakistan → PAKISTAN MOBILE → Jazz` tree does not exist in the data; only
+  `374639 → 375991` is parented. 063A/B is what creates it.
+
+Before any consolidation, an overlap report is needed per country: which prefixes are wholly
+covered by a shorter one, which destinations become redundant, and which longer prefixes carry
+a deliberately different rate and must survive.
+
 ## The schema change
 
 One table. Prefixes stop being an attribute *of* a node and become a set *belonging to* a
@@ -146,7 +174,27 @@ longer a thing that can be.
 
 ## Open questions this proposal must answer before it is approvable
 
-**Q1 — the export-expansion conflict. Resolved in principle; a measurement remains.**
+**Q1 — CLOSED 2026-08-03 by a business rule, not a principle rewrite.**
+
+Prefix-level rows are a **commercial** requirement, not a transport format. `Pakistan Mobile
+Jazz` owns `9230` and `9232`; `9232` was Warid before Jazz acquired it, and the customer's rate
+notification must show both ranges under the Jazz name so they can see their coverage:
+
+```
+Pakistan Mobile Jazz    9230    0.0400
+Pakistan Mobile Jazz    9232    0.0400
+```
+
+So the thing that stays singular is the **identity**, not the row count. Product Rates edits one
+destination; notifications, price lists and the publisher each emit one row per prefix. The
+amendment below still stands for Sippy, but Q1's tension dissolves: expansion was never
+purely a transport concern, and V2 Principle 3's "one tariff row per commercial destination"
+was over-general. Its real target is expansion to *operator series* (`92300`), not to the
+commercial ranges an operator owns (`9230`, `9232`).
+
+The row-count measurement is still wanted for capacity, but it no longer gates the design.
+
+**Q1 (original framing) — the export-expansion conflict.**
 
 V2 Principle 3 reads: *"never expand a commercial destination into prefixes at export. That
 undoes 053: one tariff row per commercial destination, not thousands."* The publisher
