@@ -40,12 +40,17 @@ SELECT table_name, column_name, data_type, is_nullable
  ORDER BY table_name, ordinal_position;
 
 
--- ══ C2. Hierarchy shape — run this in BOTH environments and compare ══════════
--- Workspace measured 2026-08-03: 363 / 11 / 0 / 36 / 150,047.
--- The design documents describe a population with 1,497 / 1,145, which is a
--- DIFFERENT database. 1,497 - 363 = 1,134, and 1,134 + 11 = 1,145: the two
--- reconcile exactly, with 352 countries identical in both. Whichever database
--- this runs against, record which one before reading the numbers.
+-- ══ C2. Hierarchy shape ══════════════════════════════════════════════════════
+-- CORRECTION to 64d30706, which claimed the design payload was the deployment and
+-- this the workspace. FALSIFIED: they are one database. Sequence last_value is
+-- 375,991 and max(id) is 375,991, so this store never issued an id above that —
+-- while the payload's max is 378,519 and every one of its 2,528 absent rows sits
+-- above 375,991. Id 375979 is `AFG` in the payload and `INDIA MOBILE` here.
+-- The payload is a different id space, origin unidentified. See
+-- docs/evidence/ER-001-product-rates-destination-id-space.md.
+--
+-- Measured here 2026-08-03: 363 / 11 / 352 / 0 / 36 / 150,047.
+-- Record which database this runs against before reading the numbers.
 SELECT count(*) FILTER (WHERE d.level = 1)                             AS level1_total,
        count(*) FILTER (WHERE d.level = 1 AND d.country_code IS NULL)  AS level1_non_country,
        count(*) FILTER (WHERE d.level = 1 AND d.country_code IS NOT NULL) AS level1_countries,
