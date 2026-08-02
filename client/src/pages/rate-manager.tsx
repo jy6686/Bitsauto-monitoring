@@ -56,27 +56,43 @@ interface RateEntry {
  * — unlike `mergedFromLegacy`, which is provenance rather than identity and misses every
  * operator row that predates 059.
  *
- * Countries are then deduplicated by name, because each appears twice: once ISO-coded
- * (`Pakistan`/`PK`) and once dial-coded (`Pakistan`/`92`). **The twin with children wins.**
- * The pickers resolve operators by `parentId`, so keeping the childless row would empty the
- * operator dropdown while the country list looked correct. Pakistan is exactly that case —
- * id 1 has no children and no product assignments; id 374639 has both.
+ * Countries are then collapsed by name, because each is stored twice: once ISO-coded
+ * (`Pakistan`/`PK`) and once dial-coded (`Pakistan`/`92`).
  *
- * Temporary. 063A/B repairs `parent_id` and `level`, after which this keys off the tree
- * instead of inferring a country from a nullable column.
+ * **Both twins are kept, not one.** Picking a winner looks right and is wrong: the twins hold
+ * DIFFERENT children, so choosing either silently hides the other's operators. Pakistan id 1
+ * has `Fixed` and `Mobile` (and beneath Mobile, Jazz/Zong/Ufone/Telenor); id 374639 has
+ * `PAKISTAN MOBILE` and the four product assignments. India and Bangladesh are the same shape.
+ * So one entry is shown, carrying every twin's id, and `childrenOf` matches against all of
+ * them.
+ *
+ * Temporary. 063A/B repairs `parent_id` and `level` and merges the duplicate roots, after
+ * which this keys off the tree instead of inferring a country from a nullable column.
  */
-function countryNodes(allDests: DestNode[]): DestNode[] {
-  const parented = new Set(
-    allDests.map(d => d.parentId).filter((p): p is number => p !== null),
-  );
-  const byName = new Map<string, DestNode>();
+interface CountryNode extends DestNode {
+  /** Every stored row for this country, including this one. Match children against all. */
+  twinIds: number[];
+}
+
+function countryNodes(allDests: DestNode[]): CountryNode[] {
+  const byName = new Map<string, CountryNode>();
   for (const d of allDests) {
     if (d.level !== 1 || d.countryCode === null) continue;
     const key = d.name.trim().toLowerCase();
     const held = byName.get(key);
-    if (!held || (!parented.has(held.id) && parented.has(d.id))) byName.set(key, d);
+    if (held) held.twinIds.push(d.id);
+    else byName.set(key, { ...d, twinIds: [d.id] });
   }
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Rows at `level` whose parent is any of the selected countries' twin ids. */
+function childrenOf(allDests: DestNode[], parents: CountryNode[], selected: string[], level: number) {
+  const ids = new Set<number>();
+  for (const p of parents) {
+    if (selected.includes(String(p.id))) for (const id of p.twinIds) ids.add(id);
+  }
+  return allDests.filter(d => d.level === level && d.parentId !== null && ids.has(d.parentId));
 }
 
 // ── MultiSelect Dropdown ───────────────────────────────────────────────────────
@@ -1668,8 +1684,8 @@ function AnalysisTab({
   // Destination hierarchy. See countryNodes() — `level === 1` is not "country".
   const countries = useMemo(() => countryNodes(allDests), [allDests]);
   const operators = useMemo(
-    () => allDests.filter(d => d.level === 2 && selectedCountries.includes(String(d.parentId))),
-    [allDests, selectedCountries],
+    () => childrenOf(allDests, countries, selectedCountries, 2),
+    [allDests, countries, selectedCountries],
   );
   const categories = useMemo(
     () => allDests.filter(d => d.level === 3 && selectedOperators.includes(String(d.parentId))),
@@ -2083,8 +2099,8 @@ function SendRateTab({
   // PAKTEL`. cb62b68f scoped its fix to Rate Analysis alone. See countryNodes().
   const countries = useMemo(() => countryNodes(allDests), [allDests]);
   const operators = useMemo(
-    () => notifCountry ? allDests.filter(d => d.level === 2 && String(d.parentId) === notifCountry) : [],
-    [allDests, notifCountry],
+    () => notifCountry ? childrenOf(allDests, countries, [notifCountry], 2) : [],
+    [allDests, countries, notifCountry],
   );
   const categories = useMemo(
     () => notifOperator ? allDests.filter(d => d.level === 3 && String(d.parentId) === notifOperator) : [],
