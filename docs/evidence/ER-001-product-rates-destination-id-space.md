@@ -86,7 +86,75 @@ database with real rate data.
 
 ---
 
-## The design-phase payload is a different database
+## RESOLVED 2026-08-03 — the payload is PRODUCTION
+
+**Superseded the section below.** The deployment's own startup logs identify it.
+
+Searching the production deployment logs for `dest-seed` returns one line per boot — 22
+successive Autoscale instances, each with its own deployment id, in chronological order:
+
+```
+2026-07-27 16:43  46be9dad   destinations has 150408 rows
+   … 21 boots, all 150408 …
+2026-08-01 15:43  c12d7894   destinations has 150408 rows
+2026-08-02 03:04  3b308a6a   destinations has 152950 rows
+```
+
+**152,950 is the payload exactly.** Not a reconstruction — a startup measurement emitted by the
+production process itself, matching the analysed payload row for row.
+
+| Environment | Rows | Source |
+|---|---|---|
+| Workspace | 150,422 | `psql` + workspace boot log, 2026-08-03 |
+| Production, Jul 27 – Aug 1 | 150,408 | 21 deployment boots |
+| Production, Aug 2 onward | **152,950** | deployment boot `3b308a6a` |
+
+**Production has never reported 150,422**, across 22 boots in a week. The workspace has never
+reported 150,408 or 152,950. They are two databases.
+
+The transition is clean rather than interleaved — 21 consecutive boots at one value, then the
+other — so it is a change over time in one store, not two pools alternating.
+
+### What caused the +2,542
+
+`152,950 − 150,408 = 2,542`. **Consistent with** migration 059 executing on production between
+Aug 1 15:43 and Aug 2 03:04, and matching the order of magnitude in `cb62b68f`'s commit message
+(*"~2,540 operator and service rows became level 1"*) on a database whose `global_destinations`
+holds 2,697 rows. The `dest-seed` line does not itself name the operation, so this is an
+attribution by arithmetic and timing, not a direct observation of 059 running. Confirmable from
+the deployment logs around that window.
+
+The workspace arithmetic corroborates it from the other side: `150,408 + 14 = 150,422`, and the
+workspace's `matched_by` reads `inserted: 14`. Both databases began from the same 150,408-row
+catalogue; 059 inserted 14 rows on the workspace, whose `global_destinations` was already a
+150,422-row copy, and ~2,542 on production, whose `global_destinations` is the original 2,697-row
+legacy table.
+
+### Consequences
+
+- The design documents' figures — **1,497 level-1 rows, 1,145 non-country, 621/223/152, the
+  063A volumetrics** — describe **production**. They are not unplaced. They are accurate for the
+  database that serves customers.
+- `375979` being `AFG` in production and `INDIA MOBILE` on the workspace is the 059 trap across
+  two databases rather than two tables.
+- **The picker bug is real, on production, now.**
+- `hidden_by_mitigation = 0` is a workspace fact. On production, where ~2,542 rows were
+  inserted, the same filter would hide them — so the mitigation in `cb62b68f` probably works
+  there. The screenshot predates the deploy that carries it; **"Finish update" is still
+  pending**, so customers are on a build without it.
+- `063A`'s "11 operator rows at level 1" describes the **workspace**, and still measures 11 there.
+
+**`64d30706` was correct and is reinstated.** Its workspace/production reasoning was withdrawn
+on 2026-08-03 on the strength of "no override secret exists, therefore one database" — an
+inference from absence, which was the only thing supporting the single-store conclusion. It lost
+to a log line. The section below is kept as the record of that reasoning, not as a finding.
+
+---
+
+## SUPERSEDED — the payload as an unidentified database
+
+*Written before the deployment logs were searched. Its facts about `heliumdb` hold; its
+conclusion that the payload's origin was unidentifiable does not.*
 
 The quantitative figures in `DESTINATION-HIERARCHY-REPAIR-063.md` and
 `DESTINATION-COMMERCIAL-HIERARCHY-PROPOSAL.md` come from a 152,950-row payload captured
@@ -118,13 +186,17 @@ confirmed, unplaced.
 
 ## Open items
 
-**1. The original bug is unexplained.** The session began with a screenshot of
-`vo-ip-watcher--junaid70.replit.app/api/product-registry/destinations` returning
-`COL Mobile MOVIST` and `CYP Mobile CYTA` at level 1. Id 376472 — `COL Mobile TIGO` in the
-payload — does not exist in this database and never did. If the deployment truly shares
-`heliumdb`, that response could not have come from it. Either the shared-database inference is
-wrong, or the deployment was serving something other than this store. **Unresolved, and it is
-the problem that started the investigation.**
+**1. RESOLVED — the original bug is real and it is on production.** The session began with a
+screenshot of `vo-ip-watcher--junaid70.replit.app/api/product-registry/destinations` returning
+`COL Mobile MOVIST` and `CYP Mobile CYTA` at level 1. Those rows exist in the production
+database, not in `heliumdb`. The country picker on production lists ~1,145 non-country rows.
+The fix in `cb62b68f` is written and pushed but **not deployed** — "Finish update" is pending.
+
+**1a. Open — is `product_rates.destination_id` populated on production?** ER-001's actual
+question is still unanswered, because it was asked of the wrong database. `heliumdb` holds 12
+rows with NULL. Production is unmeasured, and it is the one that matters. **Re-run
+`scripts/er-001-classification.sql` against the production database.** That requires a
+connection string the workspace shell does not carry.
 
 **2. `matched_by` semantics** — see the gate above.
 
