@@ -40,6 +40,33 @@ SELECT table_name, column_name, data_type, is_nullable
  ORDER BY table_name, ordinal_position;
 
 
+-- ══ C2. Hierarchy shape — run this in BOTH environments and compare ══════════
+-- Workspace measured 2026-08-03: 363 / 11 / 0 / 36 / 150,047.
+-- The design documents describe a population with 1,497 / 1,145, which is a
+-- DIFFERENT database. 1,497 - 363 = 1,134, and 1,134 + 11 = 1,145: the two
+-- reconcile exactly, with 352 countries identical in both. Whichever database
+-- this runs against, record which one before reading the numbers.
+SELECT count(*) FILTER (WHERE d.level = 1)                             AS level1_total,
+       count(*) FILTER (WHERE d.level = 1 AND d.country_code IS NULL)  AS level1_non_country,
+       count(*) FILTER (WHERE d.level = 1 AND d.country_code IS NOT NULL) AS level1_countries,
+       count(*) FILTER (WHERE d.level = 1 AND m.gd_id IS NOT NULL)     AS hidden_by_mitigation,
+       count(*) FILTER (WHERE d.level = 2 AND d.parent_id IS NOT NULL) AS level2_parented,
+       count(*) FILTER (WHERE d.level = 2)                             AS level2_total
+  FROM destinations d
+  LEFT JOIN destination_id_map m ON m.destination_id = d.id AND m.matched_by = 'inserted';
+
+-- What the country picker actually lists today, and what the shipped filter removes.
+-- If level1_non_country is large while hidden_by_mitigation is near zero, the
+-- filter in rate-manager.tsx:1643 is not what is holding the picker together.
+SELECT d.id, d.name, d.country_code, d.dial_prefix, d.commercial_status,
+       (m.gd_id IS NOT NULL) AS merged_from_legacy
+  FROM destinations d
+  LEFT JOIN destination_id_map m ON m.destination_id = d.id AND m.matched_by = 'inserted'
+ WHERE d.level = 1 AND d.country_code IS NULL
+ ORDER BY d.id
+ LIMIT 40;
+
+
 -- ══ D. The classification ════════════════════════════════════════════════════
 -- The two facts are computed INDEPENDENTLY in `facts`, then classified. A
 -- priority CASE over EXISTS would short-circuit on the canonical branch and make
