@@ -192,6 +192,13 @@ What this does **not** prove: last-mile behaviour of a mobile network. Localizat
 (`92322…` → `0322…`) and suppression are frequently applied by the terminating mobile
 operator *after* the SIP handoff. An O3-only result is silent about those.
 
+**Coverage is per-destination, not global.** A DID observes the route *to that DID*. A UK
+DID proves how vendors deliver calls to that UK number; it says nothing about the Pakistan
+Jazz route. The observation ceiling is therefore raised destination-by-destination, one DID
+at a time — and the DID must sit in a numbering range vendors route like a real subscriber
+number, or the calls it receives are not representative of the route being tested. Plan
+DID acquisition against the destinations that matter commercially, not as one purchase.
+
 So O3 and O4 are not redundant and one does not replace the other:
 
 - **O3** answers *"did the wholesale route preserve CLI?"* — automatable, continuous, scalable.
