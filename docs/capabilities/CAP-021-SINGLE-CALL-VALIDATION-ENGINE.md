@@ -523,6 +523,18 @@ Portal Framework v1.0  →  CAP-022 verification (§5 V1–V6, §6 baseline)
 L2A, L3A and BMEE Sprint 1 are **not** behind this gate — none of them depends on
 controlled vendor selection.
 
+**Track A build order is by business value, not by layer number:**
+
+1. **L3A duration integrity** — highest priority. Uses data BitsAuto already retrieves,
+   produces money-denominated evidence, independent of vendor targeting and of BMEE,
+   lowest implementation risk.
+2. **L2A opportunistic comparison** — historical comparison on observed routing.
+3. **L2B controlled comparison** — only after CAP-022 ratification.
+4. **L3B BYE timing integrity** — only once signalling retention exists.
+
+The layer numbers describe capability maturity, not sequence. Building L2 before L3A
+because "2 < 3" would defer the highest-value, lowest-risk capability in the document.
+
 > **Sequencing caution.** The two highest-value capabilities (L2, L3A) need no media path
 > and no AI. Track B being the track that can start first must not quietly promote media
 > intelligence ahead of the capabilities that actually change routing decisions.

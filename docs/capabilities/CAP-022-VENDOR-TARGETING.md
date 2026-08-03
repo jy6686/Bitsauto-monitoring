@@ -259,14 +259,24 @@ non-zero. Quantifying that is part of this study.
 
 ## 9. V1–V6 runbook
 
-> ⚠️ **These probes place real calls on the production switch.** They cost money, traverse
-> vendor networks and appear in production CDRs and analytics. They require the switch
-> owner's explicit sign-off on destination, timing and call budget before execution, and
-> they are the strongest argument for landing AE-002 first so the probe traffic is already
+**V5 is free and unblocked.** It inspects CDRs that already exist — no calls, no cost, no
+maintenance window, no approval. Run it on its own, first, and treat it as the gate on
+whether the paid campaign happens at all:
+
+```
+V5 PASS → approve V1–V4 budget and window → run production probes
+V5 FAIL → stop. Investigate i_connection population. Place no calls.
+```
+
+> ⚠️ **V1–V4 place real calls on the production switch.** They cost money, traverse vendor
+> networks and appear in production CDRs and analytics. They require the switch owner's
+> explicit sign-off on destination, timing and call budget before execution, and they are
+> the strongest argument for landing AE-002 first so the probe traffic is already
 > classifiable as synthetic.
 
-**Preconditions:** low-cost destination agreed · off-peak window · call budget agreed ·
-AE-002 landed if possible · a second operator watching the switch.
+**Preconditions for V1–V4 only:** V5 passed · low-cost destination agreed · off-peak
+window · call budget agreed · AE-002 landed if possible · a second operator watching the
+switch.
 
 | Step | Procedure | Record | Pass condition |
 |---|---|---|---|
