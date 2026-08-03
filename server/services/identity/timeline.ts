@@ -146,8 +146,52 @@ export function buildIdentityTimeline(input: BuildTimelineInput): IdentityTimeli
   return { stages, observationCeiling, observedStages, unobservedStages };
 }
 
-/** True when evidence reaches at least `level`. The basis of every attribution answer. */
+/** True when evidence reaches at least `level`. */
 export function reaches(t: IdentityTimeline, level: CliEvidenceLevel): boolean {
   if (!t.observationCeiling) return false;
   return LEVEL_ORDER.indexOf(t.observationCeiling) >= LEVEL_ORDER.indexOf(level);
+}
+
+/**
+ * Can a change be attributed to `stage` specifically?
+ *
+ * Reaching a stage is not enough. To blame a hop you must have observed the
+ * value ENTERING it and the value LEAVING it — otherwise a change seen further
+ * along could have been made by any hop in between.
+ *
+ * Concretely: with observations at Sippy ingress and at the handset, and
+ * nothing between, a CLI change is real but the span contains the vendor, the
+ * carrier and the terminating mobile network. Three suspects, one observation
+ * gap. Naming the vendor there would be a guess wearing a verdict's clothes.
+ */
+export interface Bracket {
+  /** Last observed stage at or before the subject. */
+  before: IdentityStageRow | null;
+  /** First observed stage after the subject. */
+  after: IdentityStageRow | null;
+  /** Every hop that could have made a change in this span — the suspects. */
+  spanned: string[];
+  /** True only when the subject is the sole suspect. */
+  isolated: boolean;
+}
+
+export function bracket(t: IdentityTimeline, stage: string): Bracket {
+  const idx = t.stages.findIndex(s => s.stage === stage);
+  if (idx < 0) return { before: null, after: null, spanned: [], isolated: false };
+
+  // Last observation strictly before the subject: the value entering it.
+  const before = [...t.stages.slice(0, idx)].reverse().find(s => s.observed) ?? null;
+  // First observation at or after the subject: the value once it has passed.
+  const after = t.stages.slice(idx).find(s => s.observed) ?? null;
+
+  if (!before || !after) return { before, after, spanned: [], isolated: false };
+
+  // Suspects are every hop in (before .. after] — observed or not. A change
+  // seen across that span could have been made by any of them, so the subject
+  // is only isolated when it is the sole candidate.
+  const from = t.stages.indexOf(before);
+  const to   = t.stages.indexOf(after);
+  const spanned = t.stages.slice(from + 1, to + 1).map(s => s.stage);
+
+  return { before, after, spanned, isolated: spanned.length === 1 && spanned[0] === stage };
 }

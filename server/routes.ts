@@ -31,6 +31,7 @@ import { registerMetaFlowsRoutes } from './routes-meta-flows';
 import { registerAiCopilotRoutes } from './routes-ai-copilot';
 import { registerVendorProbeRoutes, initVendorProbeScheduler } from './routes-vendor-probe';
 import { registerRouteTestRoutes } from './routes-route-tester';
+import { registerIdentityRoutes } from './routes-identity';
 import { registerProductMappingRoutes } from './routes-product-mapping';
 import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
@@ -36431,6 +36432,7 @@ ${footer}
 
   // ── Route Testing Engine ─────────────────────────────────────────────────────
   registerRouteTestRoutes(app, requireRole);
+  registerIdentityRoutes(app, requireRole);
   registerProductMappingRoutes(app);
   const { initRouteTestScheduler, setRouteTestBroadcast, setCdrLookupForCliVerification } = await import("./services/route-tester");
   setRouteTestBroadcast((event, data) => {

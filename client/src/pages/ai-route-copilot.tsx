@@ -179,6 +179,72 @@ function TrendSparkline({ jobId, vendorName, passRate, total }: {
   );
 }
 
+// ── Observation ceiling strip ─────────────────────────────────────────────────
+//
+// How far identity evidence reaches across the path. Green = observed, grey =
+// not. The last green node is the observation ceiling, and every capability on
+// the CAP-023 roadmap raises it — which makes roadmap progress a measured
+// number instead of an assertion.
+
+interface CoverageStage { stage: string; level: string; observed: boolean }
+interface IdentityCoverage {
+  windowDays: number;
+  testsWithIdentityEvidence: number;
+  totalTests: number;
+  path: CoverageStage[];
+  observationCeiling: string | null;
+  note: string;
+}
+
+function ObservationCeilingCard() {
+  const { data } = useQuery<{ success: boolean; data: IdentityCoverage }>({
+    queryKey: ["/api/identity/coverage"],
+    refetchInterval: 5 * 60_000,
+  });
+  const d = data?.data;
+  if (!d) return null;
+
+  return (
+    <Card className="border-emerald-500/20" data-testid="card-observation-ceiling">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-emerald-400" />
+          Identity Observation Ceiling
+          <Badge variant="outline" className="ml-auto font-mono text-[10px]">
+            {d.observationCeiling ?? "none"}
+          </Badge>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center gap-1 overflow-x-auto pb-1">
+          {d.path.map((p, i) => (
+            <div key={p.stage} className="flex items-center gap-1 shrink-0">
+              <div
+                className={`px-2 py-1 rounded text-xs whitespace-nowrap border ${
+                  p.observed
+                    ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-300"
+                    : "bg-muted/40 border-border text-muted-foreground"
+                }`}
+                data-testid={`ceiling-stage-${p.stage.replace(/\s+/g, "-").toLowerCase()}`}
+                title={p.observed ? `${p.level} — observed` : `${p.level} — not observed`}
+              >
+                {p.stage}
+              </div>
+              {i < d.path.length - 1 && (
+                <span className="text-muted-foreground text-xs">→</span>
+              )}
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
+          {d.testsWithIdentityEvidence} of {d.totalTests} tests in the last {d.windowDays} days
+          carry identity evidence. {d.note}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 // ── Origination CLI integrity card ────────────────────────────────────────────
 //
 // Was "CLI Integrity per vendor". It never measured a vendor: the observation
@@ -554,7 +620,8 @@ export default function AiRouteCopilotPage() {
         </div>
       )}
 
-      {/* Origination CLI integrity (7-day, unattributed) */}
+      {/* Identity evidence reach, then origination CLI integrity */}
+      <ObservationCeilingCard />
       <OriginationCliCard />
 
       {/* Job list */}

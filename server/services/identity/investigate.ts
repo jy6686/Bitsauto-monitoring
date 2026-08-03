@@ -26,7 +26,7 @@
 
 import type { CliComparison } from './cli.js';
 import type { CldComparison } from './cld.js';
-import { reaches, type IdentityTimeline } from './timeline.js';
+import { bracket, reaches, type IdentityTimeline } from './timeline.js';
 
 export type InvestigationQuestion =
   | 'what-happened'
@@ -36,13 +36,22 @@ export type InvestigationQuestion =
   | 'what-did-the-subscriber-see';
 
 /**
- * `unsupported` is not a hedge — it is the correct verdict when the evidence
- * does not reach the thing being asked about, and it is distinct from `no`.
- * "No, the vendor did not do it" and "nothing was observed at the vendor" are
- * different statements, and only one of them is true today.
+ * Three ways of not knowing, and they are operationally different:
+ *
+ *   unsupported  — the evidence never existed. Nothing was observed at or
+ *                  beyond the subject.
+ *   inconclusive — evidence exists but does not resolve the question. Either
+ *                  observations conflict, or a change is real but the gap
+ *                  between the two observations contains several suspects.
+ *   no           — evidence exists, reaches the subject, and clears it.
+ *
+ * Collapsing these is how an evidence platform starts producing confident
+ * wrong answers. "Nothing was observed at the vendor", "something changed
+ * somewhere in a span that includes the vendor" and "the vendor did not do it"
+ * lead to three different next actions.
  */
 export type InvestigationVerdict =
-  | 'yes' | 'no' | 'partially' | 'unsupported' | 'observed' | 'none';
+  | 'yes' | 'no' | 'partially' | 'inconclusive' | 'unsupported' | 'observed' | 'none';
 
 export interface InvestigationAnswer {
   question: InvestigationQuestion;
@@ -108,21 +117,53 @@ export function investigate(
           ],
         };
       }
-      const downstream = cli.filter(c => c.evidenceLevel === 'O3' || c.evidenceLevel === 'O4');
-      const changed = downstream.filter(c => c.observation === 'REWRITTEN' || c.observation === 'SUPPRESSED');
+      // Reaching past the vendor is not enough to blame it. The value must have
+      // been observed entering AND leaving — otherwise a change seen further
+      // along could have been made by any hop in the gap.
+      const br = bracket(timeline, 'Vendor');
+
+      // Compare the value ENTERING the span against the value once it has
+      // passed. Scanning for "any downstream change" was wrong: it blamed the
+      // vendor for a rewrite the carrier made two hops later.
+      const entering = br.before?.cli.value ?? null;
+      const leaving  = br.after?.cli.value ?? null;
+      const changedAcrossSpan = entering != null && leaving != null && entering !== leaving;
+
+      if (changedAcrossSpan && !br.isolated) {
+        return {
+          question, asked, verdict: 'inconclusive',
+          basedOn: [...basedOn,
+            `Change observed between ${br.before?.stage ?? 'the start'} and ${br.after?.stage ?? 'the end'}.`],
+          limits: [...limits,
+            `Unobserved hops inside that span: ${br.spanned.join(', ')}.`,
+            'A transformation is attributable to the route, not to a named supplier, until ' +
+            'CAP-022 vendor targeting is bound.'],
+          answer: [
+            `A transformation is real but cannot be pinned on the vendor. The identity was ` +
+            `${entering} at ${br.before?.stage} and ${leaving} at ${br.after?.stage}, and that ` +
+            `span contains ${br.spanned.length} possible hops: ${br.spanned.join(', ')}.`,
+            'Isolating the vendor needs an observation on both sides of it, not merely one ' +
+            'further along the path.',
+          ],
+        };
+      }
+
       return {
         question, asked,
-        verdict: changed.length ? 'yes' : 'no',
-        basedOn: [...basedOn, ...downstream.map(c => `${c.evidenceLevel}: ${c.observation}`)],
+        verdict: changedAcrossSpan ? 'yes' : 'no',
+        basedOn: [...basedOn,
+          `Identity ${entering} at ${br.before?.stage} → ${leaving} at ${br.after?.stage}.`],
         limits: [
           ...limits,
           'A transformation observed downstream is attributable to the route, not to a named ' +
           'supplier, until CAP-022 vendor targeting is bound.',
         ],
-        answer: changed.length
-          ? [`A transformation was observed beyond our network: ${changed.map(c => c.reason).join(' ')}`]
-          : ['Identity survived intact to the furthest point observed, so there is no vendor ' +
-             'transformation to attribute on this call.'],
+        answer: changedAcrossSpan
+          ? [`Yes. The vendor is the only hop between two observations, and the identity changed ` +
+             `across it: ${entering} → ${leaving}.`]
+          : ['No. The vendor is bracketed by observations on both sides and the identity is ' +
+             `unchanged across it (${entering}). Any transformation on this call happened ` +
+             'elsewhere in the path.'],
       };
     }
 

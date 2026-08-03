@@ -33,6 +33,9 @@
 | **Validator** | A plugin that declares its evidence dependency and returns PASS/FAIL, N/A, UNKNOWN or PENDING. |
 | **Rule pack** | A versioned set of detection rules stored as data, evaluated by validators. |
 | **Completeness** | Proportion of applicable validators that actually executed on available evidence. |
+| **Observation ceiling** | Furthest point in the call path reached by contiguous evidence. Bounds what may be concluded; raising it is the measurable output of CAP-023. |
+| **Unsupported** | The evidence never existed at or beyond the subject. Distinct from a negative finding. |
+| **Inconclusive** | Evidence exists but does not resolve the question — observations conflict, or the span containing the change has more than one candidate hop. |
 | **Traffic class** | Classification of a call's origin — production, synthetic, certification, engineering, demo, benchmark. |
 | **Topology** | The signalling path a call took (`Sippy direct` vs `Asterisk media anchor`). Not comparable across values. |
 | **Test Session** | Top-level entity grouping the vendor legs and reference leg of one comparison, certification or monitoring run. |
@@ -85,6 +88,8 @@ resolution, and — outside this repository — a media evidence producer.
 | **AF-009** | Comparative attribution requires a defined **reference leg**: a configured, health-monitored carrier per destination that is never its own subject. |
 | **AF-010** | **Hard admission control.** Under resource pressure, refuse the test. Never degrade execution — self-inflicted media defects are indistinguishable from vendor defects in the evidence package. |
 | **AF-012** | **Observed reality overrides intent.** Where both requested and observed routing exist, analytics, comparative testing, certification, vendor scoring and investigations use **observed** routing as authoritative. Intent is retained for comparison and diagnostics only. Follows from AF-008; see CAP-022 §6 for the historical consequence. |
+| **AF-013** | **Verdict pipeline order.** Evidence → rule engine → verdict → narrator → language model. Never evidence → model → verdict. The rule engine owns truth, the narrator owns wording, the model owns conversation; these are different responsibilities and are never merged. A verdict produced by a model is nondeterministic, unreproducible from the evidence, and cannot survive a vendor dispute. Strengthens AF-003 from a constraint on AI *outputs* into a constraint on system *architecture*. |
+| **AF-014** | **Attribution requires bracketing.** A change may be attributed to a hop only when the value was observed both entering and leaving it. Reaching past a hop is not sufficient: a change seen further along could have been made by any hop in the gap. Where a change is real but the span contains more than one candidate, the verdict is **INCONCLUSIVE**, never the name of a supplier. |
 | **AF-011** | **Portal scope.** SCVE is an internal operational capability. Full functionality exists only in the Main Platform, NOC Portal and Admin Portal. External portals consume certified results and business outcomes only — never validator internals, raw evidence, rule packs or operational controls. |
 
 ### Architectural exceptions

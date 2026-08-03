@@ -416,7 +416,37 @@ So the reasoning is fixed code and the evidence is the input. A model belongs on
 this later, phrasing questions and routing them to these answers — never deciding them.
 This is CAP-021 **AF-003** applied literally: AI may flag and explain, never drive.
 
-### 12.2 Verdicts
+### 12.2 Attribution requires bracketing (AF-014)
+
+Reaching past a hop does not license blaming it. To attribute a change to hop *N* you must
+have observed the value **entering** *N* and the value **leaving** it. Otherwise a change
+seen further along could have been made by anything in the gap.
+
+This was caught by building INCONCLUSIVE. The first implementation answered the vendor
+question from the observation ceiling alone, so handset evidence showing a rewrite would
+have returned **yes — blame the vendor** while Vendor, Carrier and the terminating mobile
+network were all unobserved. Three suspects, one accusation.
+
+| Evidence | Verdict | Why |
+|---|---|---|
+| Nothing past Sippy | `unsupported` | The evidence never existed |
+| Sippy + handset, nothing between | `inconclusive` | Change is real; span holds Vendor, Carrier, Handset |
+| Sippy + Vendor + Carrier, value unchanged across Vendor | `no` | Bracketed and cleared |
+| Sippy + Vendor + Carrier, value changed across Vendor | `yes` | Bracketed and isolated |
+
+The comparison is between the values at the two bracketing observations — not a scan for
+any downstream change. Scanning blamed the vendor for a rewrite the carrier made two hops
+later.
+
+### 12.3 Verdicts
+
+There are **three ways of not knowing**, and they lead to different next actions:
+
+| Verdict | Meaning | What to do about it |
+|---|---|---|
+| `unsupported` | The evidence never existed | Raise the observation ceiling (O2/O3/O4) |
+| `inconclusive` | Evidence exists but does not resolve it | Add an observation point inside the span |
+| `no` | Evidence reaches the subject and clears it | Nothing — the finding is elsewhere |
 
 `unsupported` is a first-class verdict, not a hedge. *"No, the vendor did not do it"* and
 *"nothing was observed at the vendor"* are different statements and only one is currently
@@ -436,6 +466,27 @@ Real output, for the first PASS:
 > unchanged at every point we can see inside our own network.
 > For the called number, a transformation inside our own path did not match the
 > configuration: only 4 of the 5 configured prefix digits were removed…
+
+---
+
+### 12.4 As a service
+
+```
+POST /api/identity/investigate   { resultId, question? }
+GET  /api/identity/coverage
+```
+
+Deterministic: same evidence in, same verdict out, every time. The response carries
+`verdict`, `answer`, `basedOn`, `limits`, `observationCeiling` and the full timeline. A
+language model may sit in front of it — phrasing the question, reading the answer back
+conversationally — and never produces the verdict. That is AF-013 as an interface boundary
+rather than a convention.
+
+`/api/identity/coverage` reports how far evidence reaches platform-wide, as a green/grey
+path strip in the UI. The ceiling is the last **contiguous** observed stage: an isolated
+observation further along does not extend reach, because the gap before it is exactly what
+blocks attribution. Every capability on the build order raises this number, which makes
+roadmap progress measured rather than asserted.
 
 ---
 
