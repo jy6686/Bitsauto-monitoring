@@ -26,6 +26,56 @@
 
 import { normalizeCli, type CliEvidenceLevel, type CliConfidence } from './cli.js';
 
+/**
+ * Where a configured expectation came from — TD-010.
+ *
+ * Observations have carried provenance from the start; the values they are
+ * compared against did not. Recording one rigorously and the other casually
+ * produces confident findings about the wrong thing, which is how the
+ * PREFIX_PARTIAL result on the Golden Reference was reported as a probable
+ * switch misconfiguration when the expected prefix had only ever been inferred
+ * from a dialplan trace.
+ */
+export type ExpectationSource =
+  | 'verified-from-switch'  // read from the switch configuration
+  | 'operator-supplied'     // stated by someone who runs it
+  | 'inferred'              // derived from an observation — a guess with a reason
+  | 'unknown';              // no provenance recorded
+
+export interface Expectation {
+  value: string;
+  source: ExpectationSource;
+  /** ISO timestamp of when it was verified, for the two verified sources. */
+  verifiedAt?: string;
+}
+
+/** A bare string carries no provenance, so it is treated as unknown. */
+function asExpectation(v: string | Expectation | null | undefined): Expectation {
+  if (v == null) return { value: '', source: 'unknown' };
+  return typeof v === 'string' ? { value: v, source: 'unknown' } : v;
+}
+
+const TRUSTED: ExpectationSource[] = ['verified-from-switch', 'operator-supplied'];
+
+/**
+ * An unverified expectation may produce an observation. It may not produce an
+ * anomaly — `asConfigured: false` is a claim about the configuration, and you
+ * cannot claim a value does not match a configuration you never read.
+ */
+function verdictOnConfiguration(e: Expectation, matched: boolean): boolean | null {
+  if (matched) return TRUSTED.includes(e.source) ? true : null;
+  return TRUSTED.includes(e.source) ? false : null;
+}
+
+function expectationCaveat(e: Expectation): string {
+  if (TRUSTED.includes(e.source)) return '';
+  return e.source === 'inferred'
+    ? ' The expected prefix here was inferred from an observation, never read from the switch, ' +
+      'so this is recorded as a difference and not as a misconfiguration.'
+    : ' The expected prefix here has no recorded provenance, so this is a difference, not a ' +
+      'misconfiguration.';
+}
+
 export type CldObservation =
   /** Observed exactly what was requested — no transformation at this stage. */
   | 'UNCHANGED'
@@ -33,8 +83,17 @@ export type CldObservation =
   | 'PREFIX_APPLIED'
   /** An applied prefix was fully removed, leaving the requested number. */
   | 'PREFIX_STRIPPED'
-  /** Part of the applied prefix survived — the case this platform hit. */
-  | 'PREFIX_RESIDUAL'
+  /**
+   * The observed value carries digits in front of the requested number that
+   * match the tail of the configured prefix.
+   *
+   * Named for the string relationship, not a mechanism. It was once
+   * PREFIX_RESIDUAL, which asserted the digits were a leftover — one of at
+   * least six readings (service selector, routing class, carrier
+   * discriminator, national access digit, part of the destination, leftover).
+   * The engine cannot distinguish them, so it must not name one.
+   */
+  | 'PREFIX_PARTIAL'
   /** Digits unrelated to the configured prefix were prepended. */
   | 'DIGITS_PREPENDED'
   /** The requested number is no longer intact at the end of the value. */
@@ -50,12 +109,24 @@ export interface CldComparison {
   stage: string;
   evidenceLevel: CliEvidenceLevel;
   confidence: CliConfidence;
-  /** True when the observation matches what the configuration predicts. */
+  /**
+   * True when the observation matches what the configuration predicts.
+   * **null when the expectation's provenance does not support a claim** — an
+   * unverified expected value cannot establish a misconfiguration (TD-010).
+   */
   asConfigured: boolean | null;
+  /** Where the expected value came from, and how far it may be trusted. */
+  expectation: Expectation;
   requested: string;
   observed: string | null;
   /** The digits added or left in front of the requested number, if any. */
   residual: string | null;
+  /**
+   * Digits OUR dial string carried between the configured prefix and the
+   * requested number. Non-empty means we send more than the prefix — a finding
+   * about our own configuration, not the switch's behaviour.
+   */
+  dialledExtra: string | null;
   /**
    * Does the observed value still parse as a dialable number? A CDR CLD that
    * is not a valid number anywhere is a strong sign it is an intermediate,
@@ -72,8 +143,12 @@ export interface CompareCldInput {
   dialledCld?: string | null;
   /** What this stage recorded. null = not observed. */
   observedCld: string | null | undefined;
-  /** The tech prefix we are configured to apply, e.g. '22211'. */
-  configuredPrefix?: string | null;
+  /**
+   * The tech prefix we are configured to apply. Pass an `Expectation` to record
+   * where the value came from; a bare string is treated as provenance-unknown
+   * and cannot produce an `asConfigured: false` verdict.
+   */
+  configuredPrefix?: string | Expectation | null;
   /**
    * Whether this stage is expected to still carry the prefix. Asterisk egress
    * should; Sippy after tech-prefix routing should not.
@@ -97,15 +172,18 @@ export function compareCld(input: CompareCldInput): CldComparison {
     expectPrefix, stage, destinationCountry, evidenceLevel,
   } = input;
 
-  const requested = digitsOf(requestedCld);
-  const prefix    = digitsOf(configuredPrefix);
+  const requested   = digitsOf(requestedCld);
+  const expectation = asExpectation(configuredPrefix as string | Expectation | null);
+  const prefix      = digitsOf(expectation.value);
 
   const base = {
     stage,
+    expectation,
     evidenceLevel,
     requested,
     observed: null,
     residual: null,
+    dialledExtra: null,
     observedIsDialableNumber: null,
     asConfigured: null,
   } as const;
@@ -130,12 +208,61 @@ export function compareCld(input: CompareCldInput): CldComparison {
 
   const shared = { ...base, observed, observedIsDialableNumber };
 
+  // ── What we actually dialled, when we know it ───────────────────────────
+  // Without this the prefix is inferred from `observed` alone, which cannot
+  // distinguish "the switch left a digit behind" from "we sent a digit the
+  // prefix never covered". Those are findings about different systems.
+  const dialled = digitsOf(dialledCld);
+  const dialledExtra =
+    dialled && prefix && dialled.startsWith(prefix) && dialled.endsWith(requested)
+      ? dialled.slice(prefix.length, dialled.length - requested.length)
+      : null;
+
+  if (dialledExtra !== null) {
+    const expected = expectPrefix ? dialled : dialledExtra + requested;
+    const extraNote = dialledExtra
+      ? ` Note that our own dial string carries "${dialledExtra}" between the configured ` +
+        `${prefix} prefix and the destination — the switch did not add it, we did, and its ` +
+        `purpose is not recorded anywhere in this platform.`
+      : '';
+
+    if (observed === expected) {
+      return {
+        ...shared,
+        observation: expectPrefix ? 'PREFIX_APPLIED' : 'PREFIX_STRIPPED',
+        confidence: 'high',
+        asConfigured: verdictOnConfiguration(expectation, true),
+        residual: dialledExtra || null,
+        dialledExtra,
+        reason:
+          (expectPrefix
+            ? `The configured ${prefix} prefix is present, as expected at this stage.`
+            : `The configured ${prefix} prefix was removed exactly as the rule implies.`) +
+          extraNote + expectationCaveat(expectation),
+      };
+    }
+
+    return {
+      ...shared,
+      observation: 'DIGITS_PREPENDED',
+      confidence: 'medium',
+      asConfigured: verdictOnConfiguration(expectation, false),
+      residual: observed.endsWith(requested)
+        ? observed.slice(0, observed.length - requested.length)
+        : null,
+      dialledExtra,
+      reason:
+        `We dialled ${dialled}; ${expected} was expected here and ${observed} was recorded.` +
+        extraNote + expectationCaveat(expectation),
+    };
+  }
+
   // ── The requested number survives at the tail ────────────────────────────
   if (observed.endsWith(requested)) {
     const residual = observed.slice(0, observed.length - requested.length);
 
     if (residual === '') {
-      const asConfigured = !expectPrefix;
+      const asConfigured = verdictOnConfiguration(expectation, !expectPrefix);
       return {
         ...shared,
         observation: prefix && dialledCld ? 'PREFIX_STRIPPED' : 'UNCHANGED',
@@ -151,7 +278,7 @@ export function compareCld(input: CompareCldInput): CldComparison {
     }
 
     if (prefix && residual === prefix) {
-      const asConfigured = expectPrefix;
+      const asConfigured = verdictOnConfiguration(expectation, expectPrefix);
       return {
         ...shared,
         observation: 'PREFIX_APPLIED',
@@ -164,24 +291,27 @@ export function compareCld(input: CompareCldInput): CldComparison {
       };
     }
 
-    // Part of the prefix survived. This is the observed BitsAuto case:
-    // dialled 22211…, Sippy recorded 1… — four of five digits stripped.
+    // Digits in front of the requested number that match the tail of the
+    // configured prefix. What they ARE is a separate question the engine
+    // cannot answer — see the PREFIX_PARTIAL note above.
     if (prefix && prefix.endsWith(residual)) {
-      const stripped = prefix.slice(0, prefix.length - residual.length);
+      const accounted = prefix.slice(0, prefix.length - residual.length);
       return {
         ...shared,
-        observation: 'PREFIX_RESIDUAL',
+        observation: 'PREFIX_PARTIAL',
         // The string relationship is certain; the mechanism producing it is
         // not, so this never claims 'high'.
         confidence: 'medium',
-        asConfigured: false,
+        asConfigured: verdictOnConfiguration(expectation, false),
         residual,
         reason:
-          `Only ${stripped.length} of the ${prefix.length} configured prefix digits were removed ` +
-          `("${stripped}" stripped, "${residual}" left in front of the requested number). ` +
-          `The call still completed, so the translation is operational — but it is not the ` +
-          `full removal the configured ${prefix} prefix implies, and the Sippy translation ` +
-          `rule should be confirmed rather than assumed.`,
+          `The recorded value is "${residual}" followed by the requested number. ` +
+          `"${accounted}" of the configured ${prefix} prefix is accounted for; the purpose of ` +
+          `"${residual}" is unknown — it may be a service selector, a routing class, a carrier ` +
+          `discriminator, an access digit, or an unremoved part of the prefix. The call ` +
+          `completed, so the translation is operational. Establishing which reading is correct ` +
+          `requires the switch configuration, not more capture.` +
+          expectationCaveat(expectation),
       };
     }
 
@@ -189,7 +319,7 @@ export function compareCld(input: CompareCldInput): CldComparison {
       ...shared,
       observation: 'DIGITS_PREPENDED',
       confidence: 'medium',
-      asConfigured: false,
+      asConfigured: verdictOnConfiguration(expectation, false),
       residual,
       reason:
         `"${residual}" was prepended to the requested number, and it does not correspond to the ` +
@@ -203,7 +333,7 @@ export function compareCld(input: CompareCldInput): CldComparison {
       ...shared,
       observation: 'TRUNCATED',
       confidence: 'medium',
-      asConfigured: false,
+      asConfigured: verdictOnConfiguration(expectation, false),
       residual: null,
       reason: `The requested number appears but is not intact at the end — digits were lost from the tail.`,
     };
@@ -213,7 +343,7 @@ export function compareCld(input: CompareCldInput): CldComparison {
     ...shared,
     observation: 'REWRITTEN',
     confidence: parsedObserved.confidence === 'insufficient' ? 'low' : 'medium',
-    asConfigured: false,
+    asConfigured: verdictOnConfiguration(expectation, false),
     residual: null,
     reason: `The requested number ${requested} is not present in the recorded value ${observed}.`,
   };
