@@ -385,3 +385,47 @@ authenticates and originates.
 **Not architecture.** This raises no observation ceiling and changes no design. It qualifies
 under the sprint gate as operational hardening of an already-validated capability — the
 evidence is only as good as the platform's ability to collect it on a Tuesday morning.
+
+---
+
+## TD-010 · The "expected" side of a comparison carries no provenance
+
+**Found:** 2026-08-03, when the operator stated that the production technical prefix is
+`2221` and has been since day one — while `SIPPY_TECH_PREFIX=22211` in the Testing
+Platform's `.env`.
+
+**How the wrong value got there.** It was inferred, by me, from one live dialplan trace:
+
+```
+Dial("PJSIP/sippy-endpoint-…", "SIP/sippy/22211923088202412,3600,Tt")
+```
+
+Reading `923088202412` as a 12-digit Pakistan mobile leaves `22211` in front, so `22211`
+was written into the config as the tech prefix. That is a plausible split of the string. It
+is not the only one, and it was never checked against the switch.
+
+**What it caused.** `compareCld()` reported `PREFIX_RESIDUAL` with `asConfigured: false`
+against the Golden Reference — "only 4 of the 5 configured prefix digits were removed" —
+and that finding was reported to the operator as a probable switch misconfiguration. If the
+real prefix is `2221`, Sippy removed exactly its own prefix and the surviving `1` is a
+deliberate element of the dial string, not a residue. The anomaly would then be an artefact
+of the expected value, not a property of the call.
+
+**The general defect.** Every observation in `cli_evidence` / `cld_evidence` carries
+provenance — evidence level, confidence, and a stated reason. The value it is compared
+*against* carries none. `configuredPrefix` arrives as a bare string from `.env` with no
+record of whether it was read from the switch, supplied by an operator, or inferred.
+
+A comparison is only as trustworthy as both of its inputs. Recording the observation
+rigorously and the expectation casually produces confident findings about the wrong thing —
+which is the same class of error as CAP-023 §3, arriving from the opposite direction.
+
+**Fix.** Give the expected side a provenance field (`verified-from-switch` /
+`operator-supplied` / `inferred`) and refuse to raise `asConfigured: false` above
+`confidence: low` when the expectation is `inferred`. An unverified expectation may produce
+an observation; it may not produce an anomaly.
+
+**Blocked on:** the Sprint 2 switch review, which establishes the real value. Until then the
+Golden Reference's CLD finding should be read as *"the dial string and Sippy's record differ
+by one digit"* — which is a fact — and not as *"the switch is misconfigured"*, which is an
+inference resting on a config value nobody verified.
