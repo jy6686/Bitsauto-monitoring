@@ -143,9 +143,23 @@ The platform has been recording intent-vs-reality since the route tester shipped
 `route_test_results.rawResponse` (`_targetVendor`, `_actualVendor`, `_vendorMismatch`).
 This must be mined **before** any switch change, so the effect of the change is measurable.
 
-> **Not yet run.** `DATABASE_URL` is provided by the runtime environment, not the
-> repository, so this analysis is prepared but unexecuted. Numbers must be filled in before
-> §3 is ratified.
+> **Execution 1 (2026-08-03) — INCONCLUSIVE.** The script ran successfully against the
+> configured database (connection valid, queries correct). `route_test_results` contained
+> **zero rows**, so no statistical assessment was possible.
+>
+> Divergence is therefore **UNKNOWN**, not 0%. The same distinction the validator contract
+> draws between UNKNOWN and N/A applies here: absence of observation is not observation of
+> absence.
+>
+> CAP-022 remains **pending execution against an environment containing representative
+> route-testing history** — production, or a staging environment populated from it. Query 0
+> of the script now reports table counts up front so an unpopulated environment is visible
+> before any number is read as a finding.
+>
+> **Note for the next run:** `_vendorMismatch` exists only on rows written after that
+> instrumentation shipped. Even a populated database may have limited assessable history —
+> query 6 reports the coverage, and the divergence rate must be quoted against the
+> assessable subset, not the full table.
 
 Runnable as [`scripts/cap022-vendor-divergence.sql`](../../scripts/cap022-vendor-divergence.sql)
 — read-only, six queries:
@@ -285,7 +299,7 @@ Verified by: ____   Date: ____
 | Options and trade-offs (§3) | ✅ complete |
 | Recommendation | 🟡 provisional — Option A + B, pending V1–V6 |
 | Switch verification (§5) | ⏳ not started — requires controlled calls |
-| Baseline measurement (§6) | ⏳ specified, not executed — needs database access |
+| Baseline measurement (§6) | ⚠️ executed 2026-08-03, **inconclusive** — target database had zero `route_test_results`; needs an environment with representative history |
 | Ratification | ⏳ blocked on the two above |
 
 **CAP-021 has no other open architectural blocker.** Once §5 and §6 are complete and this

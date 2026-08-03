@@ -8,6 +8,19 @@
 -- Record the output in CAP-022 §6 before ratifying any vendor-targeting option, and
 -- again after cutover — on the synthetic account family the rate must be zero.
 
+\echo '== 0. Environment check — is this a populated environment? =='
+-- Run this first. Zero route_test_results means the analysis below returns empty sets
+-- that must be read as UNKNOWN, never as "0% divergence".
+--   jobs > 0, results = 0  -> jobs configured but never executed here (or scheduler idle)
+--   jobs = 0, results = 0  -> feature never used in this environment (likely dev/fresh)
+--   both > 0               -> proceed; check query 6 for how much carries _vendorMismatch
+SELECT
+  (SELECT count(*) FROM route_test_jobs)    AS route_test_jobs,
+  (SELECT count(*) FROM route_test_results) AS route_test_results,
+  (SELECT count(*) FROM governed_calls)     AS governed_calls,
+  (SELECT count(*) FROM fas_events)         AS fas_events,
+  current_database()                        AS db;
+
 \echo '== 1. Overall divergence rate =='
 SELECT
   count(*)                                                              AS runs,
