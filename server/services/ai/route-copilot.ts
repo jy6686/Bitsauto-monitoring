@@ -917,15 +917,14 @@ ${voiceQualityContext}${vendorHealthText ? `\n\nVendor & Route Health Engine (0�
     // ── Build proactive test-call evidence block for the AI ───────────────────
     const testEvidenceBlock = testEvidence.length > 0
       ? "\n\nProactive test call evidence (last 6h):\n" +
-        testEvidence.map(e => {
-          const cliNote = e.cliMismatchCount > 0
-            ? `, CLI MISMATCH ${e.cliMismatchCount}/${e.cliVerifiedCount} verified (${e.cliMatchRate ?? "?"}% match rate)`
-            : e.cliVerifiedCount > 0 && e.cliMatchRate === 100
-            ? `, CLI 100% match`
-            : "";
-          return `  ${e.vendorName} → ${e.destination}: ${e.passRate}% pass (${e.successCount}/${e.totalTests}), ` +
-            `avg PDD ${e.avgPddMs ?? "?"}ms, SIP codes: ${e.recentSipCodes.join(",") || "none"}${cliNote}`;
-        }).join("\n")
+        // No CLI figure per vendor. The only CLI signal this platform produces
+        // is origination-side — our own leg, which no vendor touched (CAP-023
+        // §3) — so attaching it to a vendor row invited exactly the inference
+        // it cannot support.
+        testEvidence.map(e =>
+          `  ${e.vendorName} → ${e.destination}: ${e.passRate}% pass (${e.successCount}/${e.totalTests}), ` +
+          `avg PDD ${e.avgPddMs ?? "?"}ms, SIP codes: ${e.recentSipCodes.join(",") || "none"}`,
+        ).join("\n")
       : "";
 
     const userContent = JSON.stringify(baseline.map(r => ({

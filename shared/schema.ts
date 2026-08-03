@@ -3857,7 +3857,13 @@ export const routeTestResults = pgTable("route_test_results", {
   durationMs:  integer("duration_ms"),
   cliSent:     varchar("cli_sent",     { length: 32 }),
   cliReceived: varchar("cli_received", { length: 32 }),
-  cliMatch:    varchar("cli_match",    { length: 16 }),
+  // CAP-023 §3: this compares what we asked Sippy to send against what Sippy
+  // recorded that we sent. Sippy has no feedback path from a vendor's network,
+  // so it can only ever detect an Asterisk/Sippy rewrite — never a downstream
+  // one. Named for what it observes so it cannot be read as vendor behaviour.
+  originationCliMatch: varchar("origination_cli_match", { length: 16 }),
+  /** Structured CliComparison — carries the evidence level of the observation. */
+  cliEvidence: jsonb("cli_evidence"),
   notes:       text("notes"),
   rawResponse: jsonb("raw_response"),
 });

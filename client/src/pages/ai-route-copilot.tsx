@@ -69,20 +69,21 @@ interface RouteTestEvidence {
   recentSipCodes: number[];
   avgPddMs: number | null;
   passRate: number;
-  cliVerifiedCount: number;
-  cliMatchCount: number;
-  cliMismatchCount: number;
-  cliUnknownCount: number;
-  cliMatchRate: number | null;
 }
 
-interface CliHealthEntry {
-  vendorName: string;
+/**
+ * Origination CLI integrity — one unattributed figure (CAP-023 §3).
+ * Not per vendor: the measurement observes our own leg, which no vendor touched.
+ */
+interface OriginationCliIntegrity {
+  scope: string;
+  evidenceLevel: "O2";
   total: number;
-  matched: number;
-  mismatched: number;
+  match: number;
+  mismatch: number;
   unknown: number;
   matchRate: number | null;
+  observations: Record<string, number>;
 }
 
 // ── Schedule badge helper ──────────────────────────────────────────────────────
@@ -178,68 +179,72 @@ function TrendSparkline({ jobId, vendorName, passRate, total }: {
   );
 }
 
-// ── CLI Health card ───────────────────────────────────────────────────────────
+// ── Origination CLI integrity card ────────────────────────────────────────────
+//
+// Was "CLI Integrity per vendor". It never measured a vendor: the observation
+// comes from our own originating leg as Sippy recorded it, and Sippy has no
+// feedback path from a vendor's network (CAP-023 §3). The vendor breakdown is
+// gone rather than relabelled, because the per-vendor split was the error.
 
-function CliHealthCard() {
-  const { data } = useQuery<{ success: boolean; data: CliHealthEntry[] }>({
+function OriginationCliCard() {
+  const { data } = useQuery<{ success: boolean; data: OriginationCliIntegrity }>({
     queryKey: ["/api/route-tests/cli-health"],
     refetchInterval: 5 * 60_000,
   });
-  const entries = data?.data ?? [];
-  if (entries.length === 0) return null;
+  const d = data?.data;
+  if (!d || d.total === 0) return null;
+
+  const rate = d.matchRate;
+  const barColor = rate == null ? "#6b7280"
+    : rate >= 90 ? "#10b981"
+    : rate >= 70 ? "#f59e0b"
+    : "#ef4444";
 
   return (
     <Card className="border-blue-500/20" data-testid="card-cli-health">
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-blue-400" />
-          CLI Integrity — 7-day Summary
+          Origination CLI Integrity — 7 days
+          <Badge variant="outline" className="ml-auto font-mono text-[10px]">
+            {d.evidenceLevel}
+          </Badge>
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="space-y-3">
-          {entries.map(entry => {
-            const rate = entry.matchRate;
-            const barColor = rate == null ? "#6b7280"
-              : rate >= 90 ? "#10b981"
-              : rate >= 70 ? "#f59e0b"
-              : "#ef4444";
-            const hasMismatch = entry.mismatched > 0;
-            return (
-              <div key={entry.vendorName} className="space-y-1" data-testid={`cli-health-${entry.vendorName}`}>
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    {hasMismatch
-                      ? <ShieldAlert className="h-3.5 w-3.5 text-red-400 shrink-0" />
-                      : <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-                    }
-                    <span className="font-medium truncate">{entry.vendorName}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs shrink-0">
-                    {hasMismatch && (
-                      <span className="text-red-400 font-mono">{entry.mismatched} mismatch</span>
-                    )}
-                    <span className="text-muted-foreground">{entry.matched}/{entry.total} matched</span>
-                    <span className="font-mono" style={{ color: barColor }}>
-                      {rate != null ? `${rate}%` : "?%"}
-                    </span>
-                  </div>
-                </div>
-                <div className="relative h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className="absolute inset-y-0 left-0 rounded-full transition-all"
-                    style={{
-                      width: rate != null ? `${rate}%` : "0%",
-                      background: barColor,
-                    }}
-                  />
-                </div>
-              </div>
-            );
-          })}
+        <div className="space-y-1" data-testid="cli-health-origination">
+          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-2">
+              {d.mismatch > 0
+                ? <ShieldAlert className="h-3.5 w-3.5 text-red-400 shrink-0" />
+                : <ShieldCheck className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+              }
+              <span className="font-medium">Requested CLI preserved by our own path</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs shrink-0">
+              {d.mismatch > 0 && (
+                <span className="text-red-400 font-mono">{d.mismatch} rewritten</span>
+              )}
+              <span className="text-muted-foreground">{d.match}/{d.match + d.mismatch} matched</span>
+              <span className="font-mono" style={{ color: barColor }}>
+                {rate != null ? `${rate}%` : "?%"}
+              </span>
+            </div>
+          </div>
+          <div className="relative h-1.5 rounded-full bg-muted overflow-hidden">
+            <div
+              className="absolute inset-y-0 left-0 rounded-full transition-all"
+              style={{ width: rate != null ? `${rate}%` : "0%", background: barColor }}
+            />
+          </div>
+          {d.unknown > 0 && (
+            <div className="text-xs text-muted-foreground pt-1">
+              {d.unknown} of {d.total} not observed — excluded from the rate, not counted as a pass
+            </div>
+          )}
         </div>
-        <p className="text-xs text-muted-foreground mt-3">
-          CLI match rate per vendor over 7 days · resolved tests only (excludes unknown)
+        <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
+          {d.scope}
         </p>
       </CardContent>
     </Card>
@@ -540,25 +545,17 @@ export default function AiRouteCopilotPage() {
                     Recent SIP codes: {ev.recentSipCodes.join(", ")}
                   </div>
                 )}
-                {/* CLI integrity mini-indicator on evidence cards */}
-                {ev.cliVerifiedCount > 0 && (
-                  <div className="flex items-center gap-1 text-xs">
-                    {ev.cliMismatchCount > 0
-                      ? <><ShieldAlert className="h-3 w-3 text-red-400" /><span className="text-red-400">{ev.cliMismatchCount} CLI mismatch</span></>
-                      : ev.cliMatchRate === 100
-                      ? <><ShieldCheck className="h-3 w-3 text-emerald-400" /><span className="text-emerald-400">CLI OK</span></>
-                      : <><ShieldCheck className="h-3 w-3 text-muted-foreground" /><span className="text-muted-foreground">CLI {ev.cliMatchRate ?? "?"}%</span></>
-                    }
-                  </div>
-                )}
+                {/* No CLI indicator on a vendor card. The only CLI signal we
+                    have is origination-side and never observed this vendor
+                    (CAP-023 §3) — it is published unattributed below instead. */}
               </CardContent>
             </Card>
           ))}
         </div>
       )}
 
-      {/* CLI Health summary (7-day) */}
-      <CliHealthCard />
+      {/* Origination CLI integrity (7-day, unattributed) */}
+      <OriginationCliCard />
 
       {/* Job list */}
       <Card>
@@ -787,9 +784,6 @@ export default function AiRouteCopilotPage() {
               <p className="text-sm font-medium text-violet-300">Copilot Integration Active</p>
               <p className="text-xs text-muted-foreground mt-1">
                 {evidence.filter(e => e.passRate < 80).length} vendor route(s) are failing proactive tests.
-                {evidence.some(e => e.cliMismatchCount > 0) && (
-                  <> CLI mismatches detected on {evidence.filter(e => e.cliMismatchCount > 0).length} vendor(s) — included in AI recommendations.</>
-                )}
                 {" "}These signals are included in AI Route Copilot recommendations as "proactive test evidence."
               </p>
             </div>

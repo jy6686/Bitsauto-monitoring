@@ -9,14 +9,14 @@
  * GET  /api/route-tests/results          — list results (optional ?jobId=&limit=)
  * GET  /api/route-tests/evidence         — Copilot test evidence summary
  * GET  /api/route-tests/trend            — hourly pass-rate time series for 24h (?jobId=&vendorName=)
- * GET  /api/route-tests/cli-health       — 7-day CLI integrity pass rate per vendor
+ * GET  /api/route-tests/cli-health       — 7-day ORIGINATION CLI integrity (unattributed, CAP-023 O2)
  */
 
 import type { Express } from "express";
 import { db } from "./db";
 import { routeTestJobs, routeTestResults } from "../shared/schema";
 import { eq, desc, and, gte } from "drizzle-orm";
-import { executeRouteTestJob, loadRouteTestEvidence, loadCliHealthSummary } from "./services/route-tester";
+import { executeRouteTestJob, loadRouteTestEvidence, loadOriginationCliIntegrity } from "./services/route-tester";
 
 type RequireRoleFn = (roles: string[], req: any, res: any, next: any) => void;
 
@@ -158,12 +158,14 @@ export function registerRouteTestRoutes(app: Express, requireRole: RequireRoleFn
     });
 
   // ── GET /api/route-tests/cli-health ──────────────────────────────────────
-  // Returns 7-day CLI integrity pass rate per vendor (only for jobs with cliToSend set).
+  // 7-day ORIGINATION CLI integrity — one unattributed figure, not a per-vendor
+  // breakdown. It observes our own leg only (CAP-023 §3); a vendor name next to
+  // this number would assert something the evidence does not support.
   app.get("/api/route-tests/cli-health",
     (req: any, res: any, next: any) => requireRole(["admin", "management", "routing_admin", "noc_operator"], req, res, next),
     async (_req: any, res: any) => {
       try {
-        const data = await loadCliHealthSummary();
+        const data = await loadOriginationCliIntegrity();
         res.json({ success: true, data });
       } catch (err: any) {
         res.status(500).json({ success: false, error: err.message });

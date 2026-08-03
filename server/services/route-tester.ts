@@ -13,6 +13,20 @@ import { storage } from "../storage";
 // ── Sippy credential helper (replicated from routes.ts pattern) ─────────────
 // We import storage to get settings then invoke makeCall from sippy.
 import * as sippy from "../sippy";
+import { compareCli, type CliComparison } from "./cli/normalizer";
+import { detectCountry } from "../cdr-enrichment";
+
+/**
+ * Destination country for a dial prefix, so CLI can be read under the right
+ * dial plan (CAP-023 §7). Returns null when the prefix is too short or too
+ * ambiguous to place — the normalizer treats null as "undetermined" and stops
+ * rather than guessing.
+ */
+function destinationCountryOf(prefix: string | null | undefined): string | null {
+  const digits = String(prefix ?? '').replace(/\D/g, '');
+  if (digits.length < 4) return null;
+  return detectCountry(digits);
+}
 
 type SippySettings = Awaited<ReturnType<typeof storage.getSippySettings>>;
 
@@ -27,8 +41,15 @@ function sippyPortalUrl(s: NonNullable<SippySettings>): string {
 }
 
 // ── CDR lookup hook (injected from routes.ts which owns the cdrCache) ────────
-// Used for CLI verification: after a test call, we probe the CDR cache for the
-// matching entry and extract the `cli` field to compare against what was sent.
+// Used for ORIGINATION-side CLI verification only. After a test call we probe
+// the CDR cache and read `cli` — the A-number of our own originating leg, as
+// Sippy recorded it.
+//
+// CAP-023 §3: Sippy records the CLI it received from us and forwarded. It has
+// no feedback path from a vendor's network, so this can only ever detect a
+// rewrite by our own dialplan or by Sippy's translation rules. It is evidence
+// level O2 (proxy), never O3/O4, and must not be read as vendor behaviour.
+//
 // callId is the SIP Call-ID from makeTestCall — used as primary match key.
 // Falls back to exact CLD + time-window matching when callId is unavailable.
 type CdrLookupFn = (opts: {
@@ -126,9 +147,10 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
     let notes: string | undefined;
     let rawResponse: any;
 
-    // CLI verification fields
+    // CLI verification fields — origination leg only (CAP-023 §3)
     let cliReceived: string | undefined;
-    let cliMatch: string | undefined;
+    let originationCliMatch: string | undefined;
+    let cliEvidence: CliComparison | undefined;
 
     try {
       const cld = job.destinationPrefix;
@@ -166,7 +188,9 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
           : ` via ${resolvedVendorName}`;
         notes = `Connected${vendorNote}${acdNote}, PDD ${pddMs}ms`;
 
-        // ── CLI verification: probe CDR cache for received CLI ───────────────
+        // ── Origination CLI verification: probe CDR cache ────────────────────
+        // Observes our own leg only. See the CdrLookupFn note above and
+        // CAP-023 §3 before using this for anything vendor-shaped.
         if (wantCliVerification && _cdrLookupFn) {
           try {
             // Allow 5s for the CDR to appear in the cache after the call ends
@@ -177,23 +201,29 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
               afterMs:  startMs - 2000,        // allow 2s pre-call tolerance
               windowMs: 90_000,                // search within 90s of call start
             });
-            if (cdrHit?.cli) {
-              cliReceived = cdrHit.cli;
-              // Normalise both sides: strip leading + for comparison
-              const normSent = cliToSend.replace(/^\+/, '').replace(/\s/g, '');
-              const normRecv = cliReceived.replace(/^\+/, '').replace(/\s/g, '');
-              cliMatch = normSent === normRecv ? 'match' : 'mismatch';
-              console.log(`[route-tester] job=${jobId} vendor=${vendor.name} CLI ${cliToSend}→${cliReceived} = ${cliMatch}`);
-            } else {
-              cliMatch = 'unknown';
-              console.log(`[route-tester] job=${jobId} vendor=${vendor.name} CLI capture: no CDR found within window`);
-            }
+            cliReceived = cdrHit?.cli ?? undefined;
+            cliEvidence = compareCli({
+              requestedCli:       cliToSend,
+              // null (not '') when nothing was found: an absent observation is
+              // UNKNOWN, never SUPPRESSED.
+              observedCli:        cdrHit?.cli ?? null,
+              destinationCountry: destinationCountryOf(job.destinationPrefix),
+              evidenceLevel:      'O2',
+            });
+            originationCliMatch = cliEvidence.observation === 'UNKNOWN' ? 'unknown'
+              : cliEvidence.observation === 'EXACT' || cliEvidence.observation === 'LOCALIZED' ? 'match'
+              : 'mismatch';
+            console.log(
+              `[route-tester] job=${jobId} vendor=${vendor.name} origination CLI ` +
+              `${cliToSend}→${cliReceived ?? 'not captured'} = ${cliEvidence.observation} ` +
+              `(O2, ${cliEvidence.confidence})`,
+            );
           } catch (cliErr: any) {
-            cliMatch = 'unknown';
-            console.warn(`[route-tester] CLI verification probe failed (non-fatal):`, cliErr.message);
+            originationCliMatch = 'unknown';
+            console.warn(`[route-tester] origination CLI probe failed (non-fatal):`, cliErr.message);
           }
         } else if (wantCliVerification) {
-          cliMatch = 'unknown'; // CDR lookup not available
+          originationCliMatch = 'unknown'; // CDR lookup not available
         }
       } else {
         connected = false;
@@ -204,7 +234,7 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
         else if (sipCode === 408) notes = `No active-call confirmation received — listActiveCalls may be restricted (expected ${vendor.name})`;
         else notes = `Call failed SIP ${sipCode} (expected ${vendor.name})`;
         // CLI verification only possible on connected calls
-        if (wantCliVerification) cliMatch = 'unknown';
+        if (wantCliVerification) originationCliMatch = 'unknown';
       }
       ran++;
     } catch (err: any) {
@@ -212,7 +242,7 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
       sipCode   = 500;
       notes     = err.message;
       rawResponse = { error: err.message, _targetVendor: vendor.name };
-      if (wantCliVerification) cliMatch = 'unknown';
+      if (wantCliVerification) originationCliMatch = 'unknown';
       failed++;
     }
 
@@ -231,14 +261,15 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
       durationMs,
       cliSent:     wantCliVerification ? cliToSend : undefined,
       cliReceived: cliReceived ?? undefined,
-      cliMatch:    cliMatch ?? undefined,
+      originationCliMatch: originationCliMatch ?? undefined,
+      cliEvidence: cliEvidence ?? undefined,
       notes,
       rawResponse,
     }).returning({ id: routeTestResults.id });
 
     if (inserted) resultIds.push(inserted.id);
 
-    console.log(`[route-tester] job=${jobId} vendor=${vendor.name} cld=${job.destinationPrefix} connected=${connected} sip=${sipCode} pdd=${pddMs}ms cli=${cliMatch ?? 'n/a'}`);
+    console.log(`[route-tester] job=${jobId} vendor=${vendor.name} cld=${job.destinationPrefix} connected=${connected} sip=${sipCode} pdd=${pddMs}ms origination-cli=${originationCliMatch ?? 'n/a'}`);
   }
 
   // Update job timestamps
@@ -301,6 +332,18 @@ export function initRouteTestScheduler(): void {
 }
 
 // ── Load test evidence for Copilot ──────────────────────────────────────────
+/**
+ * Per-vendor evidence. Deliberately carries NO CLI fields.
+ *
+ * CAP-023 §3: the only CLI signal this service produces is origination-side —
+ * our own leg as Sippy recorded it, which no vendor ever touched. Grouping it
+ * by vendor and handing it to the copilot let a vendor be described as
+ * rewriting CLI on evidence that never observed that vendor.
+ *
+ * Origination CLI integrity is published separately and unattributed by
+ * `loadOriginationCliIntegrity()`. It returns here only when a terminating-side
+ * observation exists (CAP-023 O3/O4) and vendor targeting is bound (CAP-022).
+ */
 export interface RouteTestEvidence {
   jobId: number;
   jobName: string;
@@ -312,11 +355,6 @@ export interface RouteTestEvidence {
   recentSipCodes: number[];
   avgPddMs: number | null;
   passRate: number;
-  cliVerifiedCount: number;
-  cliMatchCount: number;
-  cliMismatchCount: number;
-  cliUnknownCount: number;
-  cliMatchRate: number | null;
 }
 
 export async function loadRouteTestEvidence(sinceHours = 6): Promise<RouteTestEvidence[]> {
@@ -345,14 +383,6 @@ export async function loadRouteTestEvidence(sinceHours = 6): Promise<RouteTestEv
     const avgPdd   = pddVals.length > 0 ? Math.round(pddVals.reduce((a, b) => a + b, 0) / pddVals.length) : null;
     const sipCodes = [...new Set(rows.filter(r => r.sipCode).map(r => r.sipCode as number))].slice(0, 5);
 
-    // CLI verification stats
-    const cliRows       = rows.filter(r => r.cliSent != null);
-    const cliMatchCount   = cliRows.filter(r => r.cliMatch === 'match').length;
-    const cliMismatchCount = cliRows.filter(r => r.cliMatch === 'mismatch').length;
-    const cliUnknownCount  = cliRows.filter(r => r.cliMatch === 'unknown').length;
-    const cliResolved      = cliMatchCount + cliMismatchCount;
-    const cliMatchRate     = cliResolved > 0 ? Math.round((cliMatchCount / cliResolved) * 100) : null;
-
     evidence.push({
       jobId:       first.jobId ?? 0,
       jobName:     job?.name ?? 'Unknown',
@@ -364,67 +394,71 @@ export async function loadRouteTestEvidence(sinceHours = 6): Promise<RouteTestEv
       recentSipCodes: sipCodes,
       avgPddMs:    avgPdd,
       passRate:    rows.length > 0 ? Math.round((success / rows.length) * 100) : 0,
-      cliVerifiedCount: cliRows.length,
-      cliMatchCount,
-      cliMismatchCount,
-      cliUnknownCount,
-      cliMatchRate,
     });
   }
 
   return evidence.sort((a, b) => a.passRate - b.passRate);
 }
 
-// ── CLI Health per-vendor (7-day window) ────────────────────────────────────
-export interface CliHealthEntry {
-  vendorName: string;
+// ── Origination CLI integrity (7-day window) ────────────────────────────────
+/**
+ * Platform-wide, and deliberately NOT broken down by vendor.
+ *
+ * This measures one thing: did the CLI we asked Sippy to present survive our
+ * own origination path? The observation comes from `cdrCache`, which holds the
+ * A-number of our own leg as Sippy recorded it (CAP-023 §3). No vendor is
+ * anywhere in that measurement, so no vendor may be named next to it.
+ *
+ * `unknown` rows are reported and excluded from the rate. An observation that
+ * was never made is not evidence in either direction — CAP-021's completeness
+ * rule, applied here.
+ */
+export interface OriginationCliIntegrity {
+  /** What this number actually describes. Rendered verbatim in the UI. */
+  scope: string;
+  evidenceLevel: 'O2';
   total: number;
-  matched: number;
-  mismatched: number;
+  match: number;
+  mismatch: number;
   unknown: number;
+  /** match / (match + mismatch). null when nothing was resolved. */
   matchRate: number | null;
+  /** Distribution of the structured CAP-023 observations, when present. */
+  observations: Record<string, number>;
 }
 
-export async function loadCliHealthSummary(): Promise<CliHealthEntry[]> {
+export async function loadOriginationCliIntegrity(): Promise<OriginationCliIntegrity> {
   const since7d = new Date(Date.now() - 7 * 24 * 60 * 60_000);
   const rows = await db.select().from(routeTestResults)
-    .where(
-      and(
-        gte(routeTestResults.startedAt, since7d),
-        // Only rows where CLI verification was enabled (cliSent is set)
-      )
-    )
+    .where(gte(routeTestResults.startedAt, since7d))
     .orderBy(desc(routeTestResults.startedAt));
 
-  // Filter to only rows where CLI verification was configured
+  // Only rows where CLI verification was configured
   const cliRows = rows.filter(r => r.cliSent != null);
 
-  const byVendor = new Map<string, { matched: number; mismatched: number; unknown: number }>();
+  let match = 0, mismatch = 0, unknown = 0;
+  const observations: Record<string, number> = {};
+
   for (const r of cliRows) {
-    const v = r.vendorName ?? 'Unknown';
-    if (!byVendor.has(v)) byVendor.set(v, { matched: 0, mismatched: 0, unknown: 0 });
-    const entry = byVendor.get(v)!;
-    if (r.cliMatch === 'match')    entry.matched++;
-    else if (r.cliMatch === 'mismatch') entry.mismatched++;
-    else entry.unknown++;
+    if (r.originationCliMatch === 'match')         match++;
+    else if (r.originationCliMatch === 'mismatch') mismatch++;
+    else                                           unknown++;
+
+    const obs = (r.cliEvidence as CliComparison | null)?.observation;
+    if (obs) observations[obs] = (observations[obs] ?? 0) + 1;
   }
 
-  const result: CliHealthEntry[] = [];
-  for (const [vendorName, counts] of byVendor) {
-    const resolved = counts.matched + counts.mismatched;
-    result.push({
-      vendorName,
-      total:      counts.matched + counts.mismatched + counts.unknown,
-      matched:    counts.matched,
-      mismatched: counts.mismatched,
-      unknown:    counts.unknown,
-      matchRate:  resolved > 0 ? Math.round((counts.matched / resolved) * 100) : null,
-    });
-  }
-
-  return result.sort((a, b) => {
-    // Sort by mismatch count desc, then matchRate asc (worst first)
-    if (b.mismatched !== a.mismatched) return b.mismatched - a.mismatched;
-    return (a.matchRate ?? 100) - (b.matchRate ?? 100);
-  });
+  const resolved = match + mismatch;
+  return {
+    scope:
+      'Requested CLI vs the CLI Sippy recorded on our own originating leg. ' +
+      'Does not observe any vendor — a rewrite downstream of Sippy is invisible here.',
+    evidenceLevel: 'O2',
+    total: cliRows.length,
+    match,
+    mismatch,
+    unknown,
+    matchRate: resolved > 0 ? Math.round((match / resolved) * 100) : null,
+    observations,
+  };
 }
