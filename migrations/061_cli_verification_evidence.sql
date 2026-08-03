@@ -58,3 +58,18 @@ COMMENT ON COLUMN route_test_results.origination_cli_match IS
 
 COMMENT ON COLUMN route_test_results.cli_evidence IS
   'CAP-023 structured CliComparison: observation (EXACT/LOCALIZED/REWRITTEN/SUPPRESSED/MALFORMED/UNKNOWN), evidence_level (O1-O4), confidence, and both normalizations.';
+
+-- ── CLD transformation evidence (CAP-023 §9) ─────────────────────────────────
+-- The first PASS carried three representations of the same called number:
+-- requested 922132803137, dialled 22211922132803137 (our tech prefix), and
+-- 1922132803137 in Sippy's CDR. Four of five prefix digits were removed. The
+-- call completed and rated correctly, so nothing looked wrong — which is the
+-- problem: "it worked" was standing in for "it did what we configured".
+--
+-- Classifying it turns that into recorded evidence with an asConfigured flag,
+-- instead of something a person has to notice in a screenshot.
+ALTER TABLE route_test_results
+  ADD COLUMN IF NOT EXISTS cld_evidence jsonb;
+
+COMMENT ON COLUMN route_test_results.cld_evidence IS
+  'CAP-023 structured CldComparison: observation (UNCHANGED/PREFIX_APPLIED/PREFIX_STRIPPED/PREFIX_RESIDUAL/DIGITS_PREPENDED/TRUNCATED/REWRITTEN/UNKNOWN), stage, evidence_level, and whether it matches the configured transformation.';

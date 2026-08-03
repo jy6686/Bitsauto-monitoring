@@ -13,7 +13,8 @@ import { storage } from "../storage";
 // ── Sippy credential helper (replicated from routes.ts pattern) ─────────────
 // We import storage to get settings then invoke makeCall from sippy.
 import * as sippy from "../sippy";
-import { compareCli, type CliComparison } from "./cli/normalizer";
+import { compareCli, type CliComparison } from "./identity/cli";
+import { compareCld, type CldComparison } from "./identity/cld";
 import { detectCountry } from "../cdr-enrichment";
 
 /**
@@ -57,7 +58,7 @@ type CdrLookupFn = (opts: {
   cld: string;
   afterMs: number;
   windowMs: number;
-}) => Promise<{ cli?: string } | null>;
+}) => Promise<{ cli?: string; cld?: string } | null>;
 
 let _cdrLookupFn: CdrLookupFn | null = null;
 
@@ -151,6 +152,7 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
     let cliReceived: string | undefined;
     let originationCliMatch: string | undefined;
     let cliEvidence: CliComparison | undefined;
+    let cldEvidence: CldComparison | undefined;
 
     try {
       const cld = job.destinationPrefix;
@@ -202,6 +204,18 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
               windowMs: 90_000,                // search within 90s of call start
             });
             cliReceived = cdrHit?.cli ?? undefined;
+            // The called number is transformed by our own configuration on the
+            // way out, so it needs the same evidence chain as the caller id —
+            // "the call completed" does not establish that the transformation
+            // was the one we configured. CAP-023 §9.
+            cldEvidence = compareCld({
+              requestedCld:       job.destinationPrefix,
+              observedCld:        cdrHit?.cld ?? null,
+              expectPrefix:       false, // Sippy should have consumed the tech prefix by now
+              stage:              'Sippy ingress',
+              destinationCountry: destinationCountryOf(job.destinationPrefix),
+              evidenceLevel:      'O2',
+            });
             cliEvidence = compareCli({
               requestedCli:       cliToSend,
               // null (not '') when nothing was found: an absent observation is
@@ -263,6 +277,7 @@ export async function executeRouteTestJob(jobId: number): Promise<{ ran: number;
       cliReceived: cliReceived ?? undefined,
       originationCliMatch: originationCliMatch ?? undefined,
       cliEvidence: cliEvidence ?? undefined,
+      cldEvidence: cldEvidence ?? undefined,
       notes,
       rawResponse,
     }).returning({ id: routeTestResults.id });

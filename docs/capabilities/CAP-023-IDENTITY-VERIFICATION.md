@@ -1,9 +1,13 @@
-# CAP-023 — CLI Verification Engine
+# CAP-023 — Identity Verification Engine
 
-**Status:** SPEC — open. Elaborates `VAL-004 CLI` in [CAP-021](CAP-021-SINGLE-CALL-VALIDATION-ENGINE.md) §7.
+**Status:** SPEC — open. Elaborates `VAL-004 CLI` in [CAP-021](CAP-021-SINGLE-CALL-VALIDATION-ENGINE.md) §7,
+and extends the same evidence model to the called number (§9).
+**Scope:** both halves of call identity — **CLI** (who is calling) and **CLD**
+(who is being called). They are transformed by the same hops, observable at the
+same four points, and a troubleshooting session almost always needs both.
 **Governed by:** CAP-021 v1.0. This document does not redefine the validator contract, the
-four-layer model or evidence custody — it determines *where CLI can be observed*, *what
-"correct" means*, and *which of today's CLI signals are trustworthy*.
+four-layer model or evidence custody — it determines *where call identity can be observed*,
+*what "correct" means*, and *which of today's identity signals are trustworthy*.
 **Depends on:** [CAP-022](CAP-022-VENDOR-TARGETING.md) for attribution (a detected rewrite
 cannot be assigned to a vendor without vendor targeting).
 **Blocks:** CLI-based vendor scoring, CLI clauses in vendor disputes, the "CLI PASS required"
@@ -16,6 +20,21 @@ success criterion in Test Profiles (CAP-021 §11).
 > When two people are connected, how do we determine that the CLI was correct or wrong —
 > local GSM format, international format, or something else?
 
+And its twin, which the first real PASS forced into view: the same call carried
+**three different representations of the called number**, and nothing in the
+platform classified the difference.
+
+```
+requested   922132803137          entered by the operator
+dialled     22211922132803137     tech prefix 22211 applied by us
+observed    1922132803137         recorded by Sippy's CDR
+```
+
+The call completed and rated correctly as Pakistan/Karachi. It is also not the
+transformation the configuration predicts — four of five prefix digits were
+removed. "It worked" and "it did what we configured" are different statements,
+and only one of them was verified.
+
 There is no single answer, because "correct" is not a property of the CLI string. It is a
 relationship between **four different values observed at four different points**, judged
 against **the destination country's dial plan** and **the commercial agreement**.
@@ -26,7 +45,7 @@ the verdict separately, and never let a missing observation become a PASS.
 
 ---
 
-## 2. Where CLI can change
+## 2. Where identity can change
 
 ```
 Testing Agent      requested CLI            we choose this
@@ -53,6 +72,28 @@ Subscriber         what the human sees      the only value that matters commerci
 
 Every hop is a place the value can change, and only the first and last matter to a
 customer. Everything in between matters to a dispute.
+
+**The called number runs the same gauntlet**, with one difference: we transform it
+ourselves, on purpose, before it leaves. That makes CLD easier to verify — there is a
+configured expectation to check against — and easier to get wrong, because a
+transformation that "works" is assumed correct without anyone checking it did what
+was configured.
+
+```
+Testing Agent      requested CLD           922132803137
+      │
+      ▼
+Asterisk           tech prefix applied     22211922132803137     ← by our own configuration
+      │
+      ▼
+Sippy              tech-prefix routing     1922132803137         ← four of five digits removed
+      │
+      ▼
+Vendor / carrier   may re-translate        ?
+      │
+      ▼
+Terminating switch what was actually rung  ?
+```
 
 ---
 
@@ -251,7 +292,85 @@ unchanged; no new architecture.
 
 ---
 
-## 9. Attribution depends on CAP-022
+## 9. CLD — called-number transformation
+
+Same evidence model, same four observation points, same UNKNOWN discipline. The one
+structural difference is that CLD has a **configured expectation** to check against: we
+know what prefix we applied, so each stage can be classified as matching that expectation
+or not.
+
+Implemented in `server/services/identity/cld.ts`.
+
+| Observation | Meaning |
+|---|---|
+| **UNCHANGED** | Recorded exactly as requested — no transformation at this stage |
+| **PREFIX_APPLIED** | The configured prefix is present and the requested number intact behind it |
+| **PREFIX_STRIPPED** | An applied prefix was fully removed, leaving the requested number |
+| **PREFIX_RESIDUAL** | Part of the applied prefix survived — **the case observed on the first PASS** |
+| **DIGITS_PREPENDED** | Digits unrelated to the configured prefix were added |
+| **TRUNCATED** | The requested number is no longer intact at the tail |
+| **REWRITTEN** | The requested number is not present at all |
+| **UNKNOWN** | Not observed |
+
+Each carries `asConfigured: boolean | null` — whether the observation matches what the
+configuration predicts — kept separate from the observation itself, so changing the
+configured prefix re-derives the judgement without touching recorded evidence.
+
+### 9.1 The observed case
+
+```
+requested   922132803137
+dialled     22211922132803137     PREFIX_APPLIED    asConfigured: true
+observed    1922132803137         PREFIX_RESIDUAL   asConfigured: false
+```
+
+Four of the five configured prefix digits were removed; `1` remained. The call completed
+and rated correctly, so the translation is operational — but it is not the full removal the
+configured `22211` prefix implies.
+
+**What is determinable and what is not.** That the observed value equals `1` + the
+requested number is certain — it is string arithmetic. *Why* is not: Sippy may match a
+four-digit routing rule `2221`, or strip all five and prepend `1`, or treat `1` as a
+service selector. All three produce identical output. So the engine records the
+relationship and flags it for confirmation against the Sippy translation rules; it never
+asserts the mechanism. Confidence is therefore capped at `medium` for this observation.
+
+Corroborating signal: `1922132803137` does not parse as a dialable number under any plan,
+which points to the CDR CLD being an intermediate, pre-translation form rather than what
+was offered to the carrier. Recorded as `observedIsDialableNumber: false`, used as
+supporting context and never as the verdict.
+
+---
+
+## 10. Narration
+
+Every identity analysis is rendered in plain language by
+`server/services/identity/narrate.ts` — deterministic, no LLM, regenerated on read and
+never stored (CAP-021 L3).
+
+The style rule is **describe, do not accuse**: report what was observed, what the
+configuration predicted, and what remains unobserved. Real output for the first PASS:
+
+> The requested caller ID was 923224861153. Every point we can see recorded the identical
+> value — our own network recorded 923224861153 — so there is no evidence of rewriting
+> within the parts of the path we observe.
+>
+> At Asterisk egress the called number was recorded as 22211922132803137. The configured
+> 22211 prefix was applied and the requested number is intact behind it.
+>
+> At Sippy ingress the called number was recorded as 1922132803137, which is not what the
+> configuration predicts. Only 4 of the 5 configured prefix digits were removed …
+>
+> No vendor or handset evidence exists for this call, so nothing can be concluded about
+> caller identity beyond our own network. A carrier further along the path could have
+> rewritten, localized or suppressed the CLI and this call would look exactly the same to us.
+
+That last paragraph is mandatory and not decorative. A fluent summary that omits it is how
+an evidence tool starts misleading the person reading it.
+
+---
+
+## 11. Attribution depends on CAP-022
 
 A rewrite detected without vendor targeting tells you the **route** rewrote CLI. It does
 not tell you **which vendor** did, because LCR chose the path and nothing pinned it.
@@ -266,12 +385,13 @@ evidence does not support.
 
 ---
 
-## 10. Build order
+## 12. Build order
 
 | # | Step | Depends on | Value without the rest |
 |---|---|---|---|
 | 1 | Correct today's signal — rename to `originationCliMatch`, remove from vendor scoring and copilot narrative | none | Stops publishing a misattributed metric. Highest value, lowest cost. |
 | 2 | Destination-aware normalizer + dial-plan table; E.164 identity compare and presented-form classification separately | destination catalogue | Makes any future observation interpretable. |
+| 2b | CLD transformation classification against the configured prefix, plus identity narration | 2 | Turns "it worked" into "it did what we configured", at every stage we can see. |
 | 3 | Packet capture on the Sippy-facing interface — closes **O2** and BTA-006 together | disk safeguards (§4.1) | Proves our own origination is clean; joins BMEE legs to Sippy CDRs. |
 | 4 | Terminating DID on our own infrastructure — closes **O3** | inbound test DID | Automatic delivered-CLI verification across the whole wholesale path. |
 | 5 | Approved-test-number registry with attested manual reports — partial **O4** | consent register | Handset truth for certification runs. |
@@ -282,9 +402,12 @@ Steps 1 and 2 are pure platform work and are not blocked by anything.
 
 ---
 
-## 11. What this capability does not do
+## 13. What this capability does not do
 
 - It does not judge whether a rewrite breaches a contract. That is L4 rule-pack territory.
+- It does not assert *why* a transformation happened. It records the relationship between
+  what was sent and what was recorded; the mechanism belongs to the switch configuration,
+  which lives outside this platform.
 - It does not detect CLI spoofing by third parties. This validates *our* CLI on *our* calls.
 - It does not attribute a rewrite to a vendor before CAP-022 is ratified.
 - It does not treat a missing observation as evidence in any direction.

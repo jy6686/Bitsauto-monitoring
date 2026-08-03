@@ -36442,6 +36442,18 @@ ${footer}
   // Strategy: exact SIP Call-ID match first (strongest correlation), then
   // strict fallback (exact CLD + time window) when callId is unavailable.
   setCdrLookupForCliVerification(async ({ callId, cld, afterMs, windowMs }) => {
+    // Both halves of call identity. CAP-023: the CLD is transformed by our own
+    // configuration on the way out, so it needs the same evidence chain as the
+    // CLI — the CDR is where we can first see what the transformation produced.
+    const identityOf = (c: any): { cli?: string; cld?: string } | null => {
+      const cli = c?.cli ?? c?.number_a ?? undefined;
+      const cldValue = c?.cld ?? c?.number_b ?? undefined;
+      if (!cli && !cldValue) return null;
+      return {
+        ...(cli ? { cli: String(cli) } : {}),
+        ...(cldValue ? { cld: String(cldValue) } : {}),
+      };
+    };
     try {
       const beforeMs = afterMs + windowMs;
 
@@ -36449,15 +36461,15 @@ ${footer}
       if (callId && callId !== 'unknown') {
         const cdrByCallId = cdrCache.get(callId);
         if (cdrByCallId) {
-          const cli = (cdrByCallId as any).cli ?? (cdrByCallId as any).number_a ?? undefined;
-          if (cli) return { cli: String(cli) };
+          const hit = identityOf(cdrByCallId);
+          if (hit) return hit;
         }
         // Also scan values in case the cache key uses a composite key for this callId
         for (const c of cdrCache.values()) {
           const cdrCallId = (c as any).callId ?? (c as any).call_id ?? '';
           if (cdrCallId === callId) {
-            const cli = (c as any).cli ?? (c as any).number_a ?? undefined;
-            if (cli) return { cli: String(cli) };
+            const hit = identityOf(c);
+            if (hit) return hit;
           }
         }
       }
@@ -36474,8 +36486,8 @@ ${footer}
         const cdrCld = String((c as any).cld ?? (c as any).number_b ?? '').replace(/\D/g, '');
         // Exact CLD match (not prefix-based) to prevent cross-call contamination
         if (cdrCld !== cldDigits) continue;
-        const cli = (c as any).cli ?? (c as any).number_a ?? undefined;
-        if (cli) return { cli: String(cli) };
+        const hit = identityOf(c);
+        if (hit) return hit;
       }
       return null;
     } catch {

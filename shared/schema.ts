@@ -3864,6 +3864,8 @@ export const routeTestResults = pgTable("route_test_results", {
   originationCliMatch: varchar("origination_cli_match", { length: 16 }),
   /** Structured CliComparison — carries the evidence level of the observation. */
   cliEvidence: jsonb("cli_evidence"),
+  /** Structured CldComparison — called-number transformation per stage (CAP-023 §9). */
+  cldEvidence: jsonb("cld_evidence"),
   notes:       text("notes"),
   rawResponse: jsonb("raw_response"),
 });
