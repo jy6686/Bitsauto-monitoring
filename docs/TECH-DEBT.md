@@ -429,3 +429,50 @@ an observation; it may not produce an anomaly.
 Golden Reference's CLD finding should be read as *"the dial string and Sippy's record differ
 by one digit"* — which is a fact — and not as *"the switch is misconfigured"*, which is an
 inference resting on a config value nobody verified.
+
+---
+
+## TD-011 · The production dial string carries a digit nothing explains
+
+**Found:** 2026-08-03, when the operator stated the technical prefix has been `2221` since
+day one, while every observed dial string carries `22211`.
+
+**The evidence, with no inference.**
+
+```
+production dialplan   Dial(… "SIP/sippy/22211923088202412,3600,Tt")
+Testing Platform      22211 + 922132803137  →  22211922132803137
+Sippy CDR (CLD)                                 1922132803137
+```
+
+If the configured rule is *strip `2221`*, Sippy removed exactly its own prefix and behaved
+correctly. The `1` is then not a residue of the prefix — it is a digit **we send**, present
+in the string before it leaves Asterisk, on both the production and the test path.
+
+**Question 1 — where is it introduced?** Partly answered already:
+
+| Path | Where the string is built | Status |
+|---|---|---|
+| Testing Platform | [`applyTechPrefix()`](https://github.com/jy6686/bitsauto-testing-agent) — `techPrefix + destination`, one opaque field from `SIPPY_TECH_PREFIX` | **Answered.** No separate digit exists in code. The `1` is there only because the config value is `22211`, which was inferred (TD-010), not verified. |
+| Production | Asterisk dialplan, `sippy-media-anchor` context | **Open.** Needs `grep -R "2221" /etc/asterisk` to see whether the dialplan composes it from parts or carries `22211` literally. |
+
+Neither path introduces the digit downstream of Asterisk. It is not added by Sippy and not
+added by an intermediate layer — that much is settled.
+
+**Question 2 — what does it mean?** Open, and independent of Question 1. Candidates: service
+selector, route class, billing indicator, national access digit, or a genuine part of the
+prefix (making `22211` correct and the operator's recollection of `2221` incomplete). The
+evidence cannot distinguish them; only the switch configuration can.
+
+**Why it is debt rather than a bug.** Production has worked this way since day one, so
+nothing is broken. The cost is that an element of every production dial string is
+undocumented, which means nobody can say whether a future change to it is safe — and that
+`SIPPY_TECH_PREFIX` may be one field representing two concepts.
+
+**Do not change `SIPPY_TECH_PREFIX` until both questions are answered.** The configuration
+model should follow the verified behaviour of the production system, not lead it. If `2221`
+and `1` are genuinely separate concepts, the platform needs two fields with recorded
+provenance; if they are not, one field is correct and only its value is wrong. Splitting
+the field on the strength of the current evidence would encode a guess into the schema.
+
+**Related:** TD-010 (expectation provenance) — the two entries share a cause.
