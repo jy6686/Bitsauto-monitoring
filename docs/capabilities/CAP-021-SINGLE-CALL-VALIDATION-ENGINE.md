@@ -84,6 +84,7 @@ resolution, and — outside this repository — a media evidence producer.
 | **AF-008** | **Intent vs observed reality.** Every execution stores requested routing separately from observed routing (actual vendor / product / CLI, plus reason such as LCR override). The two are never conflated in storage, reporting or documentation. |
 | **AF-009** | Comparative attribution requires a defined **reference leg**: a configured, health-monitored carrier per destination that is never its own subject. |
 | **AF-010** | **Hard admission control.** Under resource pressure, refuse the test. Never degrade execution — self-inflicted media defects are indistinguishable from vendor defects in the evidence package. |
+| **AF-012** | **Observed reality overrides intent.** Where both requested and observed routing exist, analytics, comparative testing, certification, vendor scoring and investigations use **observed** routing as authoritative. Intent is retained for comparison and diagnostics only. Follows from AF-008; see CAP-022 §6 for the historical consequence. |
 | **AF-011** | **Portal scope.** SCVE is an internal operational capability. Full functionality exists only in the Main Platform, NOC Portal and Admin Portal. External portals consume certified results and business outcomes only — never validator internals, raw evidence, rule packs or operational controls. |
 
 ### Architectural exceptions
@@ -507,6 +508,21 @@ recordings · AI evidence · comparative vendor results · reference carrier con
 **Track A** begins after Portal Framework v1.0 cert+merge. **Track B** may begin
 immediately; it does not touch this repository.
 
+**Verification gate.** L2B controlled comparison and any capability built on vendor
+attribution do not begin until CAP-022 is ratified — implementation never proceeds on an
+unverified routing assumption:
+
+```
+Portal Framework v1.0  →  CAP-022 verification (§5 V1–V6, §6 baseline)
+                                    ↓
+                          vendor targeting ratified
+                                    ↓
+                        L2B  →  BMEE comparative sessions
+```
+
+L2A, L3A and BMEE Sprint 1 are **not** behind this gate — none of them depends on
+controlled vendor selection.
+
 > **Sequencing caution.** The two highest-value capabilities (L2, L3A) need no media path
 > and no AI. Track B being the track that can start first must not quietly promote media
 > intelligence ahead of the capabilities that actually change routing decisions.
@@ -582,6 +598,7 @@ half under AF-001.
 | AF-009 | Defined reference leg for attribution | 2026-08-03 |
 | AF-010 | Hard admission control | 2026-08-03 |
 | AF-011 | Portal scope — Main Platform, NOC and Admin only | 2026-08-03 |
+| AF-012 | Observed reality overrides intent in all analytics | 2026-08-03 |
 
 **Open items:** vendor-targeting mechanism (§12) · AE-002 scope confirmation · reference
 carrier selection per destination · BMEE hosting and repository name.

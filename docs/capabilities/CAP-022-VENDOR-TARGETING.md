@@ -143,8 +143,20 @@ The platform has been recording intent-vs-reality since the route tester shipped
 `route_test_results.rawResponse` (`_targetVendor`, `_actualVendor`, `_vendorMismatch`).
 This must be mined **before** any switch change, so the effect of the change is measurable.
 
-> **Not yet run.** `DATABASE_URL` is not available in this environment, so the analysis
-> below is specified but unexecuted. Numbers must be filled in before §3 is ratified.
+> **Not yet run.** `DATABASE_URL` is provided by the runtime environment, not the
+> repository, so this analysis is prepared but unexecuted. Numbers must be filled in before
+> §3 is ratified.
+
+Runnable as [`scripts/cap022-vendor-divergence.sql`](../../scripts/cap022-vendor-divergence.sql)
+— read-only, six queries:
+
+```bash
+psql "$DATABASE_URL" -f scripts/cap022-vendor-divergence.sql
+```
+
+It extends the queries below with a per-vendor **reached %** (which vendors LCR rarely or
+never selects) and a coverage check (how much history carries `_vendorMismatch` at all —
+rows predating the instrumentation are unassessable in either direction).
 
 ```sql
 -- Overall divergence rate
@@ -231,7 +243,41 @@ non-zero. Quantifying that is part of this study.
 
 ---
 
-## 9. Decision status
+## 9. V1–V6 runbook
+
+> ⚠️ **These probes place real calls on the production switch.** They cost money, traverse
+> vendor networks and appear in production CDRs and analytics. They require the switch
+> owner's explicit sign-off on destination, timing and call budget before execution, and
+> they are the strongest argument for landing AE-002 first so the probe traffic is already
+> classifiable as synthetic.
+
+**Preconditions:** low-cost destination agreed · off-peak window · call budget agreed ·
+AE-002 landed if possible · a second operator watching the switch.
+
+| Step | Procedure | Record | Pass condition |
+|---|---|---|---|
+| **V5** *(run first — gating)* | Inspect the last 500 CDRs for `i_connection` / vendor fields | populated %, by vendor and by date | ≥ 99% populated. **If this fails, stop** — targeting could never be verified, only assumed, and §3 cannot be ratified in any form. |
+| **V1** | Call `call_control.makeCall` with one extra routing-ish parameter; inspect the fault string | exact fault text per method name in the fallback chain | a clear "unknown parameter" fault, or acceptance — either is a result |
+| **V2** | Originate the same destination twice via Asterisk, once plain, once with `;tgrp=<known trunk>`; compare `i_connection` on both CDRs | both CDRs, both `i_connection` values | differing `i_connection` ⇒ `tgrp` influences routing |
+| **V3** | Originate with a deliberately invalid `tgrp` | SIP response + whether a CDR exists | call **fails**. If it completes via LCR, Option B has silent fallback and must not be used without a per-call reality check |
+| **V4** | From a test account whose routing group holds one connection, place 20 calls across the window; inspect `i_connection` on each | distribution of `i_connection` | all 20 identical. Any variance = overflow/failover exists and Option A is not deterministic by itself |
+| **V6** | Switch owner states the maximum number of accounts/routing groups they will maintain | the number | ≥ vendors × products if `tgrp` fails V2/V3 |
+
+**Recording template** — append results to this section, then move §10 to Ratified:
+
+```
+V5  i_connection populated: ____%   (n=____, window ____)
+V1  extra param accepted: yes/no    fault: "____"
+V2  tgrp changes i_connection: yes/no
+V3  invalid tgrp: fails / falls back to LCR
+V4  single-connection group determinism: ____/20 identical
+V6  account ceiling: ____
+Verified by: ____   Date: ____
+```
+
+---
+
+## 10. Decision status
 
 | Item | Status |
 |---|---|
