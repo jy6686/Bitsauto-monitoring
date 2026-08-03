@@ -148,6 +148,27 @@ as "ceiling or nothing", or it blocks three classes of necessary work:
 What the gate *does* exclude: new abstractions, new frameworks, and features that neither
 extend reach nor sharpen what existing reach already supports.
 
+### The concept filter
+
+The sprint gate governs what gets **built**. This governs what gets **named**.
+
+> A new concept must resolve a demonstrated contradiction in running code or observed
+> evidence. It may not exist to complete a conceptual diagram.
+
+The current vocabulary holds because it passes this retroactively. Neither of the two
+sharpest terms was designed:
+
+- **`INCONCLUSIVE`** was added while working through a verdict distinction, and building it
+  exposed a live misattribution bug — the investigator was answering the vendor question
+  from the observation ceiling alone.
+- **The observation ceiling's contiguity rule** came from noticing that an isolated
+  observation further along the path does not extend reach, because the gap before it is
+  precisely what blocks attribution.
+
+Both arrived because a real implementation produced a wrong answer. Concepts that enter
+that way tend to hold; concepts added to round out a diagram tend to be re-litigated within
+a month, which is its own cost.
+
 ---
 
 ## Relationship to CAP-021
