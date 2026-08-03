@@ -1,9 +1,23 @@
 # CAP-021 — Single Call Validation Engine (SCVE)
 
-**Status:** SPECIFIED — architecture frozen 2026-08-03. Not in build.
+**Status:** **v1.0 — ARCHITECTURE BASELINE**, frozen 2026-08-03. Not in build.
+**Standing:** governing document for call validation, equivalent in authority to the Portal Framework documents. This is not an ordinary CAP dossier: other CAP documents define *what a capability does*; CAP-021 defines *how every call is validated*.
 **Sequencing:** Track A (in-repo validators) after Portal Framework v1.0 cert+merge, same rule as CAP-003 and the IAM program. Track B (Media Evidence Engine) is a separate project and is **not** gated by v1.0 because it does not touch this repository.
 **Source:** design sessions of 2026-07-24 → 2026-08-03; RouteInspector wiki + product screenshots used as an *engineering reference*, never as the architecture.
 **Scope note:** implementation-neutral. Field lists are contracts, not DDL. No UI is specified — SCVE is a backend capability that existing portals consume.
+
+### Revision governance
+
+1. Changes to the canonical call object, the evidence model, the validator contract, the
+   completeness model or any frozen principle (AF-*/AE-*) are **revisions to this document**,
+   reviewed as architecture decisions — never documented independently elsewhere.
+2. **Validator ids are permanent.** A validator that is superseded or withdrawn is marked
+   deprecated and keeps its id. Ids are never reused and never renumbered.
+3. Dependent capability documents — BMEE, Comparative Intelligence, Billing Integrity, AI
+   Conversation — **reference** CAP-021 for validator behaviour, evidence contracts and
+   execution semantics. They do not restate or redefine them.
+4. Version increments: patch for corrections and inventory refreshes, minor for added
+   validators or appendices, **major for any change to a frozen principle or contract**.
 
 ---
 
@@ -514,7 +528,44 @@ unchanged — which is the point of freezing both before implementation.
 
 ---
 
-## Appendix — decision register
+## Appendix A — capability cross reference
+
+Which existing production feature each validator **consumes**, and which future capability
+extends it. This table exists to answer the question that will be asked six months from
+now — *"can we replace X with the new validator?"* — and the answer it gives is
+consistently **no: the validator consumes X**.
+
+> **Rule.** Consolidate existing capabilities. Do not rebuild them. A validator that
+> duplicates an existing engine produces a second, disagreeing verdict — the worst outcome
+> available to a forensic system.
+
+| Validator | Consumes existing feature | Extended by future capability |
+|---|---|---|
+| VAL-000 Call resolution | `/api/sippy/cdr-trace` multi-fallback lookup (`routes.ts:7603`), `cdrCache` | canonical persisted call object; account / vendor / IP / ASN / invoice resolution |
+| VAL-001 Identity | `cdr-enrichment.ts` country + trunk-class detection | — |
+| VAL-002 SIP | `sipCodeToFailReason()`, `sip-probe.ts` | VAL-009 BYE timing (needs signalling retention) |
+| VAL-003 SDP | `/api/sippy/cdr/sdp` | media anchoring / RTP-IP drift analysis |
+| VAL-004 CLI | route tester CLI verification + `loadCliHealthSummary()` | VAL-023 spoken CLI confirmation (L5) |
+| VAL-005 Routing intent | — (no vendor-forcing exists, §12) | synthetic account family + `tgrp` selection |
+| VAL-006 Routing reality | `_actualVendor` / `_vendorMismatch` in `route_test_results.rawResponse` | VAL-013 comparative attribution |
+| VAL-007 Call setup integrity | route-test PDD + SIP code capture | VAL-018 ringback analysis (L4) |
+| VAL-008 Duration integrity | Sippy CDR `setup/connect/disconnect_time`, P&L sell **and** buy duration | VAL-009 BYE timing; Stage B reconciliation |
+| VAL-010/011 Billing integrity | rating, P&L, invoice + dispute machinery | vendor dispute automation |
+| VAL-012 Vendor integrity | `vendor-rca.ts`, `vendor-stability.ts`, `carrier-scoring-engine.ts`, `vendor-prefix-intelligence.ts` | VAL-013 comparative attribution |
+| VAL-013 Comparative attribution | `route_test_jobs` / `route_test_results` history | L2B controlled comparison once vendor targeting lands |
+| VAL-014 RTP quality | `rtp-quality-aggregator.ts`, `mos.ts` (CDR-field, vendor-windowed) | VAL-015 media continuity (packet-level, L4) |
+| VAL-021 Fraud correlation | **`detectFas()` + `fas_events`** — consumed, never recomputed | media-derived FAS (VAL-020), BYE integrity (VAL-009) |
+| VAL-016–020, 022–025 | — (no media, DSP, STT or TTS exists today) | BMEE |
+| VAL-026 Investigation summary | — | AI narrative generation (AF-003: explains, never enforces) |
+
+**Worked example.** *"Can we replace `detectFas` with the new validator?"* No. VAL-021
+consumes `detectFas` output from `fas_events` and layers media-derived evidence on top,
+reporting agreement or contradiction. `detectFas` remains authoritative for the CDR-derived
+half under AF-001.
+
+---
+
+## Appendix B — decision register
 
 | Ref | Decision | Date |
 |---|---|---|
