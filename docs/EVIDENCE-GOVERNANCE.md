@@ -122,6 +122,34 @@ its own kind of dishonesty.
 
 ---
 
+## The sprint gate
+
+**Architecture freeze declared 2026-08-03.** The design is disciplined enough that further
+abstraction returns less than it costs. From here the limiting factor is the quality and
+placement of evidence, not software design.
+
+Every sprint opens with one question:
+
+> **What does this let us truthfully conclude that we could not conclude before?**
+
+The primary way to answer it is *raising the observation ceiling* — O2 packet capture,
+O3 terminating DID, O4 handset evidence, deterministic vendor targeting. If a proposed
+feature raises no ceiling, it needs a specific reason to be next.
+
+**But raising the ceiling is not the only way to answer it**, and the gate must not be read
+as "ceiling or nothing", or it blocks three classes of necessary work:
+
+| Work | Ceiling | Why it still qualifies |
+|---|---|---|
+| **Removing a false conclusion** | none | The VAL-004 fix raised nothing and made the platform more truthful, by deleting a metric that named vendors on evidence that never observed them. Retracting a wrong claim is worth as much as adding a right one. |
+| **Configuration investigation** | none | The Sippy tech-prefix question needs no instrumentation — the evidence to ask it already exists. More capture would not answer it. |
+| **Making existing evidence interpretable** | none | Destination-aware normalization and the destination catalogue observe nothing new; they make what is already observed mean something. |
+
+What the gate *does* exclude: new abstractions, new frameworks, and features that neither
+extend reach nor sharpen what existing reach already supports.
+
+---
+
 ## Relationship to CAP-021
 
 CAP-021 remains the governing document for **call validation**. This document governs

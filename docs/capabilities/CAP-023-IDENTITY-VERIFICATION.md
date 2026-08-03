@@ -545,6 +545,11 @@ Steps 1 and 2 are pure platform work and are not blocked by anything.
 ## 15. What this capability does not do
 
 - It does not judge whether a rewrite breaches a contract. That is L4 rule-pack territory.
+- **It does not build an evidence graph.** Cross-call questions — "show every route with
+  this same residual CLD transformation", "which destinations exhibit this translation
+  pattern" — need an accumulated corpus, not more architecture. Deliberately postponed
+  until the corpus exists; building the graph first would be designing against imagined
+  data. Recorded here so it reads as a deferral, not an omission.
 - It does not answer open natural-language questions over the evidence corpus. The
   investigator answers a bounded, fixed set. Free-form querying ("show all calls where
   localization occurred") needs the accumulated evidence store and a query layer, neither of
