@@ -361,9 +361,26 @@ rule. Scope it to the source address the Testing Platform connects from — the 
 not be opened broadly, since AMI is an unauthenticated-until-login control channel for the
 switch.
 
-**Verification that it took:** reboot the host, then confirm the readiness panel returns to
-green without manual intervention. Anything less does not distinguish a persisted rule from
-a rule that happens to still be loaded.
+**Acceptance criteria — two cold boots, not one.**
+
+```
+Configure the rule in the FreePBX Firewall UI
+        ↓
+Reboot                              ← removes the original in-memory state
+        ↓
+AMI readiness = PASS
+        ↓
+Synthetic call = PASS               ← proves the path, not just the port
+        ↓
+Reboot again                        ← proves the first result was persistence, not residue
+        ↓
+AMI readiness = PASS
+```
+
+One reboot is not sufficient. A persistence mechanism has not been proven until the
+original in-memory state is gone *and* the result survives being reproduced. The call
+between the reboots matters too: an open port proves reachability, not that AMI still
+authenticates and originates.
 
 **Not architecture.** This raises no observation ceiling and changes no design. It qualifies
 under the sprint gate as operational hardening of an already-validated capability — the
