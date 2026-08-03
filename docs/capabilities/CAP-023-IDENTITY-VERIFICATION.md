@@ -370,7 +370,76 @@ an evidence tool starts misleading the person reading it.
 
 ---
 
-## 11. Attribution depends on CAP-022
+## 11. Identity timeline
+
+`server/services/identity/timeline.ts` renders one row per point in the path, for both
+halves of identity, naming the transformation between each observed pair.
+
+```
+● Requested        O1  CLI 923224861153   CLD 922132803137
+● Asterisk egress  O2  CLI Unknown        CLD 22211922132803137  ← +22211 applied
+● Sippy ingress    O2  CLI 923224861153   CLD 1922132803137      ← residual "1"
+○ Vendor           O3  CLI Unknown        CLD Unknown
+○ Carrier          O3  CLI Unknown        CLD Unknown
+○ Handset          O4  CLI Unknown        CLD Unknown
+```
+
+**The path is a fixed list, so unobservable stages appear as rows rather than being
+absent.** A timeline that silently stops at Sippy reads like the call stopped at Sippy. A
+timeline whose last three rows say Unknown tells the operator exactly how far the evidence
+reaches — which is the question they are really asking when they open it.
+
+It publishes one derived value, `observationCeiling` (here `O2`), and that single field is
+what makes attribution answerable without guessing.
+
+---
+
+## 12. Investigator
+
+`server/services/identity/investigate.ts` answers a bounded question set from the recorded
+evidence: *what happened · can I blame the vendor · can I blame our switch · why is the CLD
+different · what did the subscriber see.*
+
+### 12.1 Why this is deterministic and not a model call
+
+The questions operators ask under pressure are **attribution** questions, and those are not
+judgements about the call. They are set-membership tests on evidence coverage: does any
+observation exist at or beyond the point being blamed? That is computable exactly from
+`observationCeiling`.
+
+Routing it through a language model would take an answer that is currently always right and
+make it usually right. The failure mode is a fluent, confident accusation of a named
+supplier — the most expensive mistake this platform could make, because it gets repeated to
+that supplier in a commercial conversation.
+
+So the reasoning is fixed code and the evidence is the input. A model belongs on top of
+this later, phrasing questions and routing them to these answers — never deciding them.
+This is CAP-021 **AF-003** applied literally: AI may flag and explain, never drive.
+
+### 12.2 Verdicts
+
+`unsupported` is a first-class verdict, not a hedge. *"No, the vendor did not do it"* and
+*"nothing was observed at the vendor"* are different statements and only one is currently
+true. `partially` exists because CLI and CLD routinely disagree — a clean CLI with an
+unexpected CLD is the exact shape of the first PASS, and collapsing them into one yes/no
+produced a verdict that contradicted its own first sentence.
+
+Real output, for the first PASS:
+
+> **Can I blame the vendor?** — *unsupported*
+> No — and not because the vendor is cleared. There is no observation point inside or beyond
+> the downstream vendor network on this call, so no conclusion about vendor behaviour can be
+> supported in either direction.
+
+> **Can I blame our switch?** — *partially*
+> Not for the caller identity. The requested CLI was originated as configured and recorded
+> unchanged at every point we can see inside our own network.
+> For the called number, a transformation inside our own path did not match the
+> configuration: only 4 of the 5 configured prefix digits were removed…
+
+---
+
+## 13. Attribution depends on CAP-022
 
 A rewrite detected without vendor targeting tells you the **route** rewrote CLI. It does
 not tell you **which vendor** did, because LCR chose the path and nothing pinned it.
@@ -385,13 +454,14 @@ evidence does not support.
 
 ---
 
-## 12. Build order
+## 14. Build order
 
 | # | Step | Depends on | Value without the rest |
 |---|---|---|---|
 | 1 | Correct today's signal — rename to `originationCliMatch`, remove from vendor scoring and copilot narrative | none | Stops publishing a misattributed metric. Highest value, lowest cost. |
 | 2 | Destination-aware normalizer + dial-plan table; E.164 identity compare and presented-form classification separately | destination catalogue | Makes any future observation interpretable. |
 | 2b | CLD transformation classification against the configured prefix, plus identity narration | 2 | Turns "it worked" into "it did what we configured", at every stage we can see. |
+| 2c | Identity timeline + deterministic investigator | 2b | Operator can see how far the evidence reaches and what may be concluded from it. |
 | 3 | Packet capture on the Sippy-facing interface — closes **O2** and BTA-006 together | disk safeguards (§4.1) | Proves our own origination is clean; joins BMEE legs to Sippy CDRs. |
 | 4 | Terminating DID on our own infrastructure — closes **O3** | inbound test DID | Automatic delivered-CLI verification across the whole wholesale path. |
 | 5 | Approved-test-number registry with attested manual reports — partial **O4** | consent register | Handset truth for certification runs. |
@@ -402,9 +472,13 @@ Steps 1 and 2 are pure platform work and are not blocked by anything.
 
 ---
 
-## 13. What this capability does not do
+## 15. What this capability does not do
 
 - It does not judge whether a rewrite breaches a contract. That is L4 rule-pack territory.
+- It does not answer open natural-language questions over the evidence corpus. The
+  investigator answers a bounded, fixed set. Free-form querying ("show all calls where
+  localization occurred") needs the accumulated evidence store and a query layer, neither of
+  which exists yet.
 - It does not assert *why* a transformation happened. It records the relationship between
   what was sent and what was recorded; the mechanism belongs to the switch configuration,
   which lives outside this platform.
