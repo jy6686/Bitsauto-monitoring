@@ -255,6 +255,43 @@ non-zero. Quantifying that is part of this study.
 7. Only then promote the Test Profile Vendor field from *preferred* to *forced*, and enable
    L2B.
 
+### 8.1 Future automation (post-ratification)
+
+Principles only. Automation begins **after** CAP-022 is ratified — the verification results
+determine how many accounts are needed and whether the account family is the final
+mechanism at all.
+
+**Terminology.** What gets provisioned is a **Synthetic Test Account** — a customer-side
+account in the TEST family whose routing group points at one vendor connection. Vendors
+already exist as Sippy objects (`createVendor`, `listVendorConnections`). The term "test
+vendor" is wrong and must not appear in any UI.
+
+| # | Principle |
+|---|---|
+| 1 | Provisioning is **opt-in per vendor**, never blanket. Vendors × products × environments is a maintenance liability, and the ceiling is set by V6. |
+| 2 | The **Vendor Wizard records intent only** — synthetic testing enabled, which products, reference-carrier role. It never writes to the switch. |
+| 3 | The **Admin Portal executes provisioning** as an explicit action. This preserves the frozen Onboarding 2.0 split: the wizard prepares, the admin provisions. |
+| 4 | Provisioning **requires read-back verification** of `i_routing_group` via `getAccountInfo` after creation. |
+| 5 | **No routing-group substitution is permitted.** Provisioning fails loudly on mismatch. |
+| 6 | Accounts are **deactivated and retained, never deleted** — CDRs, evidence, comparative and certification history all reference them. |
+
+> **Why read-back is mandatory — the specific hazard.** The existing `createAccount()` path
+> carries a fallback cascade around `i_routing_group` (`sippy.ts:7219`–`7560`): on fault it
+> strips the routing group and retries, scans `listRoutingGroups()` for any ID the switch
+> accepts, and probes existing accounts for a workable `(i_customer, i_routing_group)` pair.
+> That logic exists to get an account created *at all*. A Synthetic Test Account needs the
+> opposite guarantee — **the exact routing group, or failure** — because a substituted group
+> produces an account that looks healthy and silently routes by LCR. Vendor targeting would
+> then appear to work while attributing every result to the wrong vendor. Reusing the
+> general account creator unmodified is therefore unsafe for this purpose.
+
+**Provisioning state machine.** `Requested → Approved → Provisioned → Verified → Active →
+Suspended → Retired → Archived`.
+
+`Provisioned ≠ Verified`. Verification is the read-back step in principle 4; an account
+becomes **Active** — and may originate test calls — only after it passes. An account that
+provisions but fails verification stays at `Provisioned` and is quarantined, never promoted.
+
 ---
 
 ## 9. V1–V6 runbook
