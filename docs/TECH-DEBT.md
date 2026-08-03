@@ -386,6 +386,32 @@ authenticates and originates.
 under the sprint gate as operational hardening of an already-validated capability — the
 evidence is only as good as the platform's ability to collect it on a Tuesday morning.
 
+**Evidence update (2026-08-04) — mechanism identified, fix applied, acceptance pending.**
+The chain listing dated the smoking gun: `/etc/sysconfig/iptables` was last written
+**Jul 3 11:08**. `iptables-services` is active, so every boot restores the July 3
+baseline — which is why every rule added in-memory since (including Sprint A's) died on
+restart. The original hypothesis ("FreePBX firewall regeneration") was half right: the
+FreePBX firewall module is *also* present (`fwconsole firewall trust` succeeds), so the
+box has two firewall managers, and a rule must survive both.
+
+The same artifact exposed the second face of the problem: the chain held **two
+different Pakistani ISP addresses for the operator's Mac** (103.244.178.127,
+175.107.203.134) and the **stale Replit egress IP** (34.132.235.103) alongside the
+current one (34.29.247.124). Both AMI clients — the operator's Mac and the monitoring
+platform on Replit — have rotating source addresses. A static per-IP allow-list will
+keep breaking, one client at a time, with the same silent timeout.
+
+Fix applied: `iptables -I … -s 34.29.247.124` + `service iptables save` (baseline now
+current, not July 3) + `fwconsole firewall trust 34.29.247.124` (survives FreePBX
+regeneration too). Belt and suspenders across both managers.
+
+Still open before this entry closes:
+1. **Two-cold-boot acceptance** — now meaningful, since the baseline finally contains
+   the rules.
+2. **The rotation decision** — static egress for the Replit deployment, or tunnel AMI
+   instead of exposing 5038 to rotating addresses. Until decided, "AMI Offline" is a
+   recurring appointment for whichever client rotates next.
+
 ---
 
 ## TD-010 · The "expected" side of a comparison carries no provenance
