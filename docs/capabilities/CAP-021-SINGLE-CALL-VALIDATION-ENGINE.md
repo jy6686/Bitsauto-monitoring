@@ -324,7 +324,7 @@ rebuild" record.
 | **VAL-001** | Identity | L1 | A | CDR | 🔵 partial — CDR fields; country + trunk-class detection in `server/cdr-enrichment.ts`. |
 | **VAL-002** | SIP | L1 | A | SIP response / CDR cause | 🟡 exists — `sipCodeToFailReason()` in `cdr-enrichment.ts`; `sip-probe.ts`. |
 | **VAL-003** | SDP | L1 | A | SDP offer/answer | 🔵 partial — per-call `/api/sippy/cdr/sdp`. |
-| **VAL-004** | CLI | L1 | A | SIP + expected CLI | 🟡 exists — `services/route-tester.ts` CDR-cache probe by Call-ID, `+`-normalised compare; `loadCliHealthSummary()` 7-day per-vendor mismatch scoring. |
+| **VAL-004** | CLI | L1 | A | SIP + expected CLI | 🔴 exists but **misattributed** — `services/route-tester.ts:170` probes `cdrCache` for `cli`/`number_a`, which is our **own originating leg** as Sippy recorded it, so it can only detect an Asterisk/Sippy rewrite and never a downstream one; `loadCliHealthSummary()` nonetheless scores it **per vendor** and `ai/route-copilot.ts:921` feeds it to the copilot as vendor behaviour. See [CAP-023](CAP-023-CLI-VERIFICATION.md) §3. |
 | **VAL-005** | Routing intent | L1 | A | test profile / routing request | ❌ missing — no vendor-forcing mechanism, see §12. |
 | **VAL-006** | Routing reality | L1 | A | CDR + routing decision | 🔵 partial — `route-tester.ts:150` records `_actualVendor` / `_vendorMismatch` in `rawResponse`. |
 | **VAL-007** | Call setup integrity | L1 | A | SIP timing, PDD | 🔵 partial — PDD and SIP code captured per test; no early-media or RBT analysis. |
@@ -573,7 +573,7 @@ consistently **no: the validator consumes X**.
 | VAL-001 Identity | `cdr-enrichment.ts` country + trunk-class detection | — |
 | VAL-002 SIP | `sipCodeToFailReason()`, `sip-probe.ts` | VAL-009 BYE timing (needs signalling retention) |
 | VAL-003 SDP | `/api/sippy/cdr/sdp` | media anchoring / RTP-IP drift analysis |
-| VAL-004 CLI | route tester CLI verification + `loadCliHealthSummary()` | VAL-023 spoken CLI confirmation (L5) |
+| VAL-004 CLI | route tester CLI verification (origination-side only — CAP-023 §3) + `loadCliHealthSummary()` | CAP-023 terminating-side observation (O3 DID / O4 handset); VAL-023 spoken CLI confirmation (L5) |
 | VAL-005 Routing intent | — (no vendor-forcing exists, §12) | synthetic account family + `tgrp` selection |
 | VAL-006 Routing reality | `_actualVendor` / `_vendorMismatch` in `route_test_results.rawResponse` | VAL-013 comparative attribution |
 | VAL-007 Call setup integrity | route-test PDD + SIP code capture | VAL-018 ringback analysis (L4) |
