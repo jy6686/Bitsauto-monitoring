@@ -321,3 +321,50 @@ eleven that landed. Partial pricing explains 11 rows instead of 52; it cannot ex
 saying the tariff does not hold what was sent. That message is what would stop an operator
 trusting a run that worked — and it is the likeliest explanation for the tariff-33 defect
 having stayed open for two weeks against a path that may have been functioning throughout.
+
+---
+
+## TD-009 · AMI access on reve-otp survives only until the next reboot or firewall reload
+
+**Found:** 2026-08-03, during Sprint A of the Testing Platform. Elevated from a session note
+to a tracked item because it cost significant time to isolate the first time and will
+present identically the second time.
+
+**Current state.** The Testing Platform reaches Asterisk Manager on `reve-otp` (159.223.32.59)
+through port 5038. The host's `INPUT` chain permitted only `34.132.235.103` and `127.0.0.1`
+on that port, followed by a `DROP` for `0.0.0.0/0`. Access was restored during Sprint A with:
+
+```
+iptables -I INPUT ...
+```
+
+**`iptables -I` writes to the running kernel table only.** Nothing persisted it. FreePBX
+manages this host's firewall and regenerates the chain from its own configuration.
+
+**Failure mode.** A reboot, a `fail2ban` reload, or any FreePBX firewall regeneration
+silently removes the rule. There is no error and no log entry that names the cause.
+
+**What it looks like when it happens.** The readiness panel turns red on the AMI check. The
+failure text is a connect timeout, which reads as a network problem — and the previous
+symptom in this same situation looked like a wrong password, which is what sent the first
+investigation down the wrong path. Everything else stays green, so the Testing Platform
+appears broken while both the platform and Asterisk are healthy.
+
+**Why it matters more now than it did in Sprint A.** During Sprint A this was one person
+debugging a new tool and expecting problems. Once the platform is used for day-to-day route
+validation, the same silent failure arrives mid-investigation, and the natural reading is
+"the testing tool is unreliable" rather than "a firewall rule vanished".
+
+**Fix.** Add the allow-list entry through the **FreePBX Firewall UI** so it is written to
+FreePBX's own configuration and survives regeneration, rather than as a raw `iptables`
+rule. Scope it to the source address the Testing Platform connects from — the port should
+not be opened broadly, since AMI is an unauthenticated-until-login control channel for the
+switch.
+
+**Verification that it took:** reboot the host, then confirm the readiness panel returns to
+green without manual intervention. Anything less does not distinguish a persisted rule from
+a rule that happens to still be loaded.
+
+**Not architecture.** This raises no observation ceiling and changes no design. It qualifies
+under the sprint gate as operational hardening of an already-validated capability — the
+evidence is only as good as the platform's ability to collect it on a Tuesday morning.
