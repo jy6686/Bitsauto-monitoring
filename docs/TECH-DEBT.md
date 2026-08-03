@@ -401,16 +401,33 @@ current one (34.29.247.124). Both AMI clients — the operator's Mac and the mon
 platform on Replit — have rotating source addresses. A static per-IP allow-list will
 keep breaking, one client at a time, with the same silent timeout.
 
-Fix applied: `iptables -I … -s 34.29.247.124` + `service iptables save` (baseline now
-current, not July 3) + `fwconsole firewall trust 34.29.247.124` (survives FreePBX
-regeneration too). Belt and suspenders across both managers.
+**Correction (same day):** the belt-and-suspenders advice was wrong and caused an
+incident. `fwconsole firewall trust` **woke the dormant FreePBX firewall**, which
+regenerated the chains under its zone model and locked the operator out of the web GUI
+(connection refused). A reboot cleared it — the module was never persistently enabled,
+so the wake-up died with the boot. **Standing decision: one firewall owner.**
+`iptables-services` + the saved baseline owns this box; the FreePBX firewall module
+stays disabled; `fwconsole firewall trust` is off the runbook.
+
+**Root cause, completed by the reboot:** the same reboot came up with an **empty
+chain** — no 5038 rules, no DROP, the production PBX briefly open to the internet with
+AMI bound to 0.0.0.0 — because `iptables.service` was **never enabled** (`systemctl
+enable` created the symlink for the first time on 2026-08-04). So TD-009 had two
+independent legs: rules never saved (file dated Jul 3), and a load service that never
+ran at boot. Both closed: `service iptables save` + `systemctl enable iptables`.
+A subtlety for the record: after that reboot the readiness panel showed **green for
+the wrong reason** — the port was open to everyone, not allowed for us. A client-side
+check cannot distinguish those; only the server-side chain listing can.
 
 Still open before this entry closes:
-1. **Two-cold-boot acceptance** — now meaningful, since the baseline finally contains
-   the rules.
+1. **Two-cold-boot acceptance** — now legitimate: baseline saved *and* service
+   enabled. The earlier reboot does not count (it exposed the gap; that was its job).
 2. **The rotation decision** — static egress for the Replit deployment, or tunnel AMI
-   instead of exposing 5038 to rotating addresses. Until decided, "AMI Offline" is a
-   recurring appointment for whichever client rotates next.
+   instead of exposing 5038 to rotating addresses. The chain now carries two ISP IPs
+   for the operator's Mac, a stale Replit IP, and a live one — per-IP rules against
+   rotating clients keep breaking one client at a time. Also present: a stale
+   GUI-created AMI manager `bitsauto-testin` (truncated name, pinned to an old ISP
+   IP) — cleanup candidate once validation is done, not before.
 
 ---
 
