@@ -53,6 +53,28 @@ export type InvestigationQuestion =
 export type InvestigationVerdict =
   | 'yes' | 'no' | 'partially' | 'inconclusive' | 'unsupported' | 'observed' | 'none';
 
+/**
+ * The minimum additional evidence that would make this question decidable.
+ *
+ * Every non-deterministic verdict implies an engineering action, and stating it
+ * is what turns "we cannot tell you" into a work item. Null when the verdict is
+ * already deterministic — there is nothing to add.
+ */
+export interface NextObservation {
+  action: string;
+  /** What it would observe, e.g. 'O3 at the terminating endpoint'. */
+  unlocks: string;
+  /** What becomes answerable once it exists. */
+  wouldEnable: string;
+  reference: string;
+  /**
+   * False when the hop sits inside a third party's network and cannot be
+   * instrumented directly. The action is then the closest honest substitute,
+   * not a promise that the hop itself becomes visible.
+   */
+  directlyObtainable: boolean;
+}
+
 export interface InvestigationAnswer {
   question: InvestigationQuestion;
   /** The question as an operator would phrase it. */
@@ -63,6 +85,65 @@ export interface InvestigationAnswer {
   basedOn: string[];
   /** What was not observed, and therefore not concluded. */
   limits: string[];
+  /** The minimum evidence that would decide this next time. */
+  recommendedNextObservation: NextObservation | null;
+}
+
+/**
+ * How each point in the path could be observed.
+ *
+ * Two of them are honestly marked unobtainable: Vendor and Carrier sit inside
+ * networks we do not run. Pretending otherwise would put an impossible task on
+ * an operator's list, so those entries name the substitute that actually
+ * narrows the span instead.
+ */
+const OBSERVATION_MECHANISM: Record<string, Omit<NextObservation, 'wouldEnable'>> = {
+  'Asterisk egress': {
+    action: 'Ring-buffered packet capture on the Sippy-facing interface, capped and written outside /',
+    unlocks: 'O2 — the true From / PAI / RPID leaving our network, and the SIP Call-ID',
+    reference: 'CAP-023 §4.1',
+    directlyObtainable: true,
+  },
+  'Sippy ingress': {
+    action: 'CDR probe by Call-ID (already in place)',
+    unlocks: 'O2 — what Sippy recorded on our own leg',
+    reference: 'CAP-023 §3',
+    directlyObtainable: true,
+  },
+  'Vendor': {
+    action:
+      'Not directly observable — this hop is inside the supplier network. Bind CAP-022 vendor ' +
+      'targeting so a change across the span is attributable to one named supplier rather than ' +
+      'to whichever route LCR chose',
+    unlocks: 'attribution to a supplier, not to a hop',
+    reference: 'CAP-022 §9 (V5 gates it)',
+    directlyObtainable: false,
+  },
+  'Carrier': {
+    action:
+      'Not directly observable. A terminating DID on our own SIP infrastructure collapses ' +
+      'Carrier and Handset into a single endpoint we control, shrinking the span to one supplier',
+    unlocks: 'O3 — delivered identity across the whole wholesale path',
+    reference: 'CAP-023 §5',
+    directlyObtainable: false,
+  },
+  'Handset': {
+    action:
+      'Attested report from the person who answered, or an Android device agent on a ' +
+      'registered test SIM (iOS cannot expose incoming CLI to third-party apps)',
+    unlocks: 'O4 — what the subscriber actually saw',
+    reference: 'CAP-023 §6',
+    directlyObtainable: true,
+  },
+};
+
+/** The first unobserved hop in a span, and how to close it. */
+function nextObservationFor(stages: string[], wouldEnable: string): NextObservation | null {
+  for (const stage of stages) {
+    const m = OBSERVATION_MECHANISM[stage];
+    if (m) return { ...m, wouldEnable };
+  }
+  return null;
 }
 
 export interface InvestigationInput {
@@ -104,6 +185,10 @@ export function investigate(
       if (!reaches(timeline, 'O3')) {
         return {
           question, asked, verdict: 'unsupported', basedOn, limits,
+          recommendedNextObservation: nextObservationFor(
+            ['Carrier', 'Handset'],
+            'whether identity survived the wholesale path, and — with CAP-022 — which supplier changed it',
+          ),
           answer: [
             'No — and not because the vendor is cleared. There is no observation point inside or ' +
             'beyond the downstream vendor network on this call, so no conclusion about vendor ' +
@@ -132,6 +217,10 @@ export function investigate(
       if (changedAcrossSpan && !br.isolated) {
         return {
           question, asked, verdict: 'inconclusive',
+          recommendedNextObservation: nextObservationFor(
+            br.spanned,
+            `an attribution inside the ${br.before?.stage} → ${br.after?.stage} span, instead of naming it as a whole`,
+          ),
           basedOn: [...basedOn,
             `Change observed between ${br.before?.stage ?? 'the start'} and ${br.after?.stage ?? 'the end'}.`],
           limits: [...limits,
@@ -151,6 +240,7 @@ export function investigate(
       return {
         question, asked,
         verdict: changedAcrossSpan ? 'yes' : 'no',
+        recommendedNextObservation: null, // bracketed and decided
         basedOn: [...basedOn,
           `Identity ${entering} at ${br.before?.stage} → ${leaving} at ${br.after?.stage}.`],
         limits: [
@@ -175,6 +265,10 @@ export function investigate(
       if (ours.length === 0 && oursCld.length === 0) {
         return {
           question, asked, verdict: 'unsupported', basedOn, limits,
+          recommendedNextObservation: nextObservationFor(
+            ['Asterisk egress'],
+            'a deterministic answer on whether our own switch altered the identity',
+          ),
           answer: ['Nothing was observed inside our own infrastructure on this call, so its ' +
                    'behaviour is unverified. This is a gap in capture, not a clean bill of health.'],
         };
@@ -214,6 +308,11 @@ export function investigate(
         verdict: cliBlamed && cldBlamed ? 'yes'
           : cliBlamed || cldBlamed   ? 'partially'
           : 'no',
+        // Our own egress is still a proxy observation until the capture exists.
+        recommendedNextObservation: nextObservationFor(
+          ['Asterisk egress'],
+          'confirmation from the wire rather than from Sippy\'s record of our leg',
+        ),
         answer, limits,
         basedOn: [...basedOn,
           ...ours.map(c => `CLI @ ${c.evidenceLevel}: ${c.observation}`),
@@ -226,12 +325,22 @@ export function investigate(
       if (!changed.length) {
         return {
           question, asked, verdict: 'none', basedOn, limits,
+          recommendedNextObservation: null,
           answer: ['No called-number transformation was observed on this call.'],
         };
       }
       return {
         question, asked, verdict: 'observed',
         basedOn: [...basedOn, ...changed.map(c => `${c.stage}: ${c.observation}`)],
+        // Not an observation gap — the rule that produced it lives in the
+        // switch configuration, so the next step is a config review.
+        recommendedNextObservation: {
+          action: 'Confirm the Sippy tech-prefix translation rule against the configured prefix',
+          unlocks: 'the mechanism behind the transformation, not just its result',
+          wouldEnable: 'stating why the transformation occurred, not only that it did',
+          reference: 'CAP-023 §9.1',
+          directlyObtainable: true,
+        },
         limits: [
           ...limits,
           'The evidence establishes that a transformation occurred and what it produced. It does ' +
@@ -248,6 +357,10 @@ export function investigate(
       if (!reaches(timeline, 'O4')) {
         return {
           question, asked, verdict: 'unsupported', basedOn, limits,
+          recommendedNextObservation: nextObservationFor(
+            ['Handset'],
+            'a statement about what the subscriber actually saw',
+          ),
           answer: [
             'Unknown. No handset observation exists for this call, and nothing upstream can ' +
             'substitute for it — the terminating mobile network applies localization and ' +
@@ -262,6 +375,7 @@ export function investigate(
         question, asked, verdict: 'observed',
         basedOn: [...basedOn, `O4: ${handset?.observation}`],
         limits,
+        recommendedNextObservation: null,
         answer: [`The handset presented ${handset?.observed?.input}. ${handset?.reason ?? ''}`],
       };
     }
@@ -278,6 +392,9 @@ export function investigate(
       }
       return {
         question, asked, verdict: 'observed', basedOn, limits,
+        recommendedNextObservation: timeline.unobservedStages.length
+          ? nextObservationFor(timeline.unobservedStages, 'a fuller account of the path')
+          : null,
         answer: [
           parts.join('. ') + '.',
           timeline.unobservedStages.length

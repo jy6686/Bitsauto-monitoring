@@ -469,7 +469,26 @@ Real output, for the first PASS:
 
 ---
 
-### 12.4 As a service
+### 12.4 Recommended next observation
+
+Every non-deterministic verdict carries the minimum additional evidence that would decide
+it, so "we cannot tell you" arrives as a work item rather than a shrug.
+
+| Verdict | Recommended next observation |
+|---|---|
+| `unsupported` — vendor | Terminating DID (O3), plus CAP-022 targeting for supplier attribution |
+| `unsupported` — subscriber | Attested handset report, or Android device agent (O4) |
+| `unsupported` — our switch | Ring-buffered packet capture on the Sippy-facing interface (O2) |
+| `inconclusive` | The first unobserved hop inside the span |
+| `observed` — CLD transformed | Confirm the Sippy tech-prefix translation rule — a config review, not an observation |
+
+Two hops are marked `directlyObtainable: false`: **Vendor** and **Carrier** sit inside
+networks we do not run. Their entries name the substitute that actually narrows the span —
+vendor targeting, or a terminating DID that collapses Carrier and Handset into one endpoint
+we control — rather than pretending the hop itself becomes visible. Putting an impossible
+task on an operator's list is its own kind of dishonesty.
+
+### 12.5 As a service
 
 ```
 POST /api/identity/investigate   { resultId, question? }
