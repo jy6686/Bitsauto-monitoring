@@ -15,6 +15,7 @@ import {
 } from '@shared/schema';
 import { eq, desc, gte, and, sql, isNotNull, isNull } from 'drizzle-orm';
 import { amiGovernance } from './services/asterisk/ami-governance';
+import { startAmiOfflineAlerting } from './services/asterisk/ami-offline-alert.js';
 import { storage } from './storage';
 import { Client as SshClient } from 'ssh2';
 import * as sippy from './sippy';
@@ -960,6 +961,11 @@ export async function ensureCallGovernanceMigrations(): Promise<void> {
 export function registerCallGovernanceRoutes(app: Express) {
   // Start persistent AMI listener
   amiGovernance.start();
+
+  // Alert if governance loses AMI — the 2026-08-04 outage was silent for hours
+  // while vendor legs ran uncut. The pong watchdog recovers zombie sockets;
+  // this covers the causes it cannot fix (blocked IP after a container move).
+  startAmiOfflineAlerting();
 
   // ── On every AMI login: reconcile calls that were already bridged ──────────
   // Runs 2s after login to let Asterisk finish its initial event stream.
