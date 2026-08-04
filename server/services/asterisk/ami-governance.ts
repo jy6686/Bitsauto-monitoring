@@ -43,8 +43,13 @@ class AmiGovernanceListener extends EventEmitter {
   private loggedIn            = false;
   private reconnectTimer:     NodeJS.Timeout | null = null;
   private keepaliveTimer:     NodeJS.Timeout | null = null;
+  private pongWatchdogTimer:  NodeJS.Timeout | null = null;
   private actionCounter       = 0;
   private started             = false;
+  // Diagnostics exposed via /api/call-governance/ami-status
+  public  lastError:          string = '';
+  public  reconnectCount:     number = 0;
+  public  lastConnectedAt:    Date | null = null;
   // BridgeEnter fires once per channel — accumulate until both legs present
   private bridgePending = new Map<string, BridgeLeg[]>();
   // channel → bridgeId for cleanup on hangup
@@ -62,6 +67,40 @@ class AmiGovernanceListener extends EventEmitter {
     this.connect();
   }
 
+  /** Expose for the API endpoint and for tests */
+  forceReconnect() {
+    console.log('[ami-governance] forceReconnect() called — tearing down current socket');
+    this.clearTimers();
+    if (this.socket) {
+      this.socket.removeAllListeners();
+      this.socket.destroy();
+      this.socket = null;
+    }
+    this.connected = false;
+    this.loggedIn  = false;
+    this.reconnectCount++;
+    this.connect();
+  }
+
+  private clearTimers() {
+    if (this.keepaliveTimer)    { clearInterval(this.keepaliveTimer);  this.keepaliveTimer   = null; }
+    if (this.reconnectTimer)    { clearTimeout(this.reconnectTimer);   this.reconnectTimer   = null; }
+    if (this.pongWatchdogTimer) { clearTimeout(this.pongWatchdogTimer); this.pongWatchdogTimer = null; }
+  }
+
+  private armPongWatchdog() {
+    // We just sent a Ping — Asterisk must respond within 35 s.
+    // If it doesn't, the connection is a zombie: force close so reconnect fires.
+    if (this.pongWatchdogTimer) clearTimeout(this.pongWatchdogTimer);
+    this.pongWatchdogTimer = setTimeout(() => {
+      this.pongWatchdogTimer = null;
+      if (!this.connected) return;
+      console.warn('[ami-governance] Pong watchdog expired — no response to Ping in 35 s; forcing reconnect');
+      this.lastError = 'Pong watchdog: no response to Ping in 35 s';
+      this.socket?.destroy(); // triggers 'close' → scheduleReconnect
+    }, 35_000);
+  }
+
   private connect() {
     const c = cfg();
     this.socket  = new net.Socket();
@@ -69,11 +108,23 @@ class AmiGovernanceListener extends EventEmitter {
     this.connected = false;
     this.loggedIn  = false;
 
+    // OS-level TCP keepalive — kernel detects dead peers even when no app data flows
+    this.socket.setKeepAlive(true, 10_000);
+    // Inactivity timeout — if no data arrives for 60 s our keepalive Ping is overdue;
+    // treat the connection as dead and reconnect.
+    this.socket.setTimeout(60_000);
+
     this.socket.connect(c.port, c.host);
 
     this.socket.on('connect', () => {
       this.connected = true;
       console.log('[ami-governance] Connected to Asterisk AMI');
+    });
+
+    this.socket.on('timeout', () => {
+      console.warn('[ami-governance] Socket inactivity timeout (60 s) — forcing reconnect');
+      this.lastError = 'Socket inactivity timeout (60 s)';
+      this.socket?.destroy(); // triggers 'close' → scheduleReconnect
     });
 
     this.socket.on('data', (chunk) => {
@@ -101,12 +152,13 @@ class AmiGovernanceListener extends EventEmitter {
 
     this.socket.on('error', (err) => {
       console.error(`[ami-governance] Socket error: ${err.message}`);
+      this.lastError = err.message;
     });
 
     this.socket.on('close', () => {
       this.connected = false;
       this.loggedIn  = false;
-      if (this.keepaliveTimer) { clearInterval(this.keepaliveTimer); this.keepaliveTimer = null; }
+      this.clearTimers();
       console.log('[ami-governance] Connection closed — reconnecting in 15s');
       this.scheduleReconnect();
     });
@@ -114,6 +166,7 @@ class AmiGovernanceListener extends EventEmitter {
 
   private scheduleReconnect() {
     if (this.reconnectTimer) return;
+    this.reconnectCount++;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
@@ -145,22 +198,32 @@ class AmiGovernanceListener extends EventEmitter {
     if (f['actionid'] === 'gov-login') {
       if (f['response'] === 'Success') {
         this.loggedIn = true;
+        this.lastConnectedAt = new Date();
+        this.lastError = '';
         console.log('[ami-governance] Logged in — listening for Bridge/Hangup events');
         // Explicitly subscribe to call events (Bridge, BridgeEnter, Hangup, etc.)
         // Some Asterisk builds default to restricted event sets without this.
         this.socket?.write(`Action: Events\r\nEventMask: call\r\nActionID: gov-events\r\n\r\n`);
-        // Send a Ping every 20s to keep the connection alive
+        // Ping every 20s + arm pong watchdog so a silent drop is detected within 35s
         if (this.keepaliveTimer) clearInterval(this.keepaliveTimer);
         this.keepaliveTimer = setInterval(() => {
           if (this.connected && this.loggedIn && this.socket) {
             this.socket.write(`Action: Ping\r\nActionID: gov-keepalive\r\n\r\n`);
+            this.armPongWatchdog();
           }
         }, 20_000);
         // Emit 'connected' so governance engine can reconcile existing calls
         this.emit('connected');
       } else {
         console.error('[ami-governance] Login failed:', f['message']);
+        this.lastError = `Login failed: ${f['message'] ?? 'unknown'}`;
       }
+      return;
+    }
+
+    // Pong response — disarm the watchdog, connection is alive
+    if (f['actionid'] === 'gov-keepalive' && f['response'] === 'Success') {
+      if (this.pongWatchdogTimer) { clearTimeout(this.pongWatchdogTimer); this.pongWatchdogTimer = null; }
       return;
     }
 

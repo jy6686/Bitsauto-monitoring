@@ -1420,7 +1420,20 @@ export function registerCallGovernanceRoutes(app: Express) {
   // ── REST: AMI Status ───────────────────────────────────────────────────────
 
   app.get('/api/call-governance/ami-status', requireAuth, async (_req: any, res: any) => {
-    res.json({ connected: amiGovernance.isConnected, activeTimers: activeTimers.size });
+    res.json({
+      connected:       amiGovernance.isConnected,
+      activeTimers:    activeTimers.size,
+      reconnectCount:  amiGovernance.reconnectCount,
+      lastConnectedAt: amiGovernance.lastConnectedAt,
+      lastError:       amiGovernance.lastError || null,
+    });
+  });
+
+  // Force an immediate AMI reconnect without restarting the app
+  app.post('/api/call-governance/ami-reconnect', requireAdmin, async (_req: any, res: any) => {
+    console.log('[ami-governance] Manual reconnect triggered via API');
+    amiGovernance.forceReconnect();
+    res.json({ ok: true, message: 'Reconnect initiated — check /api/call-governance/ami-status in ~5s' });
   });
 
   // ── Debug: raw AMI channel list + pattern test ──────────────────────────────
