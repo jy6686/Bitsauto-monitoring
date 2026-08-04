@@ -422,9 +422,14 @@ check cannot distinguish those; only the server-side chain listing can.
 Still open before this entry closes:
 1. **Two-cold-boot acceptance** — now legitimate: baseline saved *and* service
    enabled. The earlier reboot does not count (it exposed the gap; that was its job).
-2. **The rotation decision** — static egress for the Replit deployment, or tunnel AMI
-   instead of exposing 5038 to rotating addresses. The chain now carries two ISP IPs
-   for the operator's Mac, a stale Replit IP, and a live one — per-IP rules against
+2. **The rotation decision — now DUE, with empirical pricing.** Second Replit egress
+   rotation inside ~24h (34.132.235.103 → 34.29.247.124 → **136.113.31.90**, added and
+   saved 2026-08-04). Each rotation = Call Governance dark until a manual server
+   intervention — vendor legs uncut at production cost, ~2 interventions/day at the
+   observed rate. First option to check: Replit static egress (a deployment setting on
+   some plans — likely a toggle that deletes this failure class). Otherwise: tunnel.
+   Chasing IPs is now the measured, worst option. The chain also still carries two ISP
+   IPs for the operator's Mac and the stale Replit addresses — per-IP rules against
    rotating clients keep breaking one client at a time. Also present: a stale
    GUI-created AMI manager `bitsauto-testin` (truncated name, pinned to an old ISP
    IP) — cleanup candidate once validation is done, not before.
