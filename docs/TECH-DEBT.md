@@ -430,7 +430,17 @@ Still open before this entry closes:
    some plans — likely a toggle that deletes this failure class). Otherwise: tunnel.
    Chasing IPs is now the measured, worst option. The chain also still carries two ISP
    IPs for the operator's Mac and the stale Replit addresses — per-IP rules against
-   rotating clients keep breaking one client at a time. Also present: a stale
+   rotating clients keep breaking one client at a time.
+
+   **Ground truth (2026-08-04, `manager show connected`):** the deployment's real egress
+   verified as 136.113.31.90 at the destination — rotation confirmed, not a workspace
+   artifact. The platform's **auto-reconnect works**: it connected 144s after the rule
+   landed, with no app restart — it had been retrying against the DROP throughout. So
+   the months-of-stability answer is simply that neither end moved for months; in one
+   12-hour window the server rebooted twice AND the deployment changed hosts. Note the
+   feedback loop: restarting the Replit app during recovery can itself re-land the
+   deployment on a new host — the standard recovery move can rotate the IP it is trying
+   to recover. Static egress remains the exit. Also present: a stale
    GUI-created AMI manager `bitsauto-testin` (truncated name, pinned to an old ISP
    IP) — cleanup candidate once validation is done, not before.
 
