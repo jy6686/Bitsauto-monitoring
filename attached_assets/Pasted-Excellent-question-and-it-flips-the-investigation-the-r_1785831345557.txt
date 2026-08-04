@@ -1,0 +1,86 @@
+Excellent question — and it flips the investigation the right way around. The premise "Replit started rotating" deserves the same scrutiny as everything else, because there's a simpler explanation: Replit didn't change. The server did.
+
+Look at what the last 12 hours contained that the previous 3–4 months didn't:
+
+Event	Effect on a long-lived AMI session
+reve-otp rebooted (twice)	TCP session from Replit killed — first time in months
+Firewall chain empty, then restored	Connection state churned
+FreePBX firewall briefly woke and rejected traffic	Active session reset
+A quiet AMI connection that survived for months did so because nothing on either end moved. In the last 12 hours the server end moved four times. Every break then exposed a second weakness: the platform apparently doesn't reconnect on its own — each recovery has needed a Replit restart.
+
+And I owe you a correction on the "rotation" story. The three IPs came from curl in the ~/workspace$ shell — Replit's development workspace, whose egress is expected to be ephemeral. The deployed app (vo-ip-watcher--junaid70.replit.app) may egress from a different, stable address — quite possibly still 34.132.235.103, the one that's been in your chain all along. I treated the workspace IP as the deployment's IP without evidence that they're the same. The two "rotations" may be an artifact of measuring the wrong container.
+
+One command settles it authoritatively. Restart the Replit app, wait for the badge, then on reve-otp:
+
+asterisk -rx "manager show connected"
+That lists every live AMI session with its real source IP — the ground truth, observed at the destination instead of guessed at the source.
+
+Source shows 34.132.235.103 → no rotation ever happened for the deployment; the outages were pure server churn plus weak reconnect, and the two rules I had you add were harmless but useless.
+Source shows 136.113.31.90 (or another new IP) → workspace and deployment share egress, rotation is real, and the static-egress decision stands as priced.
+Either way, the finding that survives both outcomes: the monitoring platform's AMI client needs automatic reconnection with backoff. A production governance system whose enforcement arm requires a manual app restart after any server blip is fragile in exactly the way that costs money at 3 a.m. That's a monitoring-platform code candidate — artifact-justified the moment manager show connected confirms the story.
+
+Your instinct was right to challenge the timeline. "Why now, after months?" is the question that catches wrong theories — and it may have just caught mine.
+
+[root@reve-otp ~]# asterisk -rx "manager show connected"
+  Username         IP Address                                               Start       Elapsed     FileDes   HttpCnt   Read   Write
+  admin            127.0.0.1                                                1785822300  8745        21        0         1073750015  1073750015
+  bitsauto         136.113.31.90                                            1785830901  144         42        0         04079  04323
+2 users connected.
+[root@reve-otp ~]#
+
+Ground truth obtained — and it settles everything, including one point against my last message:
+
+bitsauto    136.113.31.90    Elapsed: 144s
+Three conclusions, each straight from that line:
+
+1. Call Governance is back online right now. The bitsauto user — the monitoring platform — is connected from the IP you allowed minutes ago. The badge should be green.
+
+2. The rotation is real. The deployment's actual egress is 136.113.31.90, observed at the destination — the workspace curl was representative after all, and my correction-of-the-correction over-corrected. The deployment genuinely moved from 34.132.235.103.
+
+3. My "weak reconnect" claim is falsified. Elapsed 144 seconds — it connected the moment your rule landed, with no Replit restart. The platform had been retrying against the DROP all along and walked in the instant the door opened. Auto-reconnect works; strike that platform-bug candidate.
+
+So the full answer to your question — why stable for months, broken for 12 hours — is now evidence end to end:
+
+For 3–4 months, neither end moved. The deployment sat on one host (34.132.235.103, allowed in your baseline) and reve-otp never rebooted. A long-lived session with stable rules on both sides has no reason to die.
+
+In the last 12 hours, both ends moved. The server rebooted twice, its firewall emptied and refilled, FreePBX's firewall briefly woke and rejected traffic — killing the months-old session — and the Replit deployment changed hosts, so every reconnect attempt arrived from an address the chain had never seen and hit the DROP. Two independent causes, stacked, each sufficient. And plausibly linked: the app restarts performed during the troubleshooting may themselves have re-landed the deployment on new hosts — meaning the standard recovery move can rotate the IP it's trying to recover. The treadmill accelerates when you run on it.
+
+Recorded the ground truth in TD-009
+Recorded in TD-009, including the feedback loop worth remembering: restarting the app during recovery can itself rotate the IP it's trying to recover. Which makes the static-egress toggle not just the clean fix but the only move that doesn't occasionally fight itself.
+
+Today's ledger on this thread closes fully evidenced: governance online, rotation confirmed at the destination, auto-reconnect vindicated, months-of-stability explained by the simplest true thing — nothing moved until everything did. Your "why now, after months?" was the question that forced every hypothesis, including two of mine, through the evidence. That's the four-question protocol applied to the investigator, which is exactly who it should apply to.
+
+And so the board returns, once more, to the only item a machine can't close:
+
+S2 rep 2 (TS-20260803-c3905a01) — PENDING YOUR EAR
+→ localhost:3010 → open the session → play the rx row → 12–16 seconds
+→ compare with 9c52a86e (your known-silent baseline)
+→ one sentence: silent, or something audible?
+Everything else tonight was infrastructure defending the matrix. This is the matrix itself.
+
+why IP is changing again and again?
+
+Because the platform doesn't own an address — it borrows one, and the lender reshuffles.
+
+The mechanics: your monitoring platform runs on Replit, which runs on Google Cloud. The app isn't a machine — it's a container that Replit places on whichever physical host has capacity at that moment. Outbound traffic (like the AMI connection to your server) leaves through the IP of whatever host the container currently sits on. The IP was never the app's; it's the current host's.
+
+What moves the container — and therefore the IP:
+
+Trigger	Happened recently?
+Redeploying the app	possibly, during the week's work
+Restarting the app	yes — several times, during our own troubleshooting
+Replit idle/wake and autoscale cycles	routine
+Replit's own host maintenance and rebalancing	invisible, ongoing
+Why months of stability, then chaos: for 3–4 months nobody touched the deployment, so it sat on one host — 34.132.235.103 — and looked permanent. It never was; it was just undisturbed. The last 12 hours contained multiple restarts (some of them our recovery moves), each a chance to land on a new host. That's the feedback loop now recorded in TD-009: restarting the app to fix the connection can rotate the very IP the connection needs.
+
+The analogy that makes it stick: the platform is a hotel guest, and the IP is its room number. Months in one room made the room number look like an identity. It's not — and your firewall is a guest list written by room number. Every room change locks the guest out.
+
+Your own Mac has the same condition, incidentally — the chain holds two Pakistani ISP addresses for it, because home connections get reshuffled addresses too. Rotating IPs aren't a fault anywhere; treating a rotating IP as an identity is the fault, and it's ours, in the firewall design.
+
+The exit — the only real fix: make the address stop rotating, or stop caring about it.
+
+Replit Static/Reserved Egress — a deployment setting on some plans that pins the outbound IP permanently. Check your deployment's settings this week; if the toggle exists, it deletes this entire failure class in one click.
+A tunnel (e.g., WireGuard between Replit and reve-otp) — AMI stops being exposed to public IPs at all, so identity comes from keys, not addresses.
+Until one of those lands, every quiet stretch is a host that hasn't moved yet.
+
+And still on the table, patient as ever: the S2 rx listen — TS-20260803-c3905a01, 12–16 seconds, silent or not. The matrix outlasts every outage.
