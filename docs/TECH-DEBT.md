@@ -440,7 +440,26 @@ Still open before this entry closes:
    12-hour window the server rebooted twice AND the deployment changed hosts. Note the
    feedback loop: restarting the Replit app during recovery can itself re-land the
    deployment on a new host — the standard recovery move can rotate the IP it is trying
-   to recover. Static egress remains the exit. Also present: a stale
+   to recover. Static egress remains the exit.
+
+   **2026-08-04, fourth IP + zombie-session finding.** A redeploy moved the deployment to
+   `34.34.225.243` — the fourth address in one day. The diagnostic that found it briefly
+   opened 5038 to `0.0.0.0/0` on a production PBX (temporary rule, removed and saved
+   minutes later); if that technique is used again, pair the `-I` and `-D` in a single
+   command line so an interrupted `sleep` cannot leave the port open.
+
+   **Why the earlier readings contradicted each other:** `manager show connected` listed
+   `bitsauto` from 136.113.31.90 with a growing elapsed time while `/ami-status` reported
+   `connected: false`. Both were true — the listed session was an **orphaned socket from a
+   dead container**, which Asterisk cannot distinguish from a live one, while the live
+   deployment sat at a new IP hitting the DROP. **A listed AMI session proves a socket
+   exists, not that a process is alive behind it.** Diagnose with `tcpdump` on SYNs to
+   5038 (who is knocking) rather than the session table (who once knocked).
+
+   **The freeze:** allowlisting IPs cannot be frozen — every deploy mints a new one.
+   Enable Replit **static/reserved egress** on the deployment and allow that single
+   address, or tunnel (WireGuard) so AMI is not exposed to public addresses at all.
+   Until then the honest expectation is that this breaks again on the next deploy. Also present: a stale
    GUI-created AMI manager `bitsauto-testin` (truncated name, pinned to an old ISP
    IP) — cleanup candidate once validation is done, not before.
 
