@@ -1701,8 +1701,11 @@ function AnalysisTab({
 
   // Destination hierarchy. See countryNodes() — `level === 1` is not "country".
   const countries = useMemo(() => countryNodes(allDests), [allDests]);
+  // Type tier — service types only, same rule as Send Rate (owner decision 2026-08-07;
+  // previously left unfiltered here on the theory that hiding nodes hides rates from
+  // analysis — superseded: "Leave blank for all" still analyses everything).
   const operators = useMemo(
-    () => childrenOf(allDests, countries, selectedCountries, 2),
+    () => childrenOf(allDests, countries, selectedCountries, 2).filter(isServiceTierNode),
     [allDests, countries, selectedCountries],
   );
   const categories = useMemo(
@@ -1848,7 +1851,12 @@ function AnalysisTab({
             <div className="space-y-1">
               <div className="text-[10px] text-muted-foreground px-1">Category</div>
               <MultiSelect
-                options={categories.map(d => ({ value: String(d.id), label: d.name }))}
+                options={categories.map(d => ({
+                  // Prefix in the label: production holds four rows all named `Pakistan
+                  // MOBILE` at different prefixes, indistinguishable without it.
+                  value: String(d.id),
+                  label: d.dialPrefix ? `${d.name} (${d.dialPrefix.replace(/^\+/, "")})` : d.name,
+                }))}
                 value={selectedCategories}
                 onChange={v => { setSelectedCategories(v); setSelectedDetails([]); }}
               />
