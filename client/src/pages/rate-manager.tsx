@@ -35,6 +35,7 @@ interface SippyAccount { iAccount: number; username: string; balance: number; ca
 interface DestNode {
   id: number; parentId: number | null; level: number; name: string;
   countryCode: string | null; dialPrefix: string | null; commercialStatus: string;
+  notes?: string | null;
   /** Merged in from global_destinations by migration 059 — a root, but not a country. */
   mergedFromLegacy?: boolean;
 }
@@ -103,6 +104,47 @@ const SERVICE_TIER_NAMES = new Set([
   "mobile", "fixed", "services", "special services", "satellite", "premium", "roaming", "unclassified",
 ]);
 const isServiceTierNode = (d: DestNode) => SERVICE_TIER_NAMES.has(d.name.trim().toLowerCase());
+
+/**
+ * Commercial breakout options for a picker: branded rows win, codes stay out of labels.
+ *
+ * Production holds an unbranded generic beside a branded row at the SAME prefix —
+ * `Pakistan MOBILE (9230)` next to `Pakistan Mobile Jazz (9230)`, four such pairs from the
+ * 059 merge. Both are approved data today; retiring the generics is the 065/067 status
+ * decision. Until then the picker shows one entry per prefix, preferring the branded row.
+ *
+ * "Unbranded" is decided from context, not fuzzy matching: a name whose every token is the
+ * country's own name or a service-type word carries no operator. `Pakistan MOBILE` reduces
+ * to nothing; `Pakistan Mobile Jazz` leaves `Jazz`.
+ *
+ * Labels carry no dial code (owner decision 2026-08-07 — the code is metadata, shown in the
+ * queue and the Prefix line). Two exceptions keep selection meaningful:
+ *   · the 062-annotated Warid range labels as `… (Legacy Warid)` from its note;
+ *   · where two options would still read identically (`Pakistan Mobile` at 9236 and 92391),
+ *     the code returns as the tiebreaker, because an unlabelled coin-flip is worse.
+ */
+const TYPE_WORDS = new Set([
+  "mobile", "fixed", "services", "special", "satellite", "premium", "roaming", "unclassified",
+  "toll", "free", "voip", "paging", "shared", "cost", "personal", "number", "other",
+]);
+function breakoutOptions(nodes: DestNode[], countryName: string): { value: string; label: string }[] {
+  const stop = new Set([...countryName.toLowerCase().split(/\s+/), ...TYPE_WORDS]);
+  const unbranded = (d: DestNode) => d.name.toLowerCase().split(/\s+/).every(t => stop.has(t));
+  const brandedPrefixes = new Set(
+    nodes.filter(d => !unbranded(d) && d.dialPrefix).map(d => d.dialPrefix as string),
+  );
+  const shown = nodes.filter(d => !(unbranded(d) && d.dialPrefix && brandedPrefixes.has(d.dialPrefix)));
+
+  const base = (d: DestNode) => /legacy warid/i.test(d.notes ?? "") ? `${d.name} (Legacy Warid)` : d.name;
+  const counts = new Map<string, number>();
+  for (const d of shown) counts.set(base(d), (counts.get(base(d)) ?? 0) + 1);
+  return shown
+    .map(d => ({
+      value: String(d.id),
+      label: (counts.get(base(d))! > 1 && d.dialPrefix) ? `${base(d)} (${d.dialPrefix.replace(/^\+/, "")})` : base(d),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
 
 /** Rows at `level` whose parent is any of the selected countries' twin ids. */
 function childrenOf(allDests: DestNode[], parents: CountryNode[], selected: string[], level: number) {
@@ -2446,10 +2488,11 @@ function SendRateTab({
                   data-testid="notif-category"
                 >
                   <option value="">Select operator</option>
-                  {categories.map(d => (
-                    <option key={d.id} value={String(d.id)}>
-                      {d.name}{d.dialPrefix ? ` (${stripPlus(d.dialPrefix)})` : ""}
-                    </option>
+                  {breakoutOptions(
+                    categories,
+                    countries.find(c => String(c.id) === notifCountry)?.name ?? "",
+                  ).map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
               </div>
