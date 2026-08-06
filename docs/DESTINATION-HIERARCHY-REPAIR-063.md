@@ -222,6 +222,21 @@ destinations and want a commercial decision, not a parent.
 Explicitly unknown beats confidently wrong: the migration completes, repairs the deterministic
 cases, and leaves the rest legible.
 
+## Owner decisions, 2026-08-07
+
+**Service-type vocabulary (decided).** 063B's tier expands from `Mobile | Fixed | Services |
+Unclassified` to: **Mobile, Fixed, Toll Free, Premium, Satellite, VoIP, Paging, Shared Cost,
+Personal Number** — whole-word matching as specified, everything unmatched to `Unclassified`
+for manual review. The gap-over-guess asymmetry is unchanged.
+
+**Global, not per-country.** 062 (Pakistan Mobile) is the pattern proof, applied and verified
+on the workspace: operators at level 3 under the type node, routing series nested beneath by
+prefix arithmetic. 063 generalises it; no further country-specific migrations.
+
+**Aliases preserve legacy names without hierarchy.** `Jazz` carries `Mobilink`/`Warid` as
+aliases for search and import resolution (the `destination_alias` service is the existing
+mechanism); the UI shows the commercial name only. Legacy rows are never deleted.
+
 ## The mitigation in cb62b68f
 
 The `!mergedFromLegacy` filter in
