@@ -146,13 +146,24 @@ function breakoutOptions(nodes: DestNode[], countryName: string): { value: strin
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
+/**
+ * A row commercial pickers may offer. `pending` is excluded: the 059-merged legacy imports
+ * (`PAK Mobile MOBLIN`, `PAK Mobile PAKTEL`, …) are all pending, and 065 correctly parented
+ * them under their country's type node — which put them straight into the operator dropdowns.
+ * They belong in the catalogue, not in commercial selection; 066/067 settles their status in
+ * data, and this stops offering them meanwhile. `blocked` is NOT excluded here — the Analysis
+ * tab's unblock workflow has to be able to see what is blocked.
+ */
+const commerciallyVisible = (d: DestNode) => d.commercialStatus !== "pending";
+
 /** Rows at `level` whose parent is any of the selected countries' twin ids. */
 function childrenOf(allDests: DestNode[], parents: CountryNode[], selected: string[], level: number) {
   const ids = new Set<number>();
   for (const p of parents) {
     if (selected.includes(String(p.id))) for (const id of p.twinIds) ids.add(id);
   }
-  return allDests.filter(d => d.level === level && d.parentId !== null && ids.has(d.parentId));
+  return allDests.filter(d =>
+    d.level === level && d.parentId !== null && ids.has(d.parentId) && commerciallyVisible(d));
 }
 
 // ── MultiSelect Dropdown ───────────────────────────────────────────────────────
@@ -1751,11 +1762,11 @@ function AnalysisTab({
     [allDests, countries, selectedCountries],
   );
   const categories = useMemo(
-    () => allDests.filter(d => d.level === 3 && selectedOperators.includes(String(d.parentId))),
+    () => allDests.filter(d => d.level === 3 && selectedOperators.includes(String(d.parentId)) && commerciallyVisible(d)),
     [allDests, selectedOperators],
   );
   const details = useMemo(
-    () => allDests.filter(d => d.level === 4 && selectedCategories.includes(String(d.parentId))),
+    () => allDests.filter(d => d.level === 4 && selectedCategories.includes(String(d.parentId)) && commerciallyVisible(d)),
     [allDests, selectedCategories],
   );
 
@@ -2172,11 +2183,11 @@ function SendRateTab({
     [allDests, countries, notifCountry],
   );
   const categories = useMemo(
-    () => notifOperator ? allDests.filter(d => d.level === 3 && String(d.parentId) === notifOperator) : [],
+    () => notifOperator ? allDests.filter(d => d.level === 3 && String(d.parentId) === notifOperator && commerciallyVisible(d)) : [],
     [allDests, notifOperator],
   );
   const details = useMemo(
-    () => notifCategory ? allDests.filter(d => d.level === 4 && String(d.parentId) === notifCategory) : [],
+    () => notifCategory ? allDests.filter(d => d.level === 4 && String(d.parentId) === notifCategory && commerciallyVisible(d)) : [],
     [allDests, notifCategory],
   );
 
