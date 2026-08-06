@@ -86,6 +86,24 @@ function countryNodes(allDests: DestNode[]): CountryNode[] {
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Is this node a service TYPE (`Mobile`, `Fixed`, …) rather than an operator?
+ *
+ * The catalogue mixes both at level 2: Pakistan's children are `Fixed`, `Mobile` — and
+ * `UFONE`, an operator mis-parented into the type tier. Nothing in the row distinguishes
+ * them (no type column; `dial_prefix` is NULL on both), so the only available test is the
+ * name — against the same closed whole-word vocabulary 063B's type layer is specified to
+ * use. This is that frozen rule applied at read time, not a new name heuristic.
+ *
+ * Anything not in the vocabulary is excluded from the TYPE dropdown only: the rows stay in
+ * the catalogue and in every other consumer. 063B replaces this by writing the
+ * classification into the data.
+ */
+const SERVICE_TIER_NAMES = new Set([
+  "mobile", "fixed", "services", "special services", "satellite", "premium", "roaming", "unclassified",
+]);
+const isServiceTierNode = (d: DestNode) => SERVICE_TIER_NAMES.has(d.name.trim().toLowerCase());
+
 /** Rows at `level` whose parent is any of the selected countries' twin ids. */
 function childrenOf(allDests: DestNode[], parents: CountryNode[], selected: string[], level: number) {
   const ids = new Set<number>();
@@ -2099,7 +2117,8 @@ function SendRateTab({
   // PAKTEL`. cb62b68f scoped its fix to Rate Analysis alone. See countryNodes().
   const countries = useMemo(() => countryNodes(allDests), [allDests]);
   const operators = useMemo(
-    () => notifCountry ? childrenOf(allDests, countries, [notifCountry], 2) : [],
+    // Type tier only — `UFONE` and its kind are mis-parented operators, not networks.
+    () => notifCountry ? childrenOf(allDests, countries, [notifCountry], 2).filter(isServiceTierNode) : [],
     [allDests, countries, notifCountry],
   );
   const categories = useMemo(
