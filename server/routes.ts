@@ -20,6 +20,7 @@ import { registerPaymentRunRoutes }         from './routes-payment-runs';
 import { seedGovernanceData }               from './seed-governance';
 import { registerVoiceOtpRoutes } from './routes-voice-otp';
 import { registerTerminationRoutes } from './routes-termination';
+import { registerRoutingSnapshotRoutes } from './routes-routing-snapshot';
 import { registerCallGovernanceRoutes, ensureCallGovernanceMigrations } from './routes-call-governance';
 import { ensureDestinationsSeed } from './seeds/ensureDestinationsSeed';
 import { registerServerHealthRoutes } from './routes-server-health';
@@ -36859,6 +36860,7 @@ ${footer}
   // ── Voice OTP / Asterisk AMI routes ───────────────────────────────────────
   registerVoiceOtpRoutes(app);
   registerTerminationRoutes(app);
+  registerRoutingSnapshotRoutes(app);
 
   // ── Meta WhatsApp Flows routes ─────────────────────────────────────────────
   registerMetaFlowsRoutes(app);

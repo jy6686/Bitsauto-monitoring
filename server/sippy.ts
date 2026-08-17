@@ -11066,6 +11066,8 @@ export interface SippyAccount {
   registration: SippyAccountRegistration | null;  // null if not registered
   maxSessions: number | null;   // null / 0 = unlimited; populated when listAccounts returns max_sessions
   currency?: string;
+  /** Account's default routing group (i_routing_group), when listAccounts returns it. */
+  iRoutingGroup?: number | null;
 }
 
 /**
@@ -11149,7 +11151,9 @@ export async function listSippyAccounts(
       if (!iAccount) continue;   // skip the outer wrapper struct if any
 
       const rawMaxSessions = f['max_sessions'];
+      const rawRoutingGroup = f['i_routing_group'];
       accounts.push({
+        iRoutingGroup: rawRoutingGroup ? (parseInt(rawRoutingGroup, 10) || null) : null,
         iAccount,
         username:     f['username']      || '',
         description:  f['description']   || '',
