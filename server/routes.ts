@@ -33000,6 +33000,64 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   }
 
+  // GET /api/finance/certification/exceptions
+  //   ?iTariff= &periodStart= &periodEnd= &type=unrated|missing_rate|differing
+  //
+  // The calls behind a certification number. Grouped by destination and prefix
+  // because that is the shape of the remedy: "8 calls to 92312 have no rate" is
+  // something rate coverage can fix, where a list of 8 call ids is not.
+  app.get('/api/finance/certification/exceptions', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { iTariff, periodStart, periodEnd } = req.query;
+      const type = String(req.query.type ?? 'all');
+      if (!iTariff || !periodStart || !periodEnd) {
+        return res.status(400).json({ error: 'iTariff, periodStart and periodEnd are required' });
+      }
+      const typeFilter =
+        type === 'unrated'      ? sql` AND discrepancy_type = 'unrated'`
+      : type === 'missing_rate' ? sql` AND discrepancy_type = 'missing_rate'`
+      : type === 'differing'    ? sql` AND discrepancy_type NOT IN ('exact_match','unrated','missing_rate')`
+      : sql` AND discrepancy_type <> 'exact_match'`;
+
+      // Latest verification per call, same rule the certification itself uses,
+      // so the drill-down can never disagree with the number it opened from.
+      const r = await db.execute(sql`
+        WITH latest AS (
+          SELECT DISTINCT ON (cdr_call_id)
+                 cdr_call_id, discrepancy_type, destination, prefix, delta_amount,
+                 duration_secs, sippy_actual_cost, reproduced_cost, severity, cdr_start_time
+            FROM rating_verifications
+           WHERE i_tariff = ${String(iTariff)}
+             AND left(cdr_start_time, 10) BETWEEN ${String(periodStart)} AND ${String(periodEnd)}
+           ORDER BY cdr_call_id, created_at DESC
+        )
+        SELECT discrepancy_type,
+               coalesce(destination, '(unresolved)') AS destination,
+               coalesce(prefix, '(none)')            AS prefix,
+               count(*)::int                          AS calls,
+               coalesce(sum(duration_secs), 0)::int   AS seconds,
+               coalesce(sum(sippy_actual_cost), 0)::numeric AS switch_cost,
+               coalesce(sum(reproduced_cost), 0)::numeric   AS verified_cost,
+               coalesce(sum(delta_amount), 0)::numeric      AS delta,
+               max(severity)                          AS severity
+          FROM latest
+         WHERE true${typeFilter}
+         GROUP BY 1, 2, 3
+         ORDER BY calls DESC LIMIT 200`);
+
+      const rows = ((r as any).rows ?? []).map((g: any) => ({
+        ...g,
+        // Say what can be done about it, not just what it is.
+        remedy: g.discrepancy_type === 'unrated'
+          ? 'No tariff version covers these call times — rate coverage cannot currently be applied retroactively.'
+          : g.discrepancy_type === 'missing_rate'
+            ? `Add a rate for prefix ${g.prefix} to this tariff, then re-certify the period.`
+            : 'Priced differently from the switch — review the rate and interval rules for this destination.',
+      }));
+      res.json({ type, groups: rows });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // POST /api/finance/recertify — re-verify a billing period from scratch.
   // Body: { iAccount, iTariff, periodStart, periodEnd, reason }
   //
