@@ -9,8 +9,9 @@ import {
   HeartPulse, AlertTriangle, CheckCircle2, XCircle, Clock,
   RefreshCw, Play, RotateCcw, Download,
   Database, Activity, FileText, Layers, TrendingUp,
-  AlertCircle, Info, Server, Gauge, ArrowDown,
+  AlertCircle, Info, Server, Gauge, ArrowDown, ArrowRight, ClipboardCheck,
 } from "lucide-react";
+import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
@@ -139,14 +140,58 @@ function ConnectorArrow({ healthy }: { healthy: boolean }) {
 }
 
 // ── Warning row ───────────────────────────────────────────────────────────────
-function WarningRow({ level, message }: { level: "warn" | "error"; message: string }) {
+// Every warning carries the action that fixes it — Finance acts from this page
+// instead of hunting for the right workflow elsewhere.
+function WarningRow({ level, message, action, onAction, busy }: {
+  level: "warn" | "error";
+  message: string;
+  action?: { kind: string; label: string };
+  onAction?: (kind: string) => void;
+  busy?: boolean;
+}) {
   return (
-    <div className={`flex items-start gap-2 py-2 ${level === "error" ? "text-red-400" : "text-amber-400"}`}>
+    <div className={`flex items-center gap-2 py-1.5 ${level === "error" ? "text-red-400" : "text-amber-400"}`}>
       {level === "error"
-        ? <XCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-        : <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />}
-      <span className="text-sm">{message}</span>
+        ? <XCircle className="w-3.5 h-3.5 shrink-0" />
+        : <AlertTriangle className="w-3.5 h-3.5 shrink-0" />}
+      <span className="text-sm flex-1">{message}</span>
+      {action && (
+        (action.kind === "open-invoices" || action.kind === "open-jobs") ? (
+          <Link href={action.kind === "open-invoices" ? "/invoices" : "/invoice-jobs"}>
+            <Button size="sm" variant="outline" className="text-xs h-7 shrink-0" data-testid={`warning-action-${action.kind}`}>
+              {action.label}<ArrowRight className="w-3 h-3 ml-1" />
+            </Button>
+          </Link>
+        ) : (
+          <Button size="sm" variant="outline" className="text-xs h-7 shrink-0" disabled={busy}
+            onClick={() => onAction?.(action.kind)} data-testid={`warning-action-${action.kind}`}>
+            {busy ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> : <Play className="w-3 h-3 mr-1" />}
+            {action.label}
+          </Button>
+        )
+      )}
     </div>
+  );
+}
+
+// ── Invoice pipeline stage cell (clickable) ───────────────────────────────────
+function PipelineStage({ label, value, sub, href, warn }: {
+  label: string; value: number | string; sub?: string; href: string; warn?: boolean;
+}) {
+  return (
+    <Link href={href}>
+      <div
+        className={`rounded-md border px-3 py-2 min-w-[92px] cursor-pointer transition-colors hover:bg-muted/50
+          ${warn ? "border-amber-500/40 bg-amber-500/5" : "border-border/50"}`}
+        data-testid={`invoice-stage-${label.toLowerCase().replace(/\s+/g, "-")}`}
+      >
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+          {label}{warn && <AlertTriangle className="w-2.5 h-2.5 text-amber-400" />}
+        </div>
+        <div className="text-lg font-bold leading-tight">{value}</div>
+        {sub && <div className="text-[10px] text-muted-foreground">{sub}</div>}
+      </div>
+    </Link>
   );
 }
 
@@ -180,6 +225,27 @@ export default function FinanceHealthPage() {
     queryKey: ["/api/finance/health"],
     refetchInterval: 60_000,
   });
+
+  // Billing-workflow counts for the clickable invoice pipeline strip
+  const { data: invPipe } = useQuery<any>({
+    queryKey: ["/api/finance/pipeline-health"],
+    queryFn: () => apiRequest("GET", "/api/finance/pipeline-health").then(r => r.json()),
+    refetchInterval: 60_000,
+  });
+
+  const dmrMut = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/dmr/generate", { date: new Date().toISOString().slice(0, 10) }),
+    onSuccess: () => {
+      toast({ title: "DMR generation started", description: "Refresh in ~30s to see fresh rows." });
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["/api/finance/health"] }), 30_000);
+    },
+    onError: (e: any) => toast({ title: "DMR run failed", description: e.message, variant: "destructive" }),
+  });
+
+  const handleWarningAction = (kind: string) => {
+    if (kind === "materialize") materializeMut.mutate();
+    if (kind === "run-dmr") dmrMut.mutate();
+  };
 
   const materializeMut = useMutation({
     mutationFn: () => apiRequest("POST", "/api/finance/health/materialize-now"),
@@ -346,12 +412,52 @@ export default function FinanceHealthPage() {
           <CardContent className="pb-3 px-4">
             <div className="divide-y divide-border/30">
               {warnings.map((w: any, i: number) => (
-                <WarningRow key={i} level={w.level} message={w.message} />
+                <WarningRow key={i} level={w.level} message={w.message} action={w.action}
+                  onAction={handleWarningAction}
+                  busy={(w.action?.kind === "materialize" && (materializeMut.isPending || !!jobStatus)) ||
+                        (w.action?.kind === "run-dmr" && dmrMut.isPending)} />
               ))}
             </div>
           </CardContent>
         </Card>
       )}
+
+      {/* ── Invoice Pipeline (billing workflow, every stage clickable) ── */}
+      {invPipe && (() => {
+        const jobs = invPipe.jobs ?? {};
+        const inv  = invPipe.invoices ?? {};
+        const jobsTotal   = Object.values(jobs).reduce((a: number, b: any) => a + Number(b), 0);
+        const sentDeliv   = (invPipe.deliveries ?? []).find((d: any) => d.status === "sent")?.n ?? 0;
+        const failedDeliv = (invPipe.deliveries ?? []).find((d: any) => d.status === "failed")?.n ?? 0;
+        const locked = invPipe.snapshots?.locked ?? 0;
+        const stages = [
+          { label: "Schedules", value: `${invPipe.schedules?.active ?? 0}/${invPipe.schedules?.total ?? 0}`, sub: "active", href: "/invoice-jobs", warn: (invPipe.schedules?.active ?? 0) === 0 },
+          { label: "Due Now",   value: invPipe.schedules?.due_now ?? 0, href: "/invoice-jobs" },
+          { label: "Jobs",      value: jobsTotal, sub: `${jobs.REVIEW ?? 0} review`, href: "/invoice-jobs", warn: (invPipe.schedules?.due_now ?? 0) > 0 && jobsTotal === 0 },
+          { label: "Snapshots", value: locked, sub: `of ${invPipe.snapshots?.total ?? 0} locked`, href: "/rating-snapshots", warn: jobsTotal > 0 && locked === 0 },
+          { label: "Draft",     value: inv.draft ?? 0, href: "/invoices" },
+          { label: "Review",    value: jobs.REVIEW ?? 0, href: "/invoice-jobs" },
+          { label: "Approved",  value: inv.approved ?? 0, href: "/invoices", warn: (inv.draft ?? 0) > 0 && (inv.approved ?? 0) === 0 && (inv.sent ?? 0) === 0 },
+          { label: "Sent",      value: inv.sent ?? 0, sub: sentDeliv ? `${sentDeliv} deliveries` : undefined, href: "/invoices" },
+          { label: "Failed",    value: failedDeliv, href: "/invoice-jobs", warn: failedDeliv > 0 },
+        ];
+        return (
+          <div className="space-y-2">
+            <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+              <FileText className="w-3.5 h-3.5" /> Invoice Pipeline
+              <span className="text-[10px] normal-case font-normal">— click a stage to open its queue</span>
+            </h2>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {stages.map((s, i) => (
+                <div key={s.label} className="flex items-center gap-1.5">
+                  {i > 0 && <ArrowRight className="w-3 h-3 text-muted-foreground/50 shrink-0" />}
+                  <PipelineStage {...s} />
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* ── Left: Pipeline Graph ── */}
@@ -459,6 +565,16 @@ export default function FinanceHealthPage() {
                       <span>Last run</span>
                       <span className="font-medium text-foreground">{fmtTs(data.materialization.lastRun.started_at)}</span>
                     </div>
+                    {data.materialization.nextRunEta && (
+                      <div className="flex justify-between">
+                        <span>Next run (est.)</span>
+                        <span className="font-medium text-foreground">
+                          {new Date(data.materialization.nextRunEta).getTime() <= Date.now()
+                            ? "imminent"
+                            : fmtTs(data.materialization.nextRunEta)}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between">
                       <span>Duration</span>
                       <span>{fmtDur(data.materialization.lastRun.duration_ms)}</span>
@@ -541,6 +657,30 @@ export default function FinanceHealthPage() {
                     </Badge>
                   )}
                 </div>
+                {(integrity.accounts?.length ?? 0) > 0 && (
+                  <>
+                    <Separator />
+                    <div className="space-y-1 max-h-44 overflow-y-auto">
+                      {[...integrity.accounts]
+                        .sort((a: any, b: any) => Number(a.inSnapshot) - Number(b.inSnapshot))
+                        .map((a: any) => (
+                          <div key={a.accountId} className="flex items-center gap-2 text-xs">
+                            {a.inSnapshot
+                              ? <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+                              : <XCircle className="w-3 h-3 text-red-400 shrink-0" />}
+                            <span className={`truncate ${a.inSnapshot ? "text-muted-foreground" : "text-red-400 font-medium"}`}>
+                              {a.name}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                    {integrity.accounts.some((a: any) => !a.inSnapshot) && (
+                      <p className="text-[11px] text-amber-400">
+                        Missing: {integrity.accounts.filter((a: any) => !a.inSnapshot).length} — run materialization to backfill.
+                      </p>
+                    )}
+                  </>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -619,6 +759,42 @@ export default function FinanceHealthPage() {
           </Card>
         </div>
       </div>
+
+      {/* ── Finance Production Readiness checklist ── */}
+      {(data?.readiness?.length ?? 0) > 0 && (
+        <Card>
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <ClipboardCheck className="w-4 h-4 text-primary" />
+              Finance Production Readiness
+              {data.readiness.every((r: any) => r.ok && !r.warn) ? (
+                <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/30">All checks pass</Badge>
+              ) : (
+                <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-400 border-amber-500/30">
+                  {data.readiness.filter((r: any) => !r.ok).length} blocking · {data.readiness.filter((r: any) => r.ok && r.warn).length} advisory
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2">
+              {data.readiness.map((r: any) => (
+                <div key={r.key} className="flex items-start gap-2" data-testid={`readiness-${r.key}`}>
+                  {!r.ok
+                    ? <XCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+                    : r.warn
+                      ? <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+                      : <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium leading-tight">{r.label}</p>
+                    <p className={`text-xs ${!r.ok ? "text-red-400" : r.warn ? "text-amber-400" : "text-muted-foreground"}`}>{r.detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── SLA Config reference ── */}
       <Card className="bg-muted/30">

@@ -38923,7 +38923,7 @@ ${footer}
       const [dmrR, marginR, snapshotR, runsR, invoiceStatusR, invoiceLatestR] = await Promise.all([
         safeQuery(`SELECT COUNT(*) as cnt, MAX(generated_at) as latest FROM daily_minutes_reports`),
         safeQuery(`SELECT COUNT(*) as cnt, MAX(date) as latest FROM margin_analytics_daily`),
-        safeQuery(`SELECT COUNT(*) as cnt, MAX(updated_at) as latest FROM financial_snapshot`),
+        safeQuery(`SELECT COUNT(*) as cnt, MAX(snapshot_time) as latest FROM financial_snapshot`),
         safeQuery(`SELECT id, started_at, completed_at, status, rows_written, clients_processed, vendors_processed, duration_ms, error, snapshot_version FROM materialization_runs ORDER BY started_at DESC LIMIT 20`),
         safeQuery(`SELECT status, COUNT(*) as cnt FROM invoices GROUP BY status`),
         safeQuery(`SELECT MAX(created_at) as latest FROM invoices`),
@@ -38946,11 +38946,22 @@ ${footer}
       const invoiceTotal = Object.values(invoiceByStatus).reduce((a, b) => a + b, 0);
       const invoiceLatest = invoiceLatestR.rows[0]?.latest ?? null;
 
-      // Integrity
-      const dmrAccR  = await safeQuery(`SELECT COUNT(DISTINCT account_id) as cnt FROM daily_minutes_reports`);
-      const snapAccR = await safeQuery(`SELECT COUNT(DISTINCT client_id) as cnt FROM financial_snapshot`);
-      const dmrAccounts  = parseInt(dmrAccR.rows[0]?.cnt ?? '0');
-      const snapAccounts = parseInt(snapAccR.rows[0]?.cnt ?? '0');
+      // Integrity — per-account, so Finance sees WHICH accounts are missing from
+      // the snapshot, not just a count mismatch. financial_snapshot keys client
+      // rows by account_id (there is no client_id column — the old count query
+      // silently failed and always reported 0).
+      const [dmrAccListR, snapAccListR] = await Promise.all([
+        safeQuery(`SELECT account_id, MAX(account_name) AS account_name FROM daily_minutes_reports WHERE account_id IS NOT NULL GROUP BY account_id ORDER BY 2`),
+        safeQuery(`SELECT DISTINCT account_id FROM financial_snapshot WHERE row_type = 'client' AND account_id IS NOT NULL`),
+      ]);
+      const snapAccSet = new Set(snapAccListR.rows.map((r: any) => String(r.account_id)));
+      const integrityAccounts = dmrAccListR.rows.map((r: any) => ({
+        accountId:  String(r.account_id),
+        name:       r.account_name ?? String(r.account_id),
+        inSnapshot: snapAccSet.has(String(r.account_id)),
+      }));
+      const dmrAccounts  = integrityAccounts.length;
+      const snapAccounts = snapAccSet.size;
 
       // Health scores
       const dataHealth = (() => {
@@ -38964,16 +38975,54 @@ ${footer}
       const apiHealth = Math.round((1 - [dmrR, marginR, invoiceStatusR].filter(r => r.missing).length / 3) * 100);
       const overall = Math.round(dataHealth * 0.4 + schedulerHealth * 0.3 + consistency * 0.2 + apiHealth * 0.1);
 
-      // Warnings
-      const warnings: { level: 'warn' | 'error'; message: string }[] = [];
-      if (dmrStatus === 'stale') warnings.push({ level: 'warn', message: `DMR data stale — last update over ${slaDefaults.dmr}min ago` });
-      if (dmrStatus === 'never') warnings.push({ level: 'warn', message: 'DMR has no rows — ensure DMR generation is running' });
-      if (snapStatus === 'never') warnings.push({ level: 'warn', message: 'Financial Snapshot not yet materialized — click Run Now or wait for the next scheduled run' });
-      if (snapStatus === 'stale') warnings.push({ level: 'warn', message: `Financial Snapshot stale — last update over ${slaDefaults.snapshot}min ago` });
+      // Warnings — each carries the action that fixes it, so Finance never has
+      // to leave this page (or resort to SQL) to unblock the pipeline.
+      type WarningAction = { kind: 'run-dmr' | 'materialize' | 'open-invoices' | 'open-jobs'; label: string };
+      const warnings: { level: 'warn' | 'error'; message: string; action?: WarningAction }[] = [];
+      if (dmrStatus === 'stale') warnings.push({ level: 'warn', message: `DMR data stale — last update over ${slaDefaults.dmr}min ago`, action: { kind: 'run-dmr', label: 'Run DMR' } });
+      if (dmrStatus === 'never') warnings.push({ level: 'warn', message: 'DMR has no rows — ensure DMR generation is running', action: { kind: 'run-dmr', label: 'Run DMR' } });
+      if (snapStatus === 'never') warnings.push({ level: 'warn', message: 'Financial Snapshot not yet materialized', action: { kind: 'materialize', label: 'Materialize Now' } });
+      if (snapStatus === 'stale') warnings.push({ level: 'warn', message: `Financial Snapshot stale — last update over ${slaDefaults.snapshot}min ago`, action: { kind: 'materialize', label: 'Materialize Now' } });
       if (runsR.missing) warnings.push({ level: 'warn', message: 'No materialization runs recorded yet — scheduler is active and will run within 30 minutes' });
-      if (schedulerStatus === 'failed' && lastRun?.error) warnings.push({ level: 'error', message: `Last materialization run failed: ${lastRun.error}` });
-      if (dmrAccounts > 0 && snapAccounts > 0 && dmrAccounts !== snapAccounts) warnings.push({ level: 'warn', message: `Snapshot inconsistency — DMR has ${dmrAccounts} accounts, Snapshot has ${snapAccounts}` });
-      if ((invoiceByStatus.draft ?? 0) > 0) warnings.push({ level: 'warn', message: `${invoiceByStatus.draft} invoices still in draft — review invoice queue` });
+      if (schedulerStatus === 'failed' && lastRun?.error) warnings.push({ level: 'error', message: `Last materialization run failed: ${lastRun.error}`, action: { kind: 'materialize', label: 'Retry Run' } });
+      if (dmrAccounts > 0 && snapAccounts > 0 && dmrAccounts !== snapAccounts) warnings.push({ level: 'warn', message: `Snapshot inconsistency — DMR has ${dmrAccounts} accounts, Snapshot has ${snapAccounts} (see Snapshot Integrity for the missing list)`, action: { kind: 'materialize', label: 'Materialize Now' } });
+      if ((invoiceByStatus.draft ?? 0) > 0) warnings.push({ level: 'warn', message: `${invoiceByStatus.draft} invoices still in draft`, action: { kind: 'open-invoices', label: 'Open Review Queue' } });
+
+      // Production-readiness checklist (R2 scope): is each link of the billing
+      // chain OPERATIONAL — configured and proven — independent of today's
+      // pipeline freshness. `ok` means "ready for production billing", not
+      // "no work pending".
+      const [schedR, lockedSnapR, jobsAggR, delivAggR, coverageR] = await Promise.all([
+        safeQuery(`SELECT count(*)::int AS total, count(*) FILTER (WHERE active)::int AS active FROM invoice_schedules`),
+        safeQuery(`SELECT count(*)::int AS total, count(*) FILTER (WHERE verification_status = 'locked')::int AS locked FROM invoice_cdr_snapshots`),
+        safeQuery(`SELECT count(*) FILTER (WHERE status = 'REVIEW')::int AS review, count(*) FILTER (WHERE status = 'FAILED')::int AS failed, count(*)::int AS total FROM invoice_jobs`),
+        safeQuery(`SELECT count(*)::int AS total, count(*) FILTER (WHERE status = 'sent')::int AS sent, count(*) FILTER (WHERE status = 'failed')::int AS failed, count(*) FILTER (WHERE message_id IS NOT NULL)::int AS with_lineage FROM invoice_email_deliveries`),
+        safeQuery(`SELECT count(*)::int AS total, count(*) FILTER (WHERE (invoice_email IS NOT NULL AND invoice_email <> '') OR EXISTS (SELECT 1 FROM company_contacts cc WHERE cc.company_id = c.id AND cc.contact_type ILIKE '%billing%'))::int AS covered FROM companies c WHERE c.sippy_i_account IS NOT NULL`),
+      ]);
+      let appSettings: any = null;
+      try { appSettings = await storage.getSettings(); } catch { /* readiness degrades gracefully */ }
+      const smtpDedicated = !!(appSettings?.invoiceSmtpHost && appSettings?.invoiceSmtpUser && appSettings?.invoiceSmtpPass);
+      const smtpFallback  = !!(appSettings?.alertEnabled && appSettings?.alertGmailUser && appSettings?.alertGmailAppPass);
+      const emailTestMode = !!appSettings?.invoiceEmailTestMode;
+      const schedTotal = schedR.rows[0]?.total ?? 0, schedActive = schedR.rows[0]?.active ?? 0;
+      const covTotal = coverageR.rows[0]?.total ?? 0, covCovered = coverageR.rows[0]?.covered ?? 0;
+      const readiness = [
+        { key: 'dmr',       label: 'DMR Data',          ok: dmrStatus === 'healthy' || (dmrStatus === 'stale' && dmr.count > 0), detail: dmr.count > 0 ? `${dmr.count} rows (${dmrStatus})` : 'no rows yet' },
+        { key: 'scheduler', label: 'Invoice Scheduler', ok: schedActive > 0, detail: schedR.missing ? 'schedules table unavailable' : `${schedActive}/${schedTotal} schedules active` },
+        { key: 'snapshots', label: 'Rating Snapshots',  ok: (lockedSnapR.rows[0]?.locked ?? 0) > 0, detail: lockedSnapR.missing ? 'snapshot table unavailable' : `${lockedSnapR.rows[0]?.locked ?? 0} locked of ${lockedSnapR.rows[0]?.total ?? 0}` },
+        { key: 'generator', label: 'Invoice Generator', ok: invoiceTotal > 0, detail: invoiceTotal > 0 ? `${invoiceTotal} invoices generated` : 'no invoice generated yet' },
+        { key: 'review',    label: 'Review Queue',      ok: !jobsAggR.missing, detail: jobsAggR.missing ? 'jobs table unavailable' : `${jobsAggR.rows[0]?.review ?? 0} awaiting review · ${jobsAggR.rows[0]?.failed ?? 0} failed` },
+        { key: 'contacts',  label: 'Billing Contacts',  ok: covTotal > 0 && covCovered === covTotal, detail: `${covCovered}/${covTotal} billed clients have a billing email` },
+        { key: 'smtp',      label: 'SMTP Delivery',     ok: smtpDedicated || smtpFallback, detail: smtpDedicated ? 'dedicated invoice SMTP configured' : smtpFallback ? 'alert-Gmail fallback active — set invoice SMTP before production cutover' : 'not configured' },
+        { key: 'audit',     label: 'Delivery Audit Trail', ok: !delivAggR.missing, detail: delivAggR.missing ? 'delivery table unavailable' : `${delivAggR.rows[0]?.sent ?? 0} sent · ${delivAggR.rows[0]?.failed ?? 0} failed · ${delivAggR.rows[0]?.with_lineage ?? 0} with SMTP lineage` },
+        { key: 'testmode',  label: 'Email Test Mode',   ok: true, warn: emailTestMode, detail: emailTestMode ? `ON — all invoice email redirects to ${appSettings?.invoiceEmailTestRecipient || '(no test recipient set!)'}` : 'OFF — sends go to real clients' },
+      ];
+
+      // The materialization scheduler runs on a fixed 30-minute interval; the
+      // ETA is an estimate from the last run, not a stored schedule.
+      const nextRunEta = lastRun?.started_at
+        ? new Date(new Date(lastRun.started_at).getTime() + 30 * 60 * 1000).toISOString()
+        : null;
 
       res.json({
         generated_at: new Date().toISOString(),
@@ -38984,11 +39033,12 @@ ${footer}
           margin:   { ...margin, status: margStatus, label: 'Margin Analytics' },
           invoices: { total: invoiceTotal, byStatus: invoiceByStatus, latest: invoiceLatest, missing: invoiceStatusR.missing, label: 'Invoices' },
         },
-        integrity: { dmrAccounts, snapshotAccounts: snapAccounts, consistent: dmrAccounts === snapAccounts || snapAccounts === 0 },
-        materialization: { runs, lastRun, schedulerStatus, missing: runsR.missing },
+        integrity: { dmrAccounts, snapshotAccounts: snapAccounts, consistent: dmrAccounts === snapAccounts || snapAccounts === 0, accounts: integrityAccounts },
+        materialization: { runs, lastRun, schedulerStatus, missing: runsR.missing, nextRunEta, intervalMinutes: 30 },
         health: { overall, dataHealth, schedulerHealth, consistency, apiHealth },
         sla: slaDefaults,
         warnings,
+        readiness,
         build: { version: process.env.FINANCE_BUILD_VERSION ?? 'v1.4', commit: (process.env.REPL_ID ?? '').slice(0, 8) || 'dev', schemaVersion: 1 },
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
