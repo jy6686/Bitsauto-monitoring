@@ -32959,11 +32959,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const a = ((agg as any).rows ?? [])[0] ?? {};
       const total = Number(a.total ?? 0);
 
-      // Provenance: the most recent run touching this tariff and period.
+      // Provenance: the CURRENT run for this tariff and period. Superseded runs
+      // are kept for audit but must never certify an invoice — the whole point
+      // of re-certification is that the earlier finding no longer stands.
       const r = await db.execute(sql`
         SELECT * FROM snapshot_verification_runs
          WHERE i_tariff = ${iTariff}
            AND period_start >= ${periodStart} AND period_end <= ${periodEnd}
+           AND superseded_at IS NULL
          ORDER BY started_at DESC LIMIT 1`);
       const run = ((r as any).rows ?? [])[0] ?? null;
 
@@ -32996,6 +32999,100 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       return { state: 'uncertified', run: null, reasons: [`Certification unavailable: ${e.message}`] };
     }
   }
+
+  // POST /api/finance/recertify — re-verify a billing period from scratch.
+  // Body: { iAccount, iTariff, periodStart, periodEnd, reason }
+  //
+  // Needed because verified calls are deduplicated by snapshot and therefore
+  // never looked at again. If the rules that priced them change, nothing
+  // re-rates them on its own — the period keeps reporting the old result. This
+  // is the deliberate action that discards the period's derived rating and
+  // rebuilds it from the stored call evidence.
+  //
+  // What is destroyed and what is kept:
+  //   - snapshots and verifications for the period are REBUILT (derived data)
+  //   - raw call evidence is untouched (append-only system of record)
+  //   - the previous verification run is marked superseded, never deleted
+  //
+  // Refused outright when a live invoice already draws on that period's
+  // snapshots: rebuilding underneath an issued invoice would leave its line
+  // items pointing at rows that no longer exist. Void the invoice first — that
+  // is a Finance decision, not something to do silently on their behalf.
+  app.post('/api/finance/recertify', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { iAccount, iTariff, periodStart, periodEnd, reason } = req.body ?? {};
+      if (!iTariff || !periodStart || !periodEnd) {
+        return res.status(400).json({ error: 'iTariff, periodStart and periodEnd are required' });
+      }
+      if (typeof reason !== 'string' || !reason.trim()) {
+        return res.status(400).json({ error: 'A reason is required — re-certification is recorded against the superseded run.' });
+      }
+      const by = (req as any).user?.username ?? (req as any).user?.claims?.email ?? 'operator';
+
+      // Guard: any non-void invoice covering this tariff and period
+      const live = await db.execute(sql`
+        SELECT id, invoice_number, status FROM invoices
+         WHERE i_tariff = ${String(iTariff)}
+           AND period_start = ${String(periodStart)} AND period_end = ${String(periodEnd)}
+           AND status <> 'void' LIMIT 1`);
+      const blocking = ((live as any).rows ?? [])[0];
+      if (blocking) {
+        return res.status(409).json({
+          error: `Invoice ${blocking.invoice_number} (${blocking.status}) already draws on this period. Void it before re-certifying, so its line items are not left pointing at rebuilt data.`,
+          invoice: blocking,
+        });
+      }
+
+      // Supersede the current run(s) for this period.
+      const superseded = await db.execute(sql`
+        UPDATE snapshot_verification_runs
+           SET superseded_at = now(), supersede_reason = ${reason.trim()}, superseded_by = ${by}
+         WHERE i_tariff = ${String(iTariff)}
+           AND period_start >= ${String(periodStart)} AND period_end <= ${String(periodEnd)}
+           AND superseded_at IS NULL
+         RETURNING id`);
+      const supersededIds = ((superseded as any).rows ?? []).map((r: any) => r.id);
+
+      // Discard the derived rating for the period so ingestion re-rates rather
+      // than skipping calls it has seen before.
+      const delSnaps = await db.execute(sql`
+        DELETE FROM invoice_cdr_snapshots
+         WHERE i_tariff = ${String(iTariff)}
+           AND left(cdr_start_time, 10) BETWEEN ${String(periodStart)} AND ${String(periodEnd)}`);
+      const delVerif = await db.execute(sql`
+        DELETE FROM rating_verifications
+         WHERE i_tariff = ${String(iTariff)}
+           AND left(cdr_start_time, 10) BETWEEN ${String(periodStart)} AND ${String(periodEnd)}`);
+
+      console.log(`[recertify] ${iTariff} ${periodStart}–${periodEnd} by ${by}: superseded run(s) ${supersededIds.join(', ') || 'none'}, cleared ${(delSnaps as any).rowCount ?? 0} snapshot(s) and ${(delVerif as any).rowCount ?? 0} verification(s) — reason: ${reason.trim()}`);
+
+      if (!iAccount) {
+        return res.json({
+          status: 'cleared',
+          supersededRunIds: supersededIds,
+          message: 'Period cleared and previous certification superseded. Provide iAccount to re-ingest and re-verify in the same call, or generate to trigger it.',
+        });
+      }
+
+      const seeded = await _seedRatingSnapshotsSync(
+        { iAccount: Number(iAccount), iTariff: String(iTariff), periodStart: String(periodStart), periodEnd: String(periodEnd) },
+        undefined, `recert-${periodStart}-${iAccount}`,
+      );
+      const cert = await _certificationFor(String(iTariff), String(periodStart), String(periodEnd));
+
+      // Link the new run back to what it replaced.
+      if (cert.run?.id && supersededIds.length) {
+        await db.execute(sql`
+          UPDATE snapshot_verification_runs SET superseded_by_run_id = ${cert.run.id}
+           WHERE id = ANY(${supersededIds})`);
+      }
+
+      res.json({ status: 'recertified', supersededRunIds: supersededIds, seeded, certification: cert });
+    } catch (e: any) {
+      console.error('[recertify] error:', e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
 
   // GET /api/finance/certification?iTariff=&periodStart=&periodEnd=
   // What the UI reads to decide whether Generate Invoice may be offered.

@@ -5288,6 +5288,13 @@ export const snapshotVerificationRuns = pgTable("snapshot_verification_runs", {
   status:           varchar("status", { length: 16 }).notNull().default('ok'),
   error:            text("error"),
   engineVersion:    varchar("engine_version", { length: 32 }),
+  // Supersession (migration 073). A run with supersededAt null is CURRENT for
+  // its tariff and period; re-certifying marks the predecessor rather than
+  // deleting it, so both what was approved and why it was re-run stay on record.
+  supersededAt:      timestamp("superseded_at", { withTimezone: true }),
+  supersededByRunId: integer("superseded_by_run_id"),
+  supersedeReason:   text("supersede_reason"),
+  supersededBy:      varchar("superseded_by", { length: 128 }),
 });
 export type SnapshotVerificationRun       = typeof snapshotVerificationRuns.$inferSelect;
 export type InsertSnapshotVerificationRun = typeof snapshotVerificationRuns.$inferInsert;
