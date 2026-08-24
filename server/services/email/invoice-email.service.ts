@@ -35,6 +35,13 @@ export interface SendInvoiceEmailOpts {
   subject:    string;
   body:       string;     // Plain-text / simple HTML body written by operator
   sentBy:     string;     // user id / name for audit
+  /**
+   * Who this invoice SHOULD have gone to, per the client master. Supplied when
+   * the operator typed a different address than the client record holds, so the
+   * delivery row records the override rather than only its result. Test Mode
+   * fills this in itself when the caller does not.
+   */
+  intendedRecipients?: string[];
 }
 
 export interface SendInvoiceEmailResult {
@@ -124,7 +131,11 @@ export async function sendInvoiceEmail(
   }
 
   let testMode = false;
-  let intendedRecipients: string | null = null;
+  // "Who should this have gone to" — the client-master addresses when the
+  // operator overrode them, otherwise filled in by Test Mode below with the
+  // recipients that would have been used. One meaning, either way.
+  let intendedRecipients: string | null =
+    opts.intendedRecipients?.length ? opts.intendedRecipients.join(', ') : null;
 
   // ── Test mode ───────────────────────────────────────────────────────────────
   // Every invoice email — manual and job dispatch alike — funnels through this
@@ -140,7 +151,10 @@ export async function sendInvoiceEmail(
       if (!testTo) {
         return { ok: false, error: 'Test mode is ON but no test recipient is configured (Settings → Invoice Email Delivery).' };
       }
-      const intended = [...recipients, ...cc.map(c => `cc:${c}`)].join(', ');
+      // Keep a caller-supplied intent (an operator override) — it names the
+      // customer address that was truly meant, which outranks "what this send
+      // would have used" as the audit fact.
+      const intended = intendedRecipients ?? [...recipients, ...cc.map(c => `cc:${c}`)].join(', ');
       testMode = true;
       intendedRecipients = intended;
       recipients = [testTo];

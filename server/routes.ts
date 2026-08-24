@@ -33344,15 +33344,36 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
 
       const sentBy = req.user?.claims?.name ?? req.user?.claims?.sub ?? 'operator';
+      const cleanRecipients = recipients.filter((r: any) => typeof r === 'string' && r.trim());
+
+      // Recipient override audit: the dialog prefills from the client master but
+      // lets the operator type any address — a one-off resend, an auditor copy, a
+      // temporary finance contact. Without this, the delivery row would show only
+      // where the mail went and nothing about where it was supposed to go.
+      // Comparing against the master here records the override as an override.
+      let intendedRecipients: string[] | undefined;
+      try {
+        const invoice = await storage.getInvoice(id);
+        if (invoice?.customerName) {
+          const { resolveBillingRecipients } = await import('./services/sippy/index');
+          const { recipients: master } = await resolveBillingRecipients(invoice.customerName);
+          const norm = (list: string[]) => list.map(s => s.trim().toLowerCase()).sort().join(',');
+          if (master.length && norm(master) !== norm(cleanRecipients)) {
+            intendedRecipients = master;
+            console.log(`[invoices/send] #${id}: recipient override — master ${master.join(', ')} → sent ${cleanRecipients.join(', ')}`);
+          }
+        }
+      } catch { /* audit enrichment only — never block a send the operator asked for */ }
 
       const { sendInvoiceEmail } = await import('./services/email/invoice-email.service');
       const result = await sendInvoiceEmail({
         invoiceId:  id,
-        recipients: recipients.filter((r: any) => typeof r === 'string' && r.trim()),
+        recipients: cleanRecipients,
         cc:         Array.isArray(cc) ? cc.filter((c: any) => typeof c === 'string' && c.trim()) : [],
         subject:    subject.trim(),
         body:       typeof body === 'string' ? body : '',
         sentBy,
+        intendedRecipients,
       });
 
       if (!result.ok) return res.status(500).json({ error: result.error });
