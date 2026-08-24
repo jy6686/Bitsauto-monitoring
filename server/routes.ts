@@ -32542,11 +32542,24 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         return res.status(400).json({ error: 'accounts array required' });
       }
       const { generateInvoice } = await import('./services/sippy/index');
-      const results: Array<{ customerName: string; status: 'ok' | 'error'; invoice?: any; error?: string }> = [];
+      // Duplicate guard: one invoice per client+period. Re-running a bulk batch
+      // must never double-invoice a client — existing (non-void) invoices are
+      // reported as 'skipped', not regenerated.
+      const existingInvoices = await storage.listInvoices({ limit: 5000 });
+      const results: Array<{ customerName: string; status: 'ok' | 'skipped' | 'error'; invoice?: any; error?: string }> = [];
       for (const acct of accounts) {
         const { iAccount, iTariff, periodStart, periodEnd, customerName, notes } = acct;
         if (!periodStart || !periodEnd || !customerName) {
           results.push({ customerName: customerName ?? `account-${iAccount}`, status: 'error', error: 'Missing periodStart/periodEnd/customerName' });
+          continue;
+        }
+        const dup = existingInvoices.find(inv =>
+          (inv.customerName ?? '').toLowerCase() === String(customerName).toLowerCase() &&
+          inv.periodStart === periodStart && inv.periodEnd === periodEnd &&
+          inv.status !== 'void',
+        );
+        if (dup) {
+          results.push({ customerName, status: 'skipped', error: `Invoice ${dup.invoiceNumber} already exists for this period (status: ${dup.status})` });
           continue;
         }
         try {
@@ -32556,9 +32569,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           results.push({ customerName, status: 'error', error: e.message });
         }
       }
-      const ok  = results.filter(r => r.status === 'ok').length;
-      const err = results.filter(r => r.status === 'error').length;
-      res.json({ ok, errors: err, total: results.length, results });
+      const ok      = results.filter(r => r.status === 'ok').length;
+      const skipped = results.filter(r => r.status === 'skipped').length;
+      const err     = results.filter(r => r.status === 'error').length;
+      res.json({ ok, skipped, errors: err, total: results.length, results });
     } catch (err: any) {
       console.error('[invoices/bulk-generate] error:', err.message);
       res.status(500).json({ error: err.message });

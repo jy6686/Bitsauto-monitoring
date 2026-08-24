@@ -79,6 +79,14 @@ interface FormState {
   clientTimezone: string | null;
 }
 
+interface BulkGenResult {
+  iAccount: number;
+  name:     string;
+  period:   string;
+  status:   'ok' | 'skipped' | 'error';
+  detail:   string;
+}
+
 interface DmrGateError {
   missingDates:  string[];
   criticalDates: string[];
@@ -121,6 +129,24 @@ function computeBillingPeriod(cycle: "weekly" | "monthly", timezone?: string | n
     const e = new Date(y, m, 0);
     return { start: toISO(s), end: toISO(e), label: `${s.toLocaleDateString("en-US", { month:"long", year:"numeric" })}${tzInfo}` };
   }
+}
+
+// Bulk generation: derive the invoice period from the client's own billing
+// cycle. Weekly/daily cycles bill the last full Mon–Sun week; bi-weekly the
+// last two full weeks; monthly (and unknown cycles) the last full calendar
+// month. Each client in a bulk batch gets ITS OWN period — never one shared
+// range forced across mixed cycles.
+function cyclePeriod(cycle: string | null, timezone?: string | null): { start: string; end: string; label: string } {
+  if (cycle === "weekly_cutoff" || cycle === "weekly" || cycle === "daily") {
+    return computeBillingPeriod("weekly", timezone);
+  }
+  if (cycle === "bi_weekly") {
+    const wk = computeBillingPeriod("weekly", timezone);
+    const s  = new Date(wk.start + "T00:00:00"); s.setDate(s.getDate() - 7);
+    const fmt = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+    return { start: toISO(s), end: wk.end, label: `${fmt(s)} – ${fmt(new Date(wk.end + "T00:00:00"))} (last 2 weeks)` };
+  }
+  return computeBillingPeriod("monthly", timezone);
 }
 
 function cycleBadge(cycle: string | null) {
@@ -234,12 +260,39 @@ export default function InvoicesPage() {
   const [lockBatchResult,   setLockBatchResult]   = useState<{ created: number; skipped: number } | null>(null);
   const [seedJobPhase,      setSeedJobPhase]      = useState<string>('');
 
+  // ── Bulk generation (R2: multi-select client invoice generation) ──────────
+  const [showBulkGen,     setShowBulkGen]     = useState(false);
+  const [bulkGenSelected, setBulkGenSelected] = useState<Set<number>>(new Set());
+  const [bulkGenFilter,   setBulkGenFilter]   = useState("");
+  const [bulkGenMode,     setBulkGenMode]     = useState<'sippy' | 'snapshot'>('sippy');
+  const [bulkGenRunning,  setBulkGenRunning]  = useState(false);
+  const [bulkGenProgress, setBulkGenProgress] = useState<{ done: number; total: number } | null>(null);
+  const [bulkGenResults,  setBulkGenResults]  = useState<BulkGenResult[] | null>(null);
+
   const { data: accountsData, isLoading: accountsLoading } = useQuery<{ accounts: SippyAccount[] }>({
     queryKey: ["/api/invoices/sippy-accounts"],
     queryFn: () => apiRequest("GET", "/api/invoices/sippy-accounts").then(r => r.json()),
     staleTime: 60_000,
   });
   const accounts = accountsData?.accounts ?? [];
+
+  // Client timezones for per-cycle period computation in the bulk dialog
+  const { data: bulkGenCompaniesData } = useQuery<any>({
+    queryKey: ["/api/companies"],
+    queryFn: () => apiRequest("GET", "/api/companies").then(r => r.json()),
+    enabled: showBulkGen,
+    staleTime: 120_000,
+  });
+  const tzByAccount = new Map<number, string>();
+  {
+    const list: any[] = bulkGenCompaniesData?.companies ?? (Array.isArray(bulkGenCompaniesData) ? bulkGenCompaniesData : []);
+    for (const c of list) {
+      if (c.sippyAccountId && c.clientTimezone) tzByAccount.set(Number(c.sippyAccountId), c.clientTimezone);
+    }
+  }
+  const bulkGenFilteredAccounts = accounts.filter(a =>
+    a.displayName.toLowerCase().includes(bulkGenFilter.trim().toLowerCase())
+  );
 
   const { data: tariffsRaw = [] } = useQuery<SippyTariff[]>({
     queryKey: ["/api/sippy/tariffs"],
@@ -619,6 +672,87 @@ export default function InvoicesPage() {
     setFetchingTariff(false);
   }
 
+  const toggleBulkGenAccount = (id: number) => setBulkGenSelected(prev => {
+    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next;
+  });
+
+  async function runBulkGenerate() {
+    const targets = accounts.filter(a => bulkGenSelected.has(a.iAccount));
+    if (targets.length === 0 || bulkGenRunning) return;
+    setBulkGenRunning(true);
+    setBulkGenResults(null);
+    setBulkGenProgress({ done: 0, total: targets.length });
+    const results: BulkGenResult[] = [];
+
+    // Duplicate guard: fetch ALL invoices fresh (the page query may be filtered)
+    let existing: Invoice[] = [];
+    try { existing = await apiRequest("GET", "/api/invoices").then(r => r.json()); } catch { /* server-side guard still applies */ }
+    const findDup = (name: string, start: string, end: string) => existing.find(inv =>
+      (inv.customerName ?? '').toLowerCase() === name.toLowerCase() &&
+      inv.periodStart === start && inv.periodEnd === end && inv.status !== 'void');
+
+    if (bulkGenMode === 'snapshot') {
+      // One server call — the route generates sequentially, continue-on-error,
+      // with its own duplicate guard.
+      const payload = targets.map(a => {
+        const p = cyclePeriod(a.billingCycle, tzByAccount.get(a.iAccount));
+        return { iAccount: a.iAccount, customerName: a.displayName, periodStart: p.start, periodEnd: p.end, notes: 'Bulk generation (snapshot mode)' };
+      });
+      try {
+        const resp = await apiRequest("POST", "/api/invoices/bulk-generate", { accounts: payload }).then(r => r.json());
+        for (const t of targets) {
+          const p = cyclePeriod(t.billingCycle, tzByAccount.get(t.iAccount));
+          const r = (resp.results ?? []).find((x: any) => x.customerName === t.displayName);
+          results.push({
+            iAccount: t.iAccount, name: t.displayName, period: `${p.start} → ${p.end}`,
+            status: r?.status === 'ok' ? 'ok' : r?.status === 'skipped' ? 'skipped' : 'error',
+            detail: r?.status === 'ok'
+              ? `Invoice ${r.invoice?.invoice?.invoiceNumber ?? ''} · ${r.invoice?.lineCount ?? 0} lines`
+              : (r?.error ?? 'No result returned'),
+          });
+        }
+        setBulkGenProgress({ done: targets.length, total: targets.length });
+      } catch (e: any) {
+        for (const t of targets) results.push({ iAccount: t.iAccount, name: t.displayName, period: '', status: 'error', detail: e.message });
+      }
+    } else {
+      // Direct-from-Sippy: one request per client, continue-on-error, live progress.
+      for (const t of targets) {
+        const p = cyclePeriod(t.billingCycle, tzByAccount.get(t.iAccount));
+        const period = `${p.start} → ${p.end}`;
+        const dup = findDup(t.displayName, p.start, p.end);
+        if (dup) {
+          results.push({ iAccount: t.iAccount, name: t.displayName, period, status: 'skipped', detail: `Invoice ${dup.invoiceNumber} already exists (${dup.status})` });
+        } else {
+          try {
+            const r = await apiRequest("POST", "/api/invoices/generate-from-sippy", {
+              iAccount: t.iAccount, periodStart: p.start, periodEnd: p.end, notes: 'Bulk generation',
+            }).then(async res => {
+              if (!res.ok) throw new Error((await res.json()).error ?? 'Generation failed');
+              return res.json();
+            });
+            results.push({ iAccount: t.iAccount, name: t.displayName, period, status: 'ok', detail: `Invoice ${r.invoice.invoiceNumber} · ${r.cdrCount} CDRs · ${r.lineCount} lines` });
+          } catch (e: any) {
+            results.push({ iAccount: t.iAccount, name: t.displayName, period, status: 'error', detail: e.message });
+          }
+        }
+        setBulkGenProgress({ done: results.length, total: targets.length });
+        setBulkGenResults([...results]);
+      }
+    }
+
+    setBulkGenResults(results);
+    setBulkGenRunning(false);
+    queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+    const ok      = results.filter(r => r.status === 'ok').length;
+    const skipped = results.filter(r => r.status === 'skipped').length;
+    const failed  = results.filter(r => r.status === 'error').length;
+    toast({
+      title: `Bulk generation: ${ok} created, ${skipped} skipped, ${failed} failed`,
+      variant: failed > 0 ? 'destructive' : 'default',
+    });
+  }
+
   const periodLabel = form.billingCycle !== "custom" && form.periodStart
     ? computeBillingPeriod(form.billingCycle as "weekly" | "monthly", form.clientTimezone).label
     : null;
@@ -673,6 +807,20 @@ export default function InvoicesPage() {
             disabled={invoices.length === 0}
           >
             <FileSpreadsheet className="h-4 w-4 mr-2" />Export
+          </Button>
+          <Button
+            variant="outline"
+            data-testid="button-bulk-generate"
+            onClick={() => {
+              setBulkGenSelected(new Set());
+              setBulkGenFilter("");
+              setBulkGenMode('sippy');
+              setBulkGenResults(null);
+              setBulkGenProgress(null);
+              setShowBulkGen(true);
+            }}
+          >
+            <Layers className="h-4 w-4 mr-2" />Bulk Generate
           </Button>
           <Button data-testid="button-generate-invoice" onClick={() => { setForm(EMPTY_FORM); setAutoTariffName(null); setDmrGateError(null); setDmrAutoResults(null); setShowGenerate(true); }}>
             <Play className="h-4 w-4 mr-2" />Generate Invoice
@@ -870,6 +1018,156 @@ export default function InvoicesPage() {
       </Card>
 
       {/* ── Generate dialog ── */}
+      {/* ── Bulk Generate dialog (R2: multi-select client generation) ────── */}
+      <Dialog open={showBulkGen} onOpenChange={o => { if (!o && !bulkGenRunning) setShowBulkGen(false); }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Layers className="h-5 w-5 text-primary" />Bulk Generate Invoices
+            </DialogTitle>
+            <DialogDescription>
+              Each selected client is invoiced for its own billing period (weekly → last full week,
+              bi-weekly → last two weeks, monthly → last full month). Drafts only — nothing is
+              approved or emailed from here.
+            </DialogDescription>
+          </DialogHeader>
+
+          {bulkGenResults === null && (
+            <>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant={bulkGenMode === 'sippy' ? 'default' : 'outline'}
+                  disabled={bulkGenRunning} onClick={() => setBulkGenMode('sippy')}
+                  data-testid="button-bulkgen-mode-sippy">
+                  <Zap className="h-3.5 w-3.5 mr-1.5" />From Sippy CDRs
+                </Button>
+                <Button size="sm" variant={bulkGenMode === 'snapshot' ? 'default' : 'outline'}
+                  disabled={bulkGenRunning} onClick={() => setBulkGenMode('snapshot')}
+                  data-testid="button-bulkgen-mode-snapshot">
+                  <Lock className="h-3.5 w-3.5 mr-1.5" />From Locked Snapshots
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground -mt-1">
+                {bulkGenMode === 'sippy'
+                  ? "Fetches each client's CDRs directly from Sippy and builds destination line items — same path as single-invoice generation."
+                  : "Uses only locked immutable rating snapshots. Clients without locked snapshots for the period will fail with a clear reason."}
+              </p>
+
+              <Input
+                placeholder="Filter clients…"
+                value={bulkGenFilter}
+                onChange={e => setBulkGenFilter(e.target.value)}
+                disabled={bulkGenRunning}
+                data-testid="input-bulkgen-filter"
+              />
+
+              <div className="flex items-center justify-between text-sm">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" className="h-4 w-4 rounded border-border"
+                    data-testid="checkbox-bulkgen-select-all"
+                    disabled={bulkGenRunning}
+                    checked={bulkGenFilteredAccounts.length > 0 && bulkGenFilteredAccounts.every(a => bulkGenSelected.has(a.iAccount))}
+                    onChange={e => {
+                      const next = new Set(bulkGenSelected);
+                      for (const a of bulkGenFilteredAccounts) e.target.checked ? next.add(a.iAccount) : next.delete(a.iAccount);
+                      setBulkGenSelected(next);
+                    }}
+                  />
+                  Select all {bulkGenFilter ? "(filtered)" : ""}
+                </label>
+                <span className="text-muted-foreground">{bulkGenSelected.size} selected</span>
+              </div>
+
+              <div className="border border-border rounded-lg divide-y divide-border max-h-72 overflow-y-auto">
+                {accountsLoading && (
+                  <div className="p-4 text-sm text-muted-foreground flex items-center gap-2">
+                    <RefreshCw className="h-4 w-4 animate-spin" />Loading clients…
+                  </div>
+                )}
+                {!accountsLoading && bulkGenFilteredAccounts.length === 0 && (
+                  <div className="p-4 text-sm text-muted-foreground">No clients match.</div>
+                )}
+                {bulkGenFilteredAccounts.map(a => {
+                  const p = cyclePeriod(a.billingCycle, tzByAccount.get(a.iAccount));
+                  return (
+                    <label key={a.iAccount} className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-muted/40">
+                      <input type="checkbox" className="h-4 w-4 rounded border-border"
+                        data-testid={`checkbox-bulkgen-${a.iAccount}`}
+                        disabled={bulkGenRunning}
+                        checked={bulkGenSelected.has(a.iAccount)}
+                        onChange={() => toggleBulkGenAccount(a.iAccount)}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{a.displayName}</div>
+                        <div className="text-xs text-muted-foreground">{p.start} → {p.end}</div>
+                      </div>
+                      {cycleBadge(a.billingCycle) && (
+                        <Badge variant="outline" className="text-xs shrink-0">{cycleBadge(a.billingCycle)}</Badge>
+                      )}
+                      {a.blocked && (
+                        <Badge variant="outline" className="text-xs shrink-0 text-amber-400 border-amber-500/30">Blocked</Badge>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {bulkGenProgress && (bulkGenRunning || bulkGenResults) && (
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              {bulkGenRunning && <RefreshCw className="h-4 w-4 animate-spin" />}
+              {bulkGenRunning
+                ? `Generating ${bulkGenProgress.done} / ${bulkGenProgress.total}…`
+                : `Finished ${bulkGenProgress.done} / ${bulkGenProgress.total}`}
+            </div>
+          )}
+
+          {bulkGenResults && (
+            <div className="border border-border rounded-lg divide-y divide-border max-h-72 overflow-y-auto">
+              {bulkGenResults.map(r => (
+                <div key={`${r.iAccount}-${r.period}`} className="flex items-start gap-3 px-3 py-2">
+                  {r.status === 'ok'      && <CheckCircle   className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />}
+                  {r.status === 'skipped' && <AlertTriangle className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" />}
+                  {r.status === 'error'   && <XCircle       className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />}
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">{r.name}
+                      {r.period && <span className="text-xs text-muted-foreground font-normal ml-2">{r.period}</span>}
+                    </div>
+                    <div className={`text-xs ${r.status === 'error' ? 'text-red-400' : 'text-muted-foreground'}`}>{r.detail}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2">
+            {bulkGenResults === null ? (
+              <>
+                <Button variant="outline" disabled={bulkGenRunning} onClick={() => setShowBulkGen(false)}>Cancel</Button>
+                <Button
+                  data-testid="button-bulkgen-run"
+                  disabled={bulkGenRunning || bulkGenSelected.size === 0}
+                  onClick={runBulkGenerate}
+                >
+                  {bulkGenRunning
+                    ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Generating…</>
+                    : <><Play className="h-4 w-4 mr-2" />Generate Selected ({bulkGenSelected.size})</>}
+                </Button>
+              </>
+            ) : (
+              <>
+                {!bulkGenRunning && bulkGenResults.some(r => r.status === 'error') && (
+                  <Button variant="outline" onClick={() => { setBulkGenResults(null); setBulkGenProgress(null); }}>
+                    Back to selection
+                  </Button>
+                )}
+                <Button disabled={bulkGenRunning} onClick={() => setShowBulkGen(false)}>Done</Button>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={showGenerate} onOpenChange={o => { if (!o) resetModal(); }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
