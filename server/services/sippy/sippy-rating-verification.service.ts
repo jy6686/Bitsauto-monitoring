@@ -65,11 +65,38 @@ const SEVERITY_CRITICAL = 0.05;
  * Resolution is by EFFECTIVE DATE, not by when the version was recorded — see
  * server/tariff-effective-dating.ts for the rule and why it changed.
  */
+// Tariff versions are loaded once per tariff, not once per call.
+//
+// This lookup runs for EVERY CDR. Reading the version list from the database
+// each time meant a batch of 18,000 calls issued 18,000 queries, each returning
+// every version that tariff has ever had — and this platform holds over 170,000
+// versions. Verification would have crawled or timed out on any real billing
+// period.
+//
+// Cached per tariff with a short life, and cleared at the start of every batch,
+// so a run reads one consistent set of versions and a version added between
+// runs is picked up by the next one.
+const _versionCache = new Map<string, { versions: TariffVersion[]; at: number }>();
+const VERSION_CACHE_TTL_MS = 60_000;
+
+export function clearTariffVersionCache(iTariff?: string): void {
+  if (iTariff) _versionCache.delete(iTariff);
+  else _versionCache.clear();
+}
+
+async function loadTariffVersions(iTariff: string): Promise<TariffVersion[]> {
+  const hit = _versionCache.get(iTariff);
+  if (hit && Date.now() - hit.at < VERSION_CACHE_TTL_MS) return hit.versions;
+  const versions = await storage.listTariffVersions(iTariff);
+  _versionCache.set(iTariff, { versions, at: Date.now() });
+  return versions;
+}
+
 export async function resolveTariffVersion(
   iTariff: string,
   connectTime: Date | string,
 ): Promise<TariffVersion | null> {
-  const versions = await storage.listTariffVersions(iTariff);
+  const versions = await loadTariffVersions(iTariff);
   const ts = typeof connectTime === 'string' ? new Date(connectTime) : connectTime;
   return selectTariffVersion(versions as any, ts) as TariffVersion | null;
 }
@@ -379,6 +406,9 @@ export async function verifyBatch(
 ): Promise<BatchVerificationResult> {
   const t0 = Date.now();
   const concurrency = opts.concurrency ?? 5;
+
+  // One consistent view of tariff versions for the whole batch, freshly read.
+  clearTariffVersionCache();
 
   const summary: BatchVerificationResult = {
     total:         cdrs.length,
