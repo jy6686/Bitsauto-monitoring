@@ -32810,23 +32810,73 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     state: 'certified' | 'exceptions' | 'uncertified';
     run:   any | null;
     reasons: string[];
+    counts?: { total: number; verified: number; unrated: number; missingRate: number; discrepancies: number; totalDelta: number };
   }> {
     try {
+      // Certification describes THE PERIOD, not one run over it.
+      //
+      // Reading a single run row was wrong: the nightly job reconciles day by
+      // day, so by billing time a period's calls are already ingested and the
+      // pre-invoice run dedupes them away, verifies almost nothing, and writes
+      // a row of zeros. That row reads as "clean" while the exclusions the
+      // nightly runs actually found sit invisible behind it — a period could
+      // certify green on a run that checked nothing.
+      //
+      // So the state comes from the verification standing against the period's
+      // own calls. One row per call, most recent verification winning, so that
+      // fixing rate coverage and re-running supersedes an earlier failure
+      // instead of accumulating beside it. (Calls the engine cannot price get
+      // no snapshot, so they are re-verified on each pass — without DISTINCT ON
+      // they would be counted once per attempt.)
+      const agg = await db.execute(sql`
+        WITH latest AS (
+          SELECT DISTINCT ON (cdr_call_id) cdr_call_id, discrepancy_type, delta_amount, destination
+            FROM rating_verifications
+           WHERE i_tariff = ${iTariff}
+             AND left(cdr_start_time, 10) BETWEEN ${periodStart} AND ${periodEnd}
+           ORDER BY cdr_call_id, created_at DESC
+        )
+        SELECT count(*)::int AS total,
+               count(*) FILTER (WHERE discrepancy_type = 'exact_match')::int  AS verified,
+               count(*) FILTER (WHERE discrepancy_type = 'unrated')::int      AS unrated,
+               count(*) FILTER (WHERE discrepancy_type = 'missing_rate')::int AS missing_rate,
+               count(*) FILTER (WHERE discrepancy_type NOT IN ('exact_match','unrated','missing_rate'))::int AS discrepancies,
+               coalesce(sum(delta_amount), 0)::numeric AS total_delta
+          FROM latest`);
+      const a = ((agg as any).rows ?? [])[0] ?? {};
+      const total = Number(a.total ?? 0);
+
+      // Provenance: the most recent run touching this tariff and period.
       const r = await db.execute(sql`
         SELECT * FROM snapshot_verification_runs
-         WHERE i_tariff = ${iTariff} AND period_start = ${periodStart} AND period_end = ${periodEnd}
+         WHERE i_tariff = ${iTariff}
+           AND period_start >= ${periodStart} AND period_end <= ${periodEnd}
          ORDER BY started_at DESC LIMIT 1`);
       const run = ((r as any).rows ?? [])[0] ?? null;
-      if (!run) {
-        return { state: 'uncertified', run: null, reasons: [`No verification run for tariff ${iTariff} covering ${periodStart}–${periodEnd}.`] };
+
+      if (total === 0) {
+        return {
+          state: 'uncertified', run,
+          reasons: [`No call has been verified for tariff ${iTariff} in ${periodStart}–${periodEnd}. Reconcile the period before invoicing it.`],
+        };
       }
+
+      const unrated       = Number(a.unrated ?? 0);
+      const missingRate   = Number(a.missing_rate ?? 0);
+      const discrepancies = Number(a.discrepancies ?? 0);
       const reasons: string[] = [];
-      const excluded      = Number(run.excluded ?? 0);
-      const discrepancies = Number(run.discrepancies ?? 0);
-      if (Number(run.unrated ?? 0) > 0)      reasons.push(`${run.unrated} call(s) had no tariff version covering the call time`);
-      if (Number(run.missing_rate ?? 0) > 0) reasons.push(`${run.missing_rate} call(s) had no rate matching the dialled number`);
-      if (discrepancies > 0)                 reasons.push(`${discrepancies} call(s) priced differently from the switch (total difference ${run.total_delta ?? 0})`);
-      return { state: (excluded > 0 || discrepancies > 0) ? 'exceptions' : 'certified', run, reasons };
+      if (unrated > 0)       reasons.push(`${unrated} call(s) had no tariff version covering the call time`);
+      if (missingRate > 0)   reasons.push(`${missingRate} call(s) had no rate matching the dialled number`);
+      if (discrepancies > 0) reasons.push(`${discrepancies} call(s) priced differently from the switch (total difference ${Number(a.total_delta ?? 0).toFixed(6)})`);
+
+      return {
+        state: (unrated + missingRate + discrepancies) > 0 ? 'exceptions' : 'certified',
+        run, reasons,
+        counts: {
+          total, verified: Number(a.verified ?? 0), unrated, missingRate, discrepancies,
+          totalDelta: Number(a.total_delta ?? 0),
+        },
+      };
     } catch (e: any) {
       // The table arrives with migration 070. Treat its absence as uncertified
       // rather than as permission to bill — failing open would defeat the gate.
