@@ -227,6 +227,17 @@ export function classifyDiscrepancy(
 
 // ── Full CDR verification pipeline ───────────────────────────────────────────
 
+/**
+ * Rating engine version, recorded on every verification run.
+ *
+ * Bump this deliberately whenever the reproduction maths changes — interval
+ * handling, connect fee, grace, free seconds, surcharge, or how a rate is
+ * matched to a number. A stored run says which engine produced its figures, so
+ * a period re-verified after a change can be compared against the original
+ * rather than silently replacing it.
+ */
+export const RATING_ENGINE_VERSION = 'v1';
+
 export interface CdrVerificationInput {
   callId?:        string;
   startTime?:     string;

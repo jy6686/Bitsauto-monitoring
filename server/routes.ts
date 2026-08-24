@@ -32576,7 +32576,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         // no rate matching the number) are classified and EXCLUDED from billing
         // by lockBatch rather than billed at the switch's word. They are
         // reported here so the gap is visible before an invoice is generated.
-        const { verifyBatch, lockBatch } = await import('./services/sippy/index');
+        const { verifyBatch, lockBatch, RATING_ENGINE_VERSION } = await import('./services/sippy/index');
+        const runStartedAt = new Date();
         job.phase = `Verifying ${toVerify.length} CDR(s) against tariff ${iTariff}`;
         const vr = await verifyBatch(toVerify, {
           concurrency: 8,
@@ -32599,6 +32600,51 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
         job.phase = 'Locking verified CDRs into billing snapshots';
         const lock = await lockBatch({ iTariff: String(iTariff), limit: Math.max(toVerify.length * 2, 1000) });
+
+        // ── Persist the run (migration 070) ─────────────────────────────────
+        // The engine's findings are the basis on which Finance approves or
+        // rejects a billing period, so they belong in a table rather than in a
+        // log that rotates. Largest single difference and the tariff versions
+        // priced against come from the verifications this run just wrote.
+        try {
+          const { snapshotVerificationRuns } = await import('@shared/schema');
+          const detail = await db.execute(sql`
+            SELECT max(abs(delta_amount))::numeric AS max_delta,
+                   array_agg(DISTINCT tariff_version_id) FILTER (WHERE tariff_version_id IS NOT NULL) AS versions
+              FROM rating_verifications
+             WHERE i_tariff = ${String(iTariff)} AND created_at >= ${runStartedAt.toISOString()}`);
+          const d = ((detail as any).rows ?? [])[0] ?? {};
+          await db.insert(snapshotVerificationRuns).values({
+            iTariff:       String(iTariff),
+            iAccount:      iAccount ? Number(iAccount) : null,
+            customerName:  accountNameCache.get(String(iAccount)) ?? null,
+            periodStart:   String(periodStart),
+            periodEnd:     String(periodEnd ?? periodStart),
+            startedAt:     runStartedAt,
+            completedAt:   new Date(),
+            durationMs:    Date.now() - runStartedAt.getTime(),
+            triggeredBy:   jobId,
+            cdrsFetched:   job.fetched,
+            cdrsSkipped:   skippedCount,
+            verified:      vr.verified,
+            discrepancies: vr.discrepancies,
+            unrated:       vr.unrated,
+            missingRate:   vr.missing,
+            excluded,
+            snapshotsCreated: lock.created,
+            totalDelta:    String(vr.totalDelta.toFixed(6)),
+            maxDelta:      d.max_delta != null ? String(Number(d.max_delta).toFixed(6)) : null,
+            tariffVersions: d.versions ? JSON.stringify(d.versions) : null,
+            // A period with exclusions or price differences is not simply "ok" —
+            // it needs a human to look before it becomes an invoice.
+            status:        (excluded > 0 || vr.discrepancies > 0) ? 'warning' : 'ok',
+            engineVersion: RATING_ENGINE_VERSION,
+          } as any);
+        } catch (e: any) {
+          // Never fail an ingestion because its audit row could not be written —
+          // but say so loudly, because the run then has no durable record.
+          console.error(`[seed-job:${jobId}] verification run NOT recorded: ${e.message}`);
+        }
         job.created = lock.created;
         job.source  = 'verified';
         job.status  = 'done';
@@ -32616,6 +32662,28 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         };
     }
   }
+
+  // GET /api/finance/verification-runs — what the rating engine found, per
+  // billing run. This is the record Finance approves or rejects a period on:
+  // how many calls priced exactly, how many differed, and how many could not be
+  // priced and were therefore left off the invoice.
+  // Filters: ?iTariff= &customerName= &limit=
+  app.get('/api/finance/verification-runs', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const limit = Math.min(Number(req.query.limit ?? 50), 200);
+      const conds: any[] = [];
+      if (req.query.iTariff)      conds.push(sql`i_tariff = ${String(req.query.iTariff)}`);
+      if (req.query.customerName) conds.push(sql`lower(customer_name) = ${String(req.query.customerName).toLowerCase()}`);
+      const where = conds.length ? sql` WHERE ${sql.join(conds, sql` AND `)}` : sql``;
+      const r = await db.execute(sql`
+        SELECT * FROM snapshot_verification_runs${where}
+         ORDER BY started_at DESC LIMIT ${limit}`);
+      res.json((r as any).rows ?? []);
+    } catch (e: any) {
+      // The table arrives with migration 070 — say which, rather than a bare 500.
+      res.status(500).json({ error: e.message, hint: 'snapshot_verification_runs is created by migration 070; restart the server to apply pending migrations.' });
+    }
+  });
 
   // GET /api/rating-snapshots/seed-job/:jobId — poll seeding job progress
   app.get('/api/rating-snapshots/seed-job/:jobId', (req: any, res: any) => {

@@ -268,6 +268,7 @@ export {
   classifyDiscrepancy,
   verifyCdr,
   verifyBatch,
+  RATING_ENGINE_VERSION,
   getDiscrepancySummary,
 } from './sippy-rating-verification.service';
 

@@ -5194,6 +5194,39 @@ export type MaterializationRun       = typeof materializationRuns.$inferSelect;
 export type InsertMaterializationRun = typeof materializationRuns.$inferInsert;
 export const insertMaterializationRunSchema = createInsertSchema(materializationRuns).omit({ id: true });
 
+// One row per billing verification run (migration 070). The rating engine's
+// findings for a customer+period, kept out of the server log so Finance can
+// review a billing run months later. Immutable once completed — a re-run
+// creates a new row rather than editing history.
+export const snapshotVerificationRuns = pgTable("snapshot_verification_runs", {
+  id:               serial("id").primaryKey(),
+  iTariff:          varchar("i_tariff", { length: 64 }).notNull(),
+  iAccount:         integer("i_account"),
+  customerName:     varchar("customer_name", { length: 256 }),
+  periodStart:      varchar("period_start", { length: 32 }),
+  periodEnd:        varchar("period_end",   { length: 32 }),
+  startedAt:        timestamp("started_at",   { withTimezone: true }).defaultNow().notNull(),
+  completedAt:      timestamp("completed_at", { withTimezone: true }),
+  durationMs:       integer("duration_ms"),
+  triggeredBy:      varchar("triggered_by", { length: 128 }),
+  cdrsFetched:      integer("cdrs_fetched").notNull().default(0),
+  cdrsSkipped:      integer("cdrs_skipped").notNull().default(0),
+  verified:         integer("verified").notNull().default(0),
+  discrepancies:    integer("discrepancies").notNull().default(0),
+  unrated:          integer("unrated").notNull().default(0),
+  missingRate:      integer("missing_rate").notNull().default(0),
+  excluded:         integer("excluded").notNull().default(0),
+  snapshotsCreated: integer("snapshots_created").notNull().default(0),
+  totalDelta:       numeric("total_delta", { precision: 14, scale: 6 }),
+  maxDelta:         numeric("max_delta",   { precision: 14, scale: 6 }),
+  tariffVersions:   text("tariff_versions"),
+  status:           varchar("status", { length: 16 }).notNull().default('ok'),
+  error:            text("error"),
+  engineVersion:    varchar("engine_version", { length: 32 }),
+});
+export type SnapshotVerificationRun       = typeof snapshotVerificationRuns.$inferSelect;
+export type InsertSnapshotVerificationRun = typeof snapshotVerificationRuns.$inferInsert;
+
 export const financialSnapshot = pgTable("financial_snapshot", {
   id:             serial("id").primaryKey(),
   snapshotRunId:  integer("snapshot_run_id").references(() => materializationRuns.id, { onDelete: 'set null' }),
