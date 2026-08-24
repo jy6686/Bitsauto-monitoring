@@ -25078,6 +25078,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     let attachContent: Buffer | string;
     let attachFilename: string;
     let attachType: string;
+    // Every builder reports how many reconciliation rows it rendered. Zero means the
+    // period has nothing to reconcile — an empty PDF mailed as a normal report reads as
+    // "everything reconciled clean", which is the dangerous misreading (FP-02).
+    let reportRowCount = 0;
 
     if (schedule.reportType === 'client') {
       // Auto-populate reconciliation rows from invoices + DMR before building the report.
@@ -25099,12 +25103,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
       const opts = { period: periodSlug };
       if (schedule.format === 'csv') {
-        const { csv } = await buildClientReconCSV(opts);
+        const { csv, rowCount } = await buildClientReconCSV(opts);
+        reportRowCount = rowCount;
         attachContent  = csv;
         attachFilename = `client-reconciliation_${periodSlug}.csv`;
         attachType     = 'text/csv';
       } else {
-        const { buf } = await buildClientReconPDF(opts);
+        const { buf, rowCount } = await buildClientReconPDF(opts);
+        reportRowCount = rowCount;
         attachContent  = buf;
         attachFilename = `client-reconciliation_${periodSlug}.pdf`;
         attachType     = 'application/pdf';
@@ -25113,12 +25119,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const opts: any = {};
       if (schedule.carrierTariff) { opts.iTariff = schedule.carrierTariff; opts.vendor = schedule.carrierTariff; }
       if (schedule.format === 'csv') {
-        const { csv } = await buildCarrierSnapshotCSV(opts);
+        const { csv, rowCount } = await buildCarrierSnapshotCSV(opts);
+        reportRowCount = rowCount;
         attachContent  = csv;
         attachFilename = `carrier-reconciliation_${periodSlug}.csv`;
         attachType     = 'text/csv';
       } else {
-        const { buf } = await buildCarrierReconPDF(opts);
+        const { buf, rowCount } = await buildCarrierReconPDF(opts);
+        reportRowCount = rowCount;
         attachContent  = buf;
         attachFilename = `carrier-reconciliation_${periodSlug}.pdf`;
         attachType     = 'application/pdf';
@@ -25126,6 +25134,37 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
 
     const typeLabel = schedule.reportType === 'client' ? 'Client Reconciliation' : 'Carrier Reconciliation';
+
+    // FP-02: a zero-row period never mails a normal-looking report. Skip the recipients,
+    // tell the finance admin instead, and say so in the log. lastSentAt/nextDueAt still
+    // advance in the caller, so the schedule does not retry the same empty period every
+    // 30 minutes.
+    if (reportRowCount === 0) {
+      console.warn(`[recon-schedule] NO DATA for ${periodSlug} (${typeLabel}, schedule #${schedule.id}) — report NOT sent to recipients`);
+      try {
+        const { sendDirectEmail } = await import('./email');
+        const settings = await storage.getSettings();
+        if (settings?.alertAdminEmail) {
+          await sendDirectEmail({
+            to: settings.alertAdminEmail,
+            subject: `[Scheduled] ${typeLabel} Report — ${periodSlug} — NO DATA`,
+            html: `<div style="font-family:sans-serif;color:#111;padding:24px">
+              <h2 style="margin:0 0 12px">No reconciliation data for ${periodSlug}</h2>
+              <p style="color:#555;font-size:13px">
+                The scheduled ${schedule.frequency} ${typeLabel.toLowerCase()} report found <strong>0 reconciliation rows</strong>
+                for billing period <strong>${periodSlug}</strong>, so it was <strong>not sent</strong> to its recipients
+                (${schedule.recipients}).<br><br>
+                Most likely cause: no invoices have been generated for this billing period.
+              </p>
+            </div>`,
+          });
+        }
+      } catch (notifyErr: any) {
+        console.warn('[recon-schedule] no-data admin notice failed:', notifyErr.message);
+      }
+      return;
+    }
+
     const bodyHtml = `
       <div style="font-family:sans-serif;color:#111;padding:24px">
         <h2 style="margin:0 0 12px">${typeLabel} Report — Scheduled Delivery</h2>
