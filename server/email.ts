@@ -6,6 +6,25 @@ import { userRoles, userConfig } from '../shared/schema';
 import { users } from '../shared/models/auth';
 import { eq, inArray } from 'drizzle-orm';
 
+/**
+ * Is this instance allowed to dispatch SCHEDULED email?
+ *
+ * The workspace dev process and the deployment run identical scheduler code
+ * against different databases, and nothing in the email path distinguished
+ * them — a dev instance with alertEnabled and Gmail creds mailed customers
+ * exactly like production (FP-03). Scheduled, externally-visible dispatch is a
+ * production behaviour: the deployment runs with NODE_ENV=production, the
+ * workspace with NODE_ENV=development.
+ *
+ * Operator-initiated sends (send-now endpoints, test sends) are NOT gated —
+ * a person clicking a button in the workspace is deliberate. Only timers are.
+ * ALLOW_DEV_SCHEDULED_EMAIL=1 exists for deliberately testing a scheduler
+ * end-to-end from dev.
+ */
+export function scheduledDispatchAllowed(): boolean {
+  return process.env.NODE_ENV === 'production' || process.env.ALLOW_DEV_SCHEDULED_EMAIL === '1';
+}
+
 export type AlertEmailPayload = {
   subject: string;
   bodyHtml: string;

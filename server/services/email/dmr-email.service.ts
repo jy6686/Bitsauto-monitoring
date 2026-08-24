@@ -333,8 +333,14 @@ export function startDMREmailScheduler(): void {
 
   async function runAndReschedule() {
     try {
-      const result = await sendDailyDMREmail();
-      console.log(`[dmr-scheduler] ok=${result.ok} rows=${result.rowCount} recipients=${result.recipients.length}`);
+      // FP-03: the timer is gated, the manual send-now endpoint is not.
+      const { scheduledDispatchAllowed } = await import('../../email');
+      if (!scheduledDispatchAllowed()) {
+        console.warn('[dmr-scheduler] daily email suppressed — scheduled dispatch is disabled on this instance (FP-03)');
+      } else {
+        const result = await sendDailyDMREmail();
+        console.log(`[dmr-scheduler] ok=${result.ok} rows=${result.rowCount} recipients=${result.recipients.length}`);
+      }
     } catch (err: any) {
       console.error(`[dmr-scheduler] Error: ${err.message}`);
     }

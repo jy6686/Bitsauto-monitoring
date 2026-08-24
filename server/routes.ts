@@ -25280,6 +25280,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   setInterval(async () => {
     try {
       const due = await storage.getDueScheduledReports();
+      if (due.length > 0) {
+        const { scheduledDispatchAllowed } = await import('./email');
+        if (!scheduledDispatchAllowed()) {
+          console.warn(`[scheduled-reports] ${due.length} due report(s) suppressed — scheduled dispatch is disabled on this instance (FP-03)`);
+          return;
+        }
+      }
       for (const report of due) {
         try {
           await sendScheduledReport(report);
@@ -25299,6 +25306,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   setInterval(async () => {
     try {
       const due = await storage.getDueReconciliationReportSchedules();
+      if (due.length > 0) {
+        const { scheduledDispatchAllowed } = await import('./email');
+        if (!scheduledDispatchAllowed()) {
+          console.warn(`[recon-schedules] ${due.length} due schedule(s) suppressed — scheduled dispatch is disabled on this instance (FP-03)`);
+          return;
+        }
+      }
       for (const schedule of due) {
         try {
           await sendReconciliationScheduledReport(schedule);
