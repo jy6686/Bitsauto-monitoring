@@ -5203,6 +5203,62 @@ export type MaterializationRun       = typeof materializationRuns.$inferSelect;
 export type InsertMaterializationRun = typeof materializationRuns.$inferInsert;
 export const insertMaterializationRunSchema = createInsertSchema(materializationRuns).omit({ id: true });
 
+// Permanent call-evidence repository (migration 072). Append-only: every CDR
+// fetched from the switch, typed for what the platform queries and with the
+// complete struct kept in `payload` so no field is ever lost. Verification,
+// billing, disputes and analytics should all read from here rather than each
+// re-fetching their own copy.
+export const rawSippyCdrs = pgTable("raw_sippy_cdrs", {
+  id:                serial("id").primaryKey(),
+  iCdr:              varchar("i_cdr",       { length: 64 }),
+  iCall:             varchar("i_call",      { length: 64 }),
+  cdrCallId:         varchar("cdr_call_id", { length: 255 }),
+  iAccount:          integer("i_account"),
+  iCustomer:         integer("i_customer"),
+  iTariff:           varchar("i_tariff",    { length: 64 }),
+  clientName:        varchar("client_name", { length: 256 }),
+  caller:            varchar("caller",      { length: 64 }),
+  callee:            varchar("callee",      { length: 64 }),
+  prefix:            varchar("prefix",      { length: 32 }),
+  country:           varchar("country",     { length: 128 }),
+  areaName:          varchar("area_name",   { length: 256 }),
+  description:       varchar("description", { length: 256 }),
+  startedAt:         timestamp("started_at", { withTimezone: true }),
+  setupTimeRaw:      varchar("setup_time_raw",      { length: 64 }),
+  connectTimeRaw:    varchar("connect_time_raw",    { length: 64 }),
+  disconnectTimeRaw: varchar("disconnect_time_raw", { length: 64 }),
+  billedSecs:        integer("billed_secs"),
+  totalSecs:         integer("total_secs"),
+  freeSeconds:       integer("free_seconds"),
+  gracePeriod:       integer("grace_period"),
+  interval1:         integer("interval_1"),
+  intervalN:         integer("interval_n"),
+  pdd:               real("pdd"),
+  cost:              real("cost"),
+  connectFee:        real("connect_fee"),
+  price1:            real("price_1"),
+  priceN:            real("price_n"),
+  postCallSurcharge: real("post_call_surcharge"),
+  result:            varchar("result",         { length: 128 }),
+  releaseSource:     varchar("release_source", { length: 64 }),
+  q850Code:          varchar("q850_code",      { length: 16 }),
+  remoteIp:          varchar("remote_ip",      { length: 64 }),
+  protocol:          varchar("protocol",       { length: 32 }),
+  userAgent:         varchar("user_agent",     { length: 256 }),
+  vendor:            varchar("vendor",         { length: 256 }),
+  iConnection:       varchar("i_connection",   { length: 64 }),
+  mosTerm:           real("mos_term"),
+  mosOrig:           real("mos_orig"),
+  jitter:            real("jitter"),
+  pktLoss:           real("pkt_loss"),
+  sourceMethod:      varchar("source_method",  { length: 32 }),
+  importRunId:       varchar("import_run_id",  { length: 128 }),
+  importedAt:        timestamp("imported_at", { withTimezone: true }).defaultNow().notNull(),
+  payload:           jsonb("payload"),
+});
+export type RawSippyCdr       = typeof rawSippyCdrs.$inferSelect;
+export type InsertRawSippyCdr = typeof rawSippyCdrs.$inferInsert;
+
 // One row per billing verification run (migration 070). The rating engine's
 // findings for a customer+period, kept out of the server log so Finance can
 // review a billing run months later. Immutable once completed — a re-run

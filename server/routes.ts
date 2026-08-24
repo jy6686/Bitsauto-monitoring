@@ -32534,6 +32534,82 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         job.total = rawCdrs.length;
         console.log(`[seed-job:${jobId}] fetched ${job.fetched} CDRs, ${rawCdrs.length} after account filter`);
 
+        // ── Store the evidence FIRST (migration 072) ────────────────────────
+        // Everything the switch returned is persisted before anything is
+        // interpreted, so the repository holds what was actually said — not
+        // only the calls that turned out to be billable. Verification, disputes
+        // and analytics read from here instead of re-fetching.
+        //
+        // Idempotent on the switch's own CDR id, so re-importing a day inserts
+        // nothing twice. A storage failure does NOT stop billing: the invoice
+        // path can still proceed on the fetched batch, but the gap is logged
+        // because the period then has no durable evidence behind it.
+        try {
+          const { rawSippyCdrs } = await import('@shared/schema');
+          const toIso = (v: any) => {
+            if (!v) return null;
+            const d = new Date(String(v));
+            return isNaN(d.getTime()) ? null : d;
+          };
+          const num = (v: any) => (v == null || v === '' ? null : (Number.isNaN(Number(v)) ? null : Number(v)));
+          const rows = rawCdrs.map((c: any) => ({
+            iCdr:        c.iCdr ? String(c.iCdr) : (c.i_cdr ? String(c.i_cdr) : null),
+            iCall:       c.iCall ? String(c.iCall) : null,
+            cdrCallId:   c.callId ? String(c.callId) : null,
+            iAccount:    num(c.iAccount) ?? Number(iAccount),
+            iCustomer:   num(c.iCustomer),
+            iTariff:     String(iTariff),
+            clientName:  c.clientName ?? null,
+            caller:      c.caller ?? null,
+            callee:      c.callee ?? null,
+            prefix:      c.prefix ?? null,
+            country:     c.country ?? null,
+            areaName:    c.areaName ?? null,
+            description: c.description ?? null,
+            startedAt:   toIso(c.startTime ?? c.setupTime ?? c.connectTime),
+            setupTimeRaw:      c.startTime ? String(c.startTime) : null,
+            connectTimeRaw:    c.connectTime ? String(c.connectTime) : null,
+            disconnectTimeRaw: c.disconnectTime ? String(c.disconnectTime) : null,
+            billedSecs:  num(c.billedDuration ?? c.duration),
+            totalSecs:   num(c.totalDuration),
+            freeSeconds: num(c.freeSeconds),
+            gracePeriod: num(c.gracePeriod),
+            interval1:   num(c.interval1),
+            intervalN:   num(c.intervalN),
+            pdd:         num(c.pdd),
+            cost:        num(c.cost),
+            connectFee:  num(c.connectFee),
+            price1:      num(c.price1),
+            priceN:      num(c.priceN),
+            postCallSurcharge: num(c.postCallSurcharge),
+            result:        c.result ? String(c.result).slice(0, 128) : null,
+            releaseSource: c.releaseSource ?? null,
+            q850Code:      c.q850Code ?? null,
+            remoteIp:      c.remoteIp ?? null,
+            protocol:      c.protocol ?? null,
+            userAgent:     c.userAgent ? String(c.userAgent).slice(0, 256) : null,
+            vendor:        c.vendor ?? null,
+            iConnection:   c.iConnection ? String(c.iConnection) : null,
+            mosTerm:       num(c.iVqTermMos),
+            mosOrig:       num(c.iVqOrigMos),
+            jitter:        num(c.jitter),
+            pktLoss:       num(c.pktLoss),
+            sourceMethod:  c.dispositionSource ?? 'xmlrpc',
+            importRunId:   jobId,
+            payload:       c,
+          }));
+          let stored = 0;
+          for (let i = 0; i < rows.length; i += 500) {
+            const chunk = rows.slice(i, i + 500);
+            const res: any = await db.insert(rawSippyCdrs).values(chunk as any).onConflictDoNothing();
+            stored += res?.rowCount ?? chunk.length;
+          }
+          job.phase = `Stored ${stored} call record(s) in the repository`;
+          console.log(`[seed-job:${jobId}] repository: ${stored} of ${rows.length} call record(s) stored (duplicates ignored)`);
+        } catch (e: any) {
+          console.error(`[seed-job:${jobId}] CDR repository write FAILED — billing continues but this period has no stored evidence: ${e.message}`);
+        }
+
         // ── Batch dedup: 1 SELECT instead of N ──────────────────────────────
         job.phase = 'Deduplicating against existing snapshots';
         const existingIds = await storage.getExistingCdrIdsForTariff(String(iTariff));
@@ -32662,6 +32738,43 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         };
     }
   }
+
+  // GET /api/finance/cdr-repository/stats — how much call evidence is stored,
+  // and how fast it is growing. The partitioning threshold for this table is a
+  // question of real volume, so this answers it with measurement instead of
+  // an estimate: check it after a week of nightly ingestion.
+  app.get('/api/finance/cdr-repository/stats', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const [totals, byDay] = await Promise.all([
+        db.execute(sql`
+          SELECT count(*)::bigint AS rows,
+                 count(DISTINCT i_account)::int AS accounts,
+                 min(started_at) AS earliest,
+                 max(started_at) AS latest,
+                 pg_size_pretty(pg_total_relation_size('raw_sippy_cdrs')) AS size
+            FROM raw_sippy_cdrs`),
+        db.execute(sql`
+          SELECT started_at::date AS day, count(*)::int AS calls
+            FROM raw_sippy_cdrs
+           WHERE started_at IS NOT NULL
+           GROUP BY 1 ORDER BY 1 DESC LIMIT 30`),
+      ]);
+      const days = ((byDay as any).rows ?? []);
+      const avgPerDay = days.length
+        ? Math.round(days.reduce((a: number, d: any) => a + Number(d.calls), 0) / days.length)
+        : 0;
+      res.json({
+        ...(((totals as any).rows ?? [])[0] ?? {}),
+        avgCallsPerDay: avgPerDay,
+        // Stated rather than implied: the point at which a plain table stops
+        // being the right shape for this data.
+        partitionAdvisedAbove: 50_000_000,
+        byDay: days,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message, hint: 'raw_sippy_cdrs is created by migration 072; restart the server to apply pending migrations.' });
+    }
+  });
 
   // GET /api/finance/verification-runs — what the rating engine found, per
   // billing run. This is the record Finance approves or rejects a period on:
