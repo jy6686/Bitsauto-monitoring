@@ -2360,29 +2360,24 @@ export class DatabaseStorage implements IStorage {
   // the billing recipients that invoice dispatch depends on. Deliberate removal
   // of the last contact is done per-row in the editor.
   async replaceCompanyContacts(companyId: number, contacts: any[]): Promise<number> {
-    const valid = (contacts ?? []).filter(c => c?.email?.trim() && c?.firstName?.trim());
-    if (valid.length === 0) return 0;
+    const { planContactsReplacement } = await import('./company-save-contract');
+    const { action, rows, dropped } = planContactsReplacement(companyId, contacts);
+    if (dropped > 0) {
+      console.warn(`[companies] #${companyId}: ${dropped} contact row(s) dropped — first name and email are both required`);
+    }
+    if (action === 'skip') return 0;
     await db.delete(companyContacts).where(eq(companyContacts.companyId, companyId));
-    await db.insert(companyContacts).values(valid.map(c => ({
-      companyId,
-      contactType: String(c.contactType ?? 'technical'),
-      firstName:   String(c.firstName).trim(),
-      lastName:    c.lastName ? String(c.lastName).trim() : null,
-      email:       String(c.email).trim(),
-      phone:       c.phone ? String(c.phone).trim() : null,
-      fax:         c.fax   ? String(c.fax).trim()   : null,
-    })));
-    return valid.length;
+    await db.insert(companyContacts).values(rows);
+    return rows.length;
   }
 
   async replaceCompanyBankAccounts(companyId: number, accounts: any[]): Promise<number> {
-    const valid = (accounts ?? []).filter(b => b?.bankName?.trim() && b?.accountNo?.trim());
-    if (valid.length === 0) return 0;
+    const { planBankReplacement } = await import('./company-save-contract');
+    const { action, rows } = planBankReplacement(companyId, accounts);
+    if (action === 'skip') return 0;
     await db.delete(companyBankAccounts).where(eq(companyBankAccounts.companyId, companyId));
-    await db.insert(companyBankAccounts).values(valid.map(({ id: _id, companyId: _c, ...b }: any) => ({
-      ...b, companyId,
-    })));
-    return valid.length;
+    await db.insert(companyBankAccounts).values(rows);
+    return rows.length;
   }
 
   async getCompanyContacts(companyId: number): Promise<Array<typeof companyContacts.$inferSelect>> {

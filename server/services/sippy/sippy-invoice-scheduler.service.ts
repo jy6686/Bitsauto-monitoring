@@ -200,22 +200,13 @@ export async function resolveBillingRecipients(
     c.name?.toLowerCase() === clientName.toLowerCase() ||
     (c as any).billingName?.toLowerCase() === clientName.toLowerCase()
   );
-  if (!company) return { recipients: [], source: `no company matches "${clientName}"` };
 
-  const direct = (company as any).invoiceEmail?.trim();
-  if (direct) {
-    const list = direct.split(',').map((s: string) => s.trim()).filter(Boolean);
-    if (list.length) return { recipients: list, source: `companies.invoiceEmail (company #${company.id})` };
-  }
-
-  const contacts = await storage.getCompanyContacts(company.id);
-  const billing = contacts.filter(c =>
-    (c.contactType ?? '').toLowerCase().includes('billing') && c.email?.trim());
-  if (billing.length) {
-    return { recipients: billing.map(c => c.email.trim()), source: `company_contacts(billing) (company #${company.id})` };
-  }
-
-  return { recipients: [], source: `company #${company.id} "${company.name}" has no invoiceEmail and no billing contact` };
+  // The selection rule itself lives in company-save-contract, pinned against
+  // the company editor's save path so the type string this reads can never
+  // drift from the one that gets written.
+  const { selectBillingRecipients } = await import('../../company-save-contract');
+  const contacts = company ? await storage.getCompanyContacts(company.id) : [];
+  return selectBillingRecipients(company as any, contacts, clientName);
 }
 
 // ── Retry a failed job ────────────────────────────────────────────────────────

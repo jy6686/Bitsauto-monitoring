@@ -28562,18 +28562,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // it with `syntax error at or near "where"` and NOTHING could be edited. That
       // is why billing emails could never be filled in, which in turn is why invoice
       // dispatch kept failing with "No billing recipient on file".
-      const {
-        __source, basic, billing, contacts, bankAccounts, initialIps,
-        productIds, marketDestinationIds,
-        ...flat
-      } = (req.body ?? {}) as Record<string, any>;
-      const nested = basic !== undefined || billing !== undefined
-                  || contacts !== undefined || bankAccounts !== undefined;
       // Product and market assignments are set at creation and are not edited here;
       // they are dropped from the column patch rather than silently corrupting it.
-      const patch: Record<string, unknown> = nested
-        ? { ...(basic ?? {}), ...(billing ?? {}), ...flat }
-        : flat;
+      // The split itself is pinned by server/company-save-contract.test.ts.
+      const { normalizeCompanySave } = await import('./company-save-contract');
+      const { patch, contacts, bankAccounts, source: __source } = normalizeCompanySave(req.body);
 
       // accountPrefix is immutable (migration 049). It is embedded in Sippy
       // authentication and CLD rules, so changing it here would leave a live customer
