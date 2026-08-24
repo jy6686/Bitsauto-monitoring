@@ -33215,6 +33215,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         try {
           const invoice = await storage.getInvoice(id);
           if (!invoice) { results.push({ id, ok: false, error: 'Invoice not found' }); continue; }
+          // Approval is the FIRST precondition — report it first. Selecting
+          // draft invoices and pressing Send used to fail on recipients, which
+          // sent Finance chasing missing billing emails when the real blocker
+          // was that nothing had been approved. sendInvoiceEmail enforces this
+          // too; this only makes the reason accurate.
+          if (!['approved', 'sent'].includes(invoice.status)) {
+            results.push({ id, ok: false, error: `Invoice ${invoice.invoiceNumber} is ${invoice.status.toUpperCase()} — approve it before sending` });
+            continue;
+          }
           const { recipients, source } = await resolveBillingRecipients(invoice.customerName ?? '');
           if (recipients.length === 0) {
             results.push({ id, ok: false, error: `No billing recipient on file (${source})` });
