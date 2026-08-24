@@ -39147,7 +39147,12 @@ ${footer}
       const readiness = [
         { key: 'dmr',       label: 'DMR Data',          ok: dmrStatus === 'healthy' || (dmrStatus === 'stale' && dmr.count > 0), detail: dmr.count > 0 ? `${dmr.count} rows (${dmrStatus})` : 'no rows yet' },
         { key: 'scheduler', label: 'Invoice Scheduler', ok: schedActive > 0, detail: schedR.missing ? 'schedules table unavailable' : `${schedActive}/${schedTotal} schedules active` },
-        { key: 'snapshots', label: 'Rating Snapshots',  ok: (lockedSnapR.rows[0]?.locked ?? 0) > 0, detail: lockedSnapR.missing ? 'snapshot table unavailable' : `${lockedSnapR.rows[0]?.locked ?? 0} locked of ${lockedSnapR.rows[0]?.total ?? 0}` },
+        // Readiness = snapshot rows the generator can actually bill from. It
+        // reads every row for the tariff+period regardless of verification
+        // status, so gating this check on `locked` reported a false blocker
+        // (804 usable rows shown as "0 locked" → ✗). Locked count stays as
+        // context for the rating-verification workflow.
+        { key: 'snapshots', label: 'Rating Snapshots',  ok: (lockedSnapR.rows[0]?.total ?? 0) > 0, detail: lockedSnapR.missing ? 'snapshot table unavailable' : `${lockedSnapR.rows[0]?.total ?? 0} billable rows (${lockedSnapR.rows[0]?.locked ?? 0} locked by rating verification)` },
         { key: 'generator', label: 'Invoice Generator', ok: invoiceTotal > 0, detail: invoiceTotal > 0 ? `${invoiceTotal} invoices generated` : 'no invoice generated yet' },
         { key: 'review',    label: 'Review Queue',      ok: !jobsAggR.missing, detail: jobsAggR.missing ? 'jobs table unavailable' : `${jobsAggR.rows[0]?.review ?? 0} awaiting review · ${jobsAggR.rows[0]?.failed ?? 0} failed` },
         { key: 'contacts',  label: 'Billing Contacts',  ok: covTotal > 0 && covCovered === covTotal, detail: `${covCovered}/${covTotal} billed clients have a billing email` },

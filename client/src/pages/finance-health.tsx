@@ -429,12 +429,15 @@ export default function FinanceHealthPage() {
         const jobsTotal   = Object.values(jobs).reduce((a: number, b: any) => a + Number(b), 0);
         const sentDeliv   = (invPipe.deliveries ?? []).find((d: any) => d.status === "sent")?.n ?? 0;
         const failedDeliv = (invPipe.deliveries ?? []).find((d: any) => d.status === "failed")?.n ?? 0;
-        const locked = invPipe.snapshots?.locked ?? 0;
+        const locked    = invPipe.snapshots?.locked ?? 0;
+        const snapTotal = invPipe.snapshots?.total  ?? 0;
         const stages = [
           { label: "Schedules", value: `${invPipe.schedules?.active ?? 0}/${invPipe.schedules?.total ?? 0}`, sub: "active", href: "/invoice-jobs", warn: (invPipe.schedules?.active ?? 0) === 0 },
           { label: "Due Now",   value: invPipe.schedules?.due_now ?? 0, href: "/invoice-jobs" },
           { label: "Jobs",      value: jobsTotal, sub: `${jobs.REVIEW ?? 0} review`, href: "/invoice-jobs", warn: (invPipe.schedules?.due_now ?? 0) > 0 && jobsTotal === 0 },
-          { label: "Snapshots", value: locked, sub: `of ${invPipe.snapshots?.total ?? 0} locked`, href: "/rating-snapshots", warn: jobsTotal > 0 && locked === 0 },
+          // Headline is the billable row count — what the generator reads.
+          // `locked` is rating-verification state and does not gate billing.
+          { label: "Snapshots", value: snapTotal, sub: locked ? `${locked} locked` : "billable rows", href: "/rating-snapshots", warn: jobsTotal > 0 && snapTotal === 0 },
           { label: "Draft",     value: inv.draft ?? 0, href: "/invoices" },
           { label: "Review",    value: jobs.REVIEW ?? 0, href: "/invoice-jobs" },
           { label: "Approved",  value: inv.approved ?? 0, href: "/invoices", warn: (inv.draft ?? 0) > 0 && (inv.approved ?? 0) === 0 && (inv.sent ?? 0) === 0 },
