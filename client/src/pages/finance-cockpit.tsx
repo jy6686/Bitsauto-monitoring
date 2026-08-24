@@ -235,11 +235,20 @@ export default function FinanceCockpitPage() {
   const { data: pipeline }                                 = useQuery<any>({ queryKey: ["/api/finance/pipeline-health"] });
 
   // ── Data normalization ────────────────────────────────────────────────────────
-  const invoices     = invoiceData?.invoices        ?? invoiceData?.data     ?? [];
-  const disputes     = disputeData?.disputes        ?? disputeData?.data     ?? [];
+  // These endpoints return BARE ARRAYS (/api/invoices, /api/disputes,
+  // /api/margin/alerts). Reading `.invoices` / `.data` off an array yields
+  // undefined, so every panel and KPI fed by them silently showed zero —
+  // the Cockpit reported "No invoices found" and $0 receivables while the
+  // Invoice Register listed 6 invoices. Check for the array first, then fall
+  // back to the wrapped shapes.
+  const asList = (d: any, ...keys: string[]) =>
+    Array.isArray(d) ? d : (keys.map(k => d?.[k]).find(Array.isArray) ?? []);
+
+  const invoices     = asList(invoiceData, 'invoices', 'data');
+  const disputes     = asList(disputeData, 'disputes', 'data');
   const snapSummary  = snapshotSummary ?? null;
-  const reconRows    = reconcData?.reconciliations  ?? reconcData?.data      ?? [];
-  const marginAl     = marginData?.alerts           ?? marginData?.data      ?? [];
+  const reconRows    = asList(reconcData, 'reconciliations', 'data');
+  const marginAl     = asList(marginData, 'alerts', 'data');
   const reminders    = remindersData?.reminders     ?? remindersData?.data   ?? (Array.isArray(remindersData) ? remindersData : []);
   const creditEvents = creditData?.events           ?? creditData?.data      ?? (Array.isArray(creditData)    ? creditData    : []);
 
