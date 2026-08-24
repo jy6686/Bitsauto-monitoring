@@ -123,6 +123,9 @@ export async function sendInvoiceEmail(
     return { ok: false, error: 'At least one recipient is required' };
   }
 
+  let testMode = false;
+  let intendedRecipients: string | null = null;
+
   // ── Test mode ───────────────────────────────────────────────────────────────
   // Every invoice email — manual and job dispatch alike — funnels through this
   // function, so this is the ONE place the redirect lives. With test mode on,
@@ -152,8 +155,6 @@ export async function sendInvoiceEmail(
   let errorMessage: string | null = null;
   let messageId: string | null = null;
   let smtpResponse: string | null = null;
-  let testMode = false;
-  let intendedRecipients: string | null = null;
 
   try {
     const conn = await buildInvoiceTransporter();
