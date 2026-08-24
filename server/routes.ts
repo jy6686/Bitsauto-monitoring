@@ -39182,7 +39182,22 @@ ${footer}
         sla: slaDefaults,
         warnings,
         readiness,
-        build: { version: process.env.FINANCE_BUILD_VERSION ?? 'v1.4', commit: (process.env.REPL_ID ?? '').slice(0, 8) || 'dev', schemaVersion: 1 },
+        // Environment + database identity. The page previously hardcoded a
+        // "Production" badge, so a workspace instance claimed to be production
+        // and its empty Finance tables were read as production evidence. Host
+        // and database name only — never credentials.
+        build: {
+          version: process.env.FINANCE_BUILD_VERSION ?? 'v1.4',
+          commit: (process.env.REPL_ID ?? '').slice(0, 8) || 'dev',
+          schemaVersion: 1,
+          environment: process.env.NODE_ENV === 'production' ? 'production' : 'workspace',
+          database: (() => {
+            try {
+              const u = new URL(process.env.DATABASE_URL ?? '');
+              return `${u.hostname}${u.pathname}`;
+            } catch { return 'unknown'; }
+          })(),
+        },
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });

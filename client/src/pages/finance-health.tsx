@@ -327,7 +327,17 @@ export default function FinanceHealthPage() {
             <div className="w-px h-3 bg-border/60" />
             <div className="flex items-center gap-1.5 text-muted-foreground">
               <span>Environment</span>
-              <Badge variant="outline" className="text-[10px] px-1.5 py-0 bg-blue-500/10 text-blue-400 border-blue-500/30">Production</Badge>
+              <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${
+                build.environment === "production"
+                  ? "bg-blue-500/10 text-blue-400 border-blue-500/30"
+                  : "bg-amber-500/10 text-amber-400 border-amber-500/30"}`}>
+                {build.environment === "production" ? "Production" : "Workspace"}
+              </Badge>
+              {build.database && (
+                <span className="font-mono text-[10px] text-muted-foreground" title="Database this page is reading">
+                  {build.database}
+                </span>
+              )}
             </div>
             <div className="w-px h-3 bg-border/60" />
             <div className="flex items-center gap-1.5">
