@@ -155,6 +155,10 @@ export async function sendInvoiceEmail(
   let errorMessage: string | null = null;
   let messageId: string | null = null;
   let smtpResponse: string | null = null;
+  // The From identity actually used. Captured because buildInvoiceTransporter
+  // falls back to the alert Gmail account when invoice SMTP is incomplete —
+  // without this the audit could not distinguish the two senders (069).
+  let sender: string | null = null;
 
   try {
     const conn = await buildInvoiceTransporter();
@@ -162,6 +166,7 @@ export async function sendInvoiceEmail(
       errorMessage = 'SMTP not configured — set up Invoice Email Delivery in Settings → Alerts first.';
       throw new Error(errorMessage);
     }
+    sender = conn.from;
 
     // Attach invoice HTML as a downloadable file
     const attachments: any[] = [];
@@ -256,6 +261,7 @@ export async function sendInvoiceEmail(
       smtpResponse: smtpResponse ? smtpResponse.slice(0, 512) : null,
       testMode,
       intendedRecipients,
+      sender,
       sentAt:       new Date(),
     });
   } catch (logErr: any) {

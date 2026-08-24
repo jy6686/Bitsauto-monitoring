@@ -39193,7 +39193,15 @@ ${footer}
         { key: 'generator', label: 'Invoice Generator', ok: invoiceTotal > 0, detail: invoiceTotal > 0 ? `${invoiceTotal} invoices generated` : 'no invoice generated yet' },
         { key: 'review',    label: 'Review Queue',      ok: !jobsAggR.missing, detail: jobsAggR.missing ? 'jobs table unavailable' : `${jobsAggR.rows[0]?.review ?? 0} awaiting review · ${jobsAggR.rows[0]?.failed ?? 0} failed` },
         { key: 'contacts',  label: 'Billing Contacts',  ok: covTotal > 0 && covCovered === covTotal, detail: `${covCovered}/${covTotal} billed clients have a billing email` },
-        { key: 'smtp',      label: 'SMTP Delivery',     ok: smtpDedicated || smtpFallback, detail: smtpDedicated ? 'dedicated invoice SMTP configured' : smtpFallback ? 'alert-Gmail fallback active — set invoice SMTP before production cutover' : 'not configured' },
+        // Name the sender identity, not just "configured": the transporter falls
+        // back to the alert Gmail account when invoice SMTP is incomplete, and an
+        // acceptance run has to evidence which identity actually sent.
+        { key: 'smtp',      label: 'SMTP Delivery',     ok: smtpDedicated || smtpFallback,
+          detail: smtpDedicated
+            ? `sends as ${appSettings?.invoiceSmtpFromEmail || appSettings?.invoiceSmtpUser}`
+            : smtpFallback
+              ? `alert-Gmail fallback — sends as billing@ichibaanlogic.com via ${appSettings?.alertGmailUser}`
+              : 'not configured' },
         { key: 'audit',     label: 'Delivery Audit Trail', ok: !delivAggR.missing, detail: delivAggR.missing ? 'delivery table unavailable' : `${delivAggR.rows[0]?.sent ?? 0} sent · ${delivAggR.rows[0]?.failed ?? 0} failed · ${delivAggR.rows[0]?.with_lineage ?? 0} with SMTP lineage` },
         { key: 'testmode',  label: 'Email Test Mode',   ok: true, warn: emailTestMode, detail: emailTestMode ? `ON — all invoice email redirects to ${appSettings?.invoiceEmailTestRecipient || '(no test recipient set!)'}` : 'OFF — sends go to real clients' },
       ];

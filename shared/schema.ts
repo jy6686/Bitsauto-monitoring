@@ -2898,6 +2898,7 @@ export const invoiceEmailDeliveries = pgTable("invoice_email_deliveries", {
   smtpResponse: varchar("smtp_response", { length: 512 }),
   testMode:            boolean("test_mode").notNull().default(false),
   intendedRecipients:  text("intended_recipients"),
+  sender:              varchar("sender", { length: 320 }),  // full From value actually used (069)
 });
 export type InvoiceEmailDelivery       = typeof invoiceEmailDeliveries.$inferSelect;
 export type InsertInvoiceEmailDelivery = typeof invoiceEmailDeliveries.$inferInsert;
