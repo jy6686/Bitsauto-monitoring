@@ -625,7 +625,7 @@ export default function InvoiceJobsPage() {
                                 </Button>
                               </>
                             )}
-                            {(job.status === 'PENDING' || job.status === 'GENERATED') && !job.invoiceId && (
+                            {['PENDING','GENERATED','REVIEW'].includes(job.status) && !job.invoiceId && (
                               <Button size="sm" className="h-7 text-xs bg-indigo-600 hover:bg-indigo-700"
                                 data-testid={`button-generate-${job.id}`}
                                 onClick={() => actionMutation.mutate({ jobId: job.id, action: 'generate' })}

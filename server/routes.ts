@@ -33062,6 +33062,60 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // POST /api/invoices/bulk-approve — { ids: number[] }. Continue-on-error:
+  // every id is attempted, each result reported, nothing stops the batch.
+  app.post('/api/invoices/bulk-approve', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const ids: number[] = (req.body?.ids ?? []).map(Number).filter((n: number) => !isNaN(n));
+      if (ids.length === 0) return res.status(400).json({ error: 'ids[] is required' });
+      const { approveInvoice } = await import('./services/sippy/index');
+      const results: any[] = [];
+      for (const id of ids) {
+        try { const inv = await approveInvoice(id); results.push({ id, ok: true, status: inv.status }); }
+        catch (e: any) { results.push({ id, ok: false, error: e.message }); }
+      }
+      res.json({ approved: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // POST /api/invoices/bulk-send — { ids: number[] }. Recipients come from the
+  // client master (companies.invoiceEmail → billing contacts), same resolver as
+  // job dispatch; a client with no billing address is a per-invoice failure
+  // with the reason, never a batch abort and never a guessed address. Test Mode
+  // applies inside sendInvoiceEmail, so a rehearsal bulk-send redirects every
+  // email exactly like singles.
+  app.post('/api/invoices/bulk-send', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const ids: number[] = (req.body?.ids ?? []).map(Number).filter((n: number) => !isNaN(n));
+      if (ids.length === 0) return res.status(400).json({ error: 'ids[] is required' });
+      const { resolveBillingRecipients } = await import('./services/sippy/index');
+      const { sendInvoiceEmail } = await import('./services/email/invoice-email.service');
+      const sentBy = (req as any).user?.username ?? 'operator';
+      const results: any[] = [];
+      for (const id of ids) {
+        try {
+          const invoice = await storage.getInvoice(id);
+          if (!invoice) { results.push({ id, ok: false, error: 'Invoice not found' }); continue; }
+          const { recipients, source } = await resolveBillingRecipients(invoice.customerName ?? '');
+          if (recipients.length === 0) {
+            results.push({ id, ok: false, error: `No billing recipient on file (${source})` });
+            continue;
+          }
+          const r = await sendInvoiceEmail({
+            invoiceId:  id,
+            recipients,
+            cc:         [],
+            subject:    `Invoice ${invoice.invoiceNumber} — ${invoice.customerName ?? ''}`,
+            body:       `Dear ${invoice.customerName ?? 'Customer'},\n\nPlease find attached invoice ${invoice.invoiceNumber} for period ${invoice.periodStart} to ${invoice.periodEnd}.\n\nIchibaan Logic Billing`,
+            sentBy,
+          });
+          results.push(r.ok ? { id, ok: true, recipients } : { id, ok: false, error: r.error });
+        } catch (e: any) { results.push({ id, ok: false, error: e.message }); }
+      }
+      res.json({ sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
   app.post('/api/invoices/:id/void', async (req: any, res: any) => {
     try {
       const id = Number(req.params.id);

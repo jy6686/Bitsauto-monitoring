@@ -187,6 +187,32 @@ export default function InvoicesPage() {
   const { toast }   = useToast();
   const queryClient = useQueryClient();
 
+  // Bulk approve / send — continue-on-error on the server; the summary toast
+  // reports counts and the first failure reasons.
+  const bulkMutation = useMutation({
+    mutationFn: async ({ action, ids }: { action: 'bulk-approve' | 'bulk-send'; ids: number[] }) => {
+      const r = await apiRequest("POST", `/api/invoices/${action}`, { ids });
+      const json = await r.json();
+      if (!r.ok) throw new Error(json.error ?? 'Bulk action failed');
+      return json;
+    },
+    onSuccess: (data, vars) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      setSelectedIds(new Set());
+      const ok = vars.action === 'bulk-approve' ? data.approved : data.sent;
+      const failures = (data.results ?? []).filter((x: any) => !x.ok);
+      toast({
+        title: `${vars.action === 'bulk-approve' ? 'Approved' : 'Sent'} ${ok}, failed ${data.failed}`,
+        description: failures.slice(0, 3).map((f: any) => `#${f.id}: ${f.error}`).join(' · ') || undefined,
+        variant: data.failed > 0 ? 'destructive' : 'default',
+      });
+    },
+    onError: (e: any) => toast({ title: 'Bulk action failed', description: e.message, variant: 'destructive' }),
+  });
+  const toggleSelected = (id: number) => setSelectedIds(prev => {
+    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next;
+  });
+
   const [showGenerate,   setShowGenerate]   = useState(false);
   const [previewId,      setPreviewId]      = useState<number | null>(null);
   const [previewTab,     setPreviewTab]     = useState<'preview' | 'history'>('preview');
@@ -194,6 +220,7 @@ export default function InvoicesPage() {
   const [sendId,         setSendId]         = useState<number | null>(null);
   const [sendForm,       setSendForm]       = useState<SendForm>(EMPTY_SEND);
   const [filterStatus,   setFilterStatus]   = useState("all");
+  const [selectedIds,    setSelectedIds]    = useState<Set<number>>(new Set());
   const [form,           setForm]           = useState<FormState>(EMPTY_FORM);
   const [fetchingTariff, setFetchingTariff] = useState(false);
   const [autoTariffName, setAutoTariffName] = useState<string | null>(null);
@@ -690,6 +717,25 @@ export default function InvoicesPage() {
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <CardTitle className="text-base">Invoice Register</CardTitle>
+            {selectedIds.size > 0 && (
+              <div className="flex items-center gap-2" data-testid="bulk-toolbar">
+                <span className="text-xs text-muted-foreground">{selectedIds.size} selected</span>
+                <Button size="sm" className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700"
+                  data-testid="button-bulk-approve"
+                  disabled={bulkMutation.isPending}
+                  onClick={() => bulkMutation.mutate({ action: 'bulk-approve', ids: [...selectedIds] })}>
+                  Approve Selected
+                </Button>
+                <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700"
+                  data-testid="button-bulk-send"
+                  disabled={bulkMutation.isPending}
+                  onClick={() => bulkMutation.mutate({ action: 'bulk-send', ids: [...selectedIds] })}>
+                  Send Selected
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs"
+                  onClick={() => setSelectedIds(new Set())}>Clear</Button>
+              </div>
+            )}
             <Select value={filterStatus} onValueChange={setFilterStatus}>
               <SelectTrigger data-testid="select-filter-status" className="w-36 h-8 text-xs">
                 <SelectValue />
@@ -716,6 +762,11 @@ export default function InvoicesPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-8">
+                      <input type="checkbox" className="h-4 w-4 rounded border-border" data-testid="checkbox-select-all"
+                        checked={invoices.length > 0 && invoices.every(i => selectedIds.has(i.id))}
+                        onChange={e => setSelectedIds(e.target.checked ? new Set(invoices.map(i => i.id)) : new Set())} />
+                    </TableHead>
                     <TableHead>Invoice #</TableHead>
                     <TableHead>Customer</TableHead>
                     <TableHead>Period</TableHead>
@@ -730,6 +781,10 @@ export default function InvoicesPage() {
                 <TableBody>
                   {invoices.map(inv => (
                     <TableRow key={inv.id} data-testid={`row-invoice-${inv.id}`}>
+                      <TableCell>
+                        <input type="checkbox" className="h-4 w-4 rounded border-border" data-testid={`checkbox-invoice-${inv.id}`}
+                          checked={selectedIds.has(inv.id)} onChange={() => toggleSelected(inv.id)} />
+                      </TableCell>
                       <TableCell className="font-mono text-sm">{inv.invoiceNumber}</TableCell>
                       <TableCell className="text-sm">{inv.customerName ?? "—"}</TableCell>
                       <TableCell className="text-xs text-muted-foreground font-mono">

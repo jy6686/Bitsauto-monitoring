@@ -93,11 +93,14 @@ export async function generateInvoiceForJob(
   jobId:       number,
   generatedBy: string = 'operator',
 ): Promise<InvoiceJob> {
-  const job = await requireJob(jobId, ['PENDING', 'GENERATED']);
+  // REVIEW is allowed too: a job can reach REVIEW without an invoice (older
+  // flows moved it there), leaving Finance nothing to review. Generating from
+  // that state repairs it in place.
+  const job = await requireJob(jobId, ['PENDING', 'GENERATED', 'REVIEW']);
 
   if (job.invoiceId) {
     // Already linked (e.g. a retry after a partial run) — just advance.
-    return moveToReview(job.id);
+    return job.status === 'REVIEW' ? job : moveToReview(job.id);
   }
 
   const m = /^(\d{4})-(\d{2})$/.exec(job.billingPeriod ?? '');
@@ -120,9 +123,15 @@ export async function generateInvoiceForJob(
     notes:        `Generated from invoice job #${job.id} by ${generatedBy}`,
   });
 
-  await linkInvoiceAndGenerate(job.id, invoice.id);
+  if (job.status === 'REVIEW') {
+    // linkInvoiceAndGenerate requires PENDING/GENERATED; a REVIEW job just gets
+    // the link and stays where Finance can see it.
+    await storage.updateInvoiceJob(job.id, { invoiceId: invoice.id, generatedAt: new Date() });
+  } else {
+    await linkInvoiceAndGenerate(job.id, invoice.id);
+  }
   console.log(`[invoice-scheduler] Job #${job.id}: invoice ${invoice.invoiceNumber} generated (${lineCount} line item(s)) and linked`);
-  return moveToReview(job.id);
+  return job.status === 'REVIEW' ? (await storage.getInvoiceJob(job.id))! : moveToReview(job.id);
 }
 
 // ── Move to REVIEW (finance approval queue) ───────────────────────────────────
