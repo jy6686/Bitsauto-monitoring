@@ -32703,9 +32703,12 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   async function _runBillingChain(opts: {
     iAccount?: number | null; iTariff?: string; periodStart: string; periodEnd: string;
     customerName: string; notes?: string;
+    /** Accept a period with exceptions. Requires a reason and an operator. */
+    override?: { reason: string; by: string };
   }): Promise<{
-    ok: boolean; stage?: 'duplicate' | 'seed' | 'generate'; error?: string;
+    ok: boolean; stage?: 'duplicate' | 'seed' | 'certify' | 'generate'; error?: string;
     seed?: { fetched: number; created: number; skipped: number; message?: string };
+    certification?: { state: string; reasons: string[]; runId?: number };
     invoice?: { id: number; invoiceNumber: string; lineCount: number };
   }> {
     const { generateInvoice } = await import('./services/sippy/index');
@@ -32732,14 +32735,54 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
     }
 
-    // Stage 2 — certified generator (refuses when the period has no snapshots)
+    // Stage 2 — certification. An invoice may only be built from a dataset that
+    // has been checked against the tariff. No run at all is a hard block; a run
+    // that raised exceptions needs a named person to accept them on the record.
+    let cert: Awaited<ReturnType<typeof _certificationFor>> | null = null;
+    if (opts.iTariff) {
+      cert = await _certificationFor(opts.iTariff, opts.periodStart, opts.periodEnd);
+      if (cert.state === 'uncertified') {
+        return { ok: false, stage: 'certify', error: cert.reasons.join(' '), seed, certification: { state: cert.state, reasons: cert.reasons } };
+      }
+      if (cert.state === 'exceptions' && !opts.override?.reason) {
+        return {
+          ok: false, stage: 'certify', seed,
+          error: `Billing period has unresolved exceptions: ${cert.reasons.join('; ')}. Fix rate coverage and re-reconcile, or generate with a recorded override reason.`,
+          certification: { state: cert.state, reasons: cert.reasons, runId: cert.run?.id },
+        };
+      }
+    }
+
+    // Stage 3 — certified generator (refuses when the period has no snapshots)
     try {
       const r = await generateInvoice({
         iTariff: opts.iTariff, iAccount: opts.iAccount ?? undefined,
         periodStart: opts.periodStart, periodEnd: opts.periodEnd,
         customerName: opts.customerName, notes: opts.notes,
       });
-      return { ok: true, seed, invoice: { id: r.invoice.id, invoiceNumber: r.invoice.invoiceNumber, lineCount: r.lineCount } };
+
+      // Bind the invoice to what certified it. Recorded as it stood at
+      // generation time — a run re-read later may have been superseded, but the
+      // audit question is what Finance was told when the invoice was created.
+      if (cert?.run) {
+        try {
+          await storage.updateInvoice(r.invoice.id, {
+            verificationRunId:   cert.run.id,
+            certificationStatus: cert.state === 'certified' ? 'certified' : 'override',
+            overrideReason:      cert.state === 'certified' ? null : opts.override!.reason,
+            overriddenBy:        cert.state === 'certified' ? null : opts.override!.by,
+            certifiedAt:         new Date(),
+          } as any);
+        } catch (e: any) {
+          console.error(`[billing-chain] invoice ${r.invoice.invoiceNumber} generated but certification link NOT recorded: ${e.message}`);
+        }
+      }
+
+      return {
+        ok: true, seed,
+        certification: cert ? { state: cert.state, reasons: cert.reasons, runId: cert.run?.id } : undefined,
+        invoice: { id: r.invoice.id, invoiceNumber: r.invoice.invoiceNumber, lineCount: r.lineCount },
+      };
     } catch (e: any) {
       const detail = seed && seed.created === 0 && seed.message
         ? `${e.message} (seeding found nothing: ${seed.message})`
@@ -32748,11 +32791,66 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   }
 
+  // ── Billing certification ─────────────────────────────────────────────────
+  // An invoice is the final output of a certified dataset. This reads the most
+  // recent verification run covering a tariff+period and says whether an
+  // invoice may be generated from it.
+  //
+  //   certified — every call priced, nothing excluded, no differences
+  //   exceptions — calls excluded or priced differently; generation requires an
+  //                explicit override with a recorded reason
+  //   uncertified — no run at all; generation is BLOCKED, because nothing has
+  //                 checked this period against the tariff
+  //
+  // Deliberately no magnitude threshold separating "warning" from "fail": how
+  // many unpriceable calls make a period unbillable is a commercial judgement,
+  // not something to guess in code. Every exception therefore surfaces to a
+  // human, who either fixes rate coverage or accepts it on the record.
+  async function _certificationFor(iTariff: string, periodStart: string, periodEnd: string): Promise<{
+    state: 'certified' | 'exceptions' | 'uncertified';
+    run:   any | null;
+    reasons: string[];
+  }> {
+    try {
+      const r = await db.execute(sql`
+        SELECT * FROM snapshot_verification_runs
+         WHERE i_tariff = ${iTariff} AND period_start = ${periodStart} AND period_end = ${periodEnd}
+         ORDER BY started_at DESC LIMIT 1`);
+      const run = ((r as any).rows ?? [])[0] ?? null;
+      if (!run) {
+        return { state: 'uncertified', run: null, reasons: [`No verification run for tariff ${iTariff} covering ${periodStart}–${periodEnd}.`] };
+      }
+      const reasons: string[] = [];
+      const excluded      = Number(run.excluded ?? 0);
+      const discrepancies = Number(run.discrepancies ?? 0);
+      if (Number(run.unrated ?? 0) > 0)      reasons.push(`${run.unrated} call(s) had no tariff version covering the call time`);
+      if (Number(run.missing_rate ?? 0) > 0) reasons.push(`${run.missing_rate} call(s) had no rate matching the dialled number`);
+      if (discrepancies > 0)                 reasons.push(`${discrepancies} call(s) priced differently from the switch (total difference ${run.total_delta ?? 0})`);
+      return { state: (excluded > 0 || discrepancies > 0) ? 'exceptions' : 'certified', run, reasons };
+    } catch (e: any) {
+      // The table arrives with migration 070. Treat its absence as uncertified
+      // rather than as permission to bill — failing open would defeat the gate.
+      return { state: 'uncertified', run: null, reasons: [`Certification unavailable: ${e.message}`] };
+    }
+  }
+
+  // GET /api/finance/certification?iTariff=&periodStart=&periodEnd=
+  // What the UI reads to decide whether Generate Invoice may be offered.
+  app.get('/api/finance/certification', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { iTariff, periodStart, periodEnd } = req.query;
+      if (!iTariff || !periodStart || !periodEnd) {
+        return res.status(400).json({ error: 'iTariff, periodStart and periodEnd are required' });
+      }
+      res.json(await _certificationFor(String(iTariff), String(periodStart), String(periodEnd)));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // POST /api/invoices/pipeline-run — the full chain for one account+period,
   // in one authenticated call. No browser console, no SQL, no shell.
   app.post('/api/invoices/pipeline-run', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
     try {
-      const { iAccount, iTariff, periodStart, periodEnd, customerName, notes } = req.body ?? {};
+      const { iAccount, iTariff, periodStart, periodEnd, customerName, notes, overrideReason } = req.body ?? {};
       if (!periodStart || !periodEnd || !customerName) {
         return res.status(400).json({ error: 'periodStart, periodEnd, and customerName are required' });
       }
@@ -32765,6 +32863,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const result = await _runBillingChain({
         iAccount: iAccount ? Number(iAccount) : null, iTariff: tariff,
         periodStart, periodEnd, customerName, notes,
+        // An override is only an override when someone's name is on it.
+        override: typeof overrideReason === 'string' && overrideReason.trim()
+          ? { reason: overrideReason.trim(), by: (req as any).user?.username ?? (req as any).user?.claims?.email ?? 'operator' }
+          : undefined,
       });
       res.status(result.ok ? 200 : 422).json(result);
     } catch (e: any) { res.status(500).json({ error: e.message }); }

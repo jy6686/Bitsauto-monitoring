@@ -2861,6 +2861,15 @@ export const invoices = pgTable("invoices", {
   notes:           text("notes"),
   htmlContent:     text("html_content"),
   createdAt:       timestamp("created_at").defaultNow().notNull(),
+  // Which reconciliation certified this invoice's data (migration 071).
+  // certificationStatus is the state AT GENERATION TIME — 'certified' when the
+  // run priced every call cleanly, 'override' when exceptions were accepted by
+  // an authorised user whose reason is recorded here.
+  verificationRunId:   integer("verification_run_id"),
+  certificationStatus: varchar("certification_status", { length: 16 }),
+  overrideReason:      text("override_reason"),
+  overriddenBy:        varchar("overridden_by", { length: 128 }),
+  certifiedAt:         timestamp("certified_at", { withTimezone: true }),
 });
 export type Invoice       = typeof invoices.$inferSelect;
 export type InsertInvoice = typeof invoices.$inferInsert;
