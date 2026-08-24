@@ -424,7 +424,7 @@ export default function InvoiceJobsPage() {
 
   const actionMutation = useMutation({
     mutationFn: async ({ jobId, action, body }: { jobId: number; action: string; body?: any }) => {
-      const method = action === 'send' ? 'POST' : 'PATCH';
+      const method = (action === 'send' || action === 'generate') ? 'POST' : 'PATCH';
       const r = await apiRequest(method, `/api/invoice-jobs/${jobId}/${action}`, body ?? {});
       const json = await r.json();
       if (!r.ok) throw new Error(json.error ?? 'Action failed');
@@ -432,7 +432,7 @@ export default function InvoiceJobsPage() {
     },
     onSuccess: (_, vars) => {
       invalidate();
-      const labels: Record<string, string> = { review: 'Moved to review', approve: 'Approved — not sent. Use Send when ready.', send: 'Dispatched via billing SMTP', reject: 'Rejected', retry: 'Retrying…', cancel: 'Cancelled' };
+      const labels: Record<string, string> = { review: 'Moved to review', approve: 'Approved — not sent. Use Send when ready.', send: 'Dispatched via billing SMTP', generate: 'Invoice generated and linked — job is in Review', reject: 'Rejected', retry: 'Retrying…', cancel: 'Cancelled' };
       toast({ title: labels[vars.action] ?? 'Done' });
       setRejectJobId(null); setApproveJobId(null);
     },
@@ -624,6 +624,14 @@ export default function InvoiceJobsPage() {
                                   <ThumbsDown className="h-3 w-3 mr-1" />Reject
                                 </Button>
                               </>
+                            )}
+                            {(job.status === 'PENDING' || job.status === 'GENERATED') && !job.invoiceId && (
+                              <Button size="sm" className="h-7 text-xs bg-indigo-600 hover:bg-indigo-700"
+                                data-testid={`button-generate-${job.id}`}
+                                onClick={() => actionMutation.mutate({ jobId: job.id, action: 'generate' })}
+                                disabled={actionMutation.isPending}>
+                                <FileText className="h-3 w-3 mr-1" />Generate Invoice
+                              </Button>
                             )}
                             {job.status === 'APPROVED' && (
                               <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700"

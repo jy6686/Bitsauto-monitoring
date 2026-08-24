@@ -81,6 +81,50 @@ export async function linkInvoiceAndGenerate(
   });
 }
 
+// ── Generate the invoice for a job (the missing bridge) ───────────────────────
+//
+// The F2 batch creates jobs, and jobs could be approved and dispatched — but
+// nothing ever CREATED the invoice in between, so every chain died at "no
+// linked invoice" (measured: 10 jobs, jobs_with_invoice = 0, invoices = 0).
+// This calls the certified generator — snapshot-sourced header + line items —
+// links the result, and moves the job to REVIEW where Finance takes over.
+
+export async function generateInvoiceForJob(
+  jobId:       number,
+  generatedBy: string = 'operator',
+): Promise<InvoiceJob> {
+  const job = await requireJob(jobId, ['PENDING', 'GENERATED']);
+
+  if (job.invoiceId) {
+    // Already linked (e.g. a retry after a partial run) — just advance.
+    return moveToReview(job.id);
+  }
+
+  const m = /^(\d{4})-(\d{2})$/.exec(job.billingPeriod ?? '');
+  if (!m) {
+    throw new Error(`Job #${job.id} has billing period "${job.billingPeriod}" — expected YYYY-MM.`);
+  }
+  const year  = Number(m[1]);
+  const month = Number(m[2]);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const periodStart = `${job.billingPeriod}-01`;
+  const periodEnd   = `${job.billingPeriod}-${String(lastDay).padStart(2, '0')}`;
+
+  const { generateInvoice } = await import('./sippy-invoice.service');
+  const { invoice, lineCount } = await generateInvoice({
+    iTariff:      job.iTariff ?? undefined,
+    iAccount:     job.clientId && /^\d+$/.test(job.clientId) ? Number(job.clientId) : undefined,
+    periodStart,
+    periodEnd,
+    customerName: job.clientName,
+    notes:        `Generated from invoice job #${job.id} by ${generatedBy}`,
+  });
+
+  await linkInvoiceAndGenerate(job.id, invoice.id);
+  console.log(`[invoice-scheduler] Job #${job.id}: invoice ${invoice.invoiceNumber} generated (${lineCount} line item(s)) and linked`);
+  return moveToReview(job.id);
+}
+
 // ── Move to REVIEW (finance approval queue) ───────────────────────────────────
 
 export async function moveToReview(jobId: number): Promise<InvoiceJob> {

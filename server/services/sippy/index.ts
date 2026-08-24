@@ -170,6 +170,7 @@ export {
   moveToReview,
   approveAndDispatch,
   approveJob as approveInvoiceJob,
+  generateInvoiceForJob,
   dispatchApprovedJob,
   resolveBillingRecipients,
   retryJob as retryInvoiceJob,

@@ -34838,6 +34838,21 @@ ${footer}
     } catch (err: any) { res.status(400).json({ error: err.message }); }
   });
 
+  // POST /api/invoice-jobs/:id/generate — the bridge from job to invoice.
+  // Calls the certified snapshot-sourced generator, links the invoice to the
+  // job, and moves it to REVIEW. Fails 422 with the generator's own reason
+  // (no tariff resolvable, no locked snapshots in period) without touching
+  // the job's state.
+  app.post('/api/invoice-jobs/:id/generate', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { generateInvoiceForJob } = await import('./services/sippy/index');
+      const job = await generateInvoiceForJob(id, (req as any).user?.username ?? 'operator');
+      res.json(job);
+    } catch (err: any) { res.status(422).json({ error: err.message }); }
+  });
+
   // POST /api/invoice-jobs/:id/send — the explicit dispatch step. Approval no
   // longer emails anything; this does, through settings.invoice_smtp_* with
   // recipients resolved from the client master (companies.invoiceEmail →
