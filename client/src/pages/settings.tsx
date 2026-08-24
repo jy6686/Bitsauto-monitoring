@@ -680,6 +680,8 @@ type InvoiceSmtpConfig = {
   invoiceSmtpPass:      string;
   invoiceSmtpFromName:  string;
   invoiceSmtpFromEmail: string;
+  invoiceEmailTestMode:      boolean;
+  invoiceEmailTestRecipient: string;
 };
 
 function InvoiceEmailDeliveryPanel() {
@@ -699,6 +701,8 @@ function InvoiceEmailDeliveryPanel() {
     invoiceSmtpPass:      '',
     invoiceSmtpFromName:  'Bitsauto Finance',
     invoiceSmtpFromEmail: '',
+    invoiceEmailTestMode:      false,
+    invoiceEmailTestRecipient: '',
   });
 
   useEffect(() => {
@@ -712,6 +716,8 @@ function InvoiceEmailDeliveryPanel() {
         invoiceSmtpPass:      rawSettings.invoiceSmtpPass      ?? '',
         invoiceSmtpFromName:  rawSettings.invoiceSmtpFromName  ?? 'Bitsauto Finance',
         invoiceSmtpFromEmail: rawSettings.invoiceSmtpFromEmail ?? '',
+        invoiceEmailTestMode:      rawSettings.invoiceEmailTestMode      ?? false,
+        invoiceEmailTestRecipient: rawSettings.invoiceEmailTestRecipient ?? '',
       }));
     }
   }, [rawSettings]);
@@ -840,6 +846,36 @@ function InvoiceEmailDeliveryPanel() {
               className="h-4 w-4 rounded border-border"
             />
             <label htmlFor="smtp-secure" className="text-sm">Use SSL/TLS (port 465)</label>
+          </div>
+
+          {/* Test mode: full pipeline runs, but every invoice email is redirected. */}
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 space-y-2">
+            <div className="flex items-center gap-3">
+              <input
+                id="invoice-test-mode"
+                type="checkbox"
+                data-testid="input-invoice-test-mode"
+                checked={form.invoiceEmailTestMode}
+                onChange={e => setForm(f => ({ ...f, invoiceEmailTestMode: e.target.checked }))}
+                className="h-4 w-4 rounded border-border"
+              />
+              <label htmlFor="invoice-test-mode" className="text-sm font-medium">
+                Test Mode — redirect ALL invoice emails to a test mailbox
+              </label>
+            </div>
+            {form.invoiceEmailTestMode && (
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Test recipient (receives every invoice; subjects prefixed [TEST]; intended client recipients are named in the body, never mailed)</label>
+                <input
+                  type="email"
+                  data-testid="input-invoice-test-recipient"
+                  value={form.invoiceEmailTestRecipient}
+                  onChange={e => setForm(f => ({ ...f, invoiceEmailTestRecipient: e.target.value }))}
+                  placeholder="alertsichibaan@gmail.com"
+                  className="w-full text-sm border border-border rounded px-2 py-1.5 bg-background"
+                />
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-3 pt-1">

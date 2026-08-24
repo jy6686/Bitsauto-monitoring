@@ -12620,6 +12620,8 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
         invoiceSmtpPass:      s.invoiceSmtpPass      ? '***' : '',
         invoiceSmtpFromName:  s.invoiceSmtpFromName  ?? 'Bitsauto Finance',
         invoiceSmtpFromEmail: s.invoiceSmtpFromEmail ?? '',
+        invoiceEmailTestMode:      s.invoiceEmailTestMode ?? false,
+        invoiceEmailTestRecipient: s.invoiceEmailTestRecipient ?? '',
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -12650,6 +12652,8 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
       }
       if (req.body.invoiceSmtpFromName  !== undefined) updates.invoiceSmtpFromName  = req.body.invoiceSmtpFromName;
       if (req.body.invoiceSmtpFromEmail !== undefined) updates.invoiceSmtpFromEmail = req.body.invoiceSmtpFromEmail;
+      if (req.body.invoiceEmailTestMode !== undefined) updates.invoiceEmailTestMode = !!req.body.invoiceEmailTestMode;
+      if (req.body.invoiceEmailTestRecipient !== undefined) updates.invoiceEmailTestRecipient = req.body.invoiceEmailTestRecipient;
       await storage.updateSettings(updates);
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }

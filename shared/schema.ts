@@ -152,6 +152,10 @@ export const settings = pgTable("settings", {
   invoiceSmtpPass:      varchar("invoice_smtp_pass",       { length: 512 }),
   invoiceSmtpFromName:  varchar("invoice_smtp_from_name",  { length: 255 }).default('Ichibaan Logic Billing'),
   invoiceSmtpFromEmail: varchar("invoice_smtp_from_email", { length: 255 }),
+  // Test mode: redirect every invoice email to the test recipient, [TEST] subject,
+  // intended recipients named in the body. Migration 066. Default OFF.
+  invoiceEmailTestMode:      boolean("invoice_email_test_mode").notNull().default(false),
+  invoiceEmailTestRecipient: varchar("invoice_email_test_recipient", { length: 255 }),
   // SIP Error Rate alerting threshold — percentage (15-min window) above which an incident fires
   sipErrorAlertThreshold: real("sip_error_alert_threshold").default(15),
 });

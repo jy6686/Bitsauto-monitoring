@@ -108,7 +108,7 @@ async function buildInvoiceTransporter(): Promise<{
 export async function sendInvoiceEmail(
   opts: SendInvoiceEmailOpts,
 ): Promise<SendInvoiceEmailResult> {
-  const { invoiceId, recipients, cc, subject, body, sentBy } = opts;
+  let { invoiceId, recipients, cc, subject, body, sentBy } = opts;
 
   // Fetch invoice for HTML attachment
   const invoice = await storage.getInvoice(invoiceId);
@@ -122,6 +122,29 @@ export async function sendInvoiceEmail(
   if (recipients.length === 0) {
     return { ok: false, error: 'At least one recipient is required' };
   }
+
+  // ── Test mode ───────────────────────────────────────────────────────────────
+  // Every invoice email — manual and job dispatch alike — funnels through this
+  // function, so this is the ONE place the redirect lives. With test mode on,
+  // the real recipients are named in the body but never mailed; the whole rest
+  // of the pipeline (attachment, delivery log, retry, job states) runs exactly
+  // as in production. Migration 066; toggled in Settings → Invoice Email
+  // Delivery; default off.
+  try {
+    const settings = await storage.getSettings();
+    if ((settings as any)?.invoiceEmailTestMode) {
+      const testTo = ((settings as any).invoiceEmailTestRecipient ?? '').trim();
+      if (!testTo) {
+        return { ok: false, error: 'Test mode is ON but no test recipient is configured (Settings → Invoice Email Delivery).' };
+      }
+      const intended = [...recipients, ...cc.map(c => `cc:${c}`)].join(', ');
+      recipients = [testTo];
+      cc = [];
+      subject = `[TEST] ${subject}`;
+      body = `*** TEST MODE — this invoice was NOT sent to the client. ***\nIntended recipients: ${intended}\n\n${body}`;
+      console.log(`[invoice-email] TEST MODE: redirecting invoice #${invoiceId} to ${testTo} (intended: ${intended})`);
+    }
+  } catch { /* settings unavailable — proceed as production rather than block sends */ }
 
   let status: 'sent' | 'failed' = 'failed';
   let errorMessage: string | null = null;
