@@ -32370,6 +32370,17 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     source?: string;
     error?:  string;
     startedAt: number;
+    // Verification outcome — billing ingestion now runs every CDR through the
+    // rating engine, so the job reports WHY calls did or did not become billable
+    // rather than just how many rows were written.
+    verification?: {
+      verified:      number;   // reproduced cost matched the switch exactly
+      discrepancies: number;   // reproduced, but differs from the switch
+      unrated:       number;   // no tariff version covering the call time
+      missingRate:   number;   // tariff version found, no rate matched the number
+      totalDelta:    number;
+      excluded:      number;   // unrated + missingRate — NOT billable, never invoiced
+    };
   };
   const _seedJobs = new Map<string, _SeedJobState>();
   const _seedJobId    = () => `sj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -32426,7 +32437,6 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     const job = jobState ?? ({ status: 'running', phase: '', fetched: 0, created: 0, skipped: 0, errors: 0, total: 0, startedAt: Date.now() } as _SeedJobState);
     const jobId = label;
     {
-        const { computeSnapshotHash } = await import('./services/sippy/sippy-rating-snapshot.service');
         const settings  = await storage.getSettings();
         const portalUrl = sippyPortalUrl(settings);
         const apiUser   = settings.apiAdminUsername ?? '';
@@ -32532,7 +32542,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const toProcess   = rawCdrs;
 
         let skippedCount = 0;
-        const newRows: Parameters<typeof storage.bulkCreateInvoiceCdrSnapshots>[0] = [];
+        const toVerify: Array<{ callId?: string; startTime?: string; callee: string; durationSecs: number; sippyActualCost: number; iTariff: string }> = [];
         for (const c of toProcess) {
           const cdrId = String(c.callId ?? (c as any).i_cdr ?? '');
           if (cdrId && existingIds.has(cdrId)) { skippedCount++; continue; }
@@ -32541,34 +32551,69 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           const durationSec = Number(c.billedDuration ?? c.billedDuration ?? c.duration ?? c.totalDuration ?? 0);
           const startTime   = String(c.startTime ?? c.connectTime ?? (c as any).connect_time ?? '');
           const callee      = String(c.callee ?? (c as any).cld ?? '');
-          const snapshotHash = computeSnapshotHash({
-            cdrId, tariffVersionId: null, ratingVerificationId: null,
-            reproducedCost: cost, actualCost: cost,
-            interval1Used: undefined, intervalNUsed: undefined,
-            price1Used: undefined, priceNUsed: undefined,
-            connectFeeUsed: undefined, gracePeriodUsed: undefined,
-            freeSecondsUsed: undefined, postCallSurchargeUsed: undefined,
-            prefix: null, durationSecs: durationSec || null,
-          });
-          newRows.push({
-            cdrId: cdrId || null, cdrStartTime: startTime || null, callee: callee || null,
-            durationSecs: durationSec || null, iTariff: String(iTariff),
-            tariffVersionId: null, ratingVerificationId: null,
-            reproducedCost: cost, actualCost: cost, delta: 0, prefix: null,
-            verificationStatus: 'verified', snapshotHash,
+          toVerify.push({
+            callId: cdrId || undefined, startTime: startTime || undefined,
+            callee, durationSecs: durationSec || 0,
+            sippyActualCost: cost, iTariff: String(iTariff),
           });
         }
         job.skipped = skippedCount;
 
-        // ── Bulk insert in 500-row chunks (was 1 INSERT per CDR) ─────────────
-        job.phase = `Inserting ${newRows.length} snapshot${newRows.length !== 1 ? 's' : ''}`;
-        const inserted = await storage.bulkCreateInvoiceCdrSnapshots(newRows);
-        job.created = inserted;
-        job.source  = 'portal';
+        // ── Rate verification, then snapshots ────────────────────────────────
+        // Billing ingestion runs through the rating engine rather than copying
+        // the switch's charge. verifyCdr resolves the historical tariff version,
+        // matches the rate by prefix, reproduces the cost under that tariff's
+        // own interval/connect-fee/grace rules, and classifies the difference.
+        // lockBatch then turns those verifications into snapshots carrying the
+        // destination, prefix and every rate component used.
+        //
+        // Why this replaced a direct write: copying the switch cost into both
+        // the reproduced and actual columns made the invoice's difference zero
+        // by construction. A reconciliation that cannot fail is not a
+        // reconciliation, and every invoice built that way was unverified.
+        //
+        // Calls the engine cannot rate (no tariff version for the call time, or
+        // no rate matching the number) are classified and EXCLUDED from billing
+        // by lockBatch rather than billed at the switch's word. They are
+        // reported here so the gap is visible before an invoice is generated.
+        const { verifyBatch, lockBatch } = await import('./services/sippy/index');
+        job.phase = `Verifying ${toVerify.length} CDR(s) against tariff ${iTariff}`;
+        const vr = await verifyBatch(toVerify, {
+          concurrency: 8,
+          onProgress: (done, total) => { job.phase = `Verifying ${done}/${total} against tariff ${iTariff}`; },
+        });
+        const excluded = vr.unrated + vr.missing;
+        job.verification = {
+          verified:      vr.verified,
+          discrepancies: vr.discrepancies,
+          unrated:       vr.unrated,
+          missingRate:   vr.missing,
+          totalDelta:    +vr.totalDelta.toFixed(6),
+          excluded,
+        };
+        console.log(
+          `[seed-job:${jobId}] verified ${vr.total} CDR(s): ${vr.verified} exact, ` +
+          `${vr.discrepancies} differing, ${vr.unrated} unrated, ${vr.missing} no-rate, ` +
+          `total delta ${vr.totalDelta.toFixed(6)}`,
+        );
+
+        job.phase = 'Locking verified CDRs into billing snapshots';
+        const lock = await lockBatch({ iTariff: String(iTariff), limit: Math.max(toVerify.length * 2, 1000) });
+        job.created = lock.created;
+        job.source  = 'verified';
         job.status  = 'done';
-        job.phase   = 'Complete';
-        console.log(`[seed-job:${jobId}] done — created=${inserted} skipped=${skippedCount} total=${rawCdrs.length}`);
-        return { fetched: job.fetched, created: inserted, skipped: skippedCount };
+        job.phase   = excluded > 0
+          ? `Complete — ${lock.created} billable, ${excluded} excluded as unrated/no-rate`
+          : 'Complete';
+        console.log(`[seed-job:${jobId}] done — snapshots created=${lock.created} skipped=${lock.skipped} errors=${lock.errors} (dedup-skipped ${skippedCount} already-snapshotted CDRs)`);
+        return {
+          fetched: job.fetched,
+          created: lock.created,
+          skipped: skippedCount,
+          message: excluded > 0
+            ? `${excluded} call(s) excluded from billing: ${vr.unrated} with no tariff version for the call time, ${vr.missing} with no matching rate.`
+            : undefined,
+        };
     }
   }
 
@@ -35084,7 +35129,8 @@ ${footer}
               const seeded = await _seedRatingSnapshotsSync(
                 { iAccount, iTariff, periodStart, periodEnd }, undefined, `job-${id}`,
               );
-              console.log(`[invoice-jobs] job #${id}: auto-seeded ${seeded.created} snapshot(s) for tariff ${iTariff} ${periodStart}–${periodEnd}${seeded.message ? ` (${seeded.message})` : ''}`);
+              console.log(`[invoice-jobs] job #${id}: auto-seeded ${seeded.created} billable snapshot(s) for tariff ${iTariff} ${periodStart}–${periodEnd}`);
+              if (seeded.message) console.warn(`[invoice-jobs] job #${id}: ${seeded.message}`);
             }
           }
         }
@@ -36628,7 +36674,10 @@ ${footer}
             continue;
           }
           if (chain.seed) {
-            console.log(`[invoice-scheduler] schedule #${schedule.id}: seeded ${chain.seed.created} snapshot(s), ${chain.seed.skipped} already present`);
+            console.log(`[invoice-scheduler] schedule #${schedule.id}: ${chain.seed.created} billable snapshot(s), ${chain.seed.skipped} already present`);
+            // An exclusion means calls the rating engine could not price. They are
+            // NOT on the invoice — surfaced rather than silently under-billed.
+            if (chain.seed.message) console.warn(`[invoice-scheduler] schedule #${schedule.id}: ${chain.seed.message}`);
           }
           const genInvoice   = chain.invoice;
           const genLineCount = chain.invoice.lineCount;
