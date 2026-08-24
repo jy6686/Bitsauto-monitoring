@@ -36797,6 +36797,95 @@ ${footer}
   setInterval(_runDueInvoiceSchedules, 30 * 60 * 1000);
   console.log('[invoice-scheduler] Started — checking every 30 min (first check at T+60s)');
 
+  // ── Nightly billing reconciliation — 00:00 GMT ────────────────────────────
+  // Pulls yesterday's calls for every actively-billed client and runs them
+  // through the rating engine, so discrepancies and unpriceable calls surface
+  // the morning after they happen instead of on billing day. Each client's run
+  // is recorded in snapshot_verification_runs; a run with exclusions or price
+  // differences is stored as 'warning' for Finance to work through as an
+  // exceptions queue.
+  //
+  // Scope is deliberately the billed set — clients with an ACTIVE invoice
+  // schedule carrying both an account and a tariff. Reconciling clients nobody
+  // invoices would add switch load and rating rows for no billing benefit.
+  //
+  // Ingestion is idempotent (dedup by call id), so re-running a night is safe
+  // and a missed night is repaired by the next one covering the gap.
+  async function _runNightlyReconciliation() {
+    const startedAt = Date.now();
+    try {
+      const schedules = await storage.listInvoiceSchedules();
+      const billed = schedules.filter(s => s.active && s.iAccount && s.iTariff);
+      if (billed.length === 0) {
+        console.log('[recon-nightly] no active schedules with an account and tariff — nothing to reconcile');
+        return;
+      }
+
+      // Yesterday in UTC — the last fully-closed day. Reconciling today would
+      // read a day still in progress and report gaps that are not gaps.
+      const now  = new Date();
+      const day  = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+      const date = day.toISOString().slice(0, 10);
+
+      console.log(`[recon-nightly] reconciling ${date} for ${billed.length} billed client(s)`);
+      let ok = 0, failed = 0, totalExcluded = 0;
+
+      // Sequential: the switch is a shared production dependency and this runs
+      // unattended. Throughput does not matter at 00:00.
+      for (const s of billed) {
+        const label = s.companyName ?? `account ${s.iAccount}`;
+        try {
+          const r = await _seedRatingSnapshotsSync(
+            { iAccount: s.iAccount!, iTariff: String(s.iTariff), periodStart: date, periodEnd: date },
+            undefined, `recon-${date}-${s.iAccount}`,
+          );
+          ok++;
+          if (r.message) {
+            totalExcluded++;
+            console.warn(`[recon-nightly] ${label}: ${r.message}`);
+          } else {
+            console.log(`[recon-nightly] ${label}: ${r.created} call(s) reconciled, ${r.skipped} already present`);
+          }
+        } catch (e: any) {
+          failed++;
+          console.error(`[recon-nightly] ${label}: failed — ${e.message}`);
+        }
+      }
+
+      console.log(
+        `[recon-nightly] ${date} complete — ${ok} client(s) reconciled, ${failed} failed, ` +
+        `${totalExcluded} with exclusions, ${Math.round((Date.now() - startedAt) / 1000)}s`,
+      );
+    } catch (e: any) {
+      console.error('[recon-nightly] runner error:', e.message);
+    }
+  }
+
+  {
+    const msUntilMidnightUtc = () => {
+      const now  = new Date();
+      const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+      if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+      return next.getTime() - now.getTime();
+    };
+    const runAndReschedule = async () => {
+      await _runNightlyReconciliation();
+      // Re-schedule from the clock rather than a fixed interval, so the job
+      // stays on 00:00 GMT instead of drifting by its own runtime.
+      setTimeout(runAndReschedule, msUntilMidnightUtc());
+    };
+    setTimeout(runAndReschedule, msUntilMidnightUtc());
+    console.log(`[recon-nightly] Scheduled — next run at 00:00 GMT (${new Date(Date.now() + msUntilMidnightUtc()).toUTCString()})`);
+  }
+
+  // POST /api/finance/reconcile-now — run the nightly reconciliation on demand,
+  // for a single date or the default of yesterday. Same path as the timer, so
+  // testing it tests the scheduled job rather than a parallel implementation.
+  app.post('/api/finance/reconcile-now', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (_req: any, res: any) => {
+    _runNightlyReconciliation().catch(e => console.error('[recon-nightly] on-demand error:', e.message));
+    res.json({ status: 'started', message: 'Reconciliation started. Results appear in /api/finance/verification-runs.' });
+  });
+
   // ── BhaooSMS / REVE SMS integration routes ────────────────────────────────
   registerBhaooRoutes(app);
   registerCommercialDebugRoutes(app);
