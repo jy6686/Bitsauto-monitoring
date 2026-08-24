@@ -34834,6 +34834,21 @@ ${footer}
     } catch (err: any) { res.status(400).json({ error: err.message }); }
   });
 
+  // POST /api/invoice-jobs/:id/send — the explicit dispatch step. Approval no
+  // longer emails anything; this does, through settings.invoice_smtp_* with
+  // recipients resolved from the client master (companies.invoiceEmail →
+  // billing-type company_contacts). Fails loudly when no recipient is on file.
+  app.post('/api/invoice-jobs/:id/send', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const id = Number(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+      const { dispatchApprovedJob } = await import('./services/sippy/index');
+      const job = await dispatchApprovedJob(id, (req as any).user?.username ?? 'operator');
+      if (job.status === 'FAILED') return res.status(422).json({ error: job.lastError ?? 'Dispatch failed', job });
+      res.json(job);
+    } catch (err: any) { res.status(400).json({ error: err.message }); }
+  });
+
   app.patch('/api/invoice-jobs/:id/reject', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const id = Number(req.params.id);

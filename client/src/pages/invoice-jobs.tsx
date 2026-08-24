@@ -423,11 +423,16 @@ export default function InvoiceJobsPage() {
   const rejectForm = useForm({ resolver: zodResolver(rejectSchema), defaultValues: { reason: '' } });
 
   const actionMutation = useMutation({
-    mutationFn: ({ jobId, action, body }: { jobId: number; action: string; body?: any }) =>
-      apiRequest('PATCH', `/api/invoice-jobs/${jobId}/${action}`, body ?? {}).then(r => r.json()),
+    mutationFn: async ({ jobId, action, body }: { jobId: number; action: string; body?: any }) => {
+      const method = action === 'send' ? 'POST' : 'PATCH';
+      const r = await apiRequest(method, `/api/invoice-jobs/${jobId}/${action}`, body ?? {});
+      const json = await r.json();
+      if (!r.ok) throw new Error(json.error ?? 'Action failed');
+      return json;
+    },
     onSuccess: (_, vars) => {
       invalidate();
-      const labels: Record<string, string> = { review: 'Moved to review', approve: 'Approved — dispatching…', reject: 'Rejected', retry: 'Retrying…', cancel: 'Cancelled' };
+      const labels: Record<string, string> = { review: 'Moved to review', approve: 'Approved — not sent. Use Send when ready.', send: 'Dispatched via billing SMTP', reject: 'Rejected', retry: 'Retrying…', cancel: 'Cancelled' };
       toast({ title: labels[vars.action] ?? 'Done' });
       setRejectJobId(null); setApproveJobId(null);
     },
@@ -620,6 +625,14 @@ export default function InvoiceJobsPage() {
                                 </Button>
                               </>
                             )}
+                            {job.status === 'APPROVED' && (
+                              <Button size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700"
+                                data-testid={`button-send-${job.id}`}
+                                onClick={() => actionMutation.mutate({ jobId: job.id, action: 'send' })}
+                                disabled={actionMutation.isPending}>
+                                <SendHorizonal className="h-3 w-3 mr-1" />Send
+                              </Button>
+                            )}
                             {(job.status === 'FAILED' || job.status === 'RETRYING') && job.retryCount < 3 && (
                               <Button size="sm" variant="outline" className="h-7 text-xs"
                                 data-testid={`button-retry-${job.id}`}
@@ -723,15 +736,15 @@ export default function InvoiceJobsPage() {
         <AlertDialog open={approveJobId != null} onOpenChange={() => setApproveJobId(null)}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Approve & Dispatch Invoice</AlertDialogTitle>
+              <AlertDialogTitle>Approve Invoice</AlertDialogTitle>
               <AlertDialogDescription>
-                This will mark the job approved and immediately trigger SMTP delivery via the configured billing sender profile. Confirm?
+                This marks the job (and its invoice) approved. Nothing is emailed — use the Send button on the approved job to dispatch it to the client's billing contact.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction onClick={() => approveJobId && actionMutation.mutate({ jobId: approveJobId, action: 'approve' })}>
-                Approve & Send
+                Approve
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

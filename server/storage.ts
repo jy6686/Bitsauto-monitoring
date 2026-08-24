@@ -2345,6 +2345,10 @@ export class DatabaseStorage implements IStorage {
     return row;
   }
 
+  async getCompanyContacts(companyId: number): Promise<Array<typeof companyContacts.$inferSelect>> {
+    return db.select().from(companyContacts).where(eq(companyContacts.companyId, companyId));
+  }
+
   async deleteCompany(id: number): Promise<void> {
     await db.delete(companyContacts).where(eq(companyContacts.companyId, id));
     await db.delete(companyBankAccounts).where(eq(companyBankAccounts.companyId, id));

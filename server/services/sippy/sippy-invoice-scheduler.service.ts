@@ -88,23 +88,81 @@ export async function moveToReview(jobId: number): Promise<InvoiceJob> {
   return storage.updateInvoiceJob(job.id, { status: 'REVIEW' });
 }
 
-// ── Approve + dispatch ────────────────────────────────────────────────────────
+// ── Approve (dispatch is a SEPARATE, explicit step) ───────────────────────────
+//
+// Approval used to email immediately (approveAndDispatch was one fused call),
+// which made bulk approval unshippable: one click would have mass-mailed
+// through a dispatcher that fabricated recipients. Finance's flow is
+// Approve → Queue → Send, so approval now only marks the job — and the linked
+// invoice — approved. Nothing leaves the building until dispatchApprovedJob.
 
-export async function approveAndDispatch(
+export async function approveJob(
   jobId:      number,
   approvedBy: string,
 ): Promise<InvoiceJob> {
   const job = await requireJob(jobId, ['REVIEW']);
 
-  // Mark approved immediately
-  const approved = await storage.updateInvoiceJob(job.id, {
+  // sendInvoiceEmail refuses non-approved invoices; approving the job approves
+  // its invoice so the later dispatch step does not dead-end.
+  if (job.invoiceId) {
+    try {
+      const inv = await storage.getInvoice(job.invoiceId);
+      if (inv && ['draft', 'review'].includes(inv.status)) {
+        await storage.updateInvoice(inv.id, { status: 'approved' } as any);
+      }
+    } catch { /* non-fatal — dispatch will surface it */ }
+  }
+
+  return storage.updateInvoiceJob(job.id, {
     status:     'APPROVED',
     approvedAt: new Date(),
     approvedBy,
   });
+}
 
-  // Attempt SMTP dispatch
-  return dispatchJob(approved);
+/** @deprecated approval no longer dispatches — kept so existing callers compile. */
+export async function approveAndDispatch(jobId: number, approvedBy: string): Promise<InvoiceJob> {
+  return approveJob(jobId, approvedBy);
+}
+
+// ── Dispatch an approved job (the explicit send step) ─────────────────────────
+
+export async function dispatchApprovedJob(jobId: number, sentBy = 'dispatcher'): Promise<InvoiceJob> {
+  const job = await requireJob(jobId, ['APPROVED', 'QUEUED']);
+  const queued = await storage.updateInvoiceJob(job.id, { status: 'QUEUED' });
+  return dispatchJob(queued, sentBy);
+}
+
+// ── Recipient resolution — the client master is the only source ───────────────
+//
+// companies.invoiceEmail first (comma-separated allowed), then billing-type
+// company_contacts. NEVER fabricated: a client without a billing address on
+// file is a hard, explained failure, not a guessed domain.
+
+export async function resolveBillingRecipients(
+  clientName: string,
+): Promise<{ recipients: string[]; source: string }> {
+  const all = await storage.getCompanies();
+  const company = all.find(c =>
+    c.name?.toLowerCase() === clientName.toLowerCase() ||
+    (c as any).billingName?.toLowerCase() === clientName.toLowerCase()
+  );
+  if (!company) return { recipients: [], source: `no company matches "${clientName}"` };
+
+  const direct = (company as any).invoiceEmail?.trim();
+  if (direct) {
+    const list = direct.split(',').map((s: string) => s.trim()).filter(Boolean);
+    if (list.length) return { recipients: list, source: `companies.invoiceEmail (company #${company.id})` };
+  }
+
+  const contacts = await storage.getCompanyContacts(company.id);
+  const billing = contacts.filter(c =>
+    (c.contactType ?? '').toLowerCase().includes('billing') && c.email?.trim());
+  if (billing.length) {
+    return { recipients: billing.map(c => c.email.trim()), source: `company_contacts(billing) (company #${company.id})` };
+  }
+
+  return { recipients: [], source: `company #${company.id} "${company.name}" has no invoiceEmail and no billing contact` };
 }
 
 // ── Retry a failed job ────────────────────────────────────────────────────────
@@ -115,7 +173,7 @@ export async function retryJob(jobId: number): Promise<InvoiceJob> {
     throw new Error(`Job #${jobId} has reached max retries (${MAX_RETRIES}).`);
   }
   const retrying = await storage.updateInvoiceJob(job.id, { status: 'RETRYING' });
-  return dispatchJob(retrying);
+  return dispatchJob(retrying, 'retry');
 }
 
 // ── Cancel ────────────────────────────────────────────────────────────────────
@@ -205,54 +263,47 @@ export async function detectBillingCycles(): Promise<DetectResult> {
   return { detected, created, skipped };
 }
 
-// ── Internal: dispatch via SMTP ───────────────────────────────────────────────
+// ── Internal: dispatch via the ONE invoice sender ─────────────────────────────
+//
+// Reuses sendInvoiceEmail — the settings.invoice_smtp_* transporter (SMTP
+// freeze decision), the real invoice attachment, and the
+// invoice_email_deliveries audit row all come with it. This service adds only
+// recipient resolution from the client master and job-state bookkeeping.
+// The old inline transport read three phantom columns off sender profiles and
+// mailed a fabricated <client>@client.com address; none of that survives.
 
-async function dispatchJob(job: InvoiceJob): Promise<InvoiceJob> {
+async function dispatchJob(job: InvoiceJob, sentBy = 'dispatcher'): Promise<InvoiceJob> {
   try {
-    // Get sender profile for billing type
-    const profiles = await storage.listSmtpSenderProfiles?.() ?? [];
-    const profile = profiles.find((p: any) => p.notificationType === 'billing' || p.notificationType === 'invoice') ?? profiles[0];
-
-    if (!profile?.smtpHost || !profile?.smtpUser) {
-      throw new Error('No SMTP sender profile configured for billing. Add one in Sender Profiles first.');
+    if (!job.invoiceId) {
+      throw new Error('Job has no linked invoice — generate the invoice before dispatch.');
     }
 
-    // Get invoice detail for email body
-    let invoiceDetail: any = null;
-    if (job.invoiceId) {
-      try { invoiceDetail = await storage.getInvoice?.(job.invoiceId); } catch {}
+    const { recipients, source } = await resolveBillingRecipients(job.clientName);
+    if (recipients.length === 0) {
+      throw new Error(`No billing recipient on file (${source}). Set the company's Invoice Email or add a billing contact.`);
     }
 
-    const subject = `Invoice ${job.billingPeriod} — ${job.clientName}`;
-    const html = buildInvoiceEmailHtml(job, invoiceDetail);
+    const invoice = await storage.getInvoice(job.invoiceId);
+    const totalActual = (invoice as any)?.totalActual;
+    const amountLine = totalActual != null ? ` Total: $${Number(totalActual).toFixed(2)} USD.` : '';
 
-    const nodemailer = await import('nodemailer');
-    const transporter = nodemailer.default.createTransport({
-      host:   profile.smtpHost,
-      port:   profile.smtpPort ?? 587,
-      secure: (profile.smtpPort === 465),
-      auth:   {
-        user: profile.smtpUser,
-        pass: profile.smtpPass,
-      },
+    const { sendInvoiceEmail } = await import('../email/invoice-email.service');
+    const result = await sendInvoiceEmail({
+      invoiceId:  job.invoiceId,
+      recipients,
+      cc:         [],
+      subject:    `Invoice ${job.billingPeriod} — ${job.clientName}`,
+      body:       `Dear ${job.clientName},\n\nPlease find attached your invoice for billing period ${job.billingPeriod}.${amountLine}\n\nIchibaan Logic Billing`,
+      sentBy,
     });
-
-    // Determine recipient: use profile's default recipient or client email
-    const toAddress = profile.defaultRecipientEmail ?? `${job.clientName.toLowerCase().replace(/\s+/g, '.')}@client.com`;
-
-    await transporter.sendMail({
-      from:    `"${profile.senderName ?? 'BitsAuto Finance'}" <${profile.smtpUser}>`,
-      to:      toAddress,
-      subject,
-      html,
-    });
+    if (!result.ok) throw new Error(result.error ?? 'Email delivery failed');
 
     const updated = await storage.updateInvoiceJob(job.id, {
       status: 'SENT',
       sentAt: new Date(),
       lastError: null,
     });
-    console.log(`[invoice-scheduler] Job #${job.id} sent → ${toAddress}`);
+    console.log(`[invoice-scheduler] Job #${job.id} sent → ${recipients.join(', ')} (${source})`);
     return updated;
 
   } catch (err: any) {
@@ -264,29 +315,6 @@ async function dispatchJob(job: InvoiceJob): Promise<InvoiceJob> {
       retryCount: (job.retryCount ?? 0) + 1,
     });
   }
-}
-
-function buildInvoiceEmailHtml(job: InvoiceJob, invoice: any): string {
-  const amount = invoice?.totalAmountUsd != null ? `$${Number(invoice.totalAmountUsd).toFixed(2)}` : 'See attached';
-  return `
-<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">
-  <h2 style="color: #1a1a2e;">Invoice — ${job.billingPeriod}</h2>
-  <p>Dear ${job.clientName},</p>
-  <p>Please find your invoice for the billing period <strong>${job.billingPeriod}</strong>.</p>
-  <table style="width:100%; border-collapse:collapse; margin: 16px 0;">
-    <tr style="background:#f5f5f5;">
-      <td style="padding:8px; border:1px solid #ddd;"><strong>Billing Period</strong></td>
-      <td style="padding:8px; border:1px solid #ddd;">${job.billingPeriod}</td>
-    </tr>
-    <tr>
-      <td style="padding:8px; border:1px solid #ddd;"><strong>Total Amount</strong></td>
-      <td style="padding:8px; border:1px solid #ddd; color:#1a6e3c; font-weight:bold;">${amount}</td>
-    </tr>
-    ${invoice?.dueDate ? `<tr style="background:#f5f5f5;"><td style="padding:8px; border:1px solid #ddd;"><strong>Due Date</strong></td><td style="padding:8px; border:1px solid #ddd;">${new Date(invoice.dueDate).toLocaleDateString()}</td></tr>` : ''}
-  </table>
-  <p style="color:#666; font-size:12px;">This invoice was generated and approved by your account manager. Please contact us at finance@bitsauto.com for any queries.</p>
-  <p style="color:#666; font-size:12px;">BitsAuto Finance Team</p>
-</div>`;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
