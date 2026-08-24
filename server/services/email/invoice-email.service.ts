@@ -294,13 +294,37 @@ export async function sendInvoiceEmail(
   return status === 'sent' ? { ok: true } : { ok: false, error: errorMessage ?? 'Send failed' };
 }
 
-export async function testInvoiceSmtp(): Promise<{ ok: boolean; error?: string }> {
+/**
+ * Authenticate against the mail server without sending anything.
+ *
+ * Reports WHICH identity it authenticated as, and whether that is the dedicated
+ * invoice SMTP or the alert-Gmail fallback. A 535 rejection almost always means
+ * the app password belongs to a different Google account than the username —
+ * a mistake invisible from a bare pass/fail, and one that otherwise only
+ * surfaces when a real invoice fails to send.
+ */
+export async function testInvoiceSmtp(): Promise<{
+  ok: boolean; error?: string; from?: string; user?: string; host?: string; usingFallback?: boolean;
+}> {
+  let identity: { from?: string; user?: string; host?: string; usingFallback?: boolean } = {};
   try {
+    const settings = await storage.getSettings();
+    const dedicated = !!(settings.invoiceSmtpHost && settings.invoiceSmtpUser && settings.invoiceSmtpPass);
+    identity = {
+      user: dedicated ? settings.invoiceSmtpUser ?? undefined : (settings as any).alertGmailUser ?? undefined,
+      host: dedicated ? settings.invoiceSmtpHost ?? undefined : 'smtp.gmail.com',
+      usingFallback: !dedicated,
+    };
+
     const conn = await buildInvoiceTransporter();
-    if (!conn) return { ok: false, error: 'Invoice SMTP not configured and no fallback Gmail config available' };
+    if (!conn) return { ok: false, error: 'Invoice SMTP not configured and no fallback Gmail config available', ...identity };
+    identity.from = conn.from;
     await conn.transporter.verify();
-    return { ok: true };
+    return { ok: true, ...identity };
   } catch (err: any) {
-    return { ok: false, error: err.message };
+    const hint = /535|invalid login|not accepted/i.test(String(err.message))
+      ? ' — the server rejected these credentials. A Gmail app password is only valid for the account that generated it, so the username above must be that same mailbox.'
+      : '';
+    return { ok: false, error: `${err.message}${hint}`, ...identity };
   }
 }
