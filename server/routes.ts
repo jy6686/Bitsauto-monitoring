@@ -28554,7 +28554,26 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // when" has to be answerable without diffing backups.
       // __source is audit provenance, not a column — strip it before the write reaches
       // Drizzle, which would otherwise try to set a field that does not exist.
-      const { __source, ...patch } = (req.body ?? {}) as Record<string, unknown>;
+      //
+      // The company editor submits the SAME nested shape the create endpoint takes
+      // ({ basic, billing, contacts, bankAccounts, ... }), but this handler used to
+      // pass the whole body to Drizzle's .set(). None of those keys are columns of
+      // `companies`, so every save produced an empty SET clause — Postgres rejected
+      // it with `syntax error at or near "where"` and NOTHING could be edited. That
+      // is why billing emails could never be filled in, which in turn is why invoice
+      // dispatch kept failing with "No billing recipient on file".
+      const {
+        __source, basic, billing, contacts, bankAccounts, initialIps,
+        productIds, marketDestinationIds,
+        ...flat
+      } = (req.body ?? {}) as Record<string, any>;
+      const nested = basic !== undefined || billing !== undefined
+                  || contacts !== undefined || bankAccounts !== undefined;
+      // Product and market assignments are set at creation and are not edited here;
+      // they are dropped from the column patch rather than silently corrupting it.
+      const patch: Record<string, unknown> = nested
+        ? { ...(basic ?? {}), ...(billing ?? {}), ...flat }
+        : flat;
 
       // accountPrefix is immutable (migration 049). It is embedded in Sippy
       // authentication and CLD rules, so changing it here would leave a live customer
@@ -28574,6 +28593,22 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const before: any = await storage.getCompany(id);
       const updated = await storage.updateCompany(id, patch);
 
+      // Contacts and bank accounts live in their own tables and were never
+      // written by this handler — the editor showed them, accepted edits, and
+      // discarded them on save. Billing contacts are what invoice dispatch
+      // resolves recipients from, so this is the write that makes the client
+      // master editable at all.
+      let contactsWritten = 0, banksWritten = 0;
+      if (Array.isArray(contacts)) {
+        contactsWritten = await storage.replaceCompanyContacts(id, contacts);
+      }
+      if (Array.isArray(bankAccounts)) {
+        banksWritten = await storage.replaceCompanyBankAccounts(id, bankAccounts);
+      }
+      if (contactsWritten || banksWritten) {
+        console.log(`[companies] #${id}: wrote ${contactsWritten} contact(s), ${banksWritten} bank account(s)`);
+      }
+
       const changed: Record<string, { from: unknown; to: unknown }> = {};
       for (const k of Object.keys(patch)) {
         if (before && before[k] !== (updated as any)?.[k]) {
@@ -28582,7 +28617,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
       // Silent when nothing actually differed — a no-op save should not create noise that
       // buries the real changes.
-      if (Object.keys(changed).length > 0) {
+      if (Object.keys(changed).length > 0 || contactsWritten || banksWritten) {
         void writeAudit({
           category:   'operational',
           action:     'company.updated',
@@ -28591,7 +28626,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           targetType: 'company',
           targetId:   String(id),
           targetName: (updated as any)?.name ?? before?.name,
-          metadata:   { changed, source: __source ?? 'company-editor' },
+          metadata:   { changed, contactsWritten, banksWritten, source: __source ?? 'company-editor' },
           ip:         req.ip,
         });
       }

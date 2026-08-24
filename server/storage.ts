@@ -652,6 +652,8 @@ export interface IStorage {
   getCompanyBySippyAccount(iAccount: number): Promise<Company | null>;
   createCompany(data: InsertCompany, contacts: any[], bankAccounts: any[]): Promise<Company>;
   updateCompany(id: number, updates: Partial<Company>): Promise<Company>;
+  replaceCompanyContacts(companyId: number, contacts: any[]): Promise<number>;
+  replaceCompanyBankAccounts(companyId: number, accounts: any[]): Promise<number>;
   deleteCompany(id: number): Promise<void>;
 
   // ── Account Management — Client IP Requests ─────────────────────────────────
@@ -2341,8 +2343,46 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateCompany(id: number, updates: Partial<InsertCompany>): Promise<Company> {
+    // An empty patch makes Drizzle emit `update "companies" set where "id" = $1`,
+    // which Postgres rejects with `syntax error at or near "where"`. That is a
+    // no-op request, not an error: return the row unchanged.
+    if (!updates || Object.keys(updates).length === 0) {
+      return (await this.getCompany(id)) as Company;
+    }
     const [row] = await db.update(companies).set(updates).where(eq(companies.id, id)).returning();
     return row;
+  }
+
+  // Replace a company's contacts with the submitted set. The company editor
+  // loads every contact and submits them all, so replace-all matches what the
+  // operator sees. An EMPTY submission is ignored rather than treated as
+  // "delete everything" — a form that failed to load must never silently wipe
+  // the billing recipients that invoice dispatch depends on. Deliberate removal
+  // of the last contact is done per-row in the editor.
+  async replaceCompanyContacts(companyId: number, contacts: any[]): Promise<number> {
+    const valid = (contacts ?? []).filter(c => c?.email?.trim() && c?.firstName?.trim());
+    if (valid.length === 0) return 0;
+    await db.delete(companyContacts).where(eq(companyContacts.companyId, companyId));
+    await db.insert(companyContacts).values(valid.map(c => ({
+      companyId,
+      contactType: String(c.contactType ?? 'technical'),
+      firstName:   String(c.firstName).trim(),
+      lastName:    c.lastName ? String(c.lastName).trim() : null,
+      email:       String(c.email).trim(),
+      phone:       c.phone ? String(c.phone).trim() : null,
+      fax:         c.fax   ? String(c.fax).trim()   : null,
+    })));
+    return valid.length;
+  }
+
+  async replaceCompanyBankAccounts(companyId: number, accounts: any[]): Promise<number> {
+    const valid = (accounts ?? []).filter(b => b?.bankName?.trim() && b?.accountNo?.trim());
+    if (valid.length === 0) return 0;
+    await db.delete(companyBankAccounts).where(eq(companyBankAccounts.companyId, companyId));
+    await db.insert(companyBankAccounts).values(valid.map(({ id: _id, companyId: _c, ...b }: any) => ({
+      ...b, companyId,
+    })));
+    return valid.length;
   }
 
   async getCompanyContacts(companyId: number): Promise<Array<typeof companyContacts.$inferSelect>> {
