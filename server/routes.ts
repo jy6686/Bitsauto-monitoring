@@ -32373,6 +32373,31 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     // fire-and-forget — runs after response is sent
     (async () => {
       try {
+        await _seedRatingSnapshotsSync({ iAccount, iTariff, periodStart, periodEnd }, job, jobId);
+      } catch (err: any) {
+        job.status = 'error';
+        job.error  = err.message;
+        console.error(`[seed-job:${jobId}] error:`, err.message);
+      }
+    })().catch(() => {});
+
+    res.json({ jobId, status: 'running' });
+  });
+
+  // Awaitable core of the snapshot seeder — shared by the fire-and-forget
+  // route above, the invoice scheduler, and the one-call billing chain
+  // (_runBillingChain). Admin API (XML-RPC) is the ONLY permitted source for
+  // billing CDRs — portal/RTST1 scrape data never enters the billing store.
+  // Idempotent: dedup by cdr-id means re-running never duplicates snapshots.
+  async function _seedRatingSnapshotsSync(
+    opts: { iAccount: number | string; iTariff: string; periodStart: string; periodEnd?: string | null },
+    jobState?: _SeedJobState,
+    label = 'sync',
+  ): Promise<{ fetched: number; created: number; skipped: number; message?: string }> {
+    const { iAccount, iTariff, periodStart, periodEnd } = opts;
+    const job = jobState ?? ({ status: 'running', phase: '', fetched: 0, created: 0, skipped: 0, errors: 0, total: 0, startedAt: Date.now() } as _SeedJobState);
+    const jobId = label;
+    {
         const { computeSnapshotHash } = await import('./services/sippy/sippy-rating-snapshot.service');
         const settings  = await storage.getSettings();
         const portalUrl = sippyPortalUrl(settings);
@@ -32445,7 +32470,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           job.created = 0;
           job.skipped = 0;
           job.phase   = diagMsg;
-          return; // do not proceed — portal fallback is not allowed for billing data
+          // do not proceed — portal fallback is not allowed for billing data
+          return { fetched: 0, created: 0, skipped: 0, message: diagMsg };
         }
 
         job.fetched = rawCdrs.length;
@@ -32514,21 +32540,93 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         job.status  = 'done';
         job.phase   = 'Complete';
         console.log(`[seed-job:${jobId}] done — created=${inserted} skipped=${skippedCount} total=${rawCdrs.length}`);
-      } catch (err: any) {
-        job.status = 'error';
-        job.error  = err.message;
-        console.error(`[seed-job:${jobId}] error:`, err.message);
-      }
-    })().catch(() => {});
-
-    res.json({ jobId, status: 'running' });
-  });
+        return { fetched: job.fetched, created: inserted, skipped: skippedCount };
+    }
+  }
 
   // GET /api/rating-snapshots/seed-job/:jobId — poll seeding job progress
   app.get('/api/rating-snapshots/seed-job/:jobId', (req: any, res: any) => {
     const job = _seedJobs.get(req.params.jobId);
     if (!job) return res.status(404).json({ error: 'Job not found or expired (10 min TTL)' });
     res.json(job);
+  });
+
+  // ── One-call billing chain: seed rating snapshots → generate invoice ──────
+  // Replaces the manual "browser-console seed, then generate" sequence.
+  // Snapshot rows seeded from the Admin API are directly usable by the
+  // certified generator (it reads all snapshot rows for the tariff+period),
+  // so the chain is two stages, each reported separately. Continue/stop
+  // semantics: duplicate → stop before touching Sippy; seed failure → stop
+  // with the seeder's diagnostic; generator refusal → stop with its reason
+  // plus the seed outcome so Finance sees WHERE the chain broke.
+  async function _runBillingChain(opts: {
+    iAccount?: number | null; iTariff?: string; periodStart: string; periodEnd: string;
+    customerName: string; notes?: string;
+  }): Promise<{
+    ok: boolean; stage?: 'duplicate' | 'seed' | 'generate'; error?: string;
+    seed?: { fetched: number; created: number; skipped: number; message?: string };
+    invoice?: { id: number; invoiceNumber: string; lineCount: number };
+  }> {
+    const { generateInvoice } = await import('./services/sippy/index');
+
+    // Duplicate guard — one invoice per client+period, ever
+    const existing = await storage.listInvoices({ limit: 5000 });
+    const dup = existing.find(inv =>
+      (inv.customerName ?? '').toLowerCase() === opts.customerName.toLowerCase() &&
+      inv.periodStart === opts.periodStart && inv.periodEnd === opts.periodEnd &&
+      inv.status !== 'void');
+    if (dup) return { ok: false, stage: 'duplicate', error: `Invoice ${dup.invoiceNumber} already exists for this period (status: ${dup.status})` };
+
+    // Stage 1 — seed rating snapshots (idempotent; needs account id + tariff —
+    // without either, skip straight to the generator, which self-resolves)
+    let seed: { fetched: number; created: number; skipped: number; message?: string } | undefined;
+    if (opts.iAccount && opts.iTariff) {
+      try {
+        seed = await _seedRatingSnapshotsSync(
+          { iAccount: opts.iAccount, iTariff: opts.iTariff, periodStart: opts.periodStart, periodEnd: opts.periodEnd },
+          undefined, `chain-${opts.iAccount}`,
+        );
+      } catch (e: any) {
+        return { ok: false, stage: 'seed', error: e.message };
+      }
+    }
+
+    // Stage 2 — certified generator (refuses when the period has no snapshots)
+    try {
+      const r = await generateInvoice({
+        iTariff: opts.iTariff, iAccount: opts.iAccount ?? undefined,
+        periodStart: opts.periodStart, periodEnd: opts.periodEnd,
+        customerName: opts.customerName, notes: opts.notes,
+      });
+      return { ok: true, seed, invoice: { id: r.invoice.id, invoiceNumber: r.invoice.invoiceNumber, lineCount: r.lineCount } };
+    } catch (e: any) {
+      const detail = seed && seed.created === 0 && seed.message
+        ? `${e.message} (seeding found nothing: ${seed.message})`
+        : e.message;
+      return { ok: false, stage: 'generate', error: detail, seed };
+    }
+  }
+
+  // POST /api/invoices/pipeline-run — the full chain for one account+period,
+  // in one authenticated call. No browser console, no SQL, no shell.
+  app.post('/api/invoices/pipeline-run', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { iAccount, iTariff, periodStart, periodEnd, customerName, notes } = req.body ?? {};
+      if (!periodStart || !periodEnd || !customerName) {
+        return res.status(400).json({ error: 'periodStart, periodEnd, and customerName are required' });
+      }
+      let tariff = iTariff ? String(iTariff) : undefined;
+      if (!tariff && iAccount) {
+        const company = await storage.getCompanyBySippyAccount(Number(iAccount));
+        if (company?.sippyITariff) tariff = String(company.sippyITariff);
+      }
+      if (!tariff) return res.status(400).json({ error: 'iTariff is required (could not auto-resolve from the company record)' });
+      const result = await _runBillingChain({
+        iAccount: iAccount ? Number(iAccount) : null, iTariff: tariff,
+        periodStart, periodEnd, customerName, notes,
+      });
+      res.status(result.ok ? 200 : 422).json(result);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // POST /api/invoices/bulk-generate
@@ -32563,8 +32661,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           continue;
         }
         try {
-          const result = await generateInvoice({ iTariff: iTariff || undefined, iAccount: iAccount ? Number(iAccount) : undefined, periodStart, periodEnd, customerName, notes });
-          results.push({ customerName, status: 'ok', invoice: result });
+          // Full chain per account: auto-seed rating snapshots, then generate.
+          const chain = await _runBillingChain({
+            iAccount: iAccount ? Number(iAccount) : null,
+            iTariff:  iTariff ? String(iTariff) : undefined,
+            periodStart, periodEnd, customerName, notes,
+          });
+          if (chain.ok && chain.invoice)            results.push({ customerName, status: 'ok', invoice: chain.invoice });
+          else if (chain.stage === 'duplicate')     results.push({ customerName, status: 'skipped', error: chain.error });
+          else                                      results.push({ customerName, status: 'error', error: chain.error });
         } catch (e: any) {
           results.push({ customerName, status: 'error', error: e.message });
         }
@@ -34915,6 +35020,41 @@ ${footer}
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
+
+      // Auto-seed: when the job's tariff+period has no rating snapshots yet,
+      // pull them from the Sippy Admin API before generating — the operator
+      // clicks Generate once, never seeds by hand. Resolution: tariff from
+      // the job (or the company record), Sippy account from the company.
+      // Seeding problems surface as the generator's own refusal below.
+      try {
+        const jobRow = await storage.getInvoiceJob(id);
+        if (jobRow && /^\d{4}-\d{2}$/.test(jobRow.billingPeriod ?? '')) {
+          const [py, pm] = jobRow.billingPeriod.split('-').map(Number);
+          const periodStart = `${jobRow.billingPeriod}-01`;
+          const periodEnd   = new Date(py, pm, 0).toISOString().slice(0, 10);
+          const companies = await storage.getCompanies();
+          const company = companies.find(c => c.name?.toLowerCase() === jobRow.clientName.toLowerCase());
+          const iTariff  = jobRow.iTariff ?? (company?.sippyITariff != null ? String(company.sippyITariff) : undefined);
+          const iAccount = company?.sippyIAccount ?? null;
+          if (iTariff && iAccount) {
+            const snaps = await storage.listInvoiceCdrSnapshots({ iTariff, limit: 50000 });
+            const inPeriod = snaps.some(s => {
+              if (!s.cdrStartTime) return true;
+              const d = String(s.cdrStartTime).slice(0, 10);
+              return d >= periodStart && d <= periodEnd;
+            });
+            if (!inPeriod) {
+              const seeded = await _seedRatingSnapshotsSync(
+                { iAccount, iTariff, periodStart, periodEnd }, undefined, `job-${id}`,
+              );
+              console.log(`[invoice-jobs] job #${id}: auto-seeded ${seeded.created} snapshot(s) for tariff ${iTariff} ${periodStart}–${periodEnd}${seeded.message ? ` (${seeded.message})` : ''}`);
+            }
+          }
+        }
+      } catch (seedErr: any) {
+        console.warn(`[invoice-jobs] job #${id}: auto-seed failed — ${seedErr.message} (generation will report if snapshots are missing)`);
+      }
+
       const { generateInvoiceForJob } = await import('./services/sippy/index');
       const job = await generateInvoiceForJob(id, (req as any).user?.username ?? 'operator');
       res.json(job);
@@ -36431,32 +36571,30 @@ ${footer}
             periodEnd     = lastEnd.toISOString().slice(0, 10);
           }
 
-          // Generate through the CERTIFIED generator — the same path as manual
-          // generation. The old inline insert here produced header-only
-          // invoices: no line items, no htmlContent, its own period filter and
-          // numbering. That is why scheduled cycles "ran" but Finance never saw
-          // a reviewable invoice. The service builds line items and the
-          // rendered document, and refuses (rather than guessing) when the
-          // period has no locked snapshots — which we treat as the skip case.
-          const { generateInvoice } = await import('./services/sippy/index');
-          let genInvoice: any, genLineCount = 0;
-          try {
-            const r = await generateInvoice({
-              iTariff:      String(schedule.iTariff),
-              iAccount:     schedule.iAccount ?? undefined,
-              periodStart,
-              periodEnd,
-              customerName: schedule.companyName ?? `Account ${schedule.iAccount ?? '?'}`,
-              notes:        `Auto-generated by schedule #${schedule.id} (${schedule.frequency})`,
-            });
-            genInvoice   = r.invoice;
-            genLineCount = r.lineCount;
-          } catch (genErr: any) {
-            console.warn(`[invoice-scheduler] schedule #${schedule.id}: skipped — ${genErr.message}`);
-            // Advance nextRunAt so we don't retry endlessly this period
+          // Run the FULL billing chain — seed rating snapshots from the Sippy
+          // Admin API, then the certified generator. This is what makes the
+          // scheduled path unattended: no manual snapshot seeding, no browser
+          // console. A chain failure (duplicate / nothing to seed / generator
+          // refusal) is the skip case: logged with its stage, nextRunAt
+          // advanced so this period is not retried endlessly.
+          const chain = await _runBillingChain({
+            iAccount:     schedule.iAccount ?? null,
+            iTariff:      String(schedule.iTariff),
+            periodStart,
+            periodEnd,
+            customerName: schedule.companyName ?? `Account ${schedule.iAccount ?? '?'}`,
+            notes:        `Auto-generated by schedule #${schedule.id} (${schedule.frequency})`,
+          });
+          if (!chain.ok || !chain.invoice) {
+            console.warn(`[invoice-scheduler] schedule #${schedule.id}: skipped at ${chain.stage} — ${chain.error}`);
             await storage.updateInvoiceSchedule(schedule.id, { nextRunAt: _computeNextScheduleRun(schedule) });
             continue;
           }
+          if (chain.seed) {
+            console.log(`[invoice-scheduler] schedule #${schedule.id}: seeded ${chain.seed.created} snapshot(s), ${chain.seed.skipped} already present`);
+          }
+          const genInvoice   = chain.invoice;
+          const genLineCount = chain.invoice.lineCount;
 
           // Review-ready by default: Finance approves before anything sends.
           // autoApprove schedules opt out of review, but never auto-SEND —

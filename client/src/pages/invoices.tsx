@@ -707,7 +707,7 @@ export default function InvoicesPage() {
             iAccount: t.iAccount, name: t.displayName, period: `${p.start} → ${p.end}`,
             status: r?.status === 'ok' ? 'ok' : r?.status === 'skipped' ? 'skipped' : 'error',
             detail: r?.status === 'ok'
-              ? `Invoice ${r.invoice?.invoice?.invoiceNumber ?? ''} · ${r.invoice?.lineCount ?? 0} lines`
+              ? `Invoice ${r.invoice?.invoiceNumber ?? r.invoice?.invoice?.invoiceNumber ?? ''} · ${r.invoice?.lineCount ?? 0} lines`
               : (r?.error ?? 'No result returned'),
           });
         }
