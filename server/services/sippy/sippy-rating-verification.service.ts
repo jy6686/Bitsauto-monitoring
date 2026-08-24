@@ -32,6 +32,7 @@ import type {
 import type { SippyCDR, SippyTariffRate } from './types';
 import { SippyConfig } from './types';
 import { auditLog } from './sippy-audit.service';
+import { selectTariffVersion } from '../../tariff-effective-dating';
 
 // ── Discrepancy classification ─────────────────────────────────────────────────
 
@@ -60,9 +61,9 @@ const SEVERITY_CRITICAL = 0.05;
 
 /**
  * Find the tariff version that was active at a given point in time.
- * Uses the most recent snapshot whose created_at <= connectTime.
  *
- * This is the core historical economics lookup that Layer 4A enables.
+ * Resolution is by EFFECTIVE DATE, not by when the version was recorded — see
+ * server/tariff-effective-dating.ts for the rule and why it changed.
  */
 export async function resolveTariffVersion(
   iTariff: string,
@@ -70,17 +71,10 @@ export async function resolveTariffVersion(
 ): Promise<TariffVersion | null> {
   const versions = await storage.listTariffVersions(iTariff);
   const ts = typeof connectTime === 'string' ? new Date(connectTime) : connectTime;
-
-  // Find most recent snapshot before or at the connect time
-  const candidates = versions.filter(v =>
-    v.createdAt != null && new Date(v.createdAt) <= ts,
-  );
-
-  if (!candidates.length) return null;
-
-  // Already ordered DESC by created_at from storage
-  return candidates[0];
+  return selectTariffVersion(versions as any, ts) as TariffVersion | null;
 }
+
+
 
 /**
  * Find the matching rate row for a callee number within a tariff version snapshot.

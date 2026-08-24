@@ -33000,6 +33000,63 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   }
 
+  // GET /api/finance/tariff-impact?iTariff=&effectiveFrom=[&effectiveTo=]
+  //
+  // What a backdated tariff change would touch, answered BEFORE it is saved.
+  // Rating is resolved by effective date, so giving a version an effective_from
+  // in the past changes how calls in that window would price — but only on
+  // re-certification, never to an invoice already issued. This says which
+  // periods that is, and which of them are already invoiced and therefore an
+  // accounting decision rather than a technical one.
+  app.get('/api/finance/tariff-impact', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const iTariff = String(req.query.iTariff ?? '');
+      const from    = String(req.query.effectiveFrom ?? '');
+      const to      = req.query.effectiveTo ? String(req.query.effectiveTo) : null;
+      if (!iTariff || !from) return res.status(400).json({ error: 'iTariff and effectiveFrom are required' });
+
+      const [runs, invoices, calls] = await Promise.all([
+        db.execute(sql`
+          SELECT id, period_start, period_end, status, excluded, superseded_at
+            FROM snapshot_verification_runs
+           WHERE i_tariff = ${iTariff}
+             AND period_end >= ${from} ${to ? sql`AND period_start <= ${to}` : sql``}
+           ORDER BY period_start DESC LIMIT 100`),
+        db.execute(sql`
+          SELECT id, invoice_number, customer_name, period_start, period_end, status, total_actual
+            FROM invoices
+           WHERE i_tariff = ${iTariff} AND status <> 'void'
+             AND period_end >= ${from} ${to ? sql`AND period_start <= ${to}` : sql``}
+           ORDER BY period_start DESC LIMIT 100`),
+        db.execute(sql`
+          SELECT count(*)::int AS total,
+                 count(*) FILTER (WHERE discrepancy_type IN ('unrated','missing_rate'))::int AS unpriceable
+            FROM rating_verifications
+           WHERE i_tariff = ${iTariff}
+             AND left(cdr_start_time, 10) >= ${from} ${to ? sql`AND left(cdr_start_time, 10) <= ${to}` : sql``}`),
+      ]);
+
+      const runRows = ((runs as any).rows ?? []);
+      const invRows = ((invoices as any).rows ?? []);
+      const callRow = ((calls as any).rows ?? [])[0] ?? {};
+      const periods = Array.from(new Set(runRows.map((r: any) => `${r.period_start} → ${r.period_end}`)));
+
+      res.json({
+        iTariff, effectiveFrom: from, effectiveTo: to,
+        verificationRuns: runRows.length,
+        billingPeriods:   periods,
+        invoices:         invRows,
+        callsInWindow:    Number(callRow.total ?? 0),
+        currentlyUnpriceable: Number(callRow.unpriceable ?? 0),
+        recertificationRequired: runRows.some((r: any) => !r.superseded_at),
+        // The consequence, stated rather than left to be inferred.
+        note: invRows.length > 0
+          ? `${invRows.length} live invoice(s) cover this window. They will NOT change — re-certification is refused while an invoice draws on a period. Void or credit them first if the corrected rates should apply.`
+          : 'No live invoice covers this window. Affected periods can be re-certified to apply the corrected rates.',
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/finance/certification/exceptions
   //   ?iTariff= &periodStart= &periodEnd= &type=unrated|missing_rate|differing
   //
