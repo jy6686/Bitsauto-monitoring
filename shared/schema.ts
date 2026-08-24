@@ -2894,6 +2894,8 @@ export const invoiceEmailDeliveries = pgTable("invoice_email_deliveries", {
   errorMessage: text("error_message"),
   sentAt:       timestamp("sent_at").defaultNow(),
   createdAt:    timestamp("created_at").defaultNow().notNull(),
+  messageId:    varchar("message_id",    { length: 256 }),
+  smtpResponse: varchar("smtp_response", { length: 512 }),
 });
 export type InvoiceEmailDelivery       = typeof invoiceEmailDeliveries.$inferSelect;
 export type InsertInvoiceEmailDelivery = typeof invoiceEmailDeliveries.$inferInsert;

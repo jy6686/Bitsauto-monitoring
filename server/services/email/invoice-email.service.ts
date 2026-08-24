@@ -148,6 +148,8 @@ export async function sendInvoiceEmail(
 
   let status: 'sent' | 'failed' = 'failed';
   let errorMessage: string | null = null;
+  let messageId: string | null = null;
+  let smtpResponse: string | null = null;
 
   try {
     const conn = await buildInvoiceTransporter();
@@ -216,7 +218,7 @@ export async function sendInvoiceEmail(
 </body>
 </html>`;
 
-    await conn.transporter.sendMail({
+    const smtpInfo = await conn.transporter.sendMail({
       from:        conn.from,
       to:          recipients.join(', '),
       cc:          cc.length > 0 ? cc.join(', ') : undefined,
@@ -224,6 +226,8 @@ export async function sendInvoiceEmail(
       html:        htmlBody,
       attachments,
     });
+    messageId    = smtpInfo?.messageId ?? null;
+    smtpResponse = smtpInfo?.response ?? null;
 
     status = 'sent';
     console.log(`[invoice-email] Sent ${invoice.invoiceNumber} → ${recipients.join(', ')}`);
@@ -243,6 +247,8 @@ export async function sendInvoiceEmail(
       sentBy,
       status,
       errorMessage,
+      messageId,
+      smtpResponse: smtpResponse ? smtpResponse.slice(0, 512) : null,
       sentAt:       new Date(),
     });
   } catch (logErr: any) {
