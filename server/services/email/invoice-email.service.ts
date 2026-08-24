@@ -138,6 +138,8 @@ export async function sendInvoiceEmail(
         return { ok: false, error: 'Test mode is ON but no test recipient is configured (Settings → Invoice Email Delivery).' };
       }
       const intended = [...recipients, ...cc.map(c => `cc:${c}`)].join(', ');
+      testMode = true;
+      intendedRecipients = intended;
       recipients = [testTo];
       cc = [];
       subject = `[TEST] ${subject}`;
@@ -150,6 +152,8 @@ export async function sendInvoiceEmail(
   let errorMessage: string | null = null;
   let messageId: string | null = null;
   let smtpResponse: string | null = null;
+  let testMode = false;
+  let intendedRecipients: string | null = null;
 
   try {
     const conn = await buildInvoiceTransporter();
@@ -249,6 +253,8 @@ export async function sendInvoiceEmail(
       errorMessage,
       messageId,
       smtpResponse: smtpResponse ? smtpResponse.slice(0, 512) : null,
+      testMode,
+      intendedRecipients,
       sentAt:       new Date(),
     });
   } catch (logErr: any) {
