@@ -38926,6 +38926,40 @@ ${footer}
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/finance/pipeline-health — where has the invoice pipeline stopped?
+  // One row of counts per stage, so the Cockpit can say WHY "no invoices"
+  // instead of just that there are none. Every count is a plain aggregate over
+  // the stage's own table; a stage at zero while its upstream is non-zero is
+  // the stalled link.
+  app.get('/api/finance/pipeline-health', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const [schedules, jobs, snapshots, invoices, deliveries] = await Promise.all([
+        db.execute(sql`SELECT count(*)::int AS total,
+                              count(*) FILTER (WHERE active)::int AS active,
+                              count(*) FILTER (WHERE active AND next_run_at <= now())::int AS due_now,
+                              max(last_run_at)::text AS last_run
+                         FROM invoice_schedules`),
+        db.execute(sql`SELECT status, count(*)::int AS n FROM invoice_jobs GROUP BY status`),
+        db.execute(sql`SELECT count(*)::int AS total,
+                              count(*) FILTER (WHERE verification_status = 'locked')::int AS locked
+                         FROM invoice_cdr_snapshots`),
+        db.execute(sql`SELECT status, count(*)::int AS n FROM invoices GROUP BY status`),
+        db.execute(sql`SELECT status, count(*)::int AS n,
+                              count(*) FILTER (WHERE test_mode)::int AS test
+                         FROM invoice_email_deliveries GROUP BY status`),
+      ]);
+      const rows = (r: any) => (Array.isArray(r) ? r : (r.rows ?? []));
+      const toMap = (r: any) => Object.fromEntries(rows(r).map((x: any) => [x.status, x.n]));
+      res.json({
+        schedules:  rows(schedules)[0] ?? { total: 0, active: 0, due_now: 0, last_run: null },
+        jobs:       toMap(jobs),
+        snapshots:  rows(snapshots)[0] ?? { total: 0, locked: 0 },
+        invoices:   toMap(invoices),
+        deliveries: rows(deliveries).map((d: any) => ({ status: d.status, n: d.n, test: d.test })),
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   app.post('/api/finance/health/materialize-now', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const { runMaterialization } = await import('./services/sippy/index');

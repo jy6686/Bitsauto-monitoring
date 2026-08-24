@@ -232,6 +232,7 @@ export default function FinanceCockpitPage() {
   const { data: marginData,    isLoading: marginLoading } = useQuery<any>({ queryKey: ["/api/margin/alerts"] });
   const { data: remindersData, isLoading: remLoading }    = useQuery<any>({ queryKey: ["/api/payment-reminders"] });
   const { data: creditData,    isLoading: ccLoading }     = useQuery<any>({ queryKey: ["/api/credit-control/events"] });
+  const { data: pipeline }                                 = useQuery<any>({ queryKey: ["/api/finance/pipeline-health"] });
 
   // ── Data normalization ────────────────────────────────────────────────────────
   const invoices     = invoiceData?.invoices        ?? invoiceData?.data     ?? [];
@@ -556,6 +557,54 @@ export default function FinanceCockpitPage() {
         </Card>
 
       </div>
+
+      {/* ── Invoice Pipeline Health ──────────────────────────────────────────── */}
+      {/* Answers WHY the widgets above are empty: each stage shows its count, and
+          a stage at zero while its upstream is non-zero is the stalled link. */}
+      {pipeline && (
+        <Card data-testid="card-pipeline-health">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm text-muted-foreground uppercase tracking-wide font-medium">
+              Invoice Pipeline
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 text-center">
+              {(() => {
+                const jobs = pipeline.jobs ?? {};
+                const invs = pipeline.invoices ?? {};
+                const jobTotal = Object.entries(jobs).filter(([k]) => k !== 'CANCELLED').reduce((a, [,v]: any) => a + v, 0);
+                const invTotal = Object.values(invs).reduce((a: number, v: any) => a + v, 0);
+                const sent   = (pipeline.deliveries ?? []).find((d: any) => d.status === 'sent')?.n ?? 0;
+                const failed = (pipeline.deliveries ?? []).find((d: any) => d.status === 'failed')?.n ?? 0;
+                const cells: Array<{ label: string; value: string | number; warn?: boolean; sub?: string }> = [
+                  { label: 'Schedules',   value: `${pipeline.schedules?.active ?? 0}/${pipeline.schedules?.total ?? 0}`, sub: 'active',
+                    warn: (pipeline.schedules?.active ?? 0) === 0 },
+                  { label: 'Due Now',     value: pipeline.schedules?.due_now ?? 0 },
+                  { label: 'Jobs',        value: jobTotal },
+                  { label: 'Snapshots',   value: pipeline.snapshots?.total ?? 0, sub: `${pipeline.snapshots?.locked ?? 0} locked`,
+                    warn: jobTotal > 0 && (pipeline.snapshots?.total ?? 0) === 0 },
+                  { label: 'Invoices',    value: invTotal, warn: jobTotal > 0 && invTotal === 0 },
+                  { label: 'In Review',   value: (invs['draft'] ?? 0) + (invs['review'] ?? 0) + (jobs['REVIEW'] ?? 0) },
+                  { label: 'Approved',    value: (invs['approved'] ?? 0) + (jobs['APPROVED'] ?? 0) },
+                  { label: 'Sent / Failed', value: `${sent} / ${failed}`, warn: failed > 0 },
+                ];
+                return cells.map(c => (
+                  <div key={c.label} className={`rounded-md border p-2 ${c.warn ? 'border-amber-500/50 bg-amber-500/5' : 'border-border/50'}`}>
+                    <div className={`text-lg font-semibold ${c.warn ? 'text-amber-500' : ''}`}>{c.value}{c.warn ? ' \u26a0' : ''}</div>
+                    <div className="text-[11px] text-muted-foreground">{c.label}{c.sub ? ` · ${c.sub}` : ''}</div>
+                  </div>
+                ));
+              })()}
+            </div>
+            {pipeline.schedules?.last_run && (
+              <div className="text-[11px] text-muted-foreground mt-2">
+                Last scheduled run: {new Date(pipeline.schedules.last_run).toLocaleString()}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Quick Actions ────────────────────────────────────────────────────── */}
       <Card>
