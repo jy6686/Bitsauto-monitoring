@@ -856,7 +856,22 @@ export async function registerRoutes(
   // and whether it is the deployed image or the workspace.
   app.get('/api/build', async (_req: any, res: any) => {
     const { getBuildInfo } = await import('./build-info');
-    res.json(getBuildInfo());
+    const info: any = { ...getBuildInfo() };
+    // Schema position, read live — the code and the database can be out of step
+    // with each other, and that is exactly the situation this endpoint exists to
+    // reveal. Best-effort: an unreadable ledger reports null, not a guess.
+    try {
+      const r = await db.execute(sql`SELECT max(filename) AS latest, count(*)::int AS applied FROM schema_migrations`);
+      const row = ((r as any).rows ?? [])[0] ?? {};
+      info.schemaLatest  = row.latest ?? null;
+      info.schemaApplied = row.applied ?? null;
+    } catch {
+      info.schemaLatest = null;
+      info.schemaApplied = null;
+    }
+    // Note: no "healthy: true" field. A value that is true whenever you can
+    // read it asserts nothing — the response arriving IS the liveness signal.
+    res.json(info);
   });
 
   app.use('/api',(req,res,next)=>{

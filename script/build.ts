@@ -46,9 +46,12 @@ async function buildAll() {
   // several rounds of fixes were assumed live. Baked in at build time because
   // the deployed image has no git history to read.
   let gitCommit = "unknown";
+  let gitBranch = "unknown";
   try {
     const { execSync } = await import("child_process");
-    gitCommit = execSync("git rev-parse --short HEAD", { encoding: "utf-8" }).trim();
+    const git = (cmd: string) => execSync(cmd, { encoding: "utf-8" }).trim();
+    gitCommit = git("git rev-parse --short HEAD");
+    gitBranch = git("git rev-parse --abbrev-ref HEAD");
   } catch {
     // Deployment images sometimes ship without .git — record that honestly
     // rather than inventing a value.
@@ -56,7 +59,7 @@ async function buildAll() {
   }
   const buildTime = new Date().toISOString();
   const version   = `${buildTime.slice(0, 10).replace(/-/g, ".")}-${gitCommit}`;
-  await writeFile("dist/build-info.json", JSON.stringify({ gitCommit, buildTime, version }, null, 2));
+  await writeFile("dist/build-info.json", JSON.stringify({ gitCommit, gitBranch, buildTime, version }, null, 2));
   console.log(`build stamp: ${version} (${buildTime})`);
 
   const pkg = JSON.parse(await readFile("package.json", "utf-8"));

@@ -18,9 +18,14 @@ import fs from 'fs';
 import path from 'path';
 
 export interface BuildInfo {
+  application: string;
   gitCommit: string;
+  gitBranch: string;
   buildTime: string | null;
   version:   string;
+  nodeVersion: string;
+  /** Replit's instance identifier. Identifies the deployment, not the code. */
+  deploymentId: string | null;
   /** 'build-stamp' in a deployed image, 'git' in the workspace. */
   source:    'build-stamp' | 'git' | 'unknown';
   environment: 'production' | 'workspace';
@@ -42,9 +47,13 @@ export function getBuildInfo(): BuildInfo {
       if (fs.existsSync(p)) {
         const j = JSON.parse(fs.readFileSync(p, 'utf-8'));
         cached = {
+          application: 'BitsAuto',
           gitCommit: j.gitCommit ?? 'unknown',
+          gitBranch: j.gitBranch ?? 'unknown',
           buildTime: j.buildTime ?? null,
           version:   j.version   ?? 'unknown',
+          nodeVersion: process.version,
+          deploymentId: process.env.REPL_ID ?? null,
           source:    'build-stamp',
           environment, startedAt: STARTED_AT,
         };
@@ -56,17 +65,25 @@ export function getBuildInfo(): BuildInfo {
   // Workspace: read the checkout directly.
   try {
     const { execSync } = require('child_process');
-    const gitCommit = execSync('git rev-parse --short HEAD', { encoding: 'utf-8', timeout: 3000 }).trim();
+    const git = (cmd: string) => execSync(cmd, { encoding: 'utf-8', timeout: 3000 }).trim();
+    const gitCommit = git('git rev-parse --short HEAD');
+    const gitBranch = git('git rev-parse --abbrev-ref HEAD');
     cached = {
-      gitCommit, buildTime: null,
+      application: 'BitsAuto',
+      gitCommit, gitBranch, buildTime: null,
       version: `dev-${gitCommit}`,
+      nodeVersion: process.version,
+      deploymentId: process.env.REPL_ID ?? null,
       source: 'git', environment, startedAt: STARTED_AT,
     };
     return cached;
   } catch { /* fall through */ }
 
   cached = {
-    gitCommit: 'unknown', buildTime: null, version: 'unknown',
+    application: 'BitsAuto',
+    gitCommit: 'unknown', gitBranch: 'unknown', buildTime: null, version: 'unknown',
+    nodeVersion: process.version,
+    deploymentId: process.env.REPL_ID ?? null,
     source: 'unknown', environment, startedAt: STARTED_AT,
   };
   return cached;

@@ -31,6 +31,21 @@ function boot(msg: string) {
 }
 boot(`1 process started · Node ${process.version} · PID=${process.pid} · PORT=${process.env.PORT} · NODE_ENV=${process.env.NODE_ENV}`);
 
+// Identify the build in the first lines of every log capture. A pasted boot log
+// then answers "which code produced this?" on its own, instead of the question
+// being asked days later against a symptom.
+try {
+  const { getBuildInfo } = require('./build-info');
+  const b = getBuildInfo();
+  console.log('══════════════════════════════════════════════════');
+  console.log(`  ${b.application}  ${b.version}`);
+  console.log(`  Commit      : ${b.gitCommit}${b.gitBranch && b.gitBranch !== 'unknown' ? ` (${b.gitBranch})` : ''}`);
+  console.log(`  Built       : ${b.buildTime ? new Date(b.buildTime).toUTCString() : 'not a published build'}`);
+  console.log(`  Source      : ${b.source === 'build-stamp' ? 'published build' : b.source === 'git' ? 'running from source' : 'unknown'}`);
+  console.log(`  Environment : ${b.environment}`);
+  console.log('══════════════════════════════════════════════════');
+} catch { /* never block startup to print a banner */ }
+
 const app = express();
 const httpServer = createServer(app);
 boot("2 express app + httpServer created");
