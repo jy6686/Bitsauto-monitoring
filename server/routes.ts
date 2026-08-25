@@ -34170,8 +34170,23 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     } catch(e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // GET /api/invoices/:id/pdf — generate PDF matching C-1736-0675 format
+  // GET /api/invoices/:id/pdf — a real PDF.
+  // This route previously served text/html from a URL ending in /pdf. The HTML
+  // rendering below is kept as ?format=html for anyone who wants the printable
+  // page, but the default is now what the name promises.
   app.get('/api/invoices/:id/pdf', async (req: any, res: any) => {
+    if (String(req.query.format ?? '') !== 'html') {
+      try {
+        const { renderInvoicePdf } = await import('./services/invoice-pdf.service');
+        const { buffer, filename } = await renderInvoicePdf(Number(req.params.id));
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+        return res.send(buffer);
+      } catch (e: any) {
+        console.error('[invoices/pdf] render failed:', e.message);
+        return res.status(500).json({ error: e.message });
+      }
+    }
     try {
       const id = Number(req.params.id);
       const { invoices: invT, invoiceLineItems } = await import('@shared/schema');

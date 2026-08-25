@@ -192,17 +192,29 @@ export async function sendInvoiceEmail(
     // "C-2608-0006.html" tells a recipient nothing and collides in a downloads
     // folder holding several suppliers' invoices; the client, the number and
     // the period belong in the filename.
+    // A PDF is what a customer expects and what the legacy system sent. If
+    // rendering fails the invoice still goes out with the HTML version rather
+    // than not at all — a delivered invoice in the wrong format beats a
+    // customer waiting on one — but the fallback is logged, because silently
+    // reverting to HTML is how the regression would return unnoticed.
     const attachments: any[] = [];
-    if (invoice.htmlContent) {
-      const slug = (s: string) => String(s).trim().replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '');
-      const period = invoice.periodStart && invoice.periodEnd
-        ? `_${String(invoice.periodStart).slice(0, 10)}_to_${String(invoice.periodEnd).slice(0, 10)}`
-        : '';
-      attachments.push({
-        filename:    `Ichibaan_${slug(invoice.customerName ?? 'Client')}_Invoice_${slug(invoice.invoiceNumber)}${period}.html`,
-        content:     invoice.htmlContent,
-        contentType: 'text/html',
-      });
+    try {
+      const { renderInvoicePdf } = await import('../invoice-pdf.service');
+      const { buffer, filename } = await renderInvoicePdf(invoiceId);
+      attachments.push({ filename, content: buffer, contentType: 'application/pdf' });
+    } catch (pdfErr: any) {
+      console.error(`[invoice-email] PDF render failed for ${invoice.invoiceNumber}, falling back to HTML: ${pdfErr.message}`);
+      if (invoice.htmlContent) {
+        const slug = (s: string) => String(s).trim().replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        const period = invoice.periodStart && invoice.periodEnd
+          ? `_${String(invoice.periodStart).slice(0, 10)}_to_${String(invoice.periodEnd).slice(0, 10)}`
+          : '';
+        attachments.push({
+          filename:    `Ichibaan_${slug(invoice.customerName ?? 'Client')}_Invoice_${slug(invoice.invoiceNumber)}${period}.html`,
+          content:     invoice.htmlContent,
+          contentType: 'text/html',
+        });
+      }
     }
 
     // Email body: operator's message as primary content
