@@ -323,7 +323,22 @@ export async function testInvoiceSmtp(): Promise<{
     };
 
     const conn = await buildInvoiceTransporter();
-    if (!conn) return { ok: false, error: 'Invoice SMTP not configured and no fallback Gmail config available', ...identity };
+    if (!conn) {
+      // Name the empty fields. "Not configured" sent an operator hunting for a
+      // credential problem when the actual cause was a blank host field whose
+      // placeholder text reads exactly like a filled-in value.
+      const missing = [
+        !settings.invoiceSmtpHost && 'SMTP Host',
+        !settings.invoiceSmtpUser && 'SMTP Username',
+        !settings.invoiceSmtpPass && 'SMTP Password',
+      ].filter(Boolean);
+      return {
+        ok: false, ...identity,
+        error: missing.length
+          ? `Invoice SMTP is incomplete — ${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} empty. Fill ${missing.length === 1 ? 'it' : 'them'} in and save, then test again.`
+          : 'Invoice SMTP not configured and no fallback Gmail config available',
+      };
+    }
     identity.from = conn.from;
     await conn.transporter.verify();
     return { ok: true, ...identity };
