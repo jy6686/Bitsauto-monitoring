@@ -81,7 +81,22 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     // bufferPages is required for the footer pass: without it
     // bufferedPageRange() reports only the current page, so a multi-page
     // invoice would carry a footer on its last page and read "Page 1 of 1".
-    const doc = new PDFDocument({ margin: 40, size: 'A4', bufferPages: true });
+    const doc = new PDFDocument({
+      margin: 40, size: 'A4', bufferPages: true,
+      // Document properties, so the file identifies itself in a reader, a
+      // search index or a customer's document management system rather than
+      // showing only a filename.
+      info: {
+        Title:    `Invoice ${inv.invoice_number}`,
+        Author:   'Ichibaan Logic Private Limited',
+        Subject:  inv.period_start
+          ? `Invoice for ${inv.customer_name ?? 'customer'} — ${String(inv.period_start).slice(0, 10)} to ${String(inv.period_end ?? '').slice(0, 10)}`
+          : `Invoice for ${inv.customer_name ?? 'customer'}`,
+        Keywords: ['Invoice', inv.invoice_number, inv.customer_name ?? '', 'Ichibaan Logic', 'Billing']
+          .filter(Boolean).join(', '),
+        Creator:  'BitsAuto Billing',
+      },
+    });
     doc.on('data', (c: Buffer) => chunks.push(c));
     doc.on('end', () => resolve());
     doc.on('error', reject);
