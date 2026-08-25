@@ -37775,13 +37775,50 @@ ${footer}
   //
   // Ingestion is idempotent (dedup by call id), so re-running a night is safe
   // and a missed night is repaired by the next one covering the gap.
+  /**
+   * Every account the OPERATIONAL pipeline collects for.
+   *
+   * Sourced from companies, not from invoice_schedules. Collection, rating and
+   * certification are a different lifecycle from invoicing: the financial facts
+   * of a call exist because the call happened, not because someone remembered
+   * to create a billing schedule. Gating them on schedules is what made live
+   * accounts with real switch traffic invisible to Finance — no ingestion, no
+   * snapshot, no certification, no invoice, and no message anywhere saying so.
+   *
+   * Deliberately unfiltered by status: a suspended or not-yet-invoiced customer
+   * still generated traffic, and that traffic still has to be collected and
+   * certified. Whether to bill it is a later, separate decision.
+   */
+  async function _accountsForCollection(): Promise<{
+    ready: Array<{ name: string; iAccount: number; iTariff: string }>;
+    noTariff: string[];
+  }> {
+    const r = await db.execute(sql`
+      SELECT name, sippy_i_account, sippy_i_tariff
+        FROM companies
+       WHERE sippy_i_account IS NOT NULL
+       ORDER BY name`);
+    const ready: Array<{ name: string; iAccount: number; iTariff: string }> = [];
+    const noTariff: string[] = [];
+    for (const c of (((r as any).rows ?? []) as any[])) {
+      // A tariff is required to price a call. Without one the account is named
+      // rather than skipped in silence — that gap is a data problem someone
+      // can fix, and it stays invisible if the loop just passes over it.
+      if (c.sippy_i_tariff == null || String(c.sippy_i_tariff) === '') { noTariff.push(String(c.name)); continue; }
+      ready.push({ name: String(c.name), iAccount: Number(c.sippy_i_account), iTariff: String(c.sippy_i_tariff) });
+    }
+    return { ready, noTariff };
+  }
+
   async function _runNightlyReconciliation() {
     const startedAt = Date.now();
     try {
-      const schedules = await storage.listInvoiceSchedules();
-      const billed = schedules.filter(s => s.active && s.iAccount && s.iTariff);
-      if (billed.length === 0) {
-        console.log('[recon-nightly] no active schedules with an account and tariff — nothing to reconcile');
+      const { ready, noTariff } = await _accountsForCollection();
+      if (noTariff.length > 0) {
+        console.warn(`[recon-nightly] ${noTariff.length} account(s) have no tariff and cannot be priced: ${noTariff.join(', ')}`);
+      }
+      if (ready.length === 0) {
+        console.log('[recon-nightly] no company has both a Sippy account and a tariff — nothing to collect');
         return;
       }
 
@@ -37791,34 +37828,35 @@ ${footer}
       const day  = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
       const date = day.toISOString().slice(0, 10);
 
-      console.log(`[recon-nightly] reconciling ${date} for ${billed.length} billed client(s)`);
-      let ok = 0, failed = 0, totalExcluded = 0;
+      console.log(`[recon-nightly] collecting ${date} for ${ready.length} account(s) with traffic capability`);
+      let ok = 0, failed = 0, totalExcluded = 0, totalCreated = 0;
 
       // Sequential: the switch is a shared production dependency and this runs
       // unattended. Throughput does not matter at 00:00.
-      for (const s of billed) {
-        const label = s.companyName ?? `account ${s.iAccount}`;
+      for (const a of ready) {
         try {
           const r = await _seedRatingSnapshotsSync(
-            { iAccount: s.iAccount!, iTariff: String(s.iTariff), periodStart: date, periodEnd: date },
-            undefined, `recon-${date}-${s.iAccount}`,
+            { iAccount: a.iAccount, iTariff: a.iTariff, periodStart: date, periodEnd: date },
+            undefined, `recon-${date}-${a.iAccount}`,
           );
           ok++;
+          totalCreated += Number(r.created ?? 0);
           if (r.message) {
             totalExcluded++;
-            console.warn(`[recon-nightly] ${label}: ${r.message}`);
+            console.warn(`[recon-nightly] ${a.name}: ${r.message}`);
           } else {
-            console.log(`[recon-nightly] ${label}: ${r.created} call(s) reconciled, ${r.skipped} already present`);
+            console.log(`[recon-nightly] ${a.name}: ${r.created} call(s) collected, ${r.skipped} already present`);
           }
         } catch (e: any) {
           failed++;
-          console.error(`[recon-nightly] ${label}: failed — ${e.message}`);
+          console.error(`[recon-nightly] ${a.name}: failed — ${e.message}`);
         }
       }
 
       console.log(
-        `[recon-nightly] ${date} complete — ${ok} client(s) reconciled, ${failed} failed, ` +
-        `${totalExcluded} with exclusions, ${Math.round((Date.now() - startedAt) / 1000)}s`,
+        `[recon-nightly] ${date} complete — ${ok} account(s) collected (${totalCreated} new call(s)), ` +
+        `${failed} failed, ${totalExcluded} with exclusions, ${noTariff.length} skipped for no tariff, ` +
+        `${Math.round((Date.now() - startedAt) / 1000)}s`,
       );
     } catch (e: any) {
       console.error('[recon-nightly] runner error:', e.message);
@@ -40358,13 +40396,20 @@ ${footer}
       // chain OPERATIONAL — configured and proven — independent of today's
       // pipeline freshness. `ok` means "ready for production billing", not
       // "no work pending".
-      const [schedR, lockedSnapR, jobsAggR, delivAggR, coverageR] = await Promise.all([
+      const [schedR, lockedSnapR, jobsAggR, delivAggR, coverageR, collectR] = await Promise.all([
         safeQuery(`SELECT count(*)::int AS total, count(*) FILTER (WHERE active)::int AS active FROM invoice_schedules`),
         safeQuery(`SELECT count(*)::int AS total, count(*) FILTER (WHERE verification_status = 'locked')::int AS locked FROM invoice_cdr_snapshots`),
         safeQuery(`SELECT count(*) FILTER (WHERE status = 'REVIEW')::int AS review, count(*) FILTER (WHERE status = 'FAILED')::int AS failed, count(*)::int AS total FROM invoice_jobs`),
         safeQuery(`SELECT count(*)::int AS total, count(*) FILTER (WHERE status = 'sent')::int AS sent, count(*) FILTER (WHERE status = 'failed')::int AS failed, count(*) FILTER (WHERE message_id IS NOT NULL)::int AS with_lineage FROM invoice_email_deliveries`),
         safeQuery(`SELECT count(*)::int AS total, count(*) FILTER (WHERE (invoice_email IS NOT NULL AND invoice_email <> '') OR EXISTS (SELECT 1 FROM company_contacts cc WHERE cc.company_id = c.id AND cc.contact_type ILIKE '%billing%'))::int AS covered FROM companies c WHERE c.sippy_i_account IS NOT NULL`),
-      ]);
+              // Collection coverage: how many accounts the nightly operational
+        // pass can actually price. An account with a Sippy id but no tariff is
+        // collected for by nobody, which is exactly how live traffic went
+        // uninvoiced without a single warning.
+        safeQuery(`SELECT count(*) FILTER (WHERE sippy_i_account IS NOT NULL)::int AS with_account,
+                          count(*) FILTER (WHERE sippy_i_account IS NOT NULL AND sippy_i_tariff IS NOT NULL)::int AS collectable
+                     FROM companies`),
+]);
       let appSettings: any = null;
       try { appSettings = await storage.getSettings(); } catch { /* readiness degrades gracefully */ }
       const smtpDedicated = !!(appSettings?.invoiceSmtpHost && appSettings?.invoiceSmtpUser && appSettings?.invoiceSmtpPass);
@@ -40383,6 +40428,7 @@ ${footer}
         { key: 'snapshots', label: 'Rating Snapshots',  ok: (lockedSnapR.rows[0]?.total ?? 0) > 0, detail: lockedSnapR.missing ? 'snapshot table unavailable' : `${lockedSnapR.rows[0]?.total ?? 0} billable rows (${lockedSnapR.rows[0]?.locked ?? 0} locked by rating verification)` },
         { key: 'generator', label: 'Invoice Generator', ok: invoiceTotal > 0, detail: invoiceTotal > 0 ? `${invoiceTotal} invoices generated` : 'no invoice generated yet' },
         { key: 'review',    label: 'Review Queue',      ok: !jobsAggR.missing, detail: jobsAggR.missing ? 'jobs table unavailable' : `${jobsAggR.rows[0]?.review ?? 0} awaiting review · ${jobsAggR.rows[0]?.failed ?? 0} failed` },
+        { key: 'collection', label: 'CDR Collection', ok: (collectR.rows[0]?.collectable ?? 0) > 0 && (collectR.rows[0]?.collectable ?? 0) === (collectR.rows[0]?.with_account ?? 0), detail: collectR.missing ? 'companies table unavailable' : `${collectR.rows[0]?.collectable ?? 0}/${collectR.rows[0]?.with_account ?? 0} Sippy accounts have a tariff and are collected nightly` },
         { key: 'contacts',  label: 'Billing Contacts',  ok: covTotal > 0 && covCovered === covTotal, detail: `${covCovered}/${covTotal} billed clients have a billing email` },
         // Name the sender identity, not just "configured": the transporter falls
         // back to the alert Gmail account when invoice SMTP is incomplete, and an
