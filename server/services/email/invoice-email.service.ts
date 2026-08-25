@@ -168,6 +168,27 @@ export async function sendInvoiceEmail(
     totalMinutes = (secs / 60).toFixed(2);
   } catch { /* omit the row rather than guess */ }
 
+  // Due date from the same shared rule the PDF uses, so the email and the
+  // attached invoice can never state different deadlines.
+  let dueLabel: string | null = null;
+  try {
+    const { db: database } = await import('../../db');
+    const { sql: rawSql } = await import('drizzle-orm');
+    const t = await database.execute(rawSql`
+      SELECT c.payment_term,
+             (SELECT bp.payment_terms_days FROM business_partners bp
+               WHERE lower(bp.name) = lower(c.name) LIMIT 1) AS terms_days
+        FROM companies c WHERE lower(c.name) = lower(${String(invoice.customerName ?? '')}) LIMIT 1`);
+    const row: any = ((t as any).rows ?? [])[0] ?? {};
+    const { resolveInvoiceTerms } = await import('../../invoice-terms');
+    const terms = resolveInvoiceTerms(
+      String(invoice.generatedAt ?? invoice.createdAt ?? new Date().toISOString()).slice(0, 10),
+      row.payment_term ?? null,
+      row.terms_days != null ? Number(row.terms_days) : null,
+    );
+    dueLabel = terms.basis === 'prepaid' ? 'Payment due immediately' : terms.dueDate;
+  } catch { /* omit the row rather than state a deadline we cannot justify */ }
+
   let testMode = false;
   // "Who should this have gone to" — the client-master addresses when the
   // operator overrode them, otherwise filled in by Test Mode below with the
@@ -289,14 +310,15 @@ export async function sendInvoiceEmail(
       <tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Currency</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${currency}</td></tr>
       ${invoice.lineCount != null ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Calls billed</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${Number(invoice.lineCount).toLocaleString()}</td></tr>` : ''}
       ${totalMinutes != null ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Total minutes</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${totalMinutes}</td></tr>` : ''}
+      ${dueLabel ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Payment due</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0;font-weight:bold">${dueLabel}</td></tr>` : ''}
       <tr><td style="padding:9px 16px;color:#1a1a2e;font-weight:bold;border-top:2px solid #1a1a2e">Total amount</td><td style="padding:9px 16px;text-align:right;font-weight:bold;font-size:15px;color:#1a1a2e;border-top:2px solid #1a1a2e">${currency} ${Number(invoice.totalActual ?? 0).toFixed(2)}</td></tr>
     </table>
   </div>
 
   ${invoice.htmlContent ? `
   <div style="margin:0 32px 20px;font-size:12px;color:#555;line-height:1.7">
-    The attached invoice contains the invoice summary and the destination-wise call detail.
-    Please review it and arrange payment in accordance with the agreed commercial terms.
+    The attached invoice contains the charge summary by country, the destination-wise call
+    detail, and the payment instructions. Please review it and arrange payment by the due date.
   </div>` : ''}
 
   <!-- Footer -->

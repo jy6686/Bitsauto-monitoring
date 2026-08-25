@@ -87,6 +87,55 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
      ORDER BY amount DESC`);
   const rows: any[] = (detailRes as any).rows ?? [];
 
+  // Country rollup for the summary page. Sippy destination names carry the
+  // country ahead of a dash ("PAKISTAN - MOBILE MOBILINK"), so the country is
+  // the leading segment; anything without one groups under its own name rather
+  // than being discarded.
+  const countryRows: any[] = rows.reduce((acc: any[], r: any) => {
+    const name = String(r.destination ?? '');
+    const country = name.includes(' - ') ? name.split(' - ')[0].trim() : name;
+    const hit = acc.find(a => a.country === country);
+    if (hit) {
+      hit.calls   += Number(r.calls ?? 0);
+      hit.seconds += Number(r.seconds ?? 0);
+      hit.amount  += Number(r.amount ?? 0);
+    } else {
+      acc.push({ country, calls: Number(r.calls ?? 0), seconds: Number(r.seconds ?? 0), amount: Number(r.amount ?? 0) });
+    }
+    return acc;
+  }, []).sort((a: any, b: any) => b.amount - a.amount);
+
+  // Issuer identity and remittance (migration 075). One authoritative record;
+  // absent values are reported as unconfigured, never invented.
+  let profile: any = {};
+  try {
+    const p = await db.execute(sql`
+      SELECT billing_legal_name, billing_registered_address, billing_tax_id,
+             billing_contact_email, billing_website,
+             remit_beneficiary_name, remit_bank_name, remit_bank_address,
+             remit_account_number, remit_iban, remit_swift, remit_currency, remit_notes
+        FROM settings LIMIT 1`);
+    profile = ((p as any).rows ?? [])[0] ?? {};
+  } catch { /* an unconfigured profile is handled below */ }
+
+  // When the invoice falls due. Prepaid pays on the invoice date; postpaid gets
+  // its recorded terms. Shared with the email so both state the same thing.
+  const invoiceDate = String(inv.generated_at ?? inv.created_at ?? new Date().toISOString()).slice(0, 10);
+  let paymentTerm: string | null = null;
+  let termsDays: number | null = null;
+  try {
+    const t = await db.execute(sql`
+      SELECT c.payment_term,
+             (SELECT bp.payment_terms_days FROM business_partners bp
+               WHERE lower(bp.name) = lower(c.name) LIMIT 1) AS terms_days
+        FROM companies c WHERE lower(c.name) = lower(${String(inv.customer_name ?? '')}) LIMIT 1`);
+    const row = ((t as any).rows ?? [])[0] ?? {};
+    paymentTerm = row.payment_term ?? null;
+    termsDays   = row.terms_days != null ? Number(row.terms_days) : null;
+  } catch { /* resolveInvoiceTerms defaults to postpaid Net 30 */ }
+  const { resolveInvoiceTerms } = await import('../invoice-terms');
+  const terms = resolveInvoiceTerms(invoiceDate, paymentTerm, termsDays);
+
   // Currency belongs to the customer, not to this renderer. The document
   // previously printed USD unconditionally, which is simply wrong for a client
   // billed in anything else — a correctness fault on a customer-facing
@@ -165,13 +214,134 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
       .text(inv.customer_name ?? '', L, doc.y + 3, { width: colW });
 
     doc.fontSize(7.5).fillColor(GRAY).font('Helvetica-Bold').text('FROM', L + colW + 20, y);
+    // Issuer identity from the configured profile, falling back to the values
+    // that were previously hardcoded here so an unconfigured install still
+    // produces a complete invoice.
     doc.fontSize(9).fillColor(DARK).font('Helvetica')
-      .text('Ichibaan Logic Private Limited', L + colW + 20, doc.y + 3, { width: colW })
+      .text(profile.billing_legal_name ?? 'Ichibaan Logic Private Limited', L + colW + 20, doc.y + 3, { width: colW })
       .fontSize(8).fillColor(GRAY)
-      .text('Unit Level 11(A), Main Office Tower, Jalan Merdeka,\nFinancial Park Labuan, 87000 Labuan, Malaysia', { width: colW })
-      .text('billing@ichibaanlogic.com', { width: colW });
+      .text(profile.billing_registered_address
+        ?? 'Unit Level 11(A), Main Office Tower, Jalan Merdeka,\nFinancial Park Labuan, 87000 Labuan, Malaysia',
+        { width: colW })
+      .text(profile.billing_contact_email ?? 'billing@ichibaanlogic.com', { width: colW });
+    if (profile.billing_tax_id) {
+      doc.text(`Tax ID: ${profile.billing_tax_id}`, { width: colW });
+    }
 
     y = doc.y + 16;
+
+    // ── Section renderers ───────────────────────────────────────────────────
+    // Each knows its own height, returns the Y it finished at, and asks for a
+    // page only when it needs one. Layout drift — a section overflowing into
+    // whatever follows — is what produced the blank-page bug, so nothing here
+    // writes at a position it did not compute.
+
+    type Col = { label: string; w: number; align: 'left' | 'right' };
+
+    function renderTable(startY: number, title: string, cols: Col[], data: string[][]): number {
+      let yy = startY;
+
+      const head = (at: number) => {
+        let x = L;
+        doc.fontSize(7.5).fillColor(GRAY).font('Helvetica-Bold');
+        for (const c of cols) {
+          doc.text(c.label.toUpperCase(), x, at, { width: c.w - 6, align: c.align, lineBreak: false });
+          x += c.w;
+        }
+        doc.moveTo(L, at + 12).lineTo(L + W, at + 12).strokeColor(RULE).lineWidth(0.5).stroke();
+        return at + 18;
+      };
+
+      if (title) {
+        doc.fontSize(9).fillColor(DARK).font('Helvetica-Bold')
+          .text(title, L, yy, { width: W, lineBreak: false });
+        yy += 16;
+      }
+      yy = head(yy);
+
+      for (const cells of data) {
+        // Break before writing, never after: the footer occupies the last 60pt.
+        if (yy > doc.page.height - 110) {
+          doc.addPage();
+          yy = head(50);
+        }
+        let x = L;
+        doc.fontSize(8.5).fillColor(DARK).font('Helvetica');
+        cells.forEach((cell, i) => {
+          doc.text(cell, x, yy, { width: cols[i].w - 6, align: cols[i].align, lineBreak: false });
+          x += cols[i].w;
+        });
+        yy += 15;
+      }
+
+      if (data.length === 0) {
+        doc.fontSize(9).fillColor(GRAY).font('Helvetica')
+          .text('No billable calls in this period.', L, yy, { width: W });
+        yy += 20;
+      }
+      return yy;
+    }
+
+    function renderPaymentInstructions(startY: number): number {
+      let yy = startY;
+      doc.fontSize(13).fillColor(DARK).font('Helvetica-Bold')
+        .text('PAYMENT INSTRUCTIONS', L, yy, { width: W });
+      yy += 6;
+      doc.moveTo(L, yy + 12).lineTo(L + W, yy + 12).strokeColor(BRICK).lineWidth(2).stroke();
+      yy += 26;
+
+      const pairs: [string, string | null][] = [
+        ['Beneficiary',    profile.remit_beneficiary_name ?? null],
+        ['Bank',           profile.remit_bank_name        ?? null],
+        ['Bank address',   profile.remit_bank_address     ?? null],
+        ['Account number', profile.remit_account_number   ?? null],
+        ['IBAN',           profile.remit_iban             ?? null],
+        ['SWIFT / BIC',    profile.remit_swift            ?? null],
+        ['Currency',       profile.remit_currency ?? currency],
+        ['Payment reference', String(inv.invoice_number)],
+      ];
+      const configured = pairs.some(([k, v]) => v && k !== 'Currency' && k !== 'Payment reference');
+
+      if (!configured) {
+        // Say so rather than print an empty block a customer might try to pay into.
+        doc.fontSize(9).fillColor(BRICK).font('Helvetica-Bold')
+          .text('Remittance details are not configured.', L, yy, { width: W });
+        yy += 14;
+        doc.fontSize(8.5).fillColor(GRAY).font('Helvetica')
+          .text('Please contact the billing department for payment instructions before remitting funds.',
+            L, yy, { width: W });
+        yy += 24;
+      } else {
+        for (const [label, value] of pairs) {
+          if (!value) continue;
+          doc.fontSize(8).fillColor(GRAY).font('Helvetica-Bold')
+            .text(label.toUpperCase(), L, yy, { width: W * 0.3, lineBreak: false });
+          doc.fontSize(9.5).fillColor(DARK).font('Helvetica')
+            .text(String(value), L + W * 0.3, yy - 1, { width: W * 0.7 });
+          yy = Math.max(yy + 16, doc.y + 4);
+        }
+      }
+
+      if (profile.remit_notes) {
+        yy += 8;
+        doc.fontSize(8).fillColor(GRAY).font('Helvetica')
+          .text(String(profile.remit_notes), L, yy, { width: W });
+        yy = doc.y + 8;
+      }
+
+      // Terms
+      yy += 10;
+      doc.moveTo(L, yy).lineTo(L + W, yy).strokeColor(RULE).lineWidth(0.5).stroke();
+      yy += 12;
+      doc.fontSize(8).fillColor(GRAY).font('Helvetica')
+        .text(`${terms.dueLabel}. Quote invoice ${inv.invoice_number} as the payment reference.`,
+          L, yy, { width: W });
+      yy = doc.y + 8;
+      doc.text(
+        `Queries: ${profile.billing_contact_email ?? 'billing@ichibaanlogic.com'} · Disputes: dispute@ichibaanlogic.com`,
+        L, yy, { width: W });
+      return doc.y + 8;
+    }
 
     // ── Summary strip ───────────────────────────────────────────────────────
     const period = inv.period_start
@@ -180,9 +350,9 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     const totalSecs = rows.reduce((s, r) => s + Number(r.seconds ?? 0), 0);
     const items: [string, string][] = [
       ['Billing period', period],
-      ['Calls billed',   Number(inv.line_count ?? 0).toLocaleString()],
-      ['Total minutes',  mins(totalSecs)],
-      ['Invoice date',   String(inv.generated_at ?? inv.created_at ?? '').slice(0, 10)],
+      ['Invoice date',   invoiceDate],
+      ['Payment due',    terms.basis === 'prepaid' ? 'Immediately' : terms.dueDate],
+      ['Currency',       currency],
     ];
     const iw = W / items.length;
     items.forEach(([label, val], i) => {
@@ -194,44 +364,54 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     doc.moveTo(L, y).lineTo(L + W, y).strokeColor(RULE).lineWidth(0.5).stroke();
     y += 14;
 
-    // ── Detail table ────────────────────────────────────────────────────────
-    const cols = [
-      { label: 'Destination', w: W * 0.40, align: 'left'  as const },
-      { label: 'Prefix',      w: W * 0.12, align: 'left'  as const },
-      { label: 'Calls',       w: W * 0.12, align: 'right' as const },
-      { label: 'Minutes',     w: W * 0.16, align: 'right' as const },
-      { label: `Amount (${currency})`, w: W * 0.20, align: 'right' as const },
-    ];
+    // ── Country summary (page 1) ────────────────────────────────────────────
+    // What the customer wants first: where the money went, by country. The
+    // call-level breakdown follows on its own page.
+    y = renderTable(y, 'Charges by country', [
+      { label: 'Country',              w: W * 0.44, align: 'left'  as const },
+      { label: 'Calls',                w: W * 0.14, align: 'right' as const },
+      { label: 'Minutes',              w: W * 0.20, align: 'right' as const },
+      { label: `Amount (${currency})`, w: W * 0.22, align: 'right' as const },
+    ], countryRows.map(c => [
+      String(c.country),
+      Number(c.calls).toLocaleString(),
+      mins(c.seconds),
+      money(c.amount),
+    ]));
 
-    const drawHead = (yy: number) => {
-      let x = L;
-      doc.fontSize(7.5).fillColor(GRAY).font('Helvetica-Bold');
-      for (const c of cols) { doc.text(c.label.toUpperCase(), x, yy, { width: c.w - 6, align: c.align }); x += c.w; }
-      doc.moveTo(L, yy + 12).lineTo(L + W, yy + 12).strokeColor(RULE).lineWidth(0.5).stroke();
-      return yy + 18;
-    };
+    // ── Total due ───────────────────────────────────────────────────────────
+    y += 6;
+    doc.moveTo(L, y).lineTo(L + W, y).strokeColor(DARK).lineWidth(1.5).stroke();
+    y += 10;
+    doc.fontSize(11).fillColor(DARK).font('Helvetica-Bold')
+      .text('TOTAL DUE', L, y, { width: W * 0.6 })
+      .fontSize(14)
+      .text(`${currency} ${Number(inv.total_actual ?? 0).toFixed(2)}`, L + W * 0.6, y - 2, { width: W * 0.4, align: 'right' });
+    y += 24;
+    doc.fontSize(8).fillColor(GRAY).font('Helvetica')
+      .text(terms.dueLabel, L, y, { width: W });
 
-    y = drawHead(y);
-
-    for (const r of rows) {
-      // Leave room for the totals block and footer rather than orphaning them.
-      if (y > doc.page.height - 130) {
-        doc.addPage();
-        y = 50;
-        y = drawHead(y);
-      }
-      let x = L;
-      const cells = [
+    // ── Call detail (page 2+) ───────────────────────────────────────────────
+    // Destination level, never product identifiers: what the customer bought is
+    // termination to a destination, not a row from an internal catalogue.
+    doc.addPage();
+    y = 50;
+    y = renderTable(y, 'Call detail by destination', [
+      { label: 'Destination',              w: W * 0.34, align: 'left'  as const },
+      { label: 'Prefix',                   w: W * 0.10, align: 'left'  as const },
+      { label: 'Calls',                    w: W * 0.11, align: 'right' as const },
+      { label: 'Minutes',                  w: W * 0.15, align: 'right' as const },
+      { label: `Rate/min (${currency})`,   w: W * 0.14, align: 'right' as const },
+      { label: `Amount (${currency})`,     w: W * 0.16, align: 'right' as const },
+    ], rows.map(r => {
+      const m = Number(r.seconds ?? 0) / 60;
+      return [
         String(r.destination), String(r.prefix),
-        Number(r.calls).toLocaleString(), mins(r.seconds), money(r.amount),
+        Number(r.calls).toLocaleString(), mins(r.seconds),
+        m > 0 ? (Number(r.amount ?? 0) / m).toFixed(5) : '—',
+        money(r.amount),
       ];
-      doc.fontSize(8.5).fillColor(DARK).font('Helvetica');
-      cells.forEach((cell, i) => {
-        doc.text(cell, x, y, { width: cols[i].w - 6, align: cols[i].align, lineBreak: false });
-        x += cols[i].w;
-      });
-      y += 15;
-    }
+    }));
 
     if (rows.length === 0) {
       doc.fontSize(9).fillColor(GRAY).font('Helvetica')
@@ -239,18 +419,12 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
       y += 20;
     }
 
-    // ── Total ───────────────────────────────────────────────────────────────
-    if (y > doc.page.height - 120) { doc.addPage(); y = 50; }
-    doc.moveTo(L, y).lineTo(L + W, y).strokeColor(DARK).lineWidth(1.5).stroke();
-    y += 10;
-    doc.fontSize(11).fillColor(DARK).font('Helvetica-Bold')
-      .text('TOTAL DUE', L, y, { width: W * 0.6 })
-      .fontSize(14)
-      .text(`${currency} ${Number(inv.total_actual ?? 0).toFixed(2)}`, L + W * 0.6, y - 2, { width: W * 0.4, align: 'right' });
-    y += 26;
-    doc.fontSize(8).fillColor(GRAY).font('Helvetica')
-      .text('Payment is due in accordance with the agreed commercial terms. For queries contact billing@ichibaanlogic.com; disputes to dispute@ichibaanlogic.com.',
-        L, y, { width: W });
+    // ── Payment instructions (final page) ───────────────────────────────────
+    // Its own page: remittance details are fixed while the usage pages grow, so
+    // they must never be pushed around by a long call detail.
+    doc.addPage();
+    y = 50;
+    y = renderPaymentInstructions(y);
 
     // ── Footer on every page ────────────────────────────────────────────────
     const range = doc.bufferedPageRange();

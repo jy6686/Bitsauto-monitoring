@@ -155,6 +155,22 @@ export const settings = pgTable("settings", {
   // Test mode: redirect every invoice email to the test recipient, [TEST] subject,
   // intended recipients named in the body. Migration 066. Default OFF.
   invoiceEmailTestMode:      boolean("invoice_email_test_mode").notNull().default(false),
+  // Issuer identity and remittance details (migration 075). One authoritative
+  // record: every invoice reads these, and an unconfigured profile makes the
+  // document say so rather than print a blank cheque.
+  billingLegalName:        varchar("billing_legal_name",         { length: 256 }),
+  billingRegisteredAddress: text("billing_registered_address"),
+  billingTaxId:            varchar("billing_tax_id",             { length: 64  }),
+  billingContactEmail:     varchar("billing_contact_email",      { length: 255 }),
+  billingWebsite:          varchar("billing_website",            { length: 255 }),
+  remitBeneficiaryName:    varchar("remit_beneficiary_name",     { length: 256 }),
+  remitBankName:           varchar("remit_bank_name",            { length: 256 }),
+  remitBankAddress:        text("remit_bank_address"),
+  remitAccountNumber:      varchar("remit_account_number",       { length: 64  }),
+  remitIban:               varchar("remit_iban",                 { length: 64  }),
+  remitSwift:              varchar("remit_swift",                { length: 32  }),
+  remitCurrency:           varchar("remit_currency",             { length: 8   }),
+  remitNotes:              text("remit_notes"),
   invoiceEmailTestRecipient: varchar("invoice_email_test_recipient", { length: 255 }),
   // SIP Error Rate alerting threshold — percentage (15-min window) above which an incident fires
   sipErrorAlertThreshold: real("sip_error_alert_threshold").default(15),
