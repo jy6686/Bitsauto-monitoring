@@ -13,19 +13,27 @@
  * A prepaid customer has already paid; the invoice documents what was consumed
  * rather than requesting settlement, so its due date is the invoice date and it
  * says so in words. A postpaid customer gets invoice date plus their terms.
+ * When NEITHER source records a length, there is no default: the invoice
+ * prints "Not configured" and no due date, so the missing profile is noticed
+ * at review instead of a customer receiving invented contractual terms.
  *
  * Dependency-free so the rule is pinned by tests and cannot drift between the
  * PDF and the email — the two places a customer reads it.
  */
 
 export interface InvoiceTerms {
-  /** ISO date (YYYY-MM-DD) the invoice falls due. */
-  dueDate: string;
+  /**
+   * ISO date (YYYY-MM-DD) the invoice falls due — or null when no term is
+   * configured anywhere. Null is deliberate: inventing a default here would
+   * put a contractual deadline on a customer document that no one agreed to.
+   * An unconfigured profile must READ as unconfigured so Finance fixes it.
+   */
+  dueDate: string | null;
   /** What to print. Prepaid invoices state the condition, not a deadline. */
   dueLabel: string;
-  /** 'prepaid' | 'postpaid' — what drove the calculation. */
-  basis: 'prepaid' | 'postpaid';
-  termsDays: number;
+  /** What drove the calculation — 'unconfigured' when nothing is recorded. */
+  basis: 'prepaid' | 'postpaid' | 'unconfigured';
+  termsDays: number | null;
   /** Printable form of the company's recorded term. */
   termLabel: string;
 }
@@ -49,7 +57,7 @@ export function daysFromPaymentTerm(term?: string | null): number | null {
 /** Human label for a stored term: "net_30" → "Net 30", "prepaid" → "Prepaid". */
 export function paymentTermLabel(term?: string | null): string {
   const t = String(term ?? '').trim();
-  if (!t) return 'Not set';
+  if (!t) return 'Not configured';
   if (PREPAID.test(t)) return 'Prepaid';
   const d = daysFromPaymentTerm(t);
   if (d != null) return `Net ${d}`;
@@ -57,43 +65,88 @@ export function paymentTermLabel(term?: string | null): string {
 }
 
 /**
- * @param invoiceDate  ISO date or Date the invoice was raised
- * @param paymentTerm  companies.payment_term — 'prepaid', 'postpaid', etc.
- * @param termsDays    business_partners.payment_terms_days, when known
+ * Dates on customer documents, from the configured preference. Pure string
+ * assembly on the ISO form — no locale machinery to drift between renderers.
+ */
+export function fmtInvoiceDate(iso: string | null | undefined, format?: string | null): string {
+  const s = String(iso ?? '').slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return s || '—';
+  const [, y, mo, d] = m;
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  switch (String(format ?? '').trim()) {
+    case 'DD MMM YYYY': return `${d} ${MONTHS[Number(mo) - 1] ?? mo} ${y}`;
+    case 'DD/MM/YYYY':  return `${d}/${mo}/${y}`;
+    case 'MM/DD/YYYY':  return `${mo}/${d}/${y}`;
+    default:            return s;
+  }
+}
+
+/**
+ * @param invoiceDate        ISO date or Date the invoice was raised
+ * @param paymentTerm        companies.payment_term — 'prepaid', 'net_30', etc.
+ * @param termsDays          business_partners.payment_terms_days, when known
+ * @param issuerDefaultTerm  settings.billing_default_payment_term — the
+ *                           issuer's DELIBERATE standard terms. Applies fully
+ *                           when the company recorded nothing; supplies only a
+ *                           LENGTH when the company said a termless "postpaid"
+ *                           (the company's prepaid/postpaid choice always wins).
  */
 export function resolveInvoiceTerms(
   invoiceDate: string | Date,
   paymentTerm?: string | null,
   termsDays?: number | null,
+  issuerDefaultTerm?: string | null,
 ): InvoiceTerms {
   const base = typeof invoiceDate === 'string' ? new Date(invoiceDate) : invoiceDate;
   const day = isNaN(base?.getTime?.() ?? NaN) ? new Date() : base;
 
   const iso = (d: Date) => d.toISOString().slice(0, 10);
-  const prepaid = PREPAID.test(String(paymentTerm ?? '').trim());
+  const companyTerm = String(paymentTerm ?? '').trim();
+  const issuerTerm  = String(issuerDefaultTerm ?? '').trim();
 
-  if (prepaid) {
+  const asPrepaid = (): InvoiceTerms => ({
+    dueDate: iso(day), dueLabel: 'Payment due immediately',
+    basis: 'prepaid', termsDays: 0, termLabel: 'Prepaid',
+  });
+  if (PREPAID.test(companyTerm)) return asPrepaid();
+  // The issuer default applies FULLY only when the company recorded nothing —
+  // a company that chose "postpaid" is never flipped to prepaid by a default.
+  if (!companyTerm && PREPAID.test(issuerTerm)) return asPrepaid();
+
+  // Postpaid. Precedence for the length: the company's own term, then the
+  // partner record, then the issuer's configured standard. All three are
+  // agreements somebody recorded; there is no fourth tier — an invented
+  // default would print a contractual deadline nobody agreed to, and Finance
+  // would never learn the profile was incomplete.
+  const fromCompany = daysFromPaymentTerm(companyTerm);
+  const fromPartner = Number.isFinite(termsDays as number) && (termsDays as number) >= 0
+    ? Math.floor(termsDays as number)
+    : null;
+  const fromIssuer  = daysFromPaymentTerm(issuerTerm);
+
+  const days = fromCompany ?? fromPartner ?? fromIssuer;
+  if (days == null) {
+    // Fail visibly: the document says the configuration is missing rather
+    // than inventing terms. The gap surfaces at review, before any send.
     return {
-      dueDate: iso(day), dueLabel: 'Payment due immediately',
-      basis: 'prepaid', termsDays: 0, termLabel: 'Prepaid',
+      dueDate: null, dueLabel: 'Payment terms not configured',
+      basis: 'unconfigured', termsDays: null,
+      termLabel: 'Not configured',
     };
   }
 
-  // Postpaid. Precedence: the length stated in the company's own term wins,
-  // because the company profile is the single source of truth for commercial
-  // terms; a separately-recorded partner term is the fallback; 30 only when
-  // neither says anything — the same default business_partners carries, so the
-  // invoice agrees with the partner record rather than inventing a number.
-  const fromTerm = daysFromPaymentTerm(paymentTerm);
-  const days = fromTerm != null
-    ? fromTerm
-    : (Number.isFinite(termsDays as number) && (termsDays as number) >= 0
-        ? Math.floor(termsDays as number)
-        : 30);
+  // The label names the source that actually decided the length — never a
+  // configured value that lost the precedence contest.
+  const labelSource =
+    fromCompany != null || companyTerm ? companyTerm
+    : fromPartner != null              ? ''         // partner record decided
+    : issuerTerm;                                   // issuer default decided
   const due = new Date(day.getTime());
   due.setUTCDate(due.getUTCDate() + days);
   return {
     dueDate: iso(due), dueLabel: `Net ${days} — due ${iso(due)}`,
-    basis: 'postpaid', termsDays: days, termLabel: paymentTermLabel(paymentTerm) ,
+    basis: 'postpaid', termsDays: days,
+    termLabel: labelSource ? paymentTermLabel(labelSource) : `Net ${days}`,
   };
 }

@@ -304,6 +304,7 @@ const DOMAINS: Domain[] = [
         { href: '/reminder-rules',      label: 'Reminder Rules',       desc: 'Automated payment reminder schedules',          icon: Bell },
         { href: '/currency-settings',   label: 'Currency',             desc: 'Base currency and exchange rate settings',      icon: Banknote },
         { href: '/tax-vat',             label: 'Tax / VAT',            desc: 'VAT rules, rates and FTA compliance',           icon: FileText },
+        { href: '/finance/company-profile', label: 'Company Profile',  desc: 'Issuer identity, bank remittance and invoice document defaults', icon: Building2 },
       ]},
     ],
   },

@@ -40,6 +40,8 @@ import * as net from "net";
 import * as https from "https";
 import { createHash, randomBytes } from "crypto";
 import { storage } from "./storage";
+import { createWithUniqueInvoiceNumber } from "./invoice-numbering-alloc";
+import { invoiceTermsForCustomer, attachInvoiceTerms } from "./invoice-terms-db";
 import { api } from "@shared/routes";
 import {
   ANALYTICS_WINDOWS, analyticsWindowMs, windowToGranularity,
@@ -33516,10 +33518,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const opts: any = {};
       if (req.query.status)  opts.status  = req.query.status;
       if (req.query.iTariff) opts.iTariff = req.query.iTariff;
-      if (req.query.limit)   opts.limit   = Number(req.query.limit);
+      // Default high, not 100: the storage default silently truncated every
+      // cockpit KPI to the 100 most recent invoices. htmlContent is stripped
+      // below, so rows are small.
+      opts.limit = req.query.limit ? Number(req.query.limit) : 1000;
       const rows = await storage.listInvoices(opts);
+      // Pre-076 rows get their due date computed from the shared terms rule.
+      const withTerms = await attachInvoiceTerms(rows as any[]);
       // Strip htmlContent from list for performance
-      res.json(rows.map(r => ({ ...r, htmlContent: undefined })));
+      res.json(withTerms.map(r => ({ ...r, htmlContent: undefined })));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -33728,11 +33735,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
 
       // ── 4. Create invoice record ─────────────────────────────────────────────
-      const d   = new Date();
-      const seq = await storage.countInvoices() + 1;
-      const invoiceNumber = `C-${String(d.getUTCFullYear()).slice(2)}${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(seq).padStart(4, '0')}`;
-
-      const invoice = await storage.createInvoice({
+      // Number from the configured series under the DB's unique constraint;
+      // due date stamped from the shared terms rule (both migration 076).
+      const d = new Date();
+      const invTerms = await invoiceTermsForCustomer(customerName, d.toISOString().slice(0, 10));
+      const invoice = await createWithUniqueInvoiceNumber((invoiceNumber) => storage.createInvoice({
         invoiceNumber,
         iTariff,
         customerName,
@@ -33745,7 +33752,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         status:          'draft',
         notes:           notes || `Generated from Sippy CDRs · ${cdrs.length} calls`,
         generatedAt:     new Date(),
-      });
+        dueDate:           invTerms.dueDate,
+        paymentTermsLabel: invTerms.termLabel,
+      }), d);
 
       // ── 5. Line items (one row per destination prefix) ───────────────────────
       const lineItemBatch = [...prefixMap.entries()].map(([prefix, v]) => ({
@@ -36071,9 +36080,11 @@ ${footer}
   app.get('/api/portal/invoices', requirePortalAuth, async (req: any, res: any) => {
     try {
       const clientName = (req.session as any).portalClientName as string;
-      const all = await storage.listInvoices({}).catch(() => []);
+      const all = await storage.listInvoices({ limit: 1000 }).catch(() => []);
       const mine = (all as any[]).filter((i: any) => (i.customerName ?? i.clientName ?? '') === clientName);
-      res.json(mine);
+      // Same shared terms rule as /api/invoices — the portal's Due Date
+      // column was permanently "—" because no due date existed anywhere.
+      res.json(await attachInvoiceTerms(mine));
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
 
@@ -36895,10 +36906,6 @@ ${footer}
         periodEnd   = lastSun.toISOString().slice(0, 10);
       }
 
-      // Generate invoice number
-      const count = await storage.countInvoices();
-      const invoiceNumber = `INV-${String(count + 1).padStart(5, '0')}`;
-
       // Aggregate snapshots
       const snapshots = await storage.listInvoiceCdrSnapshots({
         iTariff: schedule.iTariff,
@@ -36913,15 +36920,22 @@ ${footer}
       const totalActual     = inPeriod.reduce((sum, s) => sum + (s.actualCost     ?? 0), 0);
       const totalDelta      = totalReproduced - totalActual;
 
-      const invoice = await storage.createInvoice({
+      // Number from the configured series (this site previously minted its own
+      // INV-NNNNN format off the same shared counter — unified by 076); due
+      // date stamped from the shared terms rule.
+      const schedCustomer = schedule.companyName ?? `Account ${schedule.iAccount ?? '?'}`;
+      const schedTerms = await invoiceTermsForCustomer(schedCustomer, now.toISOString().slice(0, 10));
+      const invoice = await createWithUniqueInvoiceNumber((invoiceNumber) => storage.createInvoice({
         invoiceNumber, iTariff: schedule.iTariff,
-        customerName: schedule.companyName ?? `Account ${schedule.iAccount ?? '?'}`,
+        customerName: schedCustomer,
         periodStart, periodEnd,
         totalReproduced, totalActual, totalDelta,
         lineCount: inPeriod.length, status: 'draft',
         generatedAt: new Date(), notes: `Auto-generated by schedule #${schedule.id}`,
         htmlContent: null,
-      });
+        dueDate:           schedTerms.dueDate,
+        paymentTermsLabel: schedTerms.termLabel,
+      }), now);
 
       // Mark last/next run
       const nextRunAt = new Date(now);

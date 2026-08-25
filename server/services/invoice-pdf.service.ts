@@ -27,6 +27,7 @@ import fs from 'fs';
 import path from 'path';
 import { db } from '../db';
 import { sql } from 'drizzle-orm';
+import { fmtInvoiceDate } from '../invoice-terms';
 
 const DARK  = '#1a1a2e';
 const BRICK = '#c0392b';
@@ -112,39 +113,53 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     const p = await db.execute(sql`
       SELECT billing_legal_name, billing_registered_address, billing_tax_id,
              billing_contact_email, billing_website,
-             remit_beneficiary_name, remit_bank_name, remit_bank_address,
-             remit_account_number, remit_iban, remit_swift, remit_currency, remit_notes
+             billing_trading_name, billing_registration_number, billing_vat_number,
+             billing_support_email, billing_dispute_email, billing_default_currency,
+             remit_beneficiary_name, remit_bank_name, remit_bank_branch,
+             remit_bank_address, remit_account_number, remit_iban, remit_swift,
+             remit_correspondent_bank, remit_currency, remit_notes,
+             invoice_decimal_places, invoice_date_format,
+             invoice_footer_note, invoice_terms_note
         FROM settings LIMIT 1`);
     profile = ((p as any).rows ?? [])[0] ?? {};
   } catch { /* an unconfigured profile is handled below */ }
 
-  // When the invoice falls due. Prepaid pays on the invoice date; postpaid gets
-  // its recorded terms. Shared with the email so both state the same thing.
+  // Document formatting preferences (076). Money and date rendering follow the
+  // profile so customer formatting requests are configuration, not code.
+  // Unconfigured preserves today's exact rendering: 4dp lines, 2dp totals, ISO dates.
+  const rawDp = Number(profile.invoice_decimal_places);
+  const cfgDecimals = Number.isInteger(rawDp) && rawDp >= 0 && rawDp <= 6 ? rawDp : null;
+  const dateFmt = (s: string | null | undefined) => fmtInvoiceDate(s, profile.invoice_date_format);
+
+  // When the invoice falls due — the ONE shared lookup + rule (invoice-terms-db),
+  // same as the email, the generation stamp and the invoice API. A due date
+  // stamped at generation (076) outranks a live resolve: an issued document's
+  // terms don't drift with the profile.
   const invoiceDate = String(inv.generated_at ?? inv.created_at ?? new Date().toISOString()).slice(0, 10);
-  let paymentTerm: string | null = null;
-  let termsDays: number | null = null;
-  try {
-    const t = await db.execute(sql`
-      SELECT c.payment_term,
-             (SELECT bp.payment_terms_days FROM business_partners bp
-               WHERE lower(bp.name) = lower(c.name) LIMIT 1) AS terms_days
-        FROM companies c WHERE lower(c.name) = lower(${String(inv.customer_name ?? '')}) LIMIT 1`);
-    const row = ((t as any).rows ?? [])[0] ?? {};
-    paymentTerm = row.payment_term ?? null;
-    termsDays   = row.terms_days != null ? Number(row.terms_days) : null;
-  } catch { /* resolveInvoiceTerms defaults to postpaid Net 30 */ }
-  const { resolveInvoiceTerms } = await import('../invoice-terms');
-  const terms = resolveInvoiceTerms(invoiceDate, paymentTerm, termsDays);
+  const { invoiceTermsForCustomer } = await import('../invoice-terms-db');
+  const liveTerms = await invoiceTermsForCustomer(inv.customer_name, invoiceDate);
+  const terms = inv.due_date
+    ? {
+        ...liveTerms,
+        dueDate: String(inv.due_date).slice(0, 10),
+        termLabel: inv.payment_terms_label ?? liveTerms.termLabel,
+        basis: liveTerms.basis === 'prepaid' ? liveTerms.basis : 'postpaid' as const,
+        dueLabel: liveTerms.basis === 'prepaid'
+          ? liveTerms.dueLabel
+          : `${inv.payment_terms_label ?? 'Payment'} — due ${String(inv.due_date).slice(0, 10)}`,
+      }
+    : liveTerms;
 
   // Currency belongs to the customer, not to this renderer. The document
   // previously printed USD unconditionally, which is simply wrong for a client
   // billed in anything else — a correctness fault on a customer-facing
   // document, not a presentation detail. Falls back to USD only when the
   // client record says nothing.
-  let currency = 'USD';
+  // Last-resort default is the profile's configured currency, then USD.
+  let currency = String(profile.billing_default_currency ?? '').trim().toUpperCase() || 'USD';
   try {
     const cur = await db.execute(sql`
-      SELECT coalesce(nullif(sippy_tariff_currency, ''), nullif(currency, ''), 'USD') AS cur
+      SELECT coalesce(nullif(sippy_tariff_currency, ''), nullif(currency, '')) AS cur
         FROM companies
        WHERE lower(name) = lower(${String(inv.customer_name ?? '')})
        LIMIT 1`);
@@ -188,7 +203,7 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
 
     const L = 40;
     const W = doc.page.width - 80;
-    const money = (n: any) => Number(n ?? 0).toFixed(4);
+    const money = (n: any) => Number(n ?? 0).toFixed(cfgDecimals ?? 4);
     const mins  = (secs: any) => (Number(secs ?? 0) / 60).toFixed(2);
 
     // ── Header ──────────────────────────────────────────────────────────────
@@ -219,13 +234,22 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     // produces a complete invoice.
     doc.fontSize(9).fillColor(DARK).font('Helvetica')
       .text(profile.billing_legal_name ?? 'Ichibaan Logic Private Limited', L + colW + 20, doc.y + 3, { width: colW })
-      .fontSize(8).fillColor(GRAY)
-      .text(profile.billing_registered_address
+      .fontSize(8).fillColor(GRAY);
+    if (profile.billing_trading_name) {
+      doc.text(`Trading as ${profile.billing_trading_name}`, { width: colW });
+    }
+    doc.text(profile.billing_registered_address
         ?? 'Unit Level 11(A), Main Office Tower, Jalan Merdeka,\nFinancial Park Labuan, 87000 Labuan, Malaysia',
         { width: colW })
       .text(profile.billing_contact_email ?? 'billing@ichibaanlogic.com', { width: colW });
+    if (profile.billing_registration_number) {
+      doc.text(`Reg. No: ${profile.billing_registration_number}`, { width: colW });
+    }
     if (profile.billing_tax_id) {
       doc.text(`Tax ID: ${profile.billing_tax_id}`, { width: colW });
+    }
+    if (profile.billing_vat_number) {
+      doc.text(`VAT: ${profile.billing_vat_number}`, { width: colW });
     }
 
     y = doc.y + 16;
@@ -293,10 +317,12 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
       const pairs: [string, string | null][] = [
         ['Beneficiary',    profile.remit_beneficiary_name ?? null],
         ['Bank',           profile.remit_bank_name        ?? null],
+        ['Branch',         profile.remit_bank_branch      ?? null],
         ['Bank address',   profile.remit_bank_address     ?? null],
         ['Account number', profile.remit_account_number   ?? null],
         ['IBAN',           profile.remit_iban             ?? null],
         ['SWIFT / BIC',    profile.remit_swift            ?? null],
+        ['Correspondent bank', profile.remit_correspondent_bank ?? null],
         ['Currency',       profile.remit_currency ?? currency],
         ['Payment reference', String(inv.invoice_number)],
       ];
@@ -333,13 +359,21 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
       yy += 10;
       doc.moveTo(L, yy).lineTo(L + W, yy).strokeColor(RULE).lineWidth(0.5).stroke();
       yy += 12;
+      // Dates inside the sentence follow the configured date format.
+      const dueSentence = terms.dueLabel.replace(/\d{4}-\d{2}-\d{2}/g, (m) => dateFmt(m));
       doc.fontSize(8).fillColor(GRAY).font('Helvetica')
-        .text(`${terms.dueLabel}. Quote invoice ${inv.invoice_number} as the payment reference.`,
+        .text(`${dueSentence}. Quote invoice ${inv.invoice_number} as the payment reference.`,
           L, yy, { width: W });
       yy = doc.y + 8;
-      doc.text(
-        `Queries: ${profile.billing_contact_email ?? 'billing@ichibaanlogic.com'} · Disputes: dispute@ichibaanlogic.com`,
-        L, yy, { width: W });
+      if (profile.invoice_terms_note) {
+        doc.text(String(profile.invoice_terms_note), L, yy, { width: W });
+        yy = doc.y + 8;
+      }
+      // Dispute contact from the profile; unset falls back to the billing
+      // email — the previous literal predated the configurable profile.
+      const queriesEmail = profile.billing_contact_email ?? 'billing@ichibaanlogic.com';
+      const disputeEmail = profile.billing_dispute_email ?? queriesEmail;
+      doc.text(`Queries: ${queriesEmail} · Disputes: ${disputeEmail}`, L, yy, { width: W });
       return doc.y + 8;
     }
 
@@ -350,9 +384,12 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     const totalSecs = rows.reduce((s, r) => s + Number(r.seconds ?? 0), 0);
     const items: [string, string][] = [
       ['Billing period', period],
-      ['Invoice date',   invoiceDate],
+      ['Invoice date',   dateFmt(invoiceDate)],
       ['Payment terms',  terms.termLabel],
-      ['Payment due',    terms.basis === 'prepaid' ? 'On receipt' : terms.dueDate],
+      // Unconfigured terms print as such — a dash Finance sees at review beats
+      // a default deadline the customer never agreed to (owner rule).
+      ['Payment due',
+        terms.basis === 'prepaid' ? 'On receipt' : (terms.dueDate ? dateFmt(terms.dueDate) : '—')],
     ];
     const iw = W / items.length;
     items.forEach(([label, val], i) => {
@@ -386,10 +423,10 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     doc.fontSize(11).fillColor(DARK).font('Helvetica-Bold')
       .text('TOTAL DUE', L, y, { width: W * 0.6 })
       .fontSize(14)
-      .text(`${currency} ${Number(inv.total_actual ?? 0).toFixed(2)}`, L + W * 0.6, y - 2, { width: W * 0.4, align: 'right' });
+      .text(`${currency} ${Number(inv.total_actual ?? 0).toFixed(cfgDecimals ?? 2)}`, L + W * 0.6, y - 2, { width: W * 0.4, align: 'right' });
     y += 24;
     doc.fontSize(8).fillColor(GRAY).font('Helvetica')
-      .text(terms.dueLabel, L, y, { width: W });
+      .text(terms.dueLabel.replace(/\d{4}-\d{2}-\d{2}/g, (m) => dateFmt(m)), L, y, { width: W });
 
     // ── Call detail (page 2+) ───────────────────────────────────────────────
     // Destination level, never product identifiers: what the customer bought is
@@ -439,9 +476,11 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
       doc.page.margins.bottom = 0;
       const fy = doc.page.height - 46;
       doc.moveTo(L, fy).lineTo(L + W, fy).strokeColor(RULE).lineWidth(0.5).stroke();
+      // Configured footer text wins; the literal is the unconfigured fallback.
+      const footerLine = profile.invoice_footer_note
+        ?? `${profile.billing_legal_name ?? 'Ichibaan Logic Private Limited (formerly Bhaoo Private Limited)'} · ${profile.billing_website ?? 'www.ichibaanlogic.com'}`;
       doc.fontSize(7).fillColor(GRAY).font('Helvetica')
-        .text('Ichibaan Logic Private Limited (formerly Bhaoo Private Limited) · www.ichibaanlogic.com',
-          L, fy + 6, { width: W * 0.7, lineBreak: false })
+        .text(String(footerLine), L, fy + 6, { width: W * 0.7, lineBreak: false })
         .text(`Page ${i - range.start + 1} of ${range.count}`,
           L + W * 0.7, fy + 6, { width: W * 0.3, align: 'right', lineBreak: false });
       // Which build rendered this page. When a customer questions a historical

@@ -20,6 +20,8 @@ import fs from 'fs';
 import path from 'path';
 import { storage } from '../../storage';
 import { lookupDialCode } from '../../dial-lookup';
+import { createWithUniqueInvoiceNumber } from '../../invoice-numbering-alloc';
+import { invoiceTermsForCustomer } from '../../invoice-terms-db';
 import type {
   Invoice, InsertInvoice,
   InvoiceLineItem, InsertInvoiceLineItem,
@@ -47,14 +49,9 @@ const COMPANY_PHONE   = '+60 11 1426 1581';
 const COMPANY_EMAIL   = 'billing@ichibaanlogic.com';
 const COMPANY_WEBSITE = 'www.ichibaanlogic.com';
 
-// ── Invoice number generation ─────────────────────────────────────────────────
-
-function generateInvoiceNumber(year: number, month: number, seq: number): string {
-  const yy = String(year).slice(-2);
-  const mm = String(month).padStart(2, '0');
-  const nn = String(seq).padStart(4, '0');
-  return `C-${yy}${mm}-${nn}`;
-}
+// Invoice numbers come from server/invoice-numbering-alloc.ts (076): the
+// configured series, allocated under the database's unique constraint. The
+// local count(*)+1 helper that lived here was one of three racing copies.
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 
@@ -640,12 +637,11 @@ export async function generateInvoice(opts: {
     totalDelta      += s.delta ?? 0;
   }
 
-  // Generate invoice number
-  const d   = new Date();
-  const seq = await storage.countInvoices() + 1;
-  const invoiceNumber = generateInvoiceNumber(d.getUTCFullYear(), d.getUTCMonth() + 1, seq);
-
-  const invoiceData: InsertInvoice = {
+  // Number from the configured series under the DB's unique constraint; due
+  // date stamped from the shared terms rule (both migration 076).
+  const d = new Date();
+  const terms = await invoiceTermsForCustomer(opts.customerName, d.toISOString().slice(0, 10));
+  const invoice = await createWithUniqueInvoiceNumber((invoiceNumber) => storage.createInvoice({
     invoiceNumber,
     iTariff:         resolvedTariff,
     customerName:    opts.customerName,
@@ -658,9 +654,9 @@ export async function generateInvoice(opts: {
     status:          'draft',
     notes:           opts.notes,
     generatedAt:     new Date(),
-  };
-
-  const invoice = await storage.createInvoice(invoiceData);
+    dueDate:           terms.dueDate,
+    paymentTermsLabel: terms.termLabel,
+  } satisfies InsertInvoice), d);
 
   // Insert line items in batches
   const lineItemBatch: InsertInvoiceLineItem[] = inPeriod.map(s => ({

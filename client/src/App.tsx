@@ -148,6 +148,7 @@ import NumberingPrefixesPage from "@/pages/numbering-prefixes";
 import ReminderRulesPage from "@/pages/reminder-rules";
 import CurrencySettingsPage from "@/pages/currency-settings";
 import TaxVatPage from "@/pages/tax-vat";
+import FinanceCompanyProfilePage from "@/pages/finance-company-profile";
 import BusinessPartnersPage from "@/pages/business-partners";
 import VendorBillsPage from "@/pages/vendor-bills";
 import VendorVerificationPage from "@/pages/vendor-verification";
@@ -282,6 +283,7 @@ const NumberingPrefixesWS = withWorkspace('billing-ops', NumberingPrefixesPage);
 const ReminderRulesWS    = withWorkspace('billing-ops', ReminderRulesPage);
 const CurrencySettingsWS = withWorkspace('billing-ops', CurrencySettingsPage);
 const TaxVatWS              = withWorkspace('billing-ops', TaxVatPage);
+const CompanyProfileWS      = withWorkspace('billing-ops', FinanceCompanyProfilePage);
 const BusinessPartnersWS    = withWorkspace('billing-ops', BusinessPartnersPage);
 const VendorBillsWS         = withWorkspace('billing-ops', VendorBillsPage);
 const VendorVerificationWS  = withWorkspace('billing-ops', VendorVerificationPage);
@@ -736,6 +738,9 @@ function Router() {
       </Route>
       <Route path="/tax-vat">
         {() => <ProtectedRoute component={TaxVatWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance/company-profile">
+        {() => <ProtectedRoute component={CompanyProfileWS} requiredRoles={['admin']} />}
       </Route>
       <Route path="/finance/business-partners">
         {() => <ProtectedRoute component={BusinessPartnersWS} requiredRoles={['admin', 'management']} />}

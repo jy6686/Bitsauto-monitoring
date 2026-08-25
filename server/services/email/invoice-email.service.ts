@@ -173,23 +173,37 @@ export async function sendInvoiceEmail(
   let dueLabel: string | null = null;
   let termLabel: string | null = null;
   try {
-    const { db: database } = await import('../../db');
-    const { sql: rawSql } = await import('drizzle-orm');
-    const t = await database.execute(rawSql`
-      SELECT c.payment_term,
-             (SELECT bp.payment_terms_days FROM business_partners bp
-               WHERE lower(bp.name) = lower(c.name) LIMIT 1) AS terms_days
-        FROM companies c WHERE lower(c.name) = lower(${String(invoice.customerName ?? '')}) LIMIT 1`);
-    const row: any = ((t as any).rows ?? [])[0] ?? {};
-    const { resolveInvoiceTerms } = await import('../../invoice-terms');
-    const terms = resolveInvoiceTerms(
-      String(invoice.generatedAt ?? invoice.createdAt ?? new Date().toISOString()).slice(0, 10),
-      row.payment_term ?? null,
-      row.terms_days != null ? Number(row.terms_days) : null,
-    );
-    dueLabel  = terms.basis === 'prepaid' ? 'On receipt' : terms.dueDate;
-    termLabel = terms.termLabel;
+    // The stamp written at generation (076) wins — an issued invoice's terms
+    // don't drift with the profile. Older rows resolve through the same
+    // shared lookup the PDF and the generation stamp use, so the email and
+    // the attachment can never state different deadlines.
+    if ((invoice as any).dueDate || (invoice as any).paymentTermsLabel) {
+      dueLabel  = (invoice as any).dueDate ? String((invoice as any).dueDate).slice(0, 10) : '—';
+      termLabel = (invoice as any).paymentTermsLabel ?? null;
+    } else {
+      const { invoiceTermsForCustomer } = await import('../../invoice-terms-db');
+      const terms = await invoiceTermsForCustomer(
+        invoice.customerName,
+        String(invoice.generatedAt ?? invoice.createdAt ?? new Date().toISOString()).slice(0, 10),
+      );
+      // Unconfigured terms are stated, not omitted — hiding the row would let
+      // the gap survive review; the PDF prints the same dash (owner rule).
+      dueLabel  = terms.basis === 'prepaid' ? 'On receipt' : (terms.dueDate ?? '—');
+      termLabel = terms.termLabel;
+    }
   } catch { /* omit the row rather than state a deadline we cannot justify */ }
+
+  // Issuer identity for the footer — the same profile the PDF prints, so the
+  // email cannot sign as a different company than its attachment.
+  let issuer: any = {};
+  try {
+    const s: any = (await storage.getSettings()) ?? {};
+    issuer = {
+      ...s,
+      // Displayed and used inside an https:// href — store it scheme-less.
+      billingWebsite: s.billingWebsite ? String(s.billingWebsite).replace(/^https?:\/\//i, '') : null,
+    };
+  } catch { /* unconfigured → the fallback literals below */ }
 
   let testMode = false;
   // "Who should this have gone to" — the client-master addresses when the
@@ -324,15 +338,17 @@ export async function sendInvoiceEmail(
     detail, and the payment instructions. Please review it and arrange payment by the due date.
   </div>` : ''}
 
-  <!-- Footer -->
+  <!-- Footer: issuer identity from the company profile; literals are the
+       unconfigured fallback so an unconfigured install still signs its mail. -->
   <div style="padding:16px 32px;background:#f8f8f8;border-top:1px solid #e8e8e8">
     <div style="font-size:11px;color:#555;line-height:1.7">
-      <strong style="color:#1a1a2e">Ichibaan Logic Private Limited</strong>
-      <span style="color:#999;font-style:italic"> (formerly Bhaoo Private Limited)</span><br>
-      Unit Level 11(A), Main Office Tower, Jalan Merdeka, Financial Park Labuan, 87000 Labuan, Malaysia<br>
+      <strong style="color:#1a1a2e">${issuer.billingLegalName ?? 'Ichibaan Logic Private Limited'}</strong>
+      ${issuer.billingLegalName ? '' : '<span style="color:#999;font-style:italic"> (formerly Bhaoo Private Limited)</span>'}<br>
+      ${issuer.billingRegisteredAddress ?? 'Unit Level 11(A), Main Office Tower, Jalan Merdeka, Financial Park Labuan, 87000 Labuan, Malaysia'}<br>
       Tel: +60 11 1426 1581 &nbsp;&bull;&nbsp;
-      <a href="mailto:billing@ichibaanlogic.com" style="color:#c0392b;text-decoration:none;">billing@ichibaanlogic.com</a> &nbsp;&bull;&nbsp;
-      <a href="https://www.ichibaanlogic.com" style="color:#c0392b;text-decoration:none;">www.ichibaanlogic.com</a>
+      <a href="mailto:${issuer.billingContactEmail ?? 'billing@ichibaanlogic.com'}" style="color:#c0392b;text-decoration:none;">${issuer.billingContactEmail ?? 'billing@ichibaanlogic.com'}</a> &nbsp;&bull;&nbsp;
+      ${issuer.billingSupportEmail ? `Support: <a href="mailto:${issuer.billingSupportEmail}" style="color:#c0392b;text-decoration:none;">${issuer.billingSupportEmail}</a> &nbsp;&bull;&nbsp;` : ''}
+      <a href="https://${issuer.billingWebsite ?? 'www.ichibaanlogic.com'}" style="color:#c0392b;text-decoration:none;">${issuer.billingWebsite ?? 'www.ichibaanlogic.com'}</a>
     </div>
   </div>
 

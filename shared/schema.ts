@@ -171,6 +171,26 @@ export const settings = pgTable("settings", {
   remitSwift:              varchar("remit_swift",                { length: 32  }),
   remitCurrency:           varchar("remit_currency",             { length: 8   }),
   remitNotes:              text("remit_notes"),
+  // Issuer profile completion + invoice document metadata (migration 076).
+  // billingDefaultPaymentTerm is a DELIBERATE finance-configured default,
+  // distinct from code inventing terms: company > partner > this > nothing.
+  billingTradingName:        varchar("billing_trading_name",         { length: 256 }),
+  billingRegistrationNumber: varchar("billing_registration_number",  { length: 64  }),
+  billingVatNumber:          varchar("billing_vat_number",           { length: 64  }),
+  billingSupportEmail:       varchar("billing_support_email",        { length: 255 }),
+  billingDisputeEmail:       varchar("billing_dispute_email",        { length: 255 }),
+  billingDefaultPaymentTerm: varchar("billing_default_payment_term", { length: 32  }),
+  billingDefaultCurrency:    varchar("billing_default_currency",     { length: 8   }),
+  remitBankBranch:           varchar("remit_bank_branch",            { length: 256 }),
+  remitCorrespondentBank:    varchar("remit_correspondent_bank",     { length: 256 }),
+  // Number format tokens: {PREFIX} {YYYY} {YY} {MM} {SEQ:n}. Unset → the
+  // renderer's default '{PREFIX}-{YY}{MM}-{SEQ:4}' with prefix 'C'.
+  invoiceNumberPrefix:       varchar("invoice_number_prefix",        { length: 16  }),
+  invoiceNumberFormat:       varchar("invoice_number_format",        { length: 64  }),
+  invoiceDecimalPlaces:      integer("invoice_decimal_places"),
+  invoiceDateFormat:         varchar("invoice_date_format",          { length: 16  }),
+  invoiceFooterNote:         text("invoice_footer_note"),
+  invoiceTermsNote:          text("invoice_terms_note"),
   invoiceEmailTestRecipient: varchar("invoice_email_test_recipient", { length: 255 }),
   // SIP Error Rate alerting threshold — percentage (15-min window) above which an incident fires
   sipErrorAlertThreshold: real("sip_error_alert_threshold").default(15),
@@ -2861,7 +2881,9 @@ export const insertReportJobSchema = createInsertSchema(reportJobs).omit({ id: t
 // Draft flow: draft → review → approved → sent (NEVER auto-send on first deploy).
 export const invoices = pgTable("invoices", {
   id:              serial("id").primaryKey(),
-  invoiceNumber:   varchar("invoice_number",  { length: 64  }).notNull(),
+  // Unique since migration 076 — three generators previously shared one
+  // unconstrained count(*)+1 counter, so duplicates were silently possible.
+  invoiceNumber:   varchar("invoice_number",  { length: 64  }).notNull().unique(),
   iTariff:         varchar("i_tariff",         { length: 64  }),
   customerName:    varchar("customer_name",    { length: 256 }),
   periodStart:     varchar("period_start",     { length: 32  }),
@@ -2886,6 +2908,11 @@ export const invoices = pgTable("invoices", {
   overrideReason:      text("override_reason"),
   overriddenBy:        varchar("overridden_by", { length: 128 }),
   certifiedAt:         timestamp("certified_at", { withTimezone: true }),
+  // When the invoice falls due (migration 076), stamped at generation from the
+  // shared terms rule (server/invoice-terms.ts). NULL = terms unconfigured at
+  // generation — surfaced as "Not configured", never defaulted.
+  dueDate:             date("due_date"),
+  paymentTermsLabel:   varchar("payment_terms_label", { length: 64 }),
 });
 export type Invoice       = typeof invoices.$inferSelect;
 export type InsertInvoice = typeof invoices.$inferInsert;

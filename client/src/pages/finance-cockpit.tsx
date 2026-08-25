@@ -116,11 +116,14 @@ function InvoiceRow({ inv }: { inv: any }) {
   return (
     <div className="flex items-center justify-between py-2 gap-2">
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium truncate">{inv.clientName ?? inv.accountName ?? `Invoice #${inv.id}`}</p>
-        <p className="text-xs text-muted-foreground">{fmtDate(inv.createdAt ?? inv.issueDate)}</p>
+        {/* Real column names: customerName / generatedAt / totalReproduced.
+            The previous fallbacks named fields that don't exist, so every row
+            read "Invoice #id" with a blank amount. */}
+        <p className="text-sm font-medium truncate">{inv.customerName ?? `Invoice #${inv.id}`}</p>
+        <p className="text-xs text-muted-foreground">{fmtDate(inv.generatedAt ?? inv.createdAt)}</p>
       </div>
       <div className="text-right shrink-0">
-        <p className="text-sm font-medium">{fmt(inv.totalAmount ?? inv.amount)}</p>
+        <p className="text-sm font-medium">{fmt(inv.totalReproduced ?? inv.totalActual)}</p>
         <Badge variant="outline" className={`text-xs ${color}`}>{inv.status}</Badge>
       </div>
     </div>
@@ -256,21 +259,30 @@ export default function FinanceCockpitPage() {
   const nowDate    = new Date();
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
 
+  // The invoice's amount. The columns are totalReproduced (what we verified
+  // and billed) and totalActual (Sippy's figure) — this KPI previously summed
+  // `totalAmount ?? amount`, neither of which exists on the table, so Total
+  // Receivables and Overdue read $0 forever. Same defect class as the asList
+  // fix above: a field-name mismatch that silently renders as zero.
+  const invoiceAmount = (i: any) => Number(i.totalReproduced ?? i.totalActual ?? 0);
+
   // Total Receivables: approved / sent / overdue invoices not yet collected
   const outstandingInvoices = invoices.filter((i: any) =>
     ["approved", "sent", "overdue"].includes(i.status)
   );
   const totalReceivables = outstandingInvoices.reduce(
-    (s: number, i: any) => s + (i.totalAmount ?? i.amount ?? 0), 0
+    (s: number, i: any) => s + invoiceAmount(i), 0
   );
 
-  // Overdue Receivables: past due date and not settled
+  // Overdue Receivables: past due date and not settled. dueDate exists since
+  // migration 076 (stamped at generation, computed on read for older rows) —
+  // before that no invoice had one and this filter was permanently empty.
   const overdueInvoices = invoices.filter((i: any) => {
     if (["paid", "void", "cancelled", "draft"].includes(i.status)) return false;
-    return i.dueDate && new Date(i.dueDate) < nowDate;
+    return Boolean(i.dueDate && new Date(i.dueDate) < nowDate);
   });
   const overdueCount  = overdueInvoices.length;
-  const overdueAmount = overdueInvoices.reduce((s: number, i: any) => s + (i.totalAmount ?? 0), 0);
+  const overdueAmount = overdueInvoices.reduce((s: number, i: any) => s + invoiceAmount(i), 0);
 
   // Current Billing Period: revenue from latest financial snapshot (period-first)
   const currentPeriodRevenue = snapSummary?.totalRevenue ?? snapSummary?.revenue ?? 0;
