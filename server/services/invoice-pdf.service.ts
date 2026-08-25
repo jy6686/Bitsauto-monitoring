@@ -126,13 +126,23 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
       country = 'Other';
       destination = 'Other destinations';
     }
-    const key = `${country}|${destination}`;
-    const hit = grouped.get(key) ?? { country, destination, seconds: 0, amount: 0 };
-    hit.seconds += Number(raw.seconds ?? 0); hit.amount += Number(raw.amount ?? 0);
+    // The RATE is part of the identity of a breakout row, not a derived
+    // display value. The product digit (1 First Class, 2 Business, 6 Bravo,
+    // 7 Charlie) selects a different tariff rate for the SAME destination, so
+    // merging on the name alone would print a blended rate that matches no
+    // tariff entry and could never certify. The customer sees the destination
+    // twice at two rates — never the product that distinguishes them.
+    const secs = Number(raw.seconds ?? 0);
+    const amount = Number(raw.amount ?? 0);
+    const rate = secs > 0 ? +(amount / (secs / 60)).toFixed(5) : 0;
+
+    const key = `${country}|${destination}|${rate.toFixed(5)}`;
+    const hit = grouped.get(key) ?? { country, destination, rate, seconds: 0, amount: 0 };
+    hit.seconds += secs; hit.amount += amount;
     grouped.set(key, hit);
   }
-  const rows: any[] = [...grouped.values()]
-    .sort((a, b) => a.country.localeCompare(b.country) || a.destination.localeCompare(b.destination));
+  const rows: any[] = [...grouped.values()].sort((a, b) =>
+    a.country.localeCompare(b.country) || a.destination.localeCompare(b.destination) || a.rate - b.rate);
 
   // Country rollup for the summary page — same canonical country the detail
   // rows carry, so page 1 and page 2 can never disagree.
@@ -532,14 +542,13 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
       { label: 'Minutes',                  w: W * 0.14, align: 'right' as const },
       { label: `Rate/min (${currency})`,   w: W * 0.14, align: 'right' as const },
       { label: `Amount (${currency})`,     w: W * 0.16, align: 'right' as const },
-    ], rows.map(r => {
-      const m = Number(r.seconds ?? 0) / 60;
-      return [
-        String(r.country), String(r.destination), mins(r.seconds),
-        m > 0 ? (Number(r.amount ?? 0) / m).toFixed(5) : '—',
-        money(r.amount),
-      ];
-    }));
+    ], rows.map(r => [
+      // The row's OWN rate, carried from grouping — not re-derived here, so
+      // it can never blend two products' rates into a fictional average.
+      String(r.country), String(r.destination), mins(r.seconds),
+      Number(r.rate) > 0 ? Number(r.rate).toFixed(5) : '—',
+      money(r.amount),
+    ]));
 
     if (rows.length === 0) {
       doc.fontSize(9).fillColor(GRAY).font('Helvetica')
