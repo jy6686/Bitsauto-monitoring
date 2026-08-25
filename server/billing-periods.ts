@@ -25,10 +25,25 @@
 export type BillingTerm = 'weekly' | 'bi_monthly' | 'monthly';
 
 export interface BillingPeriod {
-  /** YYYY-MM-DD, inclusive. */
+  /** YYYY-MM-DD at 00:00 GMT, inclusive. The period opens here. */
   start: string;
-  /** YYYY-MM-DD, inclusive. */
+  /**
+   * YYYY-MM-DD, INCLUSIVE — the last billed day. This is what the invoice
+   * prints and what the existing queries compare against, since every one of
+   * them truncates the CDR timestamp to a date first.
+   */
   end: string;
+  /**
+   * YYYY-MM-DD at 00:00 GMT, EXCLUSIVE — the accounting boundary proper,
+   * per the owner's rule that a period runs [00:00 GMT, 00:00 GMT).
+   *
+   * Use this for any comparison against a raw TIMESTAMP, because the obvious
+   * form is silently wrong: `cdr_start_time <= '2026-08-31'` is lexically
+   * FALSE for '2026-08-31 14:00:00', so it drops the entire last day. The
+   * correct form is `>= start AND < endExclusive`, which needs no truncation
+   * and has no 23:59:59 case to get wrong.
+   */
+  endExclusive: string;
   /** YYYY-MM — the single accounting month this period belongs to. */
   accountingMonth: string;
   /** True when a month boundary cut the term's natural period short. */
@@ -132,7 +147,7 @@ export function closedPeriods(
       if (p.end >= asOf) continue;              // not closed yet
       if (p.end < since) continue;              // entirely before the window
       out.push({
-        start: p.start, end: p.end,
+        start: p.start, end: p.end, endExclusive: addDays(p.end, 1),
         accountingMonth: p.start.slice(0, 7),
         partial: pieces.length > 1,
       });

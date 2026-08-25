@@ -57,7 +57,7 @@ describe('weekly', () => {
     // 17 Aug 2026 is a Monday; as of Mon 24 Aug the 17–23 week has closed.
     const p = closedPeriods('weekly', '2026-08-24', '2026-08-17');
     expect(p).toEqual([{
-      start: '2026-08-17', end: '2026-08-23',
+      start: '2026-08-17', end: '2026-08-23', endExclusive: '2026-08-24',
       accountingMonth: '2026-08', partial: false,
     }]);
   });
@@ -72,7 +72,7 @@ describe('weekly', () => {
     // closed and must be invoiced so August closes in August.
     const p = closedPeriods('weekly', '2026-09-01', '2026-08-31');
     expect(p).toEqual([{
-      start: '2026-08-31', end: '2026-08-31',
+      start: '2026-08-31', end: '2026-08-31', endExclusive: '2026-09-01',
       accountingMonth: '2026-08', partial: true,
     }]);
   });
@@ -80,8 +80,8 @@ describe('weekly', () => {
   it('bills the straddling week as two invoices, one per accounting month', () => {
     const p = closedPeriods('weekly', '2026-09-07', '2026-08-31');
     expect(p).toEqual([
-      { start: '2026-08-31', end: '2026-08-31', accountingMonth: '2026-08', partial: true },
-      { start: '2026-09-01', end: '2026-09-06', accountingMonth: '2026-09', partial: true },
+      { start: '2026-08-31', end: '2026-08-31', endExclusive: '2026-09-01', accountingMonth: '2026-08', partial: true },
+      { start: '2026-09-01', end: '2026-09-06', endExclusive: '2026-09-07', accountingMonth: '2026-09', partial: true },
     ]);
   });
 
@@ -106,8 +106,8 @@ describe('bi_monthly', () => {
   it('bills 1–15 and 16–end of month, not a rolling fortnight', () => {
     const p = closedPeriods('bi_monthly', '2026-09-01', '2026-08-01');
     expect(p).toEqual([
-      { start: '2026-08-01', end: '2026-08-15', accountingMonth: '2026-08', partial: false },
-      { start: '2026-08-16', end: '2026-08-31', accountingMonth: '2026-08', partial: false },
+      { start: '2026-08-01', end: '2026-08-15', endExclusive: '2026-08-16', accountingMonth: '2026-08', partial: false },
+      { start: '2026-08-16', end: '2026-08-31', endExclusive: '2026-09-01', accountingMonth: '2026-08', partial: false },
     ]);
   });
 
@@ -119,7 +119,7 @@ describe('bi_monthly', () => {
   it('does not bill the second half before the month has ended', () => {
     const p = closedPeriods('bi_monthly', '2026-08-20', '2026-08-01');
     expect(p).toEqual([
-      { start: '2026-08-01', end: '2026-08-15', accountingMonth: '2026-08', partial: false },
+      { start: '2026-08-01', end: '2026-08-15', endExclusive: '2026-08-16', accountingMonth: '2026-08', partial: false },
     ]);
   });
 });
@@ -127,7 +127,7 @@ describe('bi_monthly', () => {
 describe('monthly', () => {
   it('bills the whole calendar month once it has closed', () => {
     expect(closedPeriods('monthly', '2026-09-01', '2026-08-01')).toEqual([
-      { start: '2026-08-01', end: '2026-08-31', accountingMonth: '2026-08', partial: false },
+      { start: '2026-08-01', end: '2026-08-31', endExclusive: '2026-09-01', accountingMonth: '2026-08', partial: false },
     ]);
   });
 
@@ -140,7 +140,8 @@ describe('latestClosedPeriods', () => {
   it('returns the single most recent period in the ordinary case', () => {
     const p = latestClosedPeriods('weekly', '2026-08-24');
     expect(p).toEqual([{
-      start: '2026-08-17', end: '2026-08-23', accountingMonth: '2026-08', partial: false,
+      start: '2026-08-17', end: '2026-08-23', endExclusive: '2026-08-24',
+      accountingMonth: '2026-08', partial: false,
     }]);
   });
 
@@ -174,5 +175,48 @@ describe('normalizeTerm', () => {
   it('an unknown or missing term falls back to monthly, never to nothing', () => {
     expect(normalizeTerm(null)).toBe('monthly');
     expect(normalizeTerm('something-else')).toBe('monthly');
+  });
+});
+
+/**
+ * The owner's accounting-boundary rule: a period runs [00:00 GMT, 00:00 GMT).
+ * `end` stays inclusive because that is what the invoice prints and what every
+ * existing query compares (all of them truncate the CDR timestamp to a date);
+ * `endExclusive` is the boundary proper, for comparisons against raw timestamps.
+ */
+describe('00:00 GMT accounting boundary', () => {
+  it('endExclusive is always the day after the last billed day', () => {
+    for (const term of ['weekly', 'bi_monthly', 'monthly'] as const) {
+      for (const p of closedPeriods(term, '2026-10-01', '2026-07-01')) {
+        const next = new Date(`${p.end}T00:00:00Z`);
+        next.setUTCDate(next.getUTCDate() + 1);
+        expect(p.endExclusive).toBe(next.toISOString().slice(0, 10));
+      }
+    }
+  });
+
+  it('a month runs 1 Aug 00:00 GMT to 1 Sep 00:00 GMT', () => {
+    const [aug] = closedPeriods('monthly', '2026-09-02', '2026-08-01');
+    expect(aug.start).toBe('2026-08-01');
+    expect(aug.endExclusive).toBe('2026-09-01');
+  });
+
+  it('a week is exactly seven days wide on the exclusive boundary', () => {
+    const [w] = closedPeriods('weekly', '2026-08-24', '2026-08-17');
+    const days = (Date.parse(`${w.endExclusive}T00:00:00Z`) - Date.parse(`${w.start}T00:00:00Z`)) / 86400000;
+    expect(days).toBe(7);
+  });
+
+  it('consecutive periods meet exactly — no gap, no overlap', () => {
+    const p = closedPeriods('weekly', '2026-10-01', '2026-08-17');
+    for (let i = 1; i < p.length; i++) expect(p[i].start).toBe(p[i - 1].endExclusive);
+  });
+
+  it('the untruncated comparison this field exists to prevent', () => {
+    // The obvious timestamp query drops the last day, because a timestamp
+    // string sorts AFTER the bare date it falls on.
+    const lastDayCall = '2026-08-31 14:00:00';
+    expect(lastDayCall <= '2026-08-31').toBe(false);            // the trap
+    expect(lastDayCall < '2026-09-01').toBe(true);              // endExclusive
   });
 });
