@@ -33425,24 +33425,21 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
-  // GET /api/finance/certification?iTariff=&periodStart=&periodEnd=
-  // What the UI reads to decide whether Generate Invoice may be offered.
   // GET /api/finance/pipeline-trace?customer=&periodStart=&periodEnd=
   //
-  // ONE customer, ONE period, ONE answer: which stage did they reach, and if
-  // they stopped, why and what fixes it.
+  // ONE customer, ONE period, and an independent verdict for EVERY stage.
   //
-  // This exists because a customer with real switch traffic produced no
-  // invoice and nothing in the product could say why — the answer had to be
-  // reconstructed by reading source and querying tables by hand, twice, and
-  // the first attempt blamed the wrong stage. Counts on a dashboard cannot
-  // answer it: they aggregate across customers, so a customer that never
-  // entered the pipeline looks identical to one that has no traffic.
+  // An earlier version stopped at the first failure. That was wrong: knowing
+  // "traffic found, 8,412 calls — but no tariff" tells Finance what to fix,
+  // where "stopped at Tariff" hides whether the customer even had calls. So
+  // each stage now reports on its own, and a stage whose prerequisite failed
+  // says NOT EXECUTED rather than pretending to be a failure of its own.
   //
-  // Stages are evaluated in order and STOP at the first failure — reporting
-  // "no invoice" for a customer who never had a schedule would be true and
-  // useless. Every stage carries the remedy, not just the verdict.
-  app.get('/api/finance/pipeline-trace', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+  // Traffic discovery is a limit-1 probe against the switch, not a count: one
+  // account produced 1.6M calls in a week, so counting them here would hang
+  // the screen. The question it answers is the one that matters — did this
+  // account have traffic, or did nobody ever look.
+  app.get('/api/finance/pipeline-trace', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const customer    = String(req.query.customer ?? '').trim();
       const periodStart = String(req.query.periodStart ?? '').slice(0, 10);
@@ -33451,146 +33448,197 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         return res.status(400).json({ error: 'customer, periodStart and periodEnd are required' });
       }
 
-      type Stage = { stage: string; reached: boolean; detail: string; remedy?: string };
+      type StageStatus = 'pass' | 'fail' | 'not_executed';
+      type Stage = { stage: string; status: StageStatus; detail: string; remedy?: string };
       const stages: Stage[] = [];
-      const stop = (stage: string, detail: string, remedy: string) => {
-        stages.push({ stage, reached: false, detail, remedy });
-        return res.json({
-          customer, periodStart, periodEnd, stages,
-          verdict: `Stopped at: ${stage}`, stoppedAt: stage, remedy,
-        });
-      };
+      const add = (stage: string, status: StageStatus, detail: string, remedy?: string) =>
+        stages.push({ stage, status, detail, ...(remedy ? { remedy } : {}) });
+      /** Prerequisite missing — say so plainly instead of blaming this stage. */
+      const skip = (stage: string, why: string) => add(stage, 'not_executed', `Not executed — ${why}`);
 
       // ── 1. Company record ────────────────────────────────────────────────
       const cRes = await db.execute(sql`
-        SELECT id, name, sippy_i_account, sippy_i_tariff, invoice_email
+        SELECT id, name, sippy_i_account, sippy_i_tariff, invoice_email, client_billing_cycle
           FROM companies WHERE lower(name) = lower(${customer}) LIMIT 1`);
       const co: any = ((cRes as any).rows ?? [])[0];
       if (!co) {
-        return stop('Company record', `No company named "${customer}".`,
+        add('Company record', 'fail', `No company named "${customer}".`,
           'Create the company under Organisation Management, with its Sippy account and tariff.');
+        for (const s of ['Traffic discovery', 'Tariff resolution', 'Rating', 'Billable snapshots',
+                         'Certification', 'Billing policy', 'Invoice', 'Delivery']) {
+          skip(s, 'there is no company record');
+        }
+        return res.json({ customer, periodStart, periodEnd, stages, verdict: 'No company record' });
       }
-      if (!co.sippy_i_account) {
-        return stop('Company record', `"${co.name}" has no Sippy account number.`,
-          'Set sippyIAccount on the company so its switch traffic can be found.');
-      }
-      stages.push({ stage: 'Company record', reached: true,
-        detail: `Account ${co.sippy_i_account}${co.sippy_i_tariff ? `, tariff ${co.sippy_i_tariff}` : ', NO TARIFF'}${co.invoice_email ? '' : ' — no billing email on file'}` });
+      const hasAccount = co.sippy_i_account != null;
+      add('Company record', hasAccount ? 'pass' : 'fail',
+        hasAccount ? `Sippy account ${co.sippy_i_account}${co.invoice_email ? '' : ' — no billing email on file'}`
+                   : `"${co.name}" has no Sippy account number.`,
+        hasAccount ? undefined : 'Set sippyIAccount on the company so its switch traffic can be found.');
 
-      // ── 2. Invoice schedule — the ROOT of the whole pipeline ─────────────
-      // Both automatic entry points (the 30-minute due-schedule runner and the
-      // 00:00 GMT reconciliation) iterate invoice_schedules. No row here means
-      // nothing ingests, rates, certifies or invoices this customer — ever,
-      // and silently. This is the stage that was starving live accounts.
-      const sRes = await db.execute(sql`
-        SELECT id, active, i_account, i_tariff, frequency, next_run_at, last_run_at
-          FROM invoice_schedules
-         WHERE company_id = ${co.id} OR lower(company_name) = lower(${co.name})
-            OR i_account = ${co.sippy_i_account}
-         ORDER BY id LIMIT 1`);
-      const sch: any = ((sRes as any).rows ?? [])[0];
-      if (!sch) {
-        return stop('Invoice schedule',
-          `No schedule row for "${co.name}". Both automatic jobs iterate invoice_schedules, so this customer is never considered — no ingestion, no rating, no invoice.`,
-          'Create an invoice schedule for this customer (Finance → Invoice Schedules) with its Sippy account and tariff.');
-      }
-      if (!sch.active) {
-        return stop('Invoice schedule', `Schedule #${sch.id} exists but is inactive.`, 'Activate the schedule.');
-      }
-      if (!sch.i_tariff) {
-        return stop('Invoice schedule', `Schedule #${sch.id} has no tariff — the runner skips it every cycle with a console warning only.`,
-          'Set the tariff on the schedule.');
-      }
-      if (!sch.next_run_at) {
-        return stop('Invoice schedule', `Schedule #${sch.id} has no next_run_at, so it can never come due.`,
-          'Re-save the schedule to recompute its next run.');
-      }
-      stages.push({ stage: 'Invoice schedule', reached: true,
-        detail: `#${sch.id} ${sch.frequency}, tariff ${sch.i_tariff}, next run ${String(sch.next_run_at).slice(0, 16)}${sch.last_run_at ? `, last ran ${String(sch.last_run_at).slice(0, 16)}` : ', never run'}` });
+      // ── 2. Traffic discovery — did the switch see calls at all? ──────────
+      if (!hasAccount) {
+        skip('Traffic discovery', 'the company has no Sippy account');
+      } else {
+        try {
+          const settings = await storage.getSettings();
+          let probed = false, sawTraffic = false, probeError = '';
+          if (!xmlRpcCircuitGuard()) {
+            for (const { username, password } of sippyXmlCredsPairs(settings)) {
+              try {
+                const page = await sippy.getSippyCDRs(username, password, 1, {
+                  iAccount: Number(co.sippy_i_account),
+                  startDate: `${periodStart}T00:00:00`,
+                  endDate:   `${periodEnd}T23:59:59`,
+                  offset: 0,
+                });
+                probed = true; sawTraffic = (page ?? []).length > 0; break;
+              } catch (e: any) { probeError = e.message; }
+            }
+          } else { probeError = 'the switch XML-RPC circuit breaker is open'; }
 
-      const tariff = String(sch.i_tariff ?? co.sippy_i_tariff ?? '');
+          if (!probed) {
+            skip('Traffic discovery', `the switch could not be queried${probeError ? ` (${probeError})` : ''}`);
+          } else if (sawTraffic) {
+            add('Traffic discovery', 'pass', 'The switch has call records for this account and period.');
+          } else {
+            add('Traffic discovery', 'fail',
+              'The switch reports no calls for this account in this period.',
+              'Nothing to bill — confirm the account number and period, or that traffic really was zero.');
+          }
+        } catch (e: any) { skip('Traffic discovery', `the switch could not be queried (${e.message})`); }
+      }
 
-      // ── 3. Rating — evidence the CDRs were fetched and priced ────────────
-      const vRes = await db.execute(sql`
-        SELECT discrepancy_type, count(*)::int AS calls FROM (
-          SELECT DISTINCT ON (cdr_call_id) cdr_call_id, discrepancy_type
-            FROM rating_verifications
+      // ── 3. Tariff resolution — required to price anything ────────────────
+      const tariff = co.sippy_i_tariff != null ? String(co.sippy_i_tariff) : '';
+      if (tariff) {
+        add('Tariff resolution', 'pass', `Tariff ${tariff}`);
+      } else {
+        add('Tariff resolution', 'fail', `"${co.name}" has no tariff, so its calls cannot be priced.`,
+          'Set sippyITariff on the company. Nightly collection skips accounts without one.');
+      }
+
+      // ── 4. Rating ────────────────────────────────────────────────────────
+      let totalRated = 0;
+      if (!tariff) {
+        skip('Rating', 'no tariff could be resolved');
+      } else {
+        const vRes = await db.execute(sql`
+          SELECT discrepancy_type, count(*)::int AS calls FROM (
+            SELECT DISTINCT ON (cdr_call_id) cdr_call_id, discrepancy_type
+              FROM rating_verifications
+             WHERE i_tariff = ${tariff}
+               AND left(cdr_start_time, 10) BETWEEN ${periodStart} AND ${periodEnd}
+             ORDER BY cdr_call_id, created_at DESC) t
+          GROUP BY 1 ORDER BY 2 DESC`);
+        const vRows = ((vRes as any).rows ?? []) as any[];
+        totalRated = vRows.reduce((s, r) => s + Number(r.calls ?? 0), 0);
+        if (totalRated === 0) {
+          add('Rating', 'fail', `No call rated for tariff ${tariff} in this period.`,
+            'Run Re-certify for this customer and period — that fetches the CDRs, prices them against the historical tariff, and locks snapshots.');
+        } else {
+          add('Rating', 'pass', `${totalRated} call(s) rated — ${vRows.map(r => `${r.calls} ${r.discrepancy_type}`).join(', ')}`);
+        }
+      }
+
+      // ── 5. Billable snapshots ────────────────────────────────────────────
+      let snapRows = 0;
+      if (!tariff)          skip('Billable snapshots', 'no tariff could be resolved');
+      else if (!totalRated) skip('Billable snapshots', 'no call was rated');
+      else {
+        const snRes = await db.execute(sql`
+          SELECT count(*)::int AS rows, count(*) FILTER (WHERE verification_status = 'locked')::int AS locked
+            FROM invoice_cdr_snapshots
            WHERE i_tariff = ${tariff}
-             AND left(cdr_start_time, 10) BETWEEN ${periodStart} AND ${periodEnd}
-           ORDER BY cdr_call_id, created_at DESC) t
-        GROUP BY 1 ORDER BY 2 DESC`);
-      const vRows = ((vRes as any).rows ?? []) as any[];
-      const totalRated = vRows.reduce((s, r) => s + Number(r.calls ?? 0), 0);
-      if (totalRated === 0) {
-        return stop('Rating',
-          `No call was rated for tariff ${tariff} in ${periodStart}–${periodEnd}. The CDRs were never fetched and priced for this period.`,
-          'Run Re-certify for this customer and period in the Billing Certification Center — that fetches the CDRs, prices them against the historical tariff, and locks snapshots.');
+             AND left(cdr_start_time, 10) BETWEEN ${periodStart} AND ${periodEnd}`);
+        const sn: any = ((snRes as any).rows ?? [])[0] ?? {};
+        snapRows = Number(sn.rows ?? 0);
+        if (snapRows === 0) {
+          add('Billable snapshots', 'fail', 'Calls were rated but none became billable — every one was excluded as unpriceable.',
+            'Open the Rating exceptions: calls with no tariff version or no matching rate never become billable.');
+        } else {
+          add('Billable snapshots', 'pass', `${snapRows} snapshot(s), ${sn.locked ?? 0} locked`);
+        }
       }
-      stages.push({ stage: 'Rating', reached: true,
-        detail: `${totalRated} call(s) rated — ${vRows.map(r => `${r.calls} ${r.discrepancy_type}`).join(', ')}` });
 
-      // ── 4. Billable snapshots ────────────────────────────────────────────
-      const snRes = await db.execute(sql`
-        SELECT count(*)::int AS rows, count(*) FILTER (WHERE verification_status = 'locked')::int AS locked
-          FROM invoice_cdr_snapshots
-         WHERE i_tariff = ${tariff}
-           AND left(cdr_start_time, 10) BETWEEN ${periodStart} AND ${periodEnd}`);
-      const sn: any = ((snRes as any).rows ?? [])[0] ?? {};
-      if (Number(sn.rows ?? 0) === 0) {
-        return stop('Billable snapshots',
-          `Calls were rated but no snapshot row exists — every call was excluded as unpriceable.`,
-          'Check the Rating stage exceptions: calls with no tariff version or no matching rate never become billable.');
+      // ── 6. Certification ─────────────────────────────────────────────────
+      let certState = '';
+      if (!tariff)        skip('Certification', 'no tariff could be resolved');
+      else if (!snapRows) skip('Certification', 'there are no billable snapshots to certify');
+      else {
+        const cert = await _certificationFor(tariff, periodStart, periodEnd);
+        certState = cert.state;
+        if (cert.state === 'certified') add('Certification', 'pass', 'Certified — every call priced exactly');
+        else add('Certification', 'fail',
+          cert.state === 'uncertified' ? `Uncertified: ${cert.reasons.join('; ')}` : `Exceptions — ${cert.reasons.join('; ')}`,
+          cert.state === 'uncertified' ? 'Run certification for this period; generation is blocked until it passes.'
+            : 'Resolve the exceptions, or generate with a recorded override reason.');
       }
-      stages.push({ stage: 'Billable snapshots', reached: true,
-        detail: `${sn.rows} snapshot(s), ${sn.locked ?? 0} locked` });
 
-      // ── 5. Certification ─────────────────────────────────────────────────
-      const cert = await _certificationFor(tariff, periodStart, periodEnd);
-      if (cert.state === 'uncertified') {
-        return stop('Certification', `Period is uncertified: ${cert.reasons.join('; ')}`,
-          'Run certification for this period; generation is blocked until it passes.');
-      }
-      stages.push({ stage: 'Certification', reached: true,
-        detail: cert.state === 'certified' ? 'Certified — every call priced exactly'
-          : `Exceptions — ${cert.reasons.join('; ')} (generation needs a recorded override)` });
+      // ── 7. Billing policy — WHEN this period would be invoiced ───────────
+      // Not a blocker since collection was decoupled: a missing schedule stops
+      // automatic invoicing, never the collection of the financial facts.
+      try {
+        const policy = billingPolicyFor(co, null);
+        const sRes = await db.execute(sql`
+          SELECT id, active, next_run_at FROM invoice_schedules
+           WHERE company_id = ${co.id} OR lower(company_name) = lower(${co.name})
+              OR i_account = ${co.sippy_i_account}
+           ORDER BY id LIMIT 1`);
+        const sch: any = ((sRes as any).rows ?? [])[0];
+        add('Billing policy', sch?.active ? 'pass' : 'fail',
+          `${policy.frequency} (${policy.timezone})` +
+          (sch ? `, schedule #${sch.id}${sch.active ? '' : ' INACTIVE'}${sch.next_run_at ? `, next run ${String(sch.next_run_at).slice(0, 16)}` : ''}`
+               : ' — no invoice schedule, so nothing invoices automatically'),
+          sch?.active ? undefined
+            : 'Create or activate an invoice schedule. Collection is unaffected — the certified data is already being gathered.');
+      } catch (e: any) { skip('Billing policy', `the schedule could not be read (${e.message})`); }
 
-      // ── 6. Invoice ───────────────────────────────────────────────────────
+      // ── 8. Invoice ───────────────────────────────────────────────────────
       const iRes = await db.execute(sql`
-        SELECT invoice_number, status, line_count, total_actual, period_start, period_end
+        SELECT invoice_number, status, line_count, total_actual, accounting_month
           FROM invoices
          WHERE lower(customer_name) = lower(${co.name})
            AND period_start <= ${periodEnd} AND period_end >= ${periodStart}
          ORDER BY id DESC LIMIT 1`);
       const inv: any = ((iRes as any).rows ?? [])[0];
-      if (!inv) {
-        return stop('Invoice',
-          cert.state === 'exceptions'
-            ? 'No invoice exists, and certification found exceptions — the automatic runner never passes an override, so an exceptions period is never auto-invoiced.'
-            : 'No invoice exists for this customer and period, although everything upstream is healthy.',
-          cert.state === 'exceptions'
-            ? 'Resolve the exceptions, or generate manually with a recorded override reason.'
-            : 'Generate from the Billing Certification Center, or wait for the schedule to come due.');
+      if (inv) {
+        add('Invoice', 'pass', `${inv.invoice_number} — ${inv.status}, ${inv.line_count ?? 0} line(s), ${Number(inv.total_actual ?? 0).toFixed(2)}${inv.accounting_month ? `, ${inv.accounting_month}` : ''}`);
+      } else if (certState === 'certified') {
+        add('Invoice', 'fail', 'No invoice exists, although the period is certified and ready.',
+          'Generate from the Billing Certification Center, or wait for the schedule to come due.');
+      } else {
+        skip('Invoice', certState ? `certification is ${certState}` : 'the period was never certified');
       }
-      stages.push({ stage: 'Invoice', reached: true,
-        detail: `${inv.invoice_number} — ${inv.status}, ${inv.line_count ?? 0} line(s), ${Number(inv.total_actual ?? 0).toFixed(2)}` });
 
-      // ── 7. Delivery ──────────────────────────────────────────────────────
-      const dRes = await db.execute(sql`
-        SELECT d.status, d.sent_at, d.recipients, d.test_mode
-          FROM invoice_email_deliveries d
-          JOIN invoices i ON i.id = d.invoice_id
-         WHERE i.invoice_number = ${inv.invoice_number}
-         ORDER BY d.id DESC LIMIT 1`);
-      const del: any = ((dRes as any).rows ?? [])[0];
-      if (!del) {
-        return stop('Delivery', `Invoice ${inv.invoice_number} exists but was never emailed.`,
-          co.invoice_email ? 'Approve and send it from the Invoice Register.'
-            : 'This customer has no billing email on file — set one on the company before sending.');
+      // ── 9. Delivery ──────────────────────────────────────────────────────
+      if (!inv) skip('Delivery', 'no invoice exists');
+      else {
+        const dRes = await db.execute(sql`
+          SELECT d.status, d.sent_at, d.test_mode FROM invoice_email_deliveries d
+            JOIN invoices i ON i.id = d.invoice_id
+           WHERE i.invoice_number = ${inv.invoice_number} ORDER BY d.id DESC LIMIT 1`);
+        const del: any = ((dRes as any).rows ?? [])[0];
+        if (del) {
+          add('Delivery', 'pass', `${del.status}${del.test_mode ? ' (TEST MODE — not delivered to the client)' : ''} at ${String(del.sent_at ?? '').slice(0, 16)}`);
+        } else {
+          add('Delivery', 'fail', `Invoice ${inv.invoice_number} exists but was never emailed.`,
+            co.invoice_email ? 'Approve and send it from the Invoice Register.'
+              : 'This customer has no billing email on file — set one on the company before sending.');
+        }
       }
-      stages.push({ stage: 'Delivery', reached: true,
-        detail: `${del.status}${del.test_mode ? ' (TEST MODE — not delivered to the client)' : ''} at ${String(del.sent_at ?? '').slice(0, 16)}` });
 
-      res.json({ customer, periodStart, periodEnd, stages, verdict: 'Completed every stage', stoppedAt: null });
+      const failed = stages.filter(s => s.status === 'fail');
+      res.json({
+        customer, periodStart, periodEnd, stages,
+        summary: {
+          passed: stages.filter(s => s.status === 'pass').length,
+          failed: failed.length,
+          notExecuted: stages.filter(s => s.status === 'not_executed').length,
+          total: stages.length,
+        },
+        verdict: failed.length === 0 ? 'Every stage passed' : `Blocked at: ${failed.map(s => s.stage).join(', ')}`,
+      });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
