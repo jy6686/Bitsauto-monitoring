@@ -284,3 +284,59 @@ describe('calculateClosedBillingPeriods', () => {
     expect(p).toHaveLength(3);
   });
 });
+
+/**
+ * The owner's generation-date table, pinned exactly.
+ *
+ * The invoice generation date IS endExclusive — the first instant after the
+ * period closes. No separate field: a second copy of the same fact could drift
+ * from it, and this way the table below is the test.
+ */
+describe('invoice generation dates (owner spec)', () => {
+  const genDate = (term: any, asOf: string, since: string) =>
+    closedPeriods(term, asOf, since).map(p => `${p.start}..${p.end} → generate ${p.endExclusive}`);
+
+  it('weekly: Monday to Monday, generated the moment the week closes', () => {
+    // 3 Aug 2026 is a Monday.
+    expect(genDate('weekly', '2026-08-25', '2026-08-03')).toEqual([
+      '2026-08-03..2026-08-09 → generate 2026-08-10',
+      '2026-08-10..2026-08-16 → generate 2026-08-17',
+      '2026-08-17..2026-08-23 → generate 2026-08-24',
+    ]);
+  });
+
+  it('bi-monthly first half: 1–15, generated on the 16th', () => {
+    const [first] = closedPeriods('bi_monthly', '2026-08-20', '2026-08-01');
+    expect(`${first.start}..${first.end}`).toBe('2026-08-01..2026-08-15');
+    expect(first.endExclusive).toBe('2026-08-16');
+  });
+
+  it('bi-monthly second half: 16–end of month, generated on the 1st of next month', () => {
+    const p = closedPeriods('bi_monthly', '2026-09-02', '2026-08-01');
+    expect(p[1].start).toBe('2026-08-16');
+    expect(p[1].end).toBe('2026-08-31');
+    expect(p[1].endExclusive).toBe('2026-09-01');
+  });
+
+  it('bi-monthly second half in February, leap and non-leap, both generate on 1 March', () => {
+    const leap = closedPeriods('bi_monthly', '2028-03-02', '2028-02-01');
+    expect(leap[1].end).toBe('2028-02-29');
+    expect(leap[1].endExclusive).toBe('2028-03-01');
+    const plain = closedPeriods('bi_monthly', '2027-03-02', '2027-02-01');
+    expect(plain[1].end).toBe('2027-02-28');
+    expect(plain[1].endExclusive).toBe('2027-03-01');
+  });
+
+  it('monthly: 1st to last day, generated on the 1st of next month', () => {
+    expect(genDate('monthly', '2026-10-02', '2026-08-01')).toEqual([
+      '2026-08-01..2026-08-31 → generate 2026-09-01',
+      '2026-09-01..2026-09-30 → generate 2026-10-01',
+    ]);
+  });
+
+  it('a period is never generated before the instant it closes', () => {
+    // On 31 Aug the August monthly period has not closed; on 1 Sep it has.
+    expect(closedPeriods('monthly', '2026-08-31', '2026-08-01')).toHaveLength(0);
+    expect(closedPeriods('monthly', '2026-09-01', '2026-08-01')).toHaveLength(1);
+  });
+});
