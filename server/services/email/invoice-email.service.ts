@@ -17,13 +17,18 @@ import { db } from '../../db';
 import { invoiceEmailDeliveries } from '@shared/schema';
 import { decryptSecret, isEncrypted } from '../../utils/crypto';
 
+// Same resolution problem as the PDF renderer: __dirname does not exist under
+// ESM and points at dist/ once bundled, so this quietly returned '' and every
+// invoice email went out with the text fallback instead of the logo.
 function loadEmailLogoDataUri(): string {
-  try {
-    const p = path.join(__dirname, '../../assets/ichibaan-logo.png');
-    if (fs.existsSync(p)) {
-      return `data:image/png;base64,${fs.readFileSync(p).toString('base64')}`;
-    }
-  } catch { /* non-fatal */ }
+  for (const rel of ['server/assets/ichibaan-logo.png', 'assets/ichibaan-logo.png']) {
+    try {
+      const p = path.join(process.cwd(), rel);
+      if (fs.existsSync(p)) {
+        return `data:image/png;base64,${fs.readFileSync(p).toString('base64')}`;
+      }
+    } catch { /* try the next candidate */ }
+  }
   return '';
 }
 const EMAIL_LOGO_URI = loadEmailLogoDataUri();
