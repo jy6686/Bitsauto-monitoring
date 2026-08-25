@@ -18,6 +18,7 @@ import {
   Key, Layers, Info, Loader2, UserPlus, FileText,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { TIMEZONE_OPTIONS } from "@shared/timezone";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -31,7 +32,10 @@ const COMPANY_TYPES = [
 
 const CURRENCIES  = ["USD","EUR","GBP","AED","SAR","PKR","INR","BDT","NGN","KES","EGP"];
 const COUNTRIES   = ["United Kingdom","United States","Pakistan","India","Bangladesh","UAE","Saudi Arabia","Germany","France","Australia","Canada","Nigeria","Kenya","Egypt","South Africa","Other"];
-const TIMEZONES   = ["GMT+00:00 | UTC","GMT+01:00 | London","GMT+02:00 | Cairo","GMT+03:00 | Riyadh","GMT+04:00 | Dubai","GMT+05:00 | Karachi","GMT+05:30 | Mumbai","GMT+06:00 | Dhaka","GMT+07:00 | Bangkok","GMT+08:00 | Singapore","GMT+09:00 | Tokyo","GMT-05:00 | New York","GMT-08:00 | Los Angeles"];
+// Stored values are IANA identifiers; the human label is separate. Storing
+// the label here is what crashed the Invoices page with RangeError.
+const TIMEZONES = TIMEZONE_OPTIONS.map(o => o.value);
+const TIMEZONE_LABELS: Record<string,string> = Object.fromEntries(TIMEZONE_OPTIONS.map(o => [o.value, o.label]));
 const LANGUAGES   = ["English","Arabic","Urdu","Hindi","French","German","Spanish","Portuguese","Swahili","Bengali"];
 const BILLING_CYCLES = [
   { value: "weekly_cutoff", label: "Weekly Cutoff" },
@@ -106,7 +110,7 @@ const emptyContact = (): ContactEntry => ({ name: "", email: "", phone: "" });
 
 const defaultS1 = () => ({
   name: "", shortCode: "", companyType: "retail", currency: "USD",
-  timezone: "GMT+00:00 | UTC", country: "", language: "English",
+  timezone: "UTC", country: "", language: "English",
   kam: "__unassigned__", status: "active", notes: "",
 });
 const defaultS2 = () => ({
@@ -560,7 +564,7 @@ export default function CompanyOnboardingPage() {
               <Field label="Timezone">
                 <Select value={s1.timezone} onValueChange={v => setS1(p => ({ ...p, timezone: v }))}>
                   <SelectTrigger className="h-9 text-sm" data-testid="select-timezone"><SelectValue /></SelectTrigger>
-                  <SelectContent>{TIMEZONES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                  <SelectContent>{TIMEZONES.map(t => <SelectItem key={t} value={t}>{TIMEZONE_LABELS[t] ?? t}</SelectItem>)}</SelectContent>
                 </Select>
               </Field>
               <Field label="Language">

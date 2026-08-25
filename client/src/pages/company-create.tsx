@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { Building2, ChevronRight, ChevronLeft, CheckCircle2, Plus, Trash2, Loader2, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { checkIpList, parseIpList } from "@shared/ip";
+import { TIMEZONE_OPTIONS } from "@shared/timezone";
 
 const STEPS = [
   { id: 1, label: "Basic Information" },
@@ -21,7 +22,10 @@ const STEPS = [
 ];
 
 const COUNTRIES = ["United Kingdom","United States","Pakistan","India","Bangladesh","UAE","Saudi Arabia","Germany","France","Australia","Canada","Nigeria","Kenya","Egypt","South Africa","Other"];
-const TIMEZONES = ["GMT+00:00 | UTC","GMT+01:00 | London","GMT+02:00 | Cairo","GMT+03:00 | Riyadh","GMT+04:00 | Dubai","GMT+05:00 | Karachi","GMT+05:30 | Mumbai","GMT+06:00 | Dhaka","GMT+07:00 | Bangkok","GMT+08:00 | Singapore","GMT+09:00 | Tokyo","GMT-05:00 | New York","GMT-08:00 | Los Angeles"];
+// Stored values are IANA identifiers; the human label is separate. Storing
+// the label here is what crashed the Invoices page with RangeError.
+const TIMEZONES = TIMEZONE_OPTIONS.map(o => o.value);
+const TIMEZONE_LABELS: Record<string,string> = Object.fromEntries(TIMEZONE_OPTIONS.map(o => [o.value, o.label]));
 const CURRENCIES = ["USD","EUR","GBP","AED","SAR","PKR","INR","BDT","NGN","KES","EGP"];
 // Bi-monthly is 1–15 and 16–end of month (an accounting period), not a
 // rolling 14 days. bi_weekly is kept so existing records still resolve; it
@@ -401,8 +405,8 @@ export default function CompanyCreatePage() {
               {selectField("Contract Type", "contractType", basic.contractType, v => setB("contractType", v), CONTRACT_TYPES, undefined, true)}
               {selectField("Department", "department", basic.department, v => setB("department", v), DEPARTMENTS, undefined, true)}
               {field("Team", "team", basic.team, v => setB("team", v))}
-              {selectField("Client Timezone", "clientTimezone", basic.clientTimezone, v => setB("clientTimezone", v), TIMEZONES)}
-              {selectField("Vendor Timezone", "vendorTimezone", basic.vendorTimezone, v => setB("vendorTimezone", v), TIMEZONES)}
+              {selectField("Client Timezone", "clientTimezone", basic.clientTimezone, v => setB("clientTimezone", v), TIMEZONES, TIMEZONE_LABELS)}
+              {selectField("Vendor Timezone", "vendorTimezone", basic.vendorTimezone, v => setB("vendorTimezone", v), TIMEZONES, TIMEZONE_LABELS)}
               {selectField("Currency", "currency", basic.currency, v => setB("currency", v), CURRENCIES, undefined, true)}
             </div>
           )}

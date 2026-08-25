@@ -28,6 +28,7 @@ import {
   Send, Mail, MailCheck, MailX, X, Clock, History, FileSpreadsheet, FileDown, Flag,
 } from "lucide-react";
 import { exportToExcel } from "@/lib/export-excel";
+import { toIanaTimeZone } from "@shared/timezone";
 
 interface Invoice {
   id:              number;
@@ -103,8 +104,11 @@ interface DmrAutoResult {
 function toISO(d: Date) { return d.toISOString().slice(0, 10); }
 
 function computeBillingPeriod(cycle: "weekly" | "monthly", timezone?: string | null): { start: string; end: string; label: string } {
-  // Use client timezone if provided, otherwise fall back to browser local time
-  const tz = timezone || undefined;
+  // Resolve to an identifier Intl accepts. Company records store legacy
+  // dropdown LABELS ("GMT+00:00 | UTC"), and passing one straight to
+  // Intl.DateTimeFormat threw RangeError which escaped to the error boundary
+  // and took this entire page down.
+  const tz = timezone ? toIanaTimeZone(timezone) : undefined;
   const toTzDate = (d: Date) => {
     if (!tz) return d;
     // Project wall-clock date in target timezone back to a plain Date

@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
+import { toIanaTimeZone } from "@shared/timezone";
 
 const TZ_KEY = "noc_clock_tz";
 
@@ -58,18 +59,24 @@ const TimezoneContext = createContext<TimezoneContextValue>({
 });
 
 export function TimezoneProvider({ children }: { children: ReactNode }) {
+  // Resolved on the way in AND on the way out. localStorage can hold a stale
+  // or hand-edited value, and consumers pass tz straight to Intl — an
+  // unusable identifier there throws RangeError inside a render or an interval
+  // callback, which is exactly how a dropdown label took down the Invoices
+  // page. Nothing downstream should have to defend itself.
   const [tz, setTzState] = useState<string>(() => {
     try {
-      return localStorage.getItem(TZ_KEY) || "UTC";
+      return toIanaTimeZone(localStorage.getItem(TZ_KEY));
     } catch {
       return "UTC";
     }
   });
 
   const setTz = (newTz: string) => {
-    setTzState(newTz);
+    const resolved = toIanaTimeZone(newTz);
+    setTzState(resolved);
     try {
-      localStorage.setItem(TZ_KEY, newTz);
+      localStorage.setItem(TZ_KEY, resolved);
     } catch {}
   };
 

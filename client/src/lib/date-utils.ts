@@ -4,6 +4,8 @@
  * All UTC functions remain unchanged for backwards compatibility.
  */
 
+import { toIanaTimeZone } from '@shared/timezone';
+
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 // ── Timezone-aware helpers ────────────────────────────────────────────────────
@@ -13,12 +15,15 @@ const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct
  * Falls back to formatUTC when tz === 'UTC'.
  */
 export function formatInTz(d: Date | number | string, pattern: string, tz: string): string {
-  if (!tz || tz === 'UTC') return formatUTC(d, pattern);
+  // Resolve first: an unusable identifier here throws RangeError, and this
+  // formatter is called from render paths where that kills the page.
+  const zone = toIanaTimeZone(tz);
+  if (zone === 'UTC') return formatUTC(d, pattern);
   const dt = new Date(d);
   if (isNaN(dt.getTime())) return '—';
 
   const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz,
+    timeZone: zone,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
     hour12: false,
@@ -57,9 +62,10 @@ export function formatInTz(d: Date | number | string, pattern: string, tz: strin
  * e.g. a UTC Date for 13:00 UTC with tz="America/New_York" → "2026-04-15T09:00"
  */
 export function toTzDateInput(d: Date, tz: string): string {
-  if (!tz || tz === 'UTC') return toUTCDateInput(d);
+  const zone = toIanaTimeZone(tz);
+  if (zone === 'UTC') return toUTCDateInput(d);
   const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz,
+    timeZone: zone,
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hour12: false,
   }).formatToParts(d);
@@ -74,12 +80,13 @@ export function toTzDateInput(d: Date, tz: string): string {
  * e.g. "2026-04-15T09:00" in "America/New_York" → Date for 13:00 UTC (UTC-4 in April)
  */
 export function tzDateToUTC(localDtStr: string, tz: string): Date {
-  if (!tz || tz === 'UTC') {
+  const zone = toIanaTimeZone(tz);
+  if (zone === 'UTC') {
     return new Date(localDtStr.length === 16 ? localDtStr + ':00Z' : localDtStr + 'Z');
   }
   // "toLocaleString offset" trick: find the UTC time whose TZ representation equals localDtStr
   const asIfUTC = new Date(localDtStr.length === 16 ? localDtStr + ':00Z' : localDtStr + 'Z');
-  const tzStr  = asIfUTC.toLocaleString('en-US', { timeZone: tz });
+  const tzStr  = asIfUTC.toLocaleString('en-US', { timeZone: zone });
   const tzDate = new Date(tzStr);
   const offset = asIfUTC.getTime() - tzDate.getTime();
   return new Date(asIfUTC.getTime() + offset);
