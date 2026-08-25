@@ -12,6 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   splitAtMonthEnd, closedPeriods, latestClosedPeriods, normalizeTerm,
+  billingPolicyFor, calculateClosedBillingPeriods,
 } from './billing-periods';
 
 describe('splitAtMonthEnd', () => {
@@ -218,5 +219,68 @@ describe('00:00 GMT accounting boundary', () => {
     const lastDayCall = '2026-08-31 14:00:00';
     expect(lastDayCall <= '2026-08-31').toBe(false);            // the trap
     expect(lastDayCall < '2026-09-01').toBe(true);              // endExclusive
+  });
+});
+
+/**
+ * Policy separated from calculation: the scheduler holds a policy and asks for
+ * closed periods. Sourced from the company, because the billing cycle is a
+ * commercial term and those live on the company profile.
+ */
+describe('billingPolicyFor', () => {
+  it("recognises the company field's own vocabulary", () => {
+    expect(billingPolicyFor({ clientBillingCycle: 'weekly_cutoff' }).frequency).toBe('weekly');
+    expect(billingPolicyFor({ clientBillingCycle: 'monthly' }).frequency).toBe('monthly');
+    expect(billingPolicyFor({ clientBillingCycle: 'daily' }).frequency).toBe('daily');
+    expect(billingPolicyFor({ clientBillingCycle: 'bi_weekly' }).frequency).toBe('bi_monthly');
+  });
+
+  it("'weekly_cutoff' is the DEFAULT on every company — it must not fall back to monthly", () => {
+    // Silently billing a weekly customer monthly is the failure this pins.
+    expect(normalizeTerm('weekly_cutoff')).toBe('weekly');
+    expect(normalizeTerm('weekly_cutoff')).not.toBe('monthly');
+  });
+
+  it('the company outranks the schedule; the schedule is only a fallback', () => {
+    expect(billingPolicyFor({ clientBillingCycle: 'monthly' }, 'weekly').frequency).toBe('monthly');
+    expect(billingPolicyFor({ clientBillingCycle: null }, 'weekly').frequency).toBe('weekly');
+    expect(billingPolicyFor(null, 'weekly').frequency).toBe('weekly');
+  });
+
+  it('is always GMT — no local zone, no daylight saving', () => {
+    expect(billingPolicyFor({ clientBillingCycle: 'weekly_cutoff' }).timezone).toBe('Etc/UTC');
+  });
+});
+
+describe('calculateClosedBillingPeriods', () => {
+  it('gives the scheduler closed periods without exposing how they are computed', () => {
+    const policy = billingPolicyFor({ clientBillingCycle: 'weekly_cutoff' });
+    const p = calculateClosedBillingPeriods(policy, new Date('2026-08-24T09:15:00Z'));
+    expect(p).toEqual([{
+      start: '2026-08-17', end: '2026-08-23', endExclusive: '2026-08-24',
+      accountingMonth: '2026-08', partial: false,
+    }]);
+  });
+
+  it('the time of day within the UTC instant does not shift the period', () => {
+    const policy = billingPolicyFor({ clientBillingCycle: 'weekly_cutoff' });
+    const early = calculateClosedBillingPeriods(policy, new Date('2026-08-24T00:00:01Z'));
+    const late  = calculateClosedBillingPeriods(policy, new Date('2026-08-24T23:59:59Z'));
+    expect(early).toEqual(late);
+  });
+
+  it('a daily customer is billed one closed day at a time', () => {
+    const policy = billingPolicyFor({ clientBillingCycle: 'daily' });
+    const p = calculateClosedBillingPeriods(policy, '2026-08-24');
+    expect(p).toEqual([{
+      start: '2026-08-23', end: '2026-08-23', endExclusive: '2026-08-24',
+      accountingMonth: '2026-08', partial: false,
+    }]);
+  });
+
+  it('back-bills every missed period when a start date is given', () => {
+    const policy = billingPolicyFor({ clientBillingCycle: 'weekly_cutoff' });
+    const p = calculateClosedBillingPeriods(policy, '2026-08-31', '2026-08-10');
+    expect(p).toHaveLength(3);
   });
 });

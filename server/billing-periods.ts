@@ -22,7 +22,26 @@
  * scheduler, the trace and whatever reads periods next.
  */
 
-export type BillingTerm = 'weekly' | 'bi_monthly' | 'monthly';
+export type BillingTerm = 'daily' | 'weekly' | 'bi_monthly' | 'monthly';
+
+/**
+ * A customer's billing policy — WHEN to invoice, nothing about HOW periods
+ * are computed. The scheduler holds one of these and asks for closed periods;
+ * it never needs to know that weeks split at month-end or that February is
+ * short. Sourced from the company record, because the billing cycle is a
+ * commercial term and those live on the company profile alongside payment
+ * terms and currency.
+ */
+export interface BillingPolicy {
+  frequency: BillingTerm;
+  /**
+   * Locked to GMT. Sippy's CDR exports, carrier settlement periods and
+   * month-end close are all GMT, and a local zone would reintroduce the
+   * daylight-saving shift this module exists to remove. Present so the
+   * assumption is visible rather than implied.
+   */
+  timezone: 'Etc/UTC';
+}
 
 export interface BillingPeriod {
   /** YYYY-MM-DD at 00:00 GMT, inclusive. The period opens here. */
@@ -101,6 +120,11 @@ export function splitAtMonthEnd(start: string, end: string): Array<{ start: stri
  */
 function naturalSpans(term: BillingTerm, since: string, until: string): Array<{ start: string; end: string }> {
   const spans: Array<{ start: string; end: string }> = [];
+  if (term === 'daily') {
+    let cursor = since;
+    while (cursor <= until) { spans.push({ start: cursor, end: cursor }); cursor = addDays(cursor, 1); }
+    return spans;
+  }
   if (term === 'weekly') {
     let cursor = mondayOf(since);
     while (cursor <= until) {
@@ -177,14 +201,55 @@ export function latestClosedPeriods(term: BillingTerm, asOf: string): BillingPer
   return [last];
 }
 
-/** Accepts what schedules actually store, including legacy vocabulary. */
+/**
+ * Accepts every vocabulary in use: the company's clientBillingCycle
+ * ('weekly_cutoff' | 'monthly' | 'daily' | 'bi_weekly') and the schedule's
+ * frequency ('weekly' | 'monthly' | 'fortnightly').
+ *
+ * 'weekly_cutoff' matters most: it is the DEFAULT on every company record, so
+ * failing to recognise it would bill weekly customers monthly — the kind of
+ * silent fallback that looks like nothing is wrong.
+ */
 export function normalizeTerm(frequency: string | null | undefined): BillingTerm {
   const f = String(frequency ?? '').trim().toLowerCase();
-  if (f === 'weekly') return 'weekly';
-  if (f === 'monthly') return 'monthly';
+  if (f === 'daily') return 'daily';
+  if (f === 'weekly' || f === 'weekly_cutoff') return 'weekly';
+  if (f === 'monthly' || f === 'monthly_cutoff') return 'monthly';
   // 'fortnightly' and 'bi_weekly' were a rolling 14 days. Bi-monthly is the
   // commercial term the owner named: 1–15 and 16–end of month.
   if (f === 'bi_monthly' || f === 'bimonthly' || f === 'semi_monthly'
       || f === 'fortnightly' || f === 'bi_weekly') return 'bi_monthly';
   return 'monthly';
+}
+
+/**
+ * The billing policy for a company. Prefers the company's own cycle — the
+ * commercial agreement lives on the company profile — and accepts a schedule
+ * frequency only as the fallback for records that predate it.
+ */
+export function billingPolicyFor(
+  source: { clientBillingCycle?: string | null } | null | undefined,
+  scheduleFrequency?: string | null,
+): BillingPolicy {
+  const cycle = source?.clientBillingCycle ?? null;
+  return {
+    frequency: normalizeTerm(cycle ?? scheduleFrequency),
+    timezone: 'Etc/UTC',
+  };
+}
+
+/**
+ * The scheduler's single entry point: given a policy and the current UTC
+ * instant, which periods are closed and ready to invoice.
+ *
+ * The caller never learns how weeks split, when February ends, or that a
+ * month boundary outranks the cadence — that is the point of the seam.
+ */
+export function calculateClosedBillingPeriods(
+  policy: BillingPolicy, nowUtc: Date | string, since?: string,
+): BillingPeriod[] {
+  const asOf = typeof nowUtc === 'string' ? nowUtc.slice(0, 10) : nowUtc.toISOString().slice(0, 10);
+  return since
+    ? closedPeriods(policy.frequency, asOf, since)
+    : latestClosedPeriods(policy.frequency, asOf);
 }

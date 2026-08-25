@@ -660,6 +660,10 @@ export async function generateInvoice(opts: {
     customerName:    opts.customerName,
     periodStart:     opts.periodStart,
     periodEnd:       opts.periodEnd,
+    // The accounting month is settled here, once. Under the rule that no
+    // invoice spans two accounting months, period_start's month IS the answer
+    // — recorded so the ledger, dashboards and statements never re-derive it.
+    accountingMonth: String(opts.periodStart ?? '').slice(0, 7) || null,
     totalReproduced: +totalReproduced.toFixed(6),
     totalActual:     +totalActual.toFixed(6),
     totalDelta:      +totalDelta.toFixed(6),

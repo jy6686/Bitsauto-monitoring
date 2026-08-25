@@ -36,7 +36,7 @@ import { registerProductMappingRoutes } from './routes-product-mapping';
 import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
-import { latestClosedPeriods, normalizeTerm } from "./billing-periods";
+import { billingPolicyFor, calculateClosedBillingPeriods } from "./billing-periods";
 import * as net from "net";
 import * as https from "https";
 import { createHash, randomBytes } from "crypto";
@@ -37680,8 +37680,20 @@ ${footer}
           // month in the month. The previous computation here used local-time
           // date getters, so period boundaries drifted by a day on any server
           // outside UTC, and it could not express a split at all.
-          const term = normalizeTerm(schedule.frequency);
-          const periods = latestClosedPeriods(term, now.toISOString().slice(0, 10));
+          // Policy comes from the COMPANY — the billing cycle is a commercial
+          // term, and those live on the company profile beside payment terms
+          // and currency. The schedule's own frequency is the fallback for
+          // records that predate that. The scheduler asks for closed periods
+          // and never learns how weeks split or when February ends.
+          let policyCompany: any = null;
+          try {
+            policyCompany = schedule.companyId
+              ? await storage.getCompany(schedule.companyId)
+              : (schedule.iAccount ? await storage.getCompanyBySippyAccount(schedule.iAccount) : null);
+          } catch { /* fall back to the schedule's own frequency */ }
+          const policy = billingPolicyFor(policyCompany, schedule.frequency);
+          const term = policy.frequency;
+          const periods = calculateClosedBillingPeriods(policy, now);
           if (periods.length === 0) {
             console.log(`[invoice-scheduler] schedule #${schedule.id}: no closed ${term} period yet — nothing to invoice`);
             await storage.updateInvoiceSchedule(schedule.id, { nextRunAt: _computeNextScheduleRun(schedule) } as any);

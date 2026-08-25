@@ -23,8 +23,11 @@ const STEPS = [
 const COUNTRIES = ["United Kingdom","United States","Pakistan","India","Bangladesh","UAE","Saudi Arabia","Germany","France","Australia","Canada","Nigeria","Kenya","Egypt","South Africa","Other"];
 const TIMEZONES = ["GMT+00:00 | UTC","GMT+01:00 | London","GMT+02:00 | Cairo","GMT+03:00 | Riyadh","GMT+04:00 | Dubai","GMT+05:00 | Karachi","GMT+05:30 | Mumbai","GMT+06:00 | Dhaka","GMT+07:00 | Bangkok","GMT+08:00 | Singapore","GMT+09:00 | Tokyo","GMT-05:00 | New York","GMT-08:00 | Los Angeles"];
 const CURRENCIES = ["USD","EUR","GBP","AED","SAR","PKR","INR","BDT","NGN","KES","EGP"];
-const BILLING_CYCLES = ["weekly_cutoff","monthly","daily","bi_weekly"];
-const BILLING_CYCLE_LABELS: Record<string,string> = { weekly_cutoff:"Weekly Cutoff", monthly:"Monthly", daily:"Daily", bi_weekly:"Bi-Weekly" };
+// Bi-monthly is 1–15 and 16–end of month (an accounting period), not a
+// rolling 14 days. bi_weekly is kept so existing records still resolve; it
+// normalizes to bi_monthly server-side.
+const BILLING_CYCLES = ["weekly_cutoff","bi_monthly","monthly","daily","bi_weekly"];
+const BILLING_CYCLE_LABELS: Record<string,string> = { weekly_cutoff:"Weekly (Mon–Sun)", bi_monthly:"Bi-Monthly (1–15, 16–EOM)", monthly:"Monthly", daily:"Daily", bi_weekly:"Bi-Weekly (legacy → bi-monthly)" };
 // Commercial terms live on the company profile and drive the invoice due date
 // directly — a term that states its own length ("net_30") needs no second
 // lookup. "postpaid" and "credit" are kept so existing records still resolve.

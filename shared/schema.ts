@@ -2899,6 +2899,10 @@ export const invoices = pgTable("invoices", {
   customerName:    varchar("customer_name",    { length: 256 }),
   periodStart:     varchar("period_start",     { length: 32  }),
   periodEnd:       varchar("period_end",       { length: 32  }),
+  // YYYY-MM (079). Stored, not derived: the month-boundary rule guarantees a
+  // single answer at generation, and every downstream consumer would otherwise
+  // have to reimplement that rule to recompute it.
+  accountingMonth: varchar("accounting_month", { length: 7   }),
   totalReproduced: real("total_reproduced"),
   totalActual:     real("total_actual"),
   totalDelta:      real("total_delta"),
