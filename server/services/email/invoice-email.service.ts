@@ -155,6 +155,19 @@ export async function sendInvoiceEmail(
     if (c) currency = String(c).toUpperCase();
   } catch { /* default stands */ }
 
+  // Total minutes billed, for the summary. Read from the line items rather than
+  // stated, so the email cannot disagree with the attached invoice.
+  let totalMinutes: string | null = null;
+  try {
+    const { db: database } = await import('../../db');
+    const { sql: rawSql } = await import('drizzle-orm');
+    const r = await database.execute(rawSql`
+      SELECT coalesce(sum(duration_secs), 0)::int AS secs
+        FROM invoice_line_items WHERE invoice_id = ${invoiceId}`);
+    const secs = Number(((r as any).rows ?? [])[0]?.secs ?? 0);
+    totalMinutes = (secs / 60).toFixed(2);
+  } catch { /* omit the row rather than guess */ }
+
   let testMode = false;
   // "Who should this have gone to" — the client-master addresses when the
   // operator overrode them, otherwise filled in by Test Mode below with the
@@ -272,14 +285,18 @@ export async function sendInvoiceEmail(
       <tr><td style="padding:7px 16px;color:#666;width:45%">Invoice number</td><td style="padding:7px 16px;text-align:right;font-weight:bold">${invoice.invoiceNumber}</td></tr>
       <tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Customer</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${invoice.customerName ?? ''}</td></tr>
       ${invoice.periodStart ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Billing period</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${String(invoice.periodStart).slice(0, 10)} &ndash; ${String(invoice.periodEnd ?? '').slice(0, 10)}</td></tr>` : ''}
+      ${invoice.generatedAt ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Invoice date</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${String(invoice.generatedAt).slice(0, 10)}</td></tr>` : ''}
+      <tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Currency</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${currency}</td></tr>
       ${invoice.lineCount != null ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Calls billed</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${Number(invoice.lineCount).toLocaleString()}</td></tr>` : ''}
+      ${totalMinutes != null ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Total minutes</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${totalMinutes}</td></tr>` : ''}
       <tr><td style="padding:9px 16px;color:#1a1a2e;font-weight:bold;border-top:2px solid #1a1a2e">Total amount</td><td style="padding:9px 16px;text-align:right;font-weight:bold;font-size:15px;color:#1a1a2e;border-top:2px solid #1a1a2e">${currency} ${Number(invoice.totalActual ?? 0).toFixed(2)}</td></tr>
     </table>
   </div>
 
   ${invoice.htmlContent ? `
-  <div style="margin:0 32px 20px;font-size:12px;color:#666">
-    The full invoice, including the destination breakdown, is attached.
+  <div style="margin:0 32px 20px;font-size:12px;color:#555;line-height:1.7">
+    The attached invoice contains the invoice summary and the destination-wise call detail.
+    Please review it and arrange payment in accordance with the agreed commercial terms.
   </div>` : ''}
 
   <!-- Footer -->
