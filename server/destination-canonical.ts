@@ -41,6 +41,14 @@ export const UNMAPPED: Omit<CanonicalMatch, 'entryId'> & { entryId: null } = {
   mapped: false, destination: 'Unmapped Destination', country: '—', entryId: null,
 };
 
+/**
+ * Sippy trunk-class lead digits: 1 First Class, 2 Business, 6 Bravo, 7 Charlie
+ * (the same set server/dial-lookup.ts strips). Every tariff prefix on this
+ * platform carries one — the switch reports Pakistan as "192" and Bangladesh
+ * as "1880", while the catalogue stores "92" and "880".
+ */
+const TRUNK_CLASS_DIGITS = new Set(['1', '2', '6', '7']);
+
 /** Index entries by prefix length for longest-prefix matching. */
 export function buildMatcher(entries: readonly CatalogueEntry[]) {
   const byPrefix = new Map<string, CatalogueEntry>();
@@ -54,17 +62,31 @@ export function buildMatcher(entries: readonly CatalogueEntry[]) {
     if (p.length > maxLen) maxLen = p.length;
   }
 
+  const lookup = (digits: string): CatalogueEntry | null => {
+    for (let len = Math.min(digits.length, maxLen); len >= 1; len--) {
+      const hit = byPrefix.get(digits.slice(0, len));
+      if (hit) return hit;
+    }
+    return null;
+  };
+
   return function match(rawPrefix: string | null | undefined): CanonicalMatch {
     const digits = String(rawPrefix ?? '').replace(/\D/g, '');
     if (!digits) return { ...UNMAPPED };
-    for (let len = Math.min(digits.length, maxLen); len >= 1; len--) {
-      const hit = byPrefix.get(digits.slice(0, len));
-      if (hit) {
-        // A row without a resolvable level-1 ancestor has NO country — the
-        // Country column must never show an operator name.
-        return { mapped: true, destination: hit.name, country: hit.country || '—', entryId: hit.id };
-      }
-    }
-    return { ...UNMAPPED };
+
+    // Strip the trunk-class digit FIRST, and let that win when both forms
+    // resolve. Matching raw first looks safer but is demonstrably wrong here:
+    // Sippy's "1880" is trunk-1 + Bangladesh, while the catalogue also holds
+    // a literal "1880" for United States 800 — raw-first prints the wrong
+    // COUNTRY on a customer invoice. Raw remains the fallback so a catalogue
+    // or tariff that does not use the convention still resolves.
+    const stripped = digits.length > 1 && TRUNK_CLASS_DIGITS.has(digits[0])
+      ? digits.slice(1) : null;
+    const hit = (stripped ? lookup(stripped) : null) ?? lookup(digits);
+
+    if (!hit) return { ...UNMAPPED };
+    // A row without a resolvable level-1 ancestor has NO country — the
+    // Country column must never show an operator name.
+    return { mapped: true, destination: hit.name, country: hit.country || '—', entryId: hit.id };
   };
 }

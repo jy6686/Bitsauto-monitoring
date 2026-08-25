@@ -45,3 +45,52 @@ describe('buildMatcher', () => {
     expect(empty('92300').mapped).toBe(false);
   });
 });
+
+/**
+ * Built from the LIVE catalogue and the LIVE Sippy prefixes, not invented:
+ * the catalogue stores 92 / 880 / 9230 / 9232 and also a literal 1880 for
+ * United States 800, while the switch reports 192 / 1880 / 19230 / 19232.
+ * Matching raw digits therefore printed Bangladesh traffic as United States.
+ */
+describe('Sippy trunk-class prefixes (production data)', () => {
+  const LIVE: CatalogueEntry[] = [
+    { id: 1, name: 'Pakistan',             dialPrefix: '92',   country: 'Pakistan'   },
+    { id: 2, name: 'Bangladesh',           dialPrefix: '880',  country: 'Bangladesh' },
+    { id: 3, name: 'United States 800',    dialPrefix: '1880', country: 'United States' },
+    { id: 4, name: 'Pakistan Mobile Jazz', dialPrefix: '9230', country: 'Pakistan'   },
+    { id: 5, name: 'Pakistan Mobile Jazz', dialPrefix: '9232', country: 'Pakistan'   },
+  ];
+  const match = buildMatcher(LIVE);
+
+  it('1880 is trunk-1 + Bangladesh, NOT United States 800', () => {
+    // The wrong-country defect: raw-first matched the literal 1880 entry.
+    const m = match('1880');
+    expect(m.country).toBe('Bangladesh');
+    expect(m.destination).toBe('Bangladesh');
+  });
+
+  it('resolves every prefix the switch actually reported that week', () => {
+    expect(match('192')).toMatchObject({ country: 'Pakistan', destination: 'Pakistan' });
+    expect(match('19230')).toMatchObject({ destination: 'Pakistan Mobile Jazz' });
+    expect(match('19232')).toMatchObject({ destination: 'Pakistan Mobile Jazz' });
+    // 19234 has no catalogue row of its own; it falls back to the country.
+    expect(match('19234')).toMatchObject({ country: 'Pakistan' });
+  });
+
+  it('a prefix carrying no trunk digit still resolves on the raw form', () => {
+    expect(match('92')).toMatchObject({ country: 'Pakistan' });
+    expect(match('880')).toMatchObject({ country: 'Bangladesh' });
+    expect(match('9230')).toMatchObject({ destination: 'Pakistan Mobile Jazz' });
+  });
+
+  it('an unknown prefix is still unmapped, never force-fitted', () => {
+    expect(match('1999').mapped).toBe(false);
+    expect(match('4477').mapped).toBe(false);
+  });
+
+  it('duplicate catalogue prefixes resolve deterministically', () => {
+    // The live catalogue holds Pakistan 92 and Bangladesh 880 twice each.
+    const dup = buildMatcher([...LIVE, { id: 9, name: 'Pakistan', dialPrefix: '92', country: 'Pakistan' }]);
+    expect(dup('192').entryId).toBe(1);
+  });
+});
