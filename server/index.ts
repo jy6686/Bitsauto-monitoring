@@ -302,7 +302,10 @@ app.use((req, res, next) => {
 
   try {
     boot("9 registerRoutes() starting");
-    console.log("[BUILD-FINGERPRINT] 2026-07-20-A startup-gate-fix");
+    // The hardcoded "[BUILD-FINGERPRINT] 2026-07-20-A" that used to print here
+    // was frozen in July and identified nothing thereafter — a second, silently
+    // wrong answer to the question the startup banner now answers correctly.
+    // One authoritative build identifier, not two.
     await registerRoutes(httpServer, app);
     boot("10 registerRoutes() done");
   } catch (e: any) {
