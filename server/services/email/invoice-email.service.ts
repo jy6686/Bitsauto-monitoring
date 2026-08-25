@@ -106,7 +106,13 @@ async function buildInvoiceTransporter(): Promise<{
       socketTimeout:     15_000,
       greetingTimeout:   10_000,
     } as any);
-    return { transporter, from: `"Ichibaan Logic Billing" <billing@ichibaanlogic.com>` };
+    // Send as the account that actually authenticated. This previously claimed
+    // a fixed billing@ address regardless of which mailbox was logged in —
+    // an address Gmail rewrites when it does not belong to the authenticated
+    // account, so the delivery audit recorded a sender the recipient never saw.
+    // The display name stays configurable; the address must be the real one.
+    const fallbackName = settings.invoiceSmtpFromName ?? 'Ichibaan Logic Billing';
+    return { transporter, from: `"${fallbackName}" <${settings.alertGmailUser}>` };
   }
 
   return null;
