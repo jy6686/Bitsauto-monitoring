@@ -848,7 +848,17 @@ export async function registerRoutes(
     } catch(e: any) { res.status(500).json({ error: e.message }); }
   });
 
-    const UNGUARDED = new Set(['/probe/status','/portal/auth/logout','/portal/auth/session','/debug/account-cache','/sippy/rates/portal-probe','/login','/callback','/logout']);
+    // /build is unguarded on purpose: "which code is running here" must be
+    // answerable without a session, from a terminal or a deploy check, and it
+    // exposes only a commit id and a timestamp.
+    const UNGUARDED = new Set(['/build','/probe/status','/portal/auth/logout','/portal/auth/session','/debug/account-cache','/sippy/rates/portal-probe','/login','/callback','/logout']);
+  // GET /api/build — which commit this instance is running, when it was built,
+  // and whether it is the deployed image or the workspace.
+  app.get('/api/build', async (_req: any, res: any) => {
+    const { getBuildInfo } = await import('./build-info');
+    res.json(getBuildInfo());
+  });
+
   app.use('/api',(req,res,next)=>{
     if(UNGUARDED.has(req.path)||req.path.startsWith('/notifications/acknowledge'))return next();
     const uid=req.user?.claims?.sub??req.user?.id??null;
@@ -39955,7 +39965,16 @@ ${footer}
         // and database name only — never credentials.
         build: {
           version: process.env.FINANCE_BUILD_VERSION ?? 'v1.4',
-          commit: (process.env.REPL_ID ?? '').slice(0, 8) || 'dev',
+          // The real build stamp. This field used to be a slice of REPL_ID —
+          // an environment identifier that never changes between deploys, so it
+          // looked like a commit and answered nothing.
+          ...(() => {
+            try {
+              const { getBuildInfo } = require('./build-info');
+              const b = getBuildInfo();
+              return { commit: b.gitCommit, buildTime: b.buildTime, buildVersion: b.version, buildSource: b.source };
+            } catch { return { commit: 'unknown' }; }
+          })(),
           schemaVersion: 1,
           environment: process.env.NODE_ENV === 'production' ? 'production' : 'workspace',
           database: (() => {

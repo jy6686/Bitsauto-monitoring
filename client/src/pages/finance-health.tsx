@@ -838,6 +838,16 @@ export default function FinanceHealthPage() {
             Commit: <span className="font-mono text-foreground">{build.commit}</span>
           </div>
         )}
+        {build.buildTime && (
+          <div className="flex items-center gap-1.5">
+            Built: <span className="font-mono text-foreground">{new Date(build.buildTime).toUTCString()}</span>
+          </div>
+        )}
+        {build.buildSource === 'git' && (
+          <div className="flex items-center gap-1.5 text-amber-400">
+            running from source, not a published build
+          </div>
+        )}
         <div className="flex items-center gap-1.5">
           Schema: <span className="font-mono text-foreground">v{build.schemaVersion ?? "—"}</span>
         </div>
