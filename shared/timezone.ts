@@ -47,31 +47,57 @@ function isUsable(tz: string): boolean {
   catch { return false; }
 }
 
+export interface TimeZoneResolution {
+  /** Always safe to hand to Intl. */
+  timeZone: string;
+  /** false when the input was already a usable identifier. */
+  normalized: boolean;
+  /** true when nothing could be mapped and UTC was substituted. */
+  fellBack: boolean;
+  original: string;
+}
+
+/**
+ * Resolve with provenance.
+ *
+ * Falling back to UTC keeps the page alive, but a silent fallback also hides
+ * the bad data that caused it — the same masking that let a dropdown label sit
+ * in the database until it crashed production. Callers that can log should use
+ * this and report `fellBack`, so the value gets fixed instead of tolerated.
+ */
+export function resolveTimeZone(value: string | null | undefined): TimeZoneResolution {
+  const original = String(value ?? '');
+  const raw = original.trim();
+  if (!raw) return { timeZone: 'UTC', normalized: false, fellBack: false, original };
+  if (isUsable(raw)) return { timeZone: raw, normalized: false, fellBack: false, original };
+
+  const afterPipe = raw.includes('|') ? raw.split('|').pop()!.trim() : raw;
+  const mapped = LEGACY_LABELS[afterPipe.toLowerCase()] ?? LEGACY_LABELS[raw.toLowerCase()];
+  if (mapped && isUsable(mapped)) {
+    return { timeZone: mapped, normalized: true, fellBack: false, original };
+  }
+  return { timeZone: 'UTC', normalized: true, fellBack: true, original };
+}
+
+/** Distinct unmappable values already reported — warn once, not per render. */
+const warned = new Set<string>();
+
 /**
  * Resolve any stored timezone value to an identifier Intl will accept.
  * Returns 'UTC' for anything unrecognised — never throws, never returns a
- * value that would throw downstream.
+ * value that would throw downstream. An unmappable value is warned about once
+ * per distinct string, so the data problem stays visible without flooding a
+ * render loop that may run every second.
  */
 export function toIanaTimeZone(value: string | null | undefined): string {
-  const raw = String(value ?? '').trim();
-  if (!raw) return 'UTC';
-
-  // Already a usable identifier ("UTC", "Asia/Karachi").
-  if (isUsable(raw)) return raw;
-
-  // Legacy label: "GMT+05:00 | Karachi" — the city sits after the pipe.
-  // Note Intl accepts a bare "+05:00" as an offset zone (handled above) but
-  // rejects "GMT+05:00". Offset zones are passed through rather than rewritten
-  // to UTC: they ignore daylight saving, but silently moving a customer's
-  // clock by five hours would be the worse failure.
-  const afterPipe = raw.includes('|') ? raw.split('|').pop()!.trim() : raw;
-  const mapped = LEGACY_LABELS[afterPipe.toLowerCase()];
-  if (mapped && isUsable(mapped)) return mapped;
-
-  const whole = LEGACY_LABELS[raw.toLowerCase()];
-  if (whole && isUsable(whole)) return whole;
-
-  return 'UTC';
+  const r = resolveTimeZone(value);
+  if (r.fellBack && !warned.has(r.original)) {
+    warned.add(r.original);
+    try {
+      console.warn(`[timezone] unrecognised value ${JSON.stringify(r.original)} — using UTC. Fix the stored value; it is not an IANA identifier.`);
+    } catch { /* console unavailable — the fallback still stands */ }
+  }
+  return r.timeZone;
 }
 
 /** Human-facing label for an identifier: "Asia/Karachi" → "Karachi (Asia)". */

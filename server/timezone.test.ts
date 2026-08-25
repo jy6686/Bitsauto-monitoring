@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { toIanaTimeZone, timeZoneLabel, TIMEZONE_OPTIONS } from '@shared/timezone';
+import { toIanaTimeZone, timeZoneLabel, TIMEZONE_OPTIONS, resolveTimeZone } from '@shared/timezone';
 
 /** Exactly what the wizards stored as VALUES before the fix. */
 const LEGACY_STORED = [
@@ -94,6 +94,44 @@ describe('TIMEZONE_OPTIONS', () => {
     for (const opt of TIMEZONE_OPTIONS) {
       expect(() => new Intl.DateTimeFormat('en-US', { timeZone: opt.value })).not.toThrow();
       expect(toIanaTimeZone(opt.value)).toBe(opt.value);
+    }
+  });
+});
+
+/**
+ * Provenance: a silent fallback keeps the page alive but hides the bad data
+ * that caused it — the same masking that let a dropdown label sit in the
+ * database until it crashed production.
+ */
+describe('resolveTimeZone', () => {
+  it('reports an already-valid identifier as untouched', () => {
+    expect(resolveTimeZone('Asia/Karachi')).toEqual({
+      timeZone: 'Asia/Karachi', normalized: false, fellBack: false, original: 'Asia/Karachi',
+    });
+  });
+
+  it('reports a legacy label as normalized, not as a fallback', () => {
+    // This one WAS understood — it should not be reported as lost data.
+    expect(resolveTimeZone('GMT+05:00 | Karachi')).toEqual({
+      timeZone: 'Asia/Karachi', normalized: true, fellBack: false, original: 'GMT+05:00 | Karachi',
+    });
+  });
+
+  it('flags an unmappable value so it can be fixed rather than tolerated', () => {
+    const r = resolveTimeZone('Mars/Olympus');
+    expect(r.timeZone).toBe('UTC');
+    expect(r.fellBack).toBe(true);
+    expect(r.original).toBe('Mars/Olympus');
+  });
+
+  it('an empty value is a default, not a fallback worth reporting', () => {
+    expect(resolveTimeZone('').fellBack).toBe(false);
+    expect(resolveTimeZone(null).fellBack).toBe(false);
+  });
+
+  it('agrees with toIanaTimeZone on every input', () => {
+    for (const v of ['UTC', 'GMT+00:00 | UTC', 'Asia/Karachi', 'Mars/Olympus', '', null]) {
+      expect(resolveTimeZone(v as any).timeZone).toBe(toIanaTimeZone(v as any));
     }
   });
 });
