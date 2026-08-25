@@ -136,6 +136,20 @@ export async function sendInvoiceEmail(
     return { ok: false, error: 'At least one recipient is required' };
   }
 
+  // Currency comes from the client record, never assumed. The summary below
+  // stated USD unconditionally, which misreports the amount for any client
+  // billed in another currency.
+  let currency = 'USD';
+  try {
+    const { db: database } = await import('../../db');
+    const { sql: rawSql } = await import('drizzle-orm');
+    const r = await database.execute(rawSql`
+      SELECT coalesce(nullif(sippy_tariff_currency, ''), nullif(currency, ''), 'USD') AS cur
+        FROM companies WHERE lower(name) = lower(${String(invoice.customerName ?? '')}) LIMIT 1`);
+    const c = ((r as any).rows ?? [])[0]?.cur;
+    if (c) currency = String(c).toUpperCase();
+  } catch { /* default stands */ }
+
   let testMode = false;
   // "Who should this have gone to" — the client-master addresses when the
   // operator overrode them, otherwise filled in by Test Mode below with the
@@ -254,7 +268,7 @@ export async function sendInvoiceEmail(
       <tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Customer</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${invoice.customerName ?? ''}</td></tr>
       ${invoice.periodStart ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Billing period</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${String(invoice.periodStart).slice(0, 10)} &ndash; ${String(invoice.periodEnd ?? '').slice(0, 10)}</td></tr>` : ''}
       ${invoice.lineCount != null ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Calls billed</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${Number(invoice.lineCount).toLocaleString()}</td></tr>` : ''}
-      <tr><td style="padding:9px 16px;color:#1a1a2e;font-weight:bold;border-top:2px solid #1a1a2e">Total amount</td><td style="padding:9px 16px;text-align:right;font-weight:bold;font-size:15px;color:#1a1a2e;border-top:2px solid #1a1a2e">USD ${Number(invoice.totalActual ?? 0).toFixed(2)}</td></tr>
+      <tr><td style="padding:9px 16px;color:#1a1a2e;font-weight:bold;border-top:2px solid #1a1a2e">Total amount</td><td style="padding:9px 16px;text-align:right;font-weight:bold;font-size:15px;color:#1a1a2e;border-top:2px solid #1a1a2e">${currency} ${Number(invoice.totalActual ?? 0).toFixed(2)}</td></tr>
     </table>
   </div>
 

@@ -74,6 +74,22 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
      ORDER BY amount DESC`);
   const rows: any[] = (detailRes as any).rows ?? [];
 
+  // Currency belongs to the customer, not to this renderer. The document
+  // previously printed USD unconditionally, which is simply wrong for a client
+  // billed in anything else — a correctness fault on a customer-facing
+  // document, not a presentation detail. Falls back to USD only when the
+  // client record says nothing.
+  let currency = 'USD';
+  try {
+    const cur = await db.execute(sql`
+      SELECT coalesce(nullif(sippy_tariff_currency, ''), nullif(currency, ''), 'USD') AS cur
+        FROM companies
+       WHERE lower(name) = lower(${String(inv.customer_name ?? '')})
+       LIMIT 1`);
+    const c = ((cur as any).rows ?? [])[0]?.cur;
+    if (c) currency = String(c).toUpperCase();
+  } catch { /* keep the default rather than fail the render */ }
+
   const PDFDocument = (await import('pdfkit')).default;
   const chunks: Buffer[] = [];
 
@@ -164,7 +180,7 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
       { label: 'Prefix',      w: W * 0.12, align: 'left'  as const },
       { label: 'Calls',       w: W * 0.12, align: 'right' as const },
       { label: 'Minutes',     w: W * 0.16, align: 'right' as const },
-      { label: 'Amount (USD)',w: W * 0.20, align: 'right' as const },
+      { label: `Amount (${currency})`, w: W * 0.20, align: 'right' as const },
     ];
 
     const drawHead = (yy: number) => {
@@ -210,7 +226,7 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     doc.fontSize(11).fillColor(DARK).font('Helvetica-Bold')
       .text('TOTAL DUE', L, y, { width: W * 0.6 })
       .fontSize(14)
-      .text(`USD ${Number(inv.total_actual ?? 0).toFixed(2)}`, L + W * 0.6, y - 2, { width: W * 0.4, align: 'right' });
+      .text(`${currency} ${Number(inv.total_actual ?? 0).toFixed(2)}`, L + W * 0.6, y - 2, { width: W * 0.4, align: 'right' });
     y += 26;
     doc.fontSize(8).fillColor(GRAY).font('Helvetica')
       .text('Payment is due in accordance with the agreed commercial terms. For queries contact billing@ichibaanlogic.com; disputes to dispute@ichibaanlogic.com.',
