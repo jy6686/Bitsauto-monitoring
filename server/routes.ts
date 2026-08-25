@@ -32874,7 +32874,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     /** Accept a period with exceptions. Requires a reason and an operator. */
     override?: { reason: string; by: string };
   }): Promise<{
-    ok: boolean; stage?: 'duplicate' | 'seed' | 'certify' | 'generate'; error?: string;
+    ok: boolean; stage?: 'duplicate' | 'seed' | 'freeze' | 'certify' | 'generate'; error?: string;
     seed?: { fetched: number; created: number; skipped: number; message?: string };
     certification?: { state: string; reasons: string[]; runId?: number };
     totalsCheck?: { ok: boolean; invoiceTotal: number; certifiedTotal: number };
@@ -32904,9 +32904,29 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
     }
 
-    // Stage 2 — certification. An invoice may only be built from a dataset that
-    // has been checked against the tariff. No run at all is a hard block; a run
-    // that raised exceptions needs a named person to accept them on the record.
+    // Stage 2 — FREEZE. The period must be finished before anything else looks
+    // at it.
+    //
+    // This runs BEFORE certification deliberately: certifying a period that is
+    // still receiving calls checks a dataset that is still growing, so a clean
+    // result means nothing and the wasted pass reports the wrong reason for the
+    // refusal. Not overridable — unlike an exception there is no judgement to
+    // exercise, because the period either ended or it did not.
+    {
+      const { isPeriodClosed } = await import('./billing-periods');
+      const asOf = new Date().toISOString().slice(0, 10);
+      if (!isPeriodClosed(opts.periodEnd, asOf)) {
+        return {
+          ok: false, stage: 'freeze', seed,
+          error: `Billing period ${opts.periodStart}–${opts.periodEnd} has not closed as of ${asOf}. It closes at 00:00 GMT the day after ${opts.periodEnd}; invoicing before then bills a period still receiving calls.`,
+        };
+      }
+    }
+
+    // Stage 3 — certification, on a frozen period. An invoice may only be built
+    // from a dataset that has been checked against the tariff. No run at all is
+    // a hard block; a run that raised exceptions needs a named person to accept
+    // them on the record.
     let cert: Awaited<ReturnType<typeof _certificationFor>> | null = null;
     if (opts.iTariff) {
       cert = await _certificationFor(opts.iTariff, opts.periodStart, opts.periodEnd);
@@ -32922,25 +32942,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
     }
 
-    // Stage 2b — finance freeze: the period must be FINISHED.
-    //
-    // Certification says every collected call priced correctly; it says nothing
-    // about whether more calls are coming. Invoicing an open period understates
-    // the bill and the remainder is unrecoverable, because a period is never
-    // invoiced twice. Deliberately not overridable: unlike an exception, there
-    // is no judgement to exercise — the period either ended or it did not.
-    {
-      const { isPeriodClosed } = await import('./billing-periods');
-      const asOf = new Date().toISOString().slice(0, 10);
-      if (!isPeriodClosed(opts.periodEnd, asOf)) {
-        return {
-          ok: false, stage: 'certify', seed,
-          error: `Billing period ${opts.periodStart}–${opts.periodEnd} has not closed as of ${asOf}. It closes at 00:00 GMT the day after ${opts.periodEnd}; invoicing before then bills a period still receiving calls.`,
-        };
-      }
-    }
-
-    // Stage 3 — certified generator (refuses when the period has no snapshots)
+    // Stage 4 — certified generator (refuses when the period has no snapshots)
     try {
       const r = await generateInvoice({
         iTariff: opts.iTariff, iAccount: opts.iAccount ?? undefined,
@@ -33522,7 +33524,26 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     });
 
     const blockers = checks.filter(c => c.blocking && !c.ok);
-    return { frozen: blockers.length === 0, checks, blockers: blockers.map(b => b.label), certification: cert.state };
+    const flag = (key: string) => checks.find(c => c.key === key)?.ok ?? false;
+
+    // Flat booleans alongside the detailed checks, so every consumer — invoice
+    // generation, the scheduler, Finance Health, the pipeline trace, the
+    // customer portal — reads one shared verdict instead of re-deriving the
+    // rules. Duplicating "may this be invoiced" is how two screens end up
+    // disagreeing about the same period.
+    return {
+      periodClosed:          flag('periodClosed'),
+      accountingMonthClosed: flag('monthClosed'),
+      certified:             flag('certified'),
+      snapshotLocked:        flag('snapshotsLocked'),
+      tariffLocked:          flag('tariffLocked'),
+      invoiceAllowed:        blockers.length === 0,
+      // Detail for humans; the booleans above are for machines.
+      frozen: blockers.length === 0,
+      checks,
+      blockers: blockers.map(b => b.label),
+      certification: cert.state,
+    };
   }
 
   // GET /api/finance/freeze-check?iTariff=&periodStart=&periodEnd=
@@ -33576,7 +33597,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         add('Company record', 'fail', `No company named "${customer}".`,
           'Create the company under Organisation Management, with its Sippy account and tariff.');
         for (const s of ['Traffic discovery', 'Tariff resolution', 'Rating', 'Billable snapshots',
-                         'Certification', 'Billing policy', 'Invoice', 'Delivery']) {
+                         'Finance freeze', 'Certification', 'Billing policy', 'Invoice', 'Delivery']) {
           skip(s, 'there is no company record');
         }
         return res.json({ customer, periodStart, periodEnd, stages, verdict: 'No company record' });
@@ -33672,18 +33693,34 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         }
       }
 
-      // ── 6. Certification ─────────────────────────────────────────────────
+      // ── 6. Freeze, then certification — the same order the chain uses ────
+      //
+      // Both read the ONE shared verdict rather than re-deriving the rules,
+      // so this screen can never disagree with what generation will actually
+      // do. Freeze comes first: certifying a period still receiving calls
+      // checks a dataset that is still growing.
       let certState = '';
-      if (!tariff)        skip('Certification', 'no tariff could be resolved');
-      else if (!snapRows) skip('Certification', 'there are no billable snapshots to certify');
-      else {
-        const cert = await _certificationFor(tariff, periodStart, periodEnd);
-        certState = cert.state;
-        if (cert.state === 'certified') add('Certification', 'pass', 'Certified — every call priced exactly');
-        else add('Certification', 'fail',
-          cert.state === 'uncertified' ? `Uncertified: ${cert.reasons.join('; ')}` : `Exceptions — ${cert.reasons.join('; ')}`,
-          cert.state === 'uncertified' ? 'Run certification for this period; generation is blocked until it passes.'
-            : 'Resolve the exceptions, or generate with a recorded override reason.');
+      if (!tariff) {
+        skip('Finance freeze', 'no tariff could be resolved');
+        skip('Certification', 'no tariff could be resolved');
+      } else {
+        const fz: any = await _financeFreezeFor(tariff, periodStart, periodEnd);
+        certState = fz.certification;
+        add('Finance freeze', fz.periodClosed ? 'pass' : 'fail',
+          fz.periodClosed
+            ? `Period closed. Accounting month ${fz.accountingMonthClosed ? 'closed' : 'still open'}; snapshots ${fz.snapshotLocked ? 'locked' : 'not fully locked'}; tariff version ${fz.tariffLocked ? 'locked' : 'NOT locked'}.`
+            : `Period has not closed — it is still receiving calls.`,
+          fz.periodClosed ? undefined : 'Wait until 00:00 GMT the day after the period ends. This is not overridable.');
+        if (!snapRows) {
+          skip('Certification', 'there are no billable snapshots to certify');
+        } else if (fz.certified) {
+          add('Certification', 'pass', 'Certified — every call priced exactly');
+        } else {
+          const c = fz.checks.find((x: any) => x.key === 'certified');
+          add('Certification', 'fail', c?.detail ?? certState,
+            certState === 'uncertified' ? 'Run certification for this period; generation is blocked until it passes.'
+              : 'Resolve the exceptions, or generate with a recorded override reason.');
+        }
       }
 
       // ── 7. Billing policy — WHEN this period would be invoiced ───────────
