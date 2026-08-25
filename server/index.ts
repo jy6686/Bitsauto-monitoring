@@ -11,6 +11,7 @@ import { setupNocWebSocket } from "./noc-ws";
 import { setupLiveTrafficWebSocket } from "./live-traffic-ws";
 import { createServer } from "http";
 import compression from "compression";
+import { getBuildInfo } from "./build-info";
 
 // ── Global crash guards ───────────────────────────────────────────────────────
 // Prevent background timer errors from killing the production process.
@@ -35,7 +36,6 @@ boot(`1 process started · Node ${process.version} · PID=${process.pid} · PORT
 // then answers "which code produced this?" on its own, instead of the question
 // being asked days later against a symptom.
 try {
-  const { getBuildInfo } = require('./build-info');
   const b = getBuildInfo();
   console.log('══════════════════════════════════════════════════');
   console.log(`  ${b.application}  ${b.version}`);

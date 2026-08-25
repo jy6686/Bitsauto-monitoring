@@ -16,6 +16,12 @@
 
 import fs from 'fs';
 import path from 'path';
+import { execSync } from 'child_process';
+
+// This module must work under BOTH module systems: the dev server runs as ESM
+// ("type": "module" + tsx) where __dirname and require() do not exist, and the
+// production bundle is CommonJS where import.meta.url does not exist. So it
+// uses neither — only process.cwd(), which is defined in both.
 
 export interface BuildInfo {
   application: string;
@@ -42,7 +48,10 @@ export function getBuildInfo(): BuildInfo {
     process.env.NODE_ENV === 'production' ? 'production' : 'workspace';
 
   // Deployed image: the stamp baked in at build time.
-  for (const p of [path.join(process.cwd(), 'dist/build-info.json'), path.join(__dirname, 'build-info.json')]) {
+  for (const p of [
+    path.join(process.cwd(), 'dist/build-info.json'),
+    path.join(process.cwd(), 'build-info.json'),
+  ]) {
     try {
       if (fs.existsSync(p)) {
         const j = JSON.parse(fs.readFileSync(p, 'utf-8'));
@@ -64,7 +73,6 @@ export function getBuildInfo(): BuildInfo {
 
   // Workspace: read the checkout directly.
   try {
-    const { execSync } = require('child_process');
     const git = (cmd: string) => execSync(cmd, { encoding: 'utf-8', timeout: 3000 }).trim();
     const gitCommit = git('git rev-parse --short HEAD');
     const gitBranch = git('git rev-parse --abbrev-ref HEAD');

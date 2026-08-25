@@ -39959,6 +39959,15 @@ ${footer}
         ? new Date(new Date(lastRun.started_at).getTime() + 30 * 60 * 1000).toISOString()
         : null;
 
+      // Read the build stamp before composing the response: this module is ESM
+      // in dev and CJS when bundled, so it must be imported, never require()d.
+      let buildStamp: Record<string, any> = { commit: 'unknown' };
+      try {
+        const { getBuildInfo } = await import('./build-info');
+        const b = getBuildInfo();
+        buildStamp = { commit: b.gitCommit, buildTime: b.buildTime, buildVersion: b.version, buildSource: b.source };
+      } catch { /* leave the default */ }
+
       res.json({
         generated_at: new Date().toISOString(),
         pipeline: {
@@ -39983,13 +39992,7 @@ ${footer}
           // The real build stamp. This field used to be a slice of REPL_ID —
           // an environment identifier that never changes between deploys, so it
           // looked like a commit and answered nothing.
-          ...(() => {
-            try {
-              const { getBuildInfo } = require('./build-info');
-              const b = getBuildInfo();
-              return { commit: b.gitCommit, buildTime: b.buildTime, buildVersion: b.version, buildSource: b.source };
-            } catch { return { commit: 'unknown' }; }
-          })(),
+          ...buildStamp,
           schemaVersion: 1,
           environment: process.env.NODE_ENV === 'production' ? 'production' : 'workspace',
           database: (() => {
