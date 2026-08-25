@@ -234,6 +234,7 @@ export {
 export * as invoice from './sippy-invoice.service';
 export {
   generateInvoice,
+  resolveInvoiceTariff,
   approveInvoice,
   voidInvoice,
   getInvoiceWithLineItems,

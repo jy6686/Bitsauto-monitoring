@@ -39,10 +39,18 @@ const BILLING_CYCLES = [
   { value: "daily",         label: "Daily" },
   { value: "bi_weekly",     label: "Bi-Weekly" },
 ];
+// Terms state their own length (net_*) so the company profile alone defines
+// the commercial agreement — same vocabulary as the company-create wizard.
+// postpaid/credit stay for legacy rows; new accounts should pick a Net term.
 const PAYMENT_TERMS = [
   { value: "prepaid",  label: "Prepaid" },
-  { value: "postpaid", label: "Postpaid" },
-  { value: "credit",   label: "Credit" },
+  { value: "net_7",    label: "Net 7" },
+  { value: "net_15",   label: "Net 15" },
+  { value: "net_30",   label: "Net 30" },
+  { value: "net_45",   label: "Net 45" },
+  { value: "net_60",   label: "Net 60" },
+  { value: "postpaid", label: "Postpaid (legacy — no term length)" },
+  { value: "credit",   label: "Credit (legacy — no term length)" },
 ];
 const SERVICE_TIERS = [
   { value: "basic",        label: "Basic",        desc: "Entry-level VoIP service" },

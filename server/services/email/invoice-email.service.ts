@@ -205,6 +205,29 @@ export async function sendInvoiceEmail(
     };
   } catch { /* unconfigured → the fallback literals below */ }
 
+  // Billing contact separation (owner spec): To = the client's billing
+  // recipients; CC = the issuer's own billing CC (finance keeps a copy of
+  // every outgoing invoice); BCC likewise; Reply-To = the dispute mailbox,
+  // so a customer hitting Reply lands in dispute handling, not a send-only
+  // SMTP identity.
+  const splitAddresses = (s: unknown): string[] =>
+    String(s ?? '').split(/[,;]+/).map((x) => x.trim()).filter((x) => x.includes('@'));
+  for (const addr of splitAddresses(issuer.billingCc)) {
+    if (!cc.includes(addr) && !recipients.includes(addr)) cc.push(addr);
+  }
+  // A BCC address already on To/CC would just duplicate the delivery.
+  let bcc: string[] = splitAddresses(issuer.billingBcc)
+    .filter((a) => !recipients.includes(a) && !cc.includes(a));
+  const replyTo: string | undefined =
+    String(issuer.billingDisputeEmail ?? '').trim() || undefined;
+
+  // Settings values are operator-configured, but they land inside HTML text
+  // and attribute contexts below — escape them so a legal name containing
+  // '&' or quotes cannot break the markup (or worse).
+  const esc = (s: unknown): string => String(s ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
   let testMode = false;
   // "Who should this have gone to" — the client-master addresses when the
   // operator overrode them, otherwise filled in by Test Mode below with the
@@ -234,6 +257,7 @@ export async function sendInvoiceEmail(
       intendedRecipients = intended;
       recipients = [testTo];
       cc = [];
+      bcc = []; // issuer copies are real deliveries — test mode suppresses them too
       subject = `[TEST] ${subject}`;
       body = `*** TEST MODE — this invoice was NOT sent to the client. ***\nIntended recipients: ${intended}\n\n${body}`;
       console.log(`[invoice-email] TEST MODE: redirecting invoice #${invoiceId} to ${testTo} (intended: ${intended})`);
@@ -286,9 +310,11 @@ export async function sendInvoiceEmail(
       }
     }
 
-    // Email body: operator's message as primary content
-    const logoHtml = EMAIL_LOGO_URI
-      ? `<img src="${EMAIL_LOGO_URI}" alt="Ichibaan Logic" style="height:48px;width:auto;object-fit:contain;">`
+    // Email body: operator's message as primary content. Configured logo
+    // (settings data-URI) wins over the built-in asset, same rule as the PDF.
+    const logoUri = issuer.invoiceLogo || EMAIL_LOGO_URI;
+    const logoHtml = logoUri
+      ? `<img src="${logoUri}" alt="${esc(issuer.billingLegalName ?? 'Ichibaan Logic')}" style="height:48px;width:auto;object-fit:contain;">`
       : `<span style="font-size:18px;font-weight:bold;color:#fff;letter-spacing:1px;">ICHIBAAN LOGIC</span>`;
 
     const htmlBody = `
@@ -342,13 +368,13 @@ export async function sendInvoiceEmail(
        unconfigured fallback so an unconfigured install still signs its mail. -->
   <div style="padding:16px 32px;background:#f8f8f8;border-top:1px solid #e8e8e8">
     <div style="font-size:11px;color:#555;line-height:1.7">
-      <strong style="color:#1a1a2e">${issuer.billingLegalName ?? 'Ichibaan Logic Private Limited'}</strong>
+      <strong style="color:#1a1a2e">${esc(issuer.billingLegalName ?? 'Ichibaan Logic Private Limited')}</strong>
       ${issuer.billingLegalName ? '' : '<span style="color:#999;font-style:italic"> (formerly Bhaoo Private Limited)</span>'}<br>
-      ${issuer.billingRegisteredAddress ?? 'Unit Level 11(A), Main Office Tower, Jalan Merdeka, Financial Park Labuan, 87000 Labuan, Malaysia'}<br>
-      Tel: +60 11 1426 1581 &nbsp;&bull;&nbsp;
-      <a href="mailto:${issuer.billingContactEmail ?? 'billing@ichibaanlogic.com'}" style="color:#c0392b;text-decoration:none;">${issuer.billingContactEmail ?? 'billing@ichibaanlogic.com'}</a> &nbsp;&bull;&nbsp;
-      ${issuer.billingSupportEmail ? `Support: <a href="mailto:${issuer.billingSupportEmail}" style="color:#c0392b;text-decoration:none;">${issuer.billingSupportEmail}</a> &nbsp;&bull;&nbsp;` : ''}
-      <a href="https://${issuer.billingWebsite ?? 'www.ichibaanlogic.com'}" style="color:#c0392b;text-decoration:none;">${issuer.billingWebsite ?? 'www.ichibaanlogic.com'}</a>
+      ${esc(issuer.billingRegisteredAddress ?? 'Unit Level 11(A), Main Office Tower, Jalan Merdeka, Financial Park Labuan, 87000 Labuan, Malaysia')}<br>
+      Tel: ${esc(issuer.billingPhone ?? '+60 11 1426 1581')} &nbsp;&bull;&nbsp;
+      <a href="mailto:${esc(issuer.billingContactEmail ?? 'billing@ichibaanlogic.com')}" style="color:#c0392b;text-decoration:none;">${esc(issuer.billingContactEmail ?? 'billing@ichibaanlogic.com')}</a> &nbsp;&bull;&nbsp;
+      ${issuer.billingSupportEmail ? `Support: <a href="mailto:${esc(issuer.billingSupportEmail)}" style="color:#c0392b;text-decoration:none;">${esc(issuer.billingSupportEmail)}</a> &nbsp;&bull;&nbsp;` : ''}
+      <a href="https://${esc(issuer.billingWebsite ?? 'www.ichibaanlogic.com')}" style="color:#c0392b;text-decoration:none;">${esc(issuer.billingWebsite ?? 'www.ichibaanlogic.com')}</a>
     </div>
   </div>
 
@@ -360,6 +386,8 @@ export async function sendInvoiceEmail(
       from:        conn.from,
       to:          recipients.join(', '),
       cc:          cc.length > 0 ? cc.join(', ') : undefined,
+      bcc:         bcc.length > 0 ? bcc.join(', ') : undefined,
+      replyTo,
       subject,
       html:        htmlBody,
       attachments,
@@ -380,6 +408,7 @@ export async function sendInvoiceEmail(
       invoiceId,
       recipients:   JSON.stringify(recipients),
       ccAddresses:  JSON.stringify(cc),
+      bccAddresses: JSON.stringify(bcc),
       subject,
       bodyText:     body,
       sentBy,

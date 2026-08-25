@@ -191,6 +191,17 @@ export const settings = pgTable("settings", {
   invoiceDateFormat:         varchar("invoice_date_format",          { length: 16  }),
   invoiceFooterNote:         text("invoice_footer_note"),
   invoiceTermsNote:          text("invoice_terms_note"),
+  // Billing contact separation + branding-as-data (migration 077). CC/BCC are
+  // the ISSUER's own copies of outgoing invoices; Reply-To routes to disputes.
+  // Logo/signature live as data-URIs because the VM deployment's filesystem
+  // resets on republish — a runtime-written file would silently vanish.
+  billingCc:                 text("billing_cc"),
+  billingBcc:                text("billing_bcc"),
+  accountsEmail:             varchar("accounts_email",               { length: 255 }),
+  billingPhone:              varchar("billing_phone",                { length: 64  }),
+  invoiceLogo:               text("invoice_logo"),
+  invoiceSignature:          text("invoice_signature"),
+  invoiceSignatory:          varchar("invoice_signatory",            { length: 128 }),
   invoiceEmailTestRecipient: varchar("invoice_email_test_recipient", { length: 255 }),
   // SIP Error Rate alerting threshold — percentage (15-min window) above which an incident fires
   sipErrorAlertThreshold: real("sip_error_alert_threshold").default(15),
@@ -2939,6 +2950,7 @@ export const invoiceEmailDeliveries = pgTable("invoice_email_deliveries", {
   invoiceId:    integer("invoice_id").notNull(),
   recipients:   text("recipients").notNull(),   // JSON array of To: addresses
   ccAddresses:  text("cc_addresses").default('[]'), // JSON array of CC: addresses
+  bccAddresses: text("bcc_addresses").default('[]'), // JSON array of BCC: addresses (078)
   subject:      varchar("subject",     { length: 512 }).notNull(),
   bodyText:     text("body_text"),
   sentBy:       varchar("sent_by",     { length: 255 }),  // user id / name

@@ -32849,6 +32849,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     ok: boolean; stage?: 'duplicate' | 'seed' | 'certify' | 'generate'; error?: string;
     seed?: { fetched: number; created: number; skipped: number; message?: string };
     certification?: { state: string; reasons: string[]; runId?: number };
+    totalsCheck?: { ok: boolean; invoiceTotal: number; certifiedTotal: number };
     invoice?: { id: number; invoiceNumber: string; lineCount: number };
   }> {
     const { generateInvoice } = await import('./services/sippy/index');
@@ -32918,9 +32919,30 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         }
       }
 
+      // Grand-total cross-check (owner rule #7): the invoice's total must
+      // equal the sum of the LOCKED snapshots it was generated from. The
+      // generator sources those same snapshots, so agreement is expected —
+      // which is exactly why disagreement matters: it means a period filter
+      // or aggregation bug, and it must be said out loud, not assumed away.
+      let totalsCheck: { ok: boolean; invoiceTotal: number; certifiedTotal: number } | undefined;
+      try {
+        const t = await db.execute(sql`
+          SELECT coalesce(sum(reproduced_cost), 0)::float AS certified_total
+            FROM invoice_cdr_snapshots
+           WHERE i_tariff = ${opts.iTariff}
+             AND left(cdr_start_time, 10) BETWEEN ${opts.periodStart} AND ${opts.periodEnd}`);
+        const certifiedTotal = Number(((t as any).rows ?? [])[0]?.certified_total ?? 0);
+        const invoiceTotal = Number((r.invoice as any).totalReproduced ?? 0);
+        totalsCheck = { ok: Math.abs(invoiceTotal - certifiedTotal) < 0.01, invoiceTotal, certifiedTotal };
+        if (!totalsCheck.ok) {
+          console.error(`[billing-chain] GRAND-TOTAL MISMATCH on ${r.invoice.invoiceNumber}: invoice ${invoiceTotal} vs certified snapshots ${certifiedTotal}`);
+        }
+      } catch { /* cross-check unavailable — never blocks a generated invoice */ }
+
       return {
         ok: true, seed,
         certification: cert ? { state: cert.state, reasons: cert.reasons, runId: cert.run?.id } : undefined,
+        totalsCheck,
         invoice: { id: r.invoice.id, invoiceNumber: r.invoice.invoiceNumber, lineCount: r.lineCount },
       };
     } catch (e: any) {
@@ -32950,7 +32972,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     state: 'certified' | 'exceptions' | 'uncertified';
     run:   any | null;
     reasons: string[];
-    counts?: { total: number; verified: number; unrated: number; missingRate: number; discrepancies: number; totalDelta: number };
+    counts?: { total: number; verified: number; unrated: number; missingRate: number; discrepancies: number; unmappedPrefixes: number; unmappedCalls: number; totalDelta: number };
   }> {
     try {
       // Certification describes THE PERIOD, not one run over it.
@@ -33012,11 +33034,39 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       if (missingRate > 0)   reasons.push(`${missingRate} call(s) had no rate matching the dialled number`);
       if (discrepancies > 0) reasons.push(`${discrepancies} call(s) priced differently from the switch (total difference ${Number(a.total_delta ?? 0).toFixed(6)})`);
 
+      // Owner rule: every rated call must resolve to a Destination Catalogue
+      // entry. A prefix the catalogue doesn't know is an exception — invoicing
+      // it would print "Unmapped Destination" to a customer — so the gap
+      // blocks certification until the catalogue grows or an override says
+      // the exception was seen and accepted.
+      let unmappedPrefixes = 0, unmappedCalls = 0;
+      try {
+        const pr = await db.execute(sql`
+          WITH latest AS (
+            SELECT DISTINCT ON (cdr_call_id) cdr_call_id, prefix
+              FROM rating_verifications
+             WHERE i_tariff = ${iTariff}
+               AND left(cdr_start_time, 10) BETWEEN ${periodStart} AND ${periodEnd}
+             ORDER BY cdr_call_id, created_at DESC
+          )
+          SELECT prefix, count(*)::int AS calls FROM latest
+           WHERE prefix IS NOT NULL GROUP BY prefix`);
+        const { canonicalMatcher } = await import('./destination-canonical-db');
+        const match = await canonicalMatcher();
+        for (const row of ((pr as any).rows ?? []) as any[]) {
+          if (!match(row.prefix).mapped) { unmappedPrefixes++; unmappedCalls += Number(row.calls ?? 0); }
+        }
+        if (unmappedPrefixes > 0) {
+          reasons.push(`${unmappedCalls} call(s) across ${unmappedPrefixes} prefix(es) have no Destination Catalogue entry — add them to the catalogue or certify with an explicit override`);
+        }
+      } catch { /* catalogue unreadable → the pricing checks above still decide the state */ }
+
       return {
-        state: (unrated + missingRate + discrepancies) > 0 ? 'exceptions' : 'certified',
+        state: (unrated + missingRate + discrepancies + unmappedPrefixes) > 0 ? 'exceptions' : 'certified',
         run, reasons,
         counts: {
           total, verified: Number(a.verified ?? 0), unrated, missingRate, discrepancies,
+          unmappedPrefixes, unmappedCalls,
           totalDelta: Number(a.total_delta ?? 0),
         },
       };
@@ -33139,6 +33189,117 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             : 'Priced differently from the switch — review the rate and interval rules for this destination.',
       }));
       res.json({ type, groups: rows });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // GET /api/finance/certification/destinations?iTariff=&periodStart=&periodEnd=
+  //
+  // The full per-destination reconciliation matrix — ALL calls, matched ones
+  // included, unlike /exceptions which lists only what went wrong. This is
+  // the pre-invoice screen the legacy platform showed: per destination, the
+  // switch's figures beside ours, with a tick when they agree. Names come
+  // from the Destination Catalogue (the one naming authority); a prefix the
+  // catalogue doesn't know renders as "Unmapped Destination", never invented.
+  app.get('/api/finance/certification/destinations', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { iTariff, periodStart, periodEnd } = req.query as Record<string, string>;
+      if (!iTariff || !periodStart || !periodEnd) {
+        return res.status(400).json({ error: 'iTariff, periodStart and periodEnd are required' });
+      }
+      // Same latest-per-call rule as certification, so this matrix can never
+      // disagree with the verdict card beside it.
+      const r = await db.execute(sql`
+        WITH latest AS (
+          SELECT DISTINCT ON (cdr_call_id)
+                 cdr_call_id, discrepancy_type, prefix, billed_secs, duration_secs,
+                 sippy_actual_cost, reproduced_cost, delta_amount
+            FROM rating_verifications
+           WHERE i_tariff = ${String(iTariff)}
+             AND left(cdr_start_time, 10) BETWEEN ${String(periodStart)} AND ${String(periodEnd)}
+           ORDER BY cdr_call_id, created_at DESC
+        )
+        SELECT coalesce(prefix, '(none)') AS prefix,
+               count(*)::int AS calls,
+               coalesce(sum(coalesce(billed_secs, duration_secs)), 0)::float AS billed_secs,
+               coalesce(sum(sippy_actual_cost), 0)::float AS sippy_amount,
+               coalesce(sum(reproduced_cost), 0)::float   AS our_amount,
+               coalesce(sum(delta_amount), 0)::float      AS delta_amount,
+               count(*) FILTER (WHERE discrepancy_type <> 'exact_match')::int AS non_exact
+          FROM latest
+         GROUP BY 1 ORDER BY 1`);
+
+      const { canonicalMatcher } = await import('./destination-canonical-db');
+      let match: Awaited<ReturnType<typeof canonicalMatcher>>;
+      try {
+        match = await canonicalMatcher();
+      } catch {
+        // Better no matrix than a matrix that calls every destination
+        // unmapped because the catalogue read failed.
+        return res.status(503).json({ error: 'Destination Catalogue is unreadable — names cannot be resolved right now. Retry shortly; if this persists, check the destinations table.' });
+      }
+
+      // Aggregate prefix groups under their canonical destination. Unmapped
+      // prefixes stay as their own rows so each gap is individually visible.
+      type Row = {
+        country: string; destination: string; mapped: boolean; prefixes: string[];
+        calls: number; billedSecs: number; sippyAmount: number; ourAmount: number;
+        deltaAmount: number; nonExact: number;
+      };
+      const byKey = new Map<string, Row>();
+      for (const g of ((r as any).rows ?? []) as any[]) {
+        const m = match(g.prefix === '(none)' ? null : g.prefix);
+        const key = m.mapped ? `d:${m.entryId}` : `u:${g.prefix}`;
+        const row = byKey.get(key) ?? {
+          country: m.country, destination: m.destination, mapped: m.mapped,
+          prefixes: [], calls: 0, billedSecs: 0, sippyAmount: 0, ourAmount: 0,
+          deltaAmount: 0, nonExact: 0,
+        };
+        row.prefixes.push(String(g.prefix));
+        row.calls       += Number(g.calls ?? 0);
+        row.billedSecs  += Number(g.billed_secs ?? 0);
+        row.sippyAmount += Number(g.sippy_amount ?? 0);
+        row.ourAmount   += Number(g.our_amount ?? 0);
+        row.deltaAmount += Number(g.delta_amount ?? 0);
+        row.nonExact    += Number(g.non_exact ?? 0);
+        byKey.set(key, row);
+      }
+
+      // Half a step at the printed precision (5dp), so the tick can never
+      // claim a match between two rates that render differently.
+      const RATE_TOL = 0.000005;
+      const rows = [...byKey.values()].map((x) => {
+        const minutes   = x.billedSecs / 60;
+        const sippyRate = minutes > 0 ? x.sippyAmount / minutes : null;
+        const ourRate   = minutes > 0 ? x.ourAmount / minutes : null;
+        const rateMatch = sippyRate != null && ourRate != null && Math.abs(sippyRate - ourRate) < RATE_TOL;
+        // FAIL when any call priced differently, or the destination is not in
+        // the catalogue — both are things a reviewer must act on.
+        const status = x.nonExact === 0 && x.mapped ? 'PASS' : 'FAIL';
+        return {
+          country: x.country, destination: x.destination, mapped: x.mapped,
+          prefixes: x.prefixes.sort().join(', '),
+          calls: x.calls,
+          minutes: +minutes.toFixed(2),
+          sippyRate: sippyRate != null ? +sippyRate.toFixed(5) : null,
+          ourRate:   ourRate   != null ? +ourRate.toFixed(5)   : null,
+          rateMatch,
+          sippyAmount: +x.sippyAmount.toFixed(2),
+          ourAmount:   +x.ourAmount.toFixed(2),
+          deltaAmount: +x.deltaAmount.toFixed(4),
+          deltaPct: x.sippyAmount !== 0 ? +((x.deltaAmount / x.sippyAmount) * 100).toFixed(4) : null,
+          status,
+        };
+      }).sort((a, b) => a.country.localeCompare(b.country) || a.destination.localeCompare(b.destination));
+
+      const passed = rows.filter((x) => x.status === 'PASS').length;
+      const unmapped = rows.filter((x) => !x.mapped).length;
+      res.json({
+        rows,
+        summary: {
+          compared: rows.length, passed, failed: rows.length - passed, unmapped,
+          status: rows.length > 0 && passed === rows.length ? 'VERIFIED' : 'NOT VERIFIED',
+        },
+      });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -33577,6 +33738,37 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
       // ── END INVOICE GATE ────────────────────────────────────────────────────
 
+      // ── CERTIFICATION GATE (owner rule: certification is mandatory) ────────
+      // This endpoint previously carried only the DMR gate — the rating
+      // certification could be bypassed entirely by calling it directly. The
+      // gate checks the SAME tariff generation would use (auto-resolution
+      // included). Uncertified blocks outright; exceptions require an explicit
+      // override reason, same contract as the pipeline path.
+      const { resolveInvoiceTariff } = await import('./services/sippy/index');
+      const gateTariff = await resolveInvoiceTariff({
+        iTariff: iTariff || undefined,
+        iAccount: iAccount ? Number(iAccount) : undefined,
+        customerName,
+      });
+      if (!gateTariff) {
+        // Without a tariff, certification can never run — a 'not certified'
+        // message would send the operator to reconcile a period that cannot
+        // reconcile. Name the actual fix instead.
+        return res.status(422).json({
+          error: `No tariff could be resolved for customer "${customerName}". Assign a tariff on the Company record (sippyITariff) or pass iTariff explicitly — certification, and therefore invoicing, requires one.`,
+        });
+      }
+      {
+        const cert = await _certificationFor(String(gateTariff), fromDate, toDate);
+        const overrideReason = String(req.body?.overrideReason ?? '').trim();
+        if (cert.state === 'uncertified') {
+          return res.status(422).json({ error: 'Invoice blocked: billing period is not certified', reasons: cert.reasons, certification: cert.state });
+        }
+        if (cert.state === 'exceptions' && !overrideReason) {
+          return res.status(422).json({ error: 'Invoice blocked: certification found exceptions — provide overrideReason to proceed', reasons: cert.reasons, certification: cert.state });
+        }
+      }
+
       const result = await generateInvoice({ iTariff: iTariff || undefined, iAccount: iAccount ? Number(iAccount) : undefined, periodStart, periodEnd, customerName, notes });
       res.json(result);
     } catch (err: any) {
@@ -33594,6 +33786,32 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const { iAccount, periodStart, periodEnd, notes } = req.body ?? {};
       if (!iAccount || !periodStart || !periodEnd) {
         return res.status(400).json({ error: 'iAccount, periodStart, and periodEnd are required' });
+      }
+
+      // ── CERTIFICATION GATE (owner rule: certification is mandatory) ────────
+      // This was the last generation path with no gate at all — an invoice
+      // could reach a customer without one field ever being verified. Same
+      // contract as everywhere else: uncertified blocks, exceptions need an
+      // explicit override reason.
+      {
+        const { resolveInvoiceTariff } = await import('./services/sippy/index');
+        const gateTariff = await resolveInvoiceTariff({ iAccount: Number(iAccount) });
+        if (!gateTariff) {
+          // Certification is keyed by tariff; an account with no company/
+          // tariff mapping cannot be certified and therefore cannot be
+          // invoiced through this path. Say what to fix, not "reconcile".
+          return res.status(422).json({
+            error: `Sippy account ${iAccount} has no tariff mapping — link it to a Company record with sippyITariff so the billing period can be certified before invoicing.`,
+          });
+        }
+        const cert = await _certificationFor(String(gateTariff), String(periodStart).slice(0, 10), String(periodEnd).slice(0, 10));
+        const overrideReason = String(req.body?.overrideReason ?? '').trim();
+        if (cert.state === 'uncertified') {
+          return res.status(422).json({ error: 'Invoice blocked: billing period is not certified', reasons: cert.reasons, certification: cert.state });
+        }
+        if (cert.state === 'exceptions' && !overrideReason) {
+          return res.status(422).json({ error: 'Invoice blocked: certification found exceptions — provide overrideReason to proceed', reasons: cert.reasons, certification: cert.state });
+        }
       }
 
       const settings = await storage.getSippySettings();

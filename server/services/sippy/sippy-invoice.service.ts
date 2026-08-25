@@ -568,6 +568,36 @@ ${bankingHtml}
 // ── Core invoice operations ───────────────────────────────────────────────────
 
 /**
+ * Which tariff an invoice for this account/customer would bill against.
+ * Priority: explicit → iAccount lookup → customerName lookup → null.
+ * Exported so the route-level certification gate checks the SAME tariff the
+ * generation would use — gating only an explicitly-passed tariff left the
+ * auto-resolved path uncertified.
+ */
+export async function resolveInvoiceTariff(opts: {
+  iTariff?: string; iAccount?: number; customerName?: string;
+}): Promise<string | undefined> {
+  if (opts.iTariff) return opts.iTariff;
+  let resolved: string | undefined;
+  try {
+    if (opts.iAccount) {
+      const company = await storage.getCompanyBySippyAccount(opts.iAccount);
+      if (company?.sippyITariff) resolved = String(company.sippyITariff);
+    }
+    if (!resolved && opts.customerName) {
+      const allCompanies = await storage.getCompanies();
+      const match = allCompanies.find(c =>
+        c.name?.toLowerCase() === opts.customerName!.toLowerCase() ||
+        (c as any).billingName?.toLowerCase() === opts.customerName!.toLowerCase() ||
+        (c as any).displayName?.toLowerCase() === opts.customerName!.toLowerCase()
+      );
+      if (match?.sippyITariff) resolved = String(match.sippyITariff);
+    }
+  } catch { /* non-fatal — caller decides how to fail */ }
+  return resolved;
+}
+
+/**
  * Generate an invoice from immutable rating snapshots.
  * Sources ONLY from invoice_cdr_snapshots — never live tariffs.
  */
@@ -579,31 +609,14 @@ export async function generateInvoice(opts: {
   customerName: string;
   notes?:       string;
 }): Promise<{ invoice: Invoice; lineCount: number }> {
-  // ── Tariff auto-resolution ─────────────────────────────────────────────────
-  // Priority: explicit → iAccount lookup → customerName lookup → error
-  let resolvedTariff = opts.iTariff;
+  const resolvedTariff = await resolveInvoiceTariff(opts);
   if (!resolvedTariff) {
-    try {
-      if (opts.iAccount) {
-        const company = await storage.getCompanyBySippyAccount(opts.iAccount);
-        if (company?.sippyITariff) resolvedTariff = String(company.sippyITariff);
-      }
-      if (!resolvedTariff && opts.customerName) {
-        const allCompanies = await storage.getCompanies();
-        const match = allCompanies.find(c =>
-          c.name?.toLowerCase() === opts.customerName.toLowerCase() ||
-          (c as any).billingName?.toLowerCase() === opts.customerName.toLowerCase() ||
-          (c as any).displayName?.toLowerCase() === opts.customerName.toLowerCase()
-        );
-        if (match?.sippyITariff) resolvedTariff = String(match.sippyITariff);
-      }
-    } catch { /* non-fatal — fall through to error below */ }
-    if (!resolvedTariff) {
-      throw new Error(
-        `No tariff could be resolved for customer "${opts.customerName}". ` +
-        'Ensure the account has a tariff assigned in the Company record (sippyITariff) or pass iTariff explicitly.'
-      );
-    }
+    throw new Error(
+      `No tariff could be resolved for customer "${opts.customerName}". ` +
+      'Ensure the account has a tariff assigned in the Company record (sippyITariff) or pass iTariff explicitly.'
+    );
+  }
+  if (!opts.iTariff) {
     console.log(`[invoice] Auto-resolved tariff ${resolvedTariff} for customer "${opts.customerName}"`);
   }
 

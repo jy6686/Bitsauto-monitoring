@@ -76,8 +76,8 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
   // than a wall of call ids. Calls ingested before that engine carry neither,
   // and are grouped as unattributed rather than silently dropped.
   const detailRes = await db.execute(sql`
-    SELECT coalesce(s.callee, 'Unattributed')  AS destination,
-           coalesce(s.prefix, '—')             AS prefix,
+    SELECT s.callee                             AS raw_name,
+           coalesce(li.prefix, s.prefix)        AS prefix,
            count(*)::int                        AS calls,
            coalesce(sum(li.duration_secs), 0)::int      AS seconds,
            coalesce(sum(li.actual_cost), 0)::numeric    AS amount
@@ -86,22 +86,60 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
      WHERE li.invoice_id = ${invoiceId}
      GROUP BY 1, 2
      ORDER BY amount DESC`);
-  const rows: any[] = (detailRes as any).rows ?? [];
 
-  // Country rollup for the summary page. Sippy destination names carry the
-  // country ahead of a dash ("PAKISTAN - MOBILE MOBILINK"), so the country is
-  // the leading segment; anything without one groups under its own name rather
-  // than being discarded.
+  // Owner rule: the Destination Catalogue is the ONLY naming authority. Every
+  // prefix resolves through it — same names as the rate sheet, the breakout
+  // reports and the certification matrix, because they all resolve through
+  // the same matcher. A prefix the catalogue doesn't know prints "Unmapped
+  // Destination" (certification surfaces these BEFORE generation; reaching a
+  // document means an explicit override accepted them) — never an invented
+  // name. Pre-engine rows with no prefix keep their historical Sippy string:
+  // that is recorded data, not invention.
+  const { canonicalMatcher } = await import('../destination-canonical-db');
+  let canon: Awaited<ReturnType<typeof canonicalMatcher>> | null = null;
+  try {
+    canon = await canonicalMatcher();
+  } catch {
+    // Catalogue unreadable → fall back to the names the rating engine
+    // recorded, rather than calling everything unmapped over a blip.
+  }
+  const grouped = new Map<string, any>();
+  for (const raw of (((detailRes as any).rows ?? []) as any[])) {
+    const prefix = raw.prefix != null && String(raw.prefix).trim() !== '' ? String(raw.prefix) : null;
+    let country: string, destination: string;
+    if (prefix && canon) {
+      const m = canon(prefix);
+      if (m.mapped) { country = m.country; destination = m.destination; }
+      else if (raw.raw_name) {
+        // Catalogue gap, but the rating engine recorded Sippy's own name —
+        // show the recorded name and its country segment, flag nothing here
+        // (certification already did).
+        const name = String(raw.raw_name);
+        country = name.includes(' - ') ? name.split(' - ')[0].trim() : '—';
+        destination = name;
+      } else { country = '—'; destination = 'Unmapped Destination'; }
+    } else {
+      const name = String(raw.raw_name ?? 'Unattributed');
+      country = name.includes(' - ') ? name.split(' - ')[0].trim() : '—';
+      destination = name;
+    }
+    const key = `${country}|${destination}|${prefix ?? '—'}`;
+    const hit = grouped.get(key) ?? { country, destination, prefix: prefix ?? '—', calls: 0, seconds: 0, amount: 0 };
+    hit.calls += Number(raw.calls ?? 0); hit.seconds += Number(raw.seconds ?? 0); hit.amount += Number(raw.amount ?? 0);
+    grouped.set(key, hit);
+  }
+  const rows: any[] = [...grouped.values()].sort((a, b) => b.amount - a.amount);
+
+  // Country rollup for the summary page — same canonical country the detail
+  // rows carry, so page 1 and page 2 can never disagree.
   const countryRows: any[] = rows.reduce((acc: any[], r: any) => {
-    const name = String(r.destination ?? '');
-    const country = name.includes(' - ') ? name.split(' - ')[0].trim() : name;
-    const hit = acc.find(a => a.country === country);
+    const hit = acc.find(a => a.country === r.country);
     if (hit) {
       hit.calls   += Number(r.calls ?? 0);
       hit.seconds += Number(r.seconds ?? 0);
       hit.amount  += Number(r.amount ?? 0);
     } else {
-      acc.push({ country, calls: Number(r.calls ?? 0), seconds: Number(r.seconds ?? 0), amount: Number(r.amount ?? 0) });
+      acc.push({ country: r.country, calls: Number(r.calls ?? 0), seconds: Number(r.seconds ?? 0), amount: Number(r.amount ?? 0) });
     }
     return acc;
   }, []).sort((a: any, b: any) => b.amount - a.amount);
@@ -119,7 +157,8 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
              remit_bank_address, remit_account_number, remit_iban, remit_swift,
              remit_correspondent_bank, remit_currency, remit_notes,
              invoice_decimal_places, invoice_date_format,
-             invoice_footer_note, invoice_terms_note
+             invoice_footer_note, invoice_terms_note,
+             invoice_logo, invoice_signature, invoice_signatory, billing_phone
         FROM settings LIMIT 1`);
     profile = ((p as any).rows ?? [])[0] ?? {};
   } catch { /* an unconfigured profile is handled below */ }
@@ -207,9 +246,11 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     const mins  = (secs: any) => (Number(secs ?? 0) / 60).toFixed(2);
 
     // ── Header ──────────────────────────────────────────────────────────────
-    const lp = logoPath();
+    // Configured logo (data-URI on settings — survives republish, unlike a
+    // runtime-written file on this VM deployment) wins over the built-in one.
+    const lp = profile.invoice_logo || logoPath();
     if (lp) {
-      try { doc.image(lp, L, 36, { height: 34 }); } catch { /* non-fatal */ }
+      try { doc.image(String(lp), L, 36, { height: 34 }); } catch { /* non-fatal */ }
     } else {
       doc.fontSize(15).fillColor(DARK).font('Helvetica-Bold').text('ICHIBAAN LOGIC', L, 40);
     }
@@ -250,6 +291,9 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     }
     if (profile.billing_vat_number) {
       doc.text(`VAT: ${profile.billing_vat_number}`, { width: colW });
+    }
+    if (profile.billing_phone) {
+      doc.text(`Tel: ${profile.billing_phone}`, { width: colW });
     }
 
     y = doc.y + 16;
@@ -314,7 +358,10 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
       doc.moveTo(L, yy + 12).lineTo(L + W, yy + 12).strokeColor(BRICK).lineWidth(2).stroke();
       yy += 26;
 
-      const pairs: [string, string | null][] = [
+      // Bank block, then the commercial block — the layout finance teams
+      // expect on a wholesale invoice (owner spec): remittance details,
+      // reference, terms and due date, then who to contact.
+      const bankPairs: [string, string | null][] = [
         ['Beneficiary',    profile.remit_beneficiary_name ?? null],
         ['Bank',           profile.remit_bank_name        ?? null],
         ['Branch',         profile.remit_bank_branch      ?? null],
@@ -324,9 +371,37 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
         ['SWIFT / BIC',    profile.remit_swift            ?? null],
         ['Correspondent bank', profile.remit_correspondent_bank ?? null],
         ['Currency',       profile.remit_currency ?? currency],
-        ['Payment reference', String(inv.invoice_number)],
       ];
-      const configured = pairs.some(([k, v]) => v && k !== 'Currency' && k !== 'Payment reference');
+      const queriesEmail = profile.billing_contact_email ?? 'billing@ichibaanlogic.com';
+      const disputeEmail = profile.billing_dispute_email ?? queriesEmail;
+      const metaPairs: [string, string | null][] = [
+        ['Payment reference', `Please quote invoice ${inv.invoice_number}`],
+        ['Payment terms',     terms.termLabel],
+        ['Due date',          terms.basis === 'prepaid' ? 'On receipt'
+                               : (terms.dueDate ? dateFmt(terms.dueDate) : '—')],
+        ['Questions',         queriesEmail],
+        ['Disputes',          disputeEmail],
+      ];
+      const configured = bankPairs.some(([k, v]) => v && k !== 'Currency');
+
+      // Break before writing, never after — same rule as renderTable: the
+      // footer owns the last 60pt of every page, and pdfkit auto-paginating
+      // mid-block is exactly the blank-page bug this file already fixed once.
+      const guard = (needed: number) => {
+        if (yy + needed > doc.page.height - 110) { doc.addPage(); yy = 50; }
+      };
+
+      const renderPairs = (list: [string, string | null][]) => {
+        for (const [label, value] of list) {
+          if (!value) continue;
+          guard(18);
+          doc.fontSize(8).fillColor(GRAY).font('Helvetica-Bold')
+            .text(label.toUpperCase(), L, yy, { width: W * 0.3, lineBreak: false });
+          doc.fontSize(9.5).fillColor(DARK).font('Helvetica')
+            .text(String(value), L + W * 0.3, yy - 1, { width: W * 0.7 });
+          yy = Math.max(yy + 16, doc.y + 4);
+        }
+      };
 
       if (!configured) {
         // Say so rather than print an empty block a customer might try to pay into.
@@ -338,43 +413,49 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
             L, yy, { width: W });
         yy += 24;
       } else {
-        for (const [label, value] of pairs) {
-          if (!value) continue;
-          doc.fontSize(8).fillColor(GRAY).font('Helvetica-Bold')
-            .text(label.toUpperCase(), L, yy, { width: W * 0.3, lineBreak: false });
-          doc.fontSize(9.5).fillColor(DARK).font('Helvetica')
-            .text(String(value), L + W * 0.3, yy - 1, { width: W * 0.7 });
-          yy = Math.max(yy + 16, doc.y + 4);
-        }
+        renderPairs(bankPairs);
       }
+      yy += 6;
+      doc.moveTo(L, yy).lineTo(L + W, yy).strokeColor(RULE).lineWidth(0.5).stroke();
+      yy += 12;
+      renderPairs(metaPairs);
 
       if (profile.remit_notes) {
         yy += 8;
+        guard(40);
         doc.fontSize(8).fillColor(GRAY).font('Helvetica')
           .text(String(profile.remit_notes), L, yy, { width: W });
         yy = doc.y + 8;
       }
 
-      // Terms
-      yy += 10;
-      doc.moveTo(L, yy).lineTo(L + W, yy).strokeColor(RULE).lineWidth(0.5).stroke();
-      yy += 12;
-      // Dates inside the sentence follow the configured date format.
-      const dueSentence = terms.dueLabel.replace(/\d{4}-\d{2}-\d{2}/g, (m) => dateFmt(m));
-      doc.fontSize(8).fillColor(GRAY).font('Helvetica')
-        .text(`${dueSentence}. Quote invoice ${inv.invoice_number} as the payment reference.`,
-          L, yy, { width: W });
-      yy = doc.y + 8;
+      // Configured terms & conditions text, when the profile has any.
       if (profile.invoice_terms_note) {
-        doc.text(String(profile.invoice_terms_note), L, yy, { width: W });
+        yy += 10;
+        guard(52);
+        doc.moveTo(L, yy).lineTo(L + W, yy).strokeColor(RULE).lineWidth(0.5).stroke();
+        yy += 12;
+        doc.fontSize(8).fillColor(GRAY).font('Helvetica')
+          .text(String(profile.invoice_terms_note), L, yy, { width: W });
         yy = doc.y + 8;
       }
-      // Dispute contact from the profile; unset falls back to the billing
-      // email — the previous literal predated the configurable profile.
-      const queriesEmail = profile.billing_contact_email ?? 'billing@ichibaanlogic.com';
-      const disputeEmail = profile.billing_dispute_email ?? queriesEmail;
-      doc.text(`Queries: ${queriesEmail} · Disputes: ${disputeEmail}`, L, yy, { width: W });
-      return doc.y + 8;
+
+      // Signature from the profile — image above the signatory's printed name.
+      // Guarded as one unit: the image, its rule and the name never split
+      // across pages or land in the footer's reserve.
+      if (profile.invoice_signature || profile.invoice_signatory) {
+        yy += 14;
+        guard(profile.invoice_signature ? 90 : 30);
+        if (profile.invoice_signature) {
+          try { doc.image(String(profile.invoice_signature), L, yy, { height: 36 }); yy += 42; }
+          catch { /* unreadable image — the printed name below still signs */ }
+        }
+        doc.moveTo(L, yy).lineTo(L + 180, yy).strokeColor(GRAY).lineWidth(0.5).stroke();
+        yy += 6;
+        doc.fontSize(8).fillColor(GRAY).font('Helvetica')
+          .text(String(profile.invoice_signatory ?? 'Authorised signatory'), L, yy, { width: 240 });
+        yy = doc.y + 4;
+      }
+      return yy + 8;
     }
 
     // ── Summary strip ───────────────────────────────────────────────────────
@@ -434,16 +515,19 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     doc.addPage();
     y = 50;
     y = renderTable(y, 'Call detail by destination', [
-      { label: 'Destination',              w: W * 0.34, align: 'left'  as const },
+      // Country + canonical destination, matching the rate sheet exactly —
+      // both resolve names through the Destination Catalogue (owner rule).
+      { label: 'Country',                  w: W * 0.15, align: 'left'  as const },
+      { label: 'Destination',              w: W * 0.24, align: 'left'  as const },
       { label: 'Prefix',                   w: W * 0.10, align: 'left'  as const },
-      { label: 'Calls',                    w: W * 0.11, align: 'right' as const },
-      { label: 'Minutes',                  w: W * 0.15, align: 'right' as const },
-      { label: `Rate/min (${currency})`,   w: W * 0.14, align: 'right' as const },
+      { label: 'Calls',                    w: W * 0.09, align: 'right' as const },
+      { label: 'Minutes',                  w: W * 0.13, align: 'right' as const },
+      { label: `Rate/min (${currency})`,   w: W * 0.13, align: 'right' as const },
       { label: `Amount (${currency})`,     w: W * 0.16, align: 'right' as const },
     ], rows.map(r => {
       const m = Number(r.seconds ?? 0) / 60;
       return [
-        String(r.destination), String(r.prefix),
+        String(r.country), String(r.destination), String(r.prefix),
         Number(r.calls).toLocaleString(), mins(r.seconds),
         m > 0 ? (Number(r.amount ?? 0) / m).toFixed(5) : '—',
         money(r.amount),

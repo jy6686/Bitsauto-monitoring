@@ -20,7 +20,7 @@ import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
-  Building2, Mail, Scale, Landmark, FileText, Send, Save, Loader2,
+  Building2, Mail, Scale, Landmark, FileText, Send, Save, Loader2, Image as ImageIcon,
 } from "lucide-react";
 import { api } from "@shared/routes";
 import { apiRequest } from "@/lib/queryClient";
@@ -37,6 +37,7 @@ const PROFILE_KEYS = [
   "billingTaxId", "billingVatNumber", "billingWebsite", "billingRegisteredAddress",
   // Billing contacts
   "billingContactEmail", "billingSupportEmail", "billingDisputeEmail",
+  "billingCc", "billingBcc", "accountsEmail", "billingPhone",
   // Commercial defaults
   "billingDefaultPaymentTerm", "billingDefaultCurrency",
   // Bank / remittance details
@@ -46,6 +47,8 @@ const PROFILE_KEYS = [
   // Invoice document
   "invoiceNumberPrefix", "invoiceNumberFormat", "invoiceDecimalPlaces",
   "invoiceDateFormat", "invoiceFooterNote", "invoiceTermsNote",
+  // Branding
+  "invoiceLogo", "invoiceSignature", "invoiceSignatory",
 ] as const;
 
 type ProfileKey = (typeof PROFILE_KEYS)[number];
@@ -53,7 +56,7 @@ type ProfileForm = Record<ProfileKey, string>;
 
 const EMPTY_FORM = Object.fromEntries(PROFILE_KEYS.map(k => [k, ""])) as ProfileForm;
 
-const EMAIL_KEYS: ProfileKey[] = ["billingContactEmail", "billingSupportEmail", "billingDisputeEmail"];
+const EMAIL_KEYS: ProfileKey[] = ["billingContactEmail", "billingSupportEmail", "billingDisputeEmail", "accountsEmail"];
 // Deliberately loose: something@something.tld — a hint, not a validator.
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -79,7 +82,7 @@ const DATE_FORMAT_OPTIONS = [
 
 const INPUT_CLS = "w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30";
 
-function Field({ label, value, onChange, testId, placeholder, hint, invalid, type = "text", min, max, className }: {
+function Field({ label, value, onChange, testId, placeholder, hint, invalid, type = "text", min, max, maxLength, className }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
@@ -90,6 +93,7 @@ function Field({ label, value, onChange, testId, placeholder, hint, invalid, typ
   type?: string;
   min?: number;
   max?: number;
+  maxLength?: number;
   className?: string;
 }) {
   return (
@@ -103,6 +107,7 @@ function Field({ label, value, onChange, testId, placeholder, hint, invalid, typ
         placeholder={placeholder}
         min={min}
         max={max}
+        maxLength={maxLength}
         className={`${INPUT_CLS} ${invalid ? "border-red-500/70" : "border-border"}`}
       />
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
@@ -156,6 +161,66 @@ function SelectField({ label, value, onChange, testId, options, hint }: {
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}
       </select>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+// Images travel as plain data-URI strings through the same '' → NULL delta
+// mechanism as every other field; the raw string never renders in an <input>
+// (data-URIs are long) — only the file picker and a small preview do.
+const MAX_IMAGE_BYTES = 300 * 1024;
+
+function ImageField({ label, value, onChange, onOversize, testId, previewClass = "max-h-12", emptyText, hint }: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  onOversize: () => void;
+  testId: string;
+  previewClass?: string;
+  emptyText?: string;
+  hint?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-sm font-medium">{label}</label>
+      {value ? (
+        <div className="flex items-center gap-3">
+          <img
+            src={value}
+            alt={label}
+            data-testid={`${testId}-preview`}
+            className={`${previewClass} max-w-full rounded border border-border bg-background p-1`}
+          />
+          <button
+            type="button"
+            data-testid={`${testId}-remove`}
+            onClick={() => onChange("")}
+            className="text-xs px-2 py-1 rounded-md border border-border hover:bg-muted transition-colors"
+          >
+            Remove
+          </button>
+        </div>
+      ) : (
+        emptyText && <p className="text-xs text-muted-foreground">{emptyText}</p>
+      )}
+      <input
+        type="file"
+        accept="image/png,image/jpeg"
+        data-testid={testId}
+        onChange={e => {
+          const file = e.target.files?.[0];
+          e.target.value = ""; // so re-picking the same file still fires onChange
+          if (!file) return;
+          if (file.size > MAX_IMAGE_BYTES) { onOversize(); return; }
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === "string") onChange(reader.result);
+          };
+          reader.readAsDataURL(file);
+        }}
+        className="block w-full text-xs text-muted-foreground file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border file:border-border file:bg-background file:text-xs file:font-medium hover:file:bg-muted file:cursor-pointer"
+      />
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
@@ -309,7 +374,7 @@ export default function FinanceCompanyProfilePage() {
         icon={Mail}
         title="Billing Contacts"
         desc="Contact addresses printed on the invoice for customer queries."
-        note="The billing email prints on invoices as the queries contact; the dispute email prints as the disputes contact and, when unset, falls back to the billing email."
+        note="The billing email prints on invoices as the queries contact; the dispute email prints as the disputes contact and, when unset, falls back to the billing email. CC/BCC addresses receive a copy of every invoice email; Reply-To on invoice emails is the Dispute Email."
       >
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field label="Billing Email" value={form.billingContactEmail} onChange={set("billingContactEmail")}
@@ -324,6 +389,18 @@ export default function FinanceCompanyProfilePage() {
             testId="input-billing-dispute-email" placeholder="disputes@example.com" type="email"
             invalid={emailInvalid("billingDisputeEmail")}
             hint={emailInvalid("billingDisputeEmail") ? "Doesn't look like an email address" : undefined} />
+          <Field label="Accounts Contact" value={form.accountsEmail} onChange={set("accountsEmail")} maxLength={255}
+            testId="input-accounts-email" placeholder="accounts@example.com" type="email"
+            invalid={emailInvalid("accountsEmail")}
+            hint={emailInvalid("accountsEmail") ? "Doesn't look like an email address" : undefined} />
+          <Field label="Billing CC" value={form.billingCc} onChange={set("billingCc")}
+            testId="input-billing-cc" placeholder="cc-one@example.com, cc-two@example.com"
+            hint="Receives a copy of every outgoing invoice email — comma-separated." />
+          <Field label="Billing BCC" value={form.billingBcc} onChange={set("billingBcc")}
+            testId="input-billing-bcc" placeholder="archive@example.com"
+            hint="Blind copy on every outgoing invoice email — comma-separated." />
+          <Field label="Phone" value={form.billingPhone} onChange={set("billingPhone")} maxLength={64}
+            testId="input-billing-phone" placeholder="+971 …" />
         </div>
       </SectionCard>
 
@@ -394,7 +471,35 @@ export default function FinanceCompanyProfilePage() {
         </div>
       </SectionCard>
 
-      {/* 6. Pointer to email delivery — deliberately NOT duplicated here */}
+      {/* 6. Branding */}
+      <SectionCard
+        icon={ImageIcon}
+        title="Branding"
+        desc="Logo and signature artwork applied to every generated invoice."
+        note="Images are stored in the database and survive republish; the logo replaces the built-in one on the PDF and the email."
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <ImageField label="Invoice Logo" value={form.invoiceLogo} onChange={set("invoiceLogo")}
+            testId="input-invoice-logo" previewClass="max-h-12"
+            emptyText="Using the built-in Ichibaan logo"
+            hint="PNG or JPEG, under 300 KB."
+            onOversize={() => toast({
+              title: "Logo must be under 300 KB — it is embedded in every PDF and email",
+              variant: "destructive",
+            })} />
+          <ImageField label="Signature image" value={form.invoiceSignature} onChange={set("invoiceSignature")}
+            testId="input-invoice-signature" previewClass="max-h-16"
+            hint="PNG or JPEG, under 300 KB. Prints above the signatory name on the payment page."
+            onOversize={() => toast({
+              title: "Signature image must be under 300 KB — it is embedded in every PDF and email",
+              variant: "destructive",
+            })} />
+          <Field label="Signatory name / title" value={form.invoiceSignatory} onChange={set("invoiceSignatory")} maxLength={128}
+            testId="input-invoice-signatory" placeholder="Junaid — Billing Manager" />
+        </div>
+      </SectionCard>
+
+      {/* 7. Pointer to email delivery — deliberately NOT duplicated here */}
       <div
         className="bg-muted/20 border border-border rounded-xl p-4 text-sm text-muted-foreground flex items-start gap-3"
         data-testid="card-email-delivery-pointer"

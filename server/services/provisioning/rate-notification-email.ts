@@ -216,9 +216,19 @@ export async function sendRateNotificationEmails(
             r.prefix,
             r.rate,
             r.currency,
-            COALESCE(gd.name, r.prefix) AS destination
+            -- Destination Catalogue is the ONE naming authority (owner rule):
+            -- the sheet's names must match the invoice, which resolves through
+            -- the same catalogue. Legacy global_destinations remains only as a
+            -- fallback for prefixes the canonical table doesn't carry yet, so
+            -- migrating the vocabulary never blanks a customer's sheet.
+            COALESCE(d.name, gd.name, r.prefix) AS destination
        FROM product_rates r
        JOIN product_registry pr ON pr.id = r.product_id
+       LEFT JOIN LATERAL (
+              SELECT name FROM destinations
+               WHERE dial_prefix = r.prefix
+               ORDER BY level DESC, id LIMIT 1
+       ) d ON true
        LEFT JOIN global_destinations gd
               ON gd.dial_prefix = r.prefix AND gd.commercial_status = 'approved'
       WHERE r.effective_from <= $1

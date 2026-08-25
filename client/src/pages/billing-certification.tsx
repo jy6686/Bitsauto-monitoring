@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/table";
 import {
   ShieldCheck, AlertTriangle, XCircle, CheckCircle2, RefreshCw, Play,
-  FileText, History, Layers, ChevronRight,
+  FileText, History, Layers, ChevronRight, Globe,
 } from "lucide-react";
 
 interface SippyAccount {
@@ -41,6 +41,26 @@ interface Certification {
   reasons: string[];
   counts?: { total: number; verified: number; unrated: number; missingRate: number; discrepancies: number; totalDelta: number };
 }
+interface DestinationRow {
+  country: string;
+  destination: string;
+  mapped: boolean;
+  prefixes: string;
+  calls: number;
+  minutes: number;
+  sippyRate: number | null;
+  ourRate: number | null;
+  rateMatch: boolean;
+  sippyAmount: number;
+  ourAmount: number;
+  deltaAmount: number;
+  deltaPct: number | null;
+  status: 'PASS' | 'FAIL';
+}
+interface DestinationReconciliation {
+  rows: DestinationRow[];
+  summary: { compared: number; passed: number; failed: number; unmapped: number; status: 'VERIFIED' | 'NOT VERIFIED' };
+}
 
 function lastFullMonth() {
   const n = new Date();
@@ -51,6 +71,8 @@ function lastFullMonth() {
 
 const fmtNum = (n: any) => (n == null ? "—" : Number(n).toLocaleString());
 const fmtMoney = (n: any) => (n == null ? "—" : Number(n).toFixed(6));
+const fmtRate = (n: any) => (n == null ? "—" : Number(n).toFixed(5));
+const fmt2 = (n: any) => (n == null ? "—" : Number(n).toFixed(2));
 
 export default function BillingCertificationPage() {
   const { toast } = useToast();
@@ -82,6 +104,12 @@ export default function BillingCertificationPage() {
     enabled: ready,
   });
 
+  const { data: destinations, isLoading: destinationsLoading } = useQuery<DestinationReconciliation>({
+    queryKey: ["/api/finance/certification/destinations", iTariff, periodStart, periodEnd],
+    queryFn: () => apiRequest("GET", `/api/finance/certification/destinations?${qs}`).then(r => r.json()),
+    enabled: ready,
+  });
+
   const { data: exceptions } = useQuery<any>({
     queryKey: ["/api/finance/certification/exceptions", iTariff, periodStart, periodEnd, drill],
     queryFn: () => apiRequest("GET", `/api/finance/certification/exceptions?${qs}&type=${drill}`).then(r => r.json()),
@@ -110,6 +138,9 @@ export default function BillingCertificationPage() {
       toast({ title: `Invoice ${d.invoice?.invoiceNumber} generated`, description: `${d.invoice?.lineCount ?? 0} line item(s).` });
       setOverrideReason("");
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
+      // Prefix-matches every period's matrix — staleTime is Infinity
+      // app-wide, so without this the reconciliation table never refreshes.
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/certification/destinations"] });
       refetch();
     },
     onError: (e: any) => toast({ title: "Invoice not generated", description: e.message, variant: "destructive" }),
@@ -130,6 +161,7 @@ export default function BillingCertificationPage() {
       setRecertReason("");
       refetch();
       queryClient.invalidateQueries({ queryKey: ["/api/finance/verification-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance/certification/destinations"] });
     },
     onError: (e: any) => toast({ title: "Re-certification refused", description: e.message, variant: "destructive" }),
   });
@@ -255,6 +287,106 @@ export default function BillingCertificationPage() {
                   <span>Tariff versions <span className="font-mono text-foreground">{cert.run.tariff_versions ?? "—"}</span></span>
                   <span>Snapshots <span className="font-mono text-foreground">{fmtNum(cert.run.snapshots_created)}</span></span>
                 </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Destination reconciliation */}
+          <Card data-testid="destination-reconciliation">
+            <CardHeader className="pb-2 pt-4">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Globe className="w-4 h-4" />
+                Destination reconciliation
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 pb-4">
+              {destinationsLoading ? (
+                <div className="py-6 text-center text-sm text-muted-foreground">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin inline mr-2" />
+                  Comparing destinations…
+                </div>
+              ) : (destinations?.rows ?? []).length === 0 ? (
+                <div className="py-6 text-center text-sm text-muted-foreground">
+                  No verification data for this period — run certification first.
+                </div>
+              ) : (
+                <>
+                  {(destinations?.summary?.unmapped ?? 0) > 0 && (
+                    <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm text-amber-500"
+                      data-testid="banner-unmapped-destinations">
+                      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      <span>
+                        {destinations!.summary.unmapped} prefix{destinations!.summary.unmapped === 1 ? " has" : "es have"} no
+                        Destination Catalogue entry — add them to the catalogue, or certify with an explicit override.
+                      </span>
+                    </div>
+                  )}
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Country</TableHead>
+                          <TableHead>Destination</TableHead>
+                          <TableHead>Prefix</TableHead>
+                          <TableHead className="text-right">Sippy Rate</TableHead>
+                          <TableHead className="text-right">Our Rate</TableHead>
+                          <TableHead className="text-center">✓</TableHead>
+                          <TableHead className="text-right">Calls</TableHead>
+                          <TableHead className="text-right">Minutes</TableHead>
+                          <TableHead className="text-right">Sippy Amount</TableHead>
+                          <TableHead className="text-right">Our Amount</TableHead>
+                          <TableHead className="text-right">Diff</TableHead>
+                          <TableHead className="text-right">Diff %</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(destinations?.rows ?? []).map((row, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="text-xs">{row.country}</TableCell>
+                            <TableCell className={row.mapped ? "font-medium" : "font-medium text-amber-500"}>
+                              {row.destination}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">{row.prefixes}</TableCell>
+                            <TableCell className="text-right tabular-nums">{fmtRate(row.sippyRate)}</TableCell>
+                            <TableCell className="text-right tabular-nums">{fmtRate(row.ourRate)}</TableCell>
+                            <TableCell className="text-center">
+                              {row.rateMatch
+                                ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 inline" />
+                                : <XCircle className="w-3.5 h-3.5 text-red-500 inline" />}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">{fmtNum(row.calls)}</TableCell>
+                            <TableCell className="text-right tabular-nums">{fmt2(row.minutes)}</TableCell>
+                            <TableCell className="text-right tabular-nums">{fmt2(row.sippyAmount)}</TableCell>
+                            <TableCell className="text-right tabular-nums">{fmt2(row.ourAmount)}</TableCell>
+                            <TableCell className="text-right tabular-nums">{fmt2(row.deltaAmount)}</TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {row.deltaPct == null ? "—" : `${fmt2(row.deltaPct)}%`}
+                            </TableCell>
+                            <TableCell>
+                              {row.status === 'PASS'
+                                ? <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-500 border-emerald-500/30">PASS</Badge>
+                                : <Badge variant="outline" className="text-xs bg-red-500/10 text-red-500 border-red-500/30">FAIL</Badge>}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {destinations?.summary && (
+                    <div className="text-sm flex items-center gap-2 flex-wrap" data-testid="destination-summary">
+                      <span>Destinations Compared: <span className="font-bold tabular-nums">{fmtNum(destinations.summary.compared)}</span></span>
+                      <span className="text-muted-foreground">·</span>
+                      <span>Passed: <span className="font-bold tabular-nums text-emerald-500">{fmtNum(destinations.summary.passed)}</span></span>
+                      <span className="text-muted-foreground">·</span>
+                      <span>Failed: <span className={`font-bold tabular-nums ${destinations.summary.failed > 0 ? "text-red-500" : ""}`}>{fmtNum(destinations.summary.failed)}</span></span>
+                      <span className="text-muted-foreground">·</span>
+                      <span>Certification Status: {destinations.summary.status === 'VERIFIED'
+                        ? <span className="font-bold text-emerald-500">VERIFIED</span>
+                        : <span className="font-bold text-red-500">NOT VERIFIED</span>}</span>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
