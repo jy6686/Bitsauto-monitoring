@@ -689,7 +689,7 @@ function InvoiceEmailDeliveryPanel() {
   const { toast } = useToast();
   const [expanded, setExpanded] = useState(false);
   const [showPass, setShowPass] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; error?: string } | null>(null);
+  const [testResult, setTestResult] = useState<{ ok: boolean; error?: string; user?: string; from?: string; host?: string; usingFallback?: boolean } | null>(null);
 
   const { data: rawSettings } = useQuery<any>({ queryKey: ['/api/alert-config'] });
 
@@ -902,9 +902,27 @@ function InvoiceEmailDeliveryPanel() {
           </div>
 
           {testResult && (
-            <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${testResult.ok ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
-              {testResult.ok ? <MailCheck className="h-4 w-4" /> : <MailX className="h-4 w-4" />}
-              {testResult.ok ? 'SMTP connection verified — invoice emails ready to send' : `Connection failed: ${testResult.error}`}
+            <div className={`p-3 rounded-lg text-sm space-y-2 ${testResult.ok ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
+              <div className="flex items-start gap-2">
+                {testResult.ok ? <MailCheck className="h-4 w-4 mt-0.5 shrink-0" /> : <MailX className="h-4 w-4 mt-0.5 shrink-0" />}
+                <span>{testResult.ok ? 'SMTP connection verified — invoice emails ready to send' : `Connection failed: ${testResult.error}`}</span>
+              </div>
+              {/* Which identity actually authenticated. A credential rejection
+                  almost always means the app password belongs to a different
+                  Google account than the username — unreadable from the error
+                  alone, obvious the moment the account is named. */}
+              {(testResult.user || testResult.from) && (
+                <div className="text-xs font-mono text-foreground/70 space-y-0.5 pl-6">
+                  <div>authenticated as: {testResult.user ?? '(none)'}</div>
+                  <div>sends as: {testResult.from ?? '(none)'}</div>
+                  <div>host: {testResult.host ?? '(none)'}</div>
+                  {testResult.usingFallback && (
+                    <div className="text-amber-400">
+                      using the alert-Gmail fallback — invoice SMTP fields are incomplete
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
