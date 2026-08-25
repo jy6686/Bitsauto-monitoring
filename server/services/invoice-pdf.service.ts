@@ -28,6 +28,7 @@ import path from 'path';
 import { db } from '../db';
 import { sql } from 'drizzle-orm';
 import { fmtInvoiceDate } from '../invoice-terms';
+import { resolveDecimalPlaces, isCustomerFacingName, groupedNumber } from '../invoice-format';
 
 const DARK  = '#1a1a2e';
 const BRICK = '#c0392b';
@@ -53,6 +54,7 @@ function logoPath(): string | null {
 }
 
 export interface InvoicePdfResult { buffer: Buffer; filename: string; }
+
 
 /** Filename a customer can file: client, invoice number, period. */
 export function invoicePdfFilename(inv: {
@@ -106,43 +108,44 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
   const grouped = new Map<string, any>();
   for (const raw of (((detailRes as any).rows ?? []) as any[])) {
     const prefix = raw.prefix != null && String(raw.prefix).trim() !== '' ? String(raw.prefix) : null;
+    // Resolve through the catalogue first; fall back to a RECORDED NAME only
+    // when it reads as a name. Anything else groups as "Other destinations" —
+    // unhelpful, but honest, and never an internal identifier. Certification
+    // blocks these before generation; reaching here means an override did.
+    const m = prefix && canon ? canon(prefix) : null;
     let country: string, destination: string;
-    if (prefix && canon) {
-      const m = canon(prefix);
-      if (m.mapped) { country = m.country; destination = m.destination; }
-      else if (raw.raw_name) {
-        // Catalogue gap, but the rating engine recorded Sippy's own name —
-        // show the recorded name and its country segment, flag nothing here
-        // (certification already did).
-        const name = String(raw.raw_name);
-        country = name.includes(' - ') ? name.split(' - ')[0].trim() : '—';
-        destination = name;
-      } else { country = '—'; destination = 'Unmapped Destination'; }
-    } else {
-      const name = String(raw.raw_name ?? 'Unattributed');
+    if (m?.mapped) {
+      country = m.country;
+      destination = m.destination;
+    } else if (isCustomerFacingName(raw.raw_name)) {
+      const name = String(raw.raw_name).trim();
       country = name.includes(' - ') ? name.split(' - ')[0].trim() : '—';
       destination = name;
+    } else {
+      // Reads as a row on a customer document, not as a blank cell.
+      country = 'Other';
+      destination = 'Other destinations';
     }
-    const key = `${country}|${destination}|${prefix ?? '—'}`;
-    const hit = grouped.get(key) ?? { country, destination, prefix: prefix ?? '—', calls: 0, seconds: 0, amount: 0 };
-    hit.calls += Number(raw.calls ?? 0); hit.seconds += Number(raw.seconds ?? 0); hit.amount += Number(raw.amount ?? 0);
+    const key = `${country}|${destination}`;
+    const hit = grouped.get(key) ?? { country, destination, seconds: 0, amount: 0 };
+    hit.seconds += Number(raw.seconds ?? 0); hit.amount += Number(raw.amount ?? 0);
     grouped.set(key, hit);
   }
-  const rows: any[] = [...grouped.values()].sort((a, b) => b.amount - a.amount);
+  const rows: any[] = [...grouped.values()]
+    .sort((a, b) => a.country.localeCompare(b.country) || a.destination.localeCompare(b.destination));
 
   // Country rollup for the summary page — same canonical country the detail
   // rows carry, so page 1 and page 2 can never disagree.
   const countryRows: any[] = rows.reduce((acc: any[], r: any) => {
     const hit = acc.find(a => a.country === r.country);
     if (hit) {
-      hit.calls   += Number(r.calls ?? 0);
       hit.seconds += Number(r.seconds ?? 0);
       hit.amount  += Number(r.amount ?? 0);
     } else {
-      acc.push({ country: r.country, calls: Number(r.calls ?? 0), seconds: Number(r.seconds ?? 0), amount: Number(r.amount ?? 0) });
+      acc.push({ country: r.country, seconds: Number(r.seconds ?? 0), amount: Number(r.amount ?? 0) });
     }
     return acc;
-  }, []).sort((a: any, b: any) => b.amount - a.amount);
+  }, []).sort((a: any, b: any) => a.country.localeCompare(b.country));
 
   // Issuer identity and remittance (migration 075). One authoritative record;
   // absent values are reported as unconfigured, never invented.
@@ -166,8 +169,7 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
   // Document formatting preferences (076). Money and date rendering follow the
   // profile so customer formatting requests are configuration, not code.
   // Unconfigured preserves today's exact rendering: 4dp lines, 2dp totals, ISO dates.
-  const rawDp = Number(profile.invoice_decimal_places);
-  const cfgDecimals = Number.isInteger(rawDp) && rawDp >= 0 && rawDp <= 6 ? rawDp : null;
+  const cfgDecimals = resolveDecimalPlaces(profile.invoice_decimal_places);
   const dateFmt = (s: string | null | undefined) => fmtInvoiceDate(s, profile.invoice_date_format);
 
   // When the invoice falls due — the ONE shared lookup + rule (invoice-terms-db),
@@ -242,8 +244,11 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
 
     const L = 40;
     const W = doc.page.width - 80;
-    const money = (n: any) => Number(n ?? 0).toFixed(cfgDecimals ?? 4);
-    const mins  = (secs: any) => (Number(secs ?? 0) / 60).toFixed(2);
+    // Customer-facing money: 2 decimals and thousands separators unless the
+    // profile configures otherwise — a wholesale invoice reads "2,199.92",
+    // not "2199.9200". Rates keep 5dp; they are quoted that finely.
+    const money = (n: any) => groupedNumber(Number(n ?? 0), cfgDecimals ?? 2);
+    const mins  = (secs: any) => groupedNumber(Number(secs ?? 0) / 60, 2);
 
     // ── Header ──────────────────────────────────────────────────────────────
     // Configured logo (data-URI on settings — survives republish, unlike a
@@ -462,7 +467,6 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     const period = inv.period_start
       ? `${String(inv.period_start).slice(0, 10)}  to  ${String(inv.period_end ?? '').slice(0, 10)}`
       : '—';
-    const totalSecs = rows.reduce((s, r) => s + Number(r.seconds ?? 0), 0);
     const items: [string, string][] = [
       ['Billing period', period],
       ['Invoice date',   dateFmt(invoiceDate)],
@@ -483,16 +487,15 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     y += 14;
 
     // ── Country summary (page 1) ────────────────────────────────────────────
-    // What the customer wants first: where the money went, by country. The
-    // call-level breakdown follows on its own page.
+    // Page 1 is the summary ONLY: where the money went, by country. No call
+    // counts — the customer buys minutes, not call attempts (owner rule).
+    // The destination breakout is the last page, after payment instructions.
     y = renderTable(y, 'Charges by country', [
-      { label: 'Country',              w: W * 0.44, align: 'left'  as const },
-      { label: 'Calls',                w: W * 0.14, align: 'right' as const },
-      { label: 'Minutes',              w: W * 0.20, align: 'right' as const },
-      { label: `Amount (${currency})`, w: W * 0.22, align: 'right' as const },
+      { label: 'Country',              w: W * 0.50, align: 'left'  as const },
+      { label: 'Minutes',              w: W * 0.25, align: 'right' as const },
+      { label: `Amount (${currency})`, w: W * 0.25, align: 'right' as const },
     ], countryRows.map(c => [
       String(c.country),
-      Number(c.calls).toLocaleString(),
       mins(c.seconds),
       money(c.amount),
     ]));
@@ -504,31 +507,35 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     doc.fontSize(11).fillColor(DARK).font('Helvetica-Bold')
       .text('TOTAL DUE', L, y, { width: W * 0.6 })
       .fontSize(14)
-      .text(`${currency} ${Number(inv.total_actual ?? 0).toFixed(cfgDecimals ?? 2)}`, L + W * 0.6, y - 2, { width: W * 0.4, align: 'right' });
+      .text(`${currency} ${money(inv.total_actual)}`, L + W * 0.6, y - 2, { width: W * 0.4, align: 'right' });
     y += 24;
     doc.fontSize(8).fillColor(GRAY).font('Helvetica')
       .text(terms.dueLabel.replace(/\d{4}-\d{2}-\d{2}/g, (m) => dateFmt(m)), L, y, { width: W });
 
-    // ── Call detail (page 2+) ───────────────────────────────────────────────
-    // Destination level, never product identifiers: what the customer bought is
-    // termination to a destination, not a row from an internal catalogue.
+    // ── Payment instructions (page 2) ───────────────────────────────────────
+    // Banking gets its own page directly after the summary, matching the
+    // reference invoice: a customer pays from page 2 without hunting past a
+    // usage breakout that can run to many pages.
     doc.addPage();
     y = 50;
-    y = renderTable(y, 'Call detail by destination', [
-      // Country + canonical destination, matching the rate sheet exactly —
-      // both resolve names through the Destination Catalogue (owner rule).
-      { label: 'Country',                  w: W * 0.15, align: 'left'  as const },
-      { label: 'Destination',              w: W * 0.24, align: 'left'  as const },
-      { label: 'Prefix',                   w: W * 0.10, align: 'left'  as const },
-      { label: 'Calls',                    w: W * 0.09, align: 'right' as const },
-      { label: 'Minutes',                  w: W * 0.13, align: 'right' as const },
-      { label: `Rate/min (${currency})`,   w: W * 0.13, align: 'right' as const },
+    y = renderPaymentInstructions(y);
+
+    // ── Destination breakout (page 3+) ──────────────────────────────────────
+    // Commercial data only: country, destination, minutes, rate, amount.
+    // No calls, no prefixes, no product or routing identifiers — what the
+    // customer bought is termination to a destination (owner rule).
+    doc.addPage();
+    y = 50;
+    y = renderTable(y, 'Destination breakout', [
+      { label: 'Country',                  w: W * 0.22, align: 'left'  as const },
+      { label: 'Destination',              w: W * 0.34, align: 'left'  as const },
+      { label: 'Minutes',                  w: W * 0.14, align: 'right' as const },
+      { label: `Rate/min (${currency})`,   w: W * 0.14, align: 'right' as const },
       { label: `Amount (${currency})`,     w: W * 0.16, align: 'right' as const },
     ], rows.map(r => {
       const m = Number(r.seconds ?? 0) / 60;
       return [
-        String(r.country), String(r.destination), String(r.prefix),
-        Number(r.calls).toLocaleString(), mins(r.seconds),
+        String(r.country), String(r.destination), mins(r.seconds),
         m > 0 ? (Number(r.amount ?? 0) / m).toFixed(5) : '—',
         money(r.amount),
       ];
@@ -536,16 +543,22 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
 
     if (rows.length === 0) {
       doc.fontSize(9).fillColor(GRAY).font('Helvetica')
-        .text('No billable calls in this period.', L, y);
+        .text('No billable usage in this period.', L, y);
       y += 20;
+    } else {
+      // Breakout total, so the last page proves it sums to the summary page.
+      y += 6;
+      doc.moveTo(L, y).lineTo(L + W, y).strokeColor(DARK).lineWidth(1).stroke();
+      y += 8;
+      const totMin = rows.reduce((s, r) => s + Number(r.seconds ?? 0), 0);
+      const totAmt = rows.reduce((s, r) => s + Number(r.amount ?? 0), 0);
+      doc.fontSize(9).fillColor(DARK).font('Helvetica-Bold')
+        .text('Total', L, y, { width: W * 0.56, lineBreak: false })
+        .text(mins(totMin), L + W * 0.56, y, { width: W * 0.14 - 6, align: 'right', lineBreak: false })
+        .text('', L + W * 0.70, y, { width: W * 0.14 - 6, align: 'right', lineBreak: false })
+        .text(money(totAmt), L + W * 0.84, y, { width: W * 0.16 - 6, align: 'right', lineBreak: false });
+      y += 18;
     }
-
-    // ── Payment instructions (final page) ───────────────────────────────────
-    // Its own page: remittance details are fixed while the usage pages grow, so
-    // they must never be pushed around by a long call detail.
-    doc.addPage();
-    y = 50;
-    y = renderPaymentInstructions(y);
 
     // ── Footer on every page ────────────────────────────────────────────────
     const range = doc.bufferedPageRange();
