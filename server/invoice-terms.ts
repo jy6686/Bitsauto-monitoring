@@ -26,9 +26,35 @@ export interface InvoiceTerms {
   /** 'prepaid' | 'postpaid' — what drove the calculation. */
   basis: 'prepaid' | 'postpaid';
   termsDays: number;
+  /** Printable form of the company's recorded term. */
+  termLabel: string;
 }
 
-const PREPAID = /^(prepaid|pre-paid|pre paid|advance|prepay)$/i;
+const PREPAID = /^(prepaid|pre-paid|pre paid|advance|prepay|on receipt|immediate)$/i;
+
+/**
+ * Days encoded in the term itself — "net_30", "net 30", "Net30", "30 days".
+ * The company profile is the single source of truth for commercial terms, so a
+ * term that states its own length needs no second lookup. Returns null when the
+ * term carries no number ("postpaid", "credit"), leaving the caller's fallback
+ * to apply.
+ */
+export function daysFromPaymentTerm(term?: string | null): number | null {
+  const m = String(term ?? '').match(/(\d+)/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n >= 0 && n <= 365 ? n : null;
+}
+
+/** Human label for a stored term: "net_30" → "Net 30", "prepaid" → "Prepaid". */
+export function paymentTermLabel(term?: string | null): string {
+  const t = String(term ?? '').trim();
+  if (!t) return 'Not set';
+  if (PREPAID.test(t)) return 'Prepaid';
+  const d = daysFromPaymentTerm(t);
+  if (d != null) return `Net ${d}`;
+  return t.charAt(0).toUpperCase() + t.slice(1).replace(/[_-]+/g, ' ');
+}
 
 /**
  * @param invoiceDate  ISO date or Date the invoice was raised
@@ -47,16 +73,27 @@ export function resolveInvoiceTerms(
   const prepaid = PREPAID.test(String(paymentTerm ?? '').trim());
 
   if (prepaid) {
-    return { dueDate: iso(day), dueLabel: 'Payment due immediately', basis: 'prepaid', termsDays: 0 };
+    return {
+      dueDate: iso(day), dueLabel: 'Payment due immediately',
+      basis: 'prepaid', termsDays: 0, termLabel: 'Prepaid',
+    };
   }
 
-  // Postpaid. Fall back to 30 days only when no term is recorded — the same
-  // default business_partners already carries, so the invoice agrees with the
-  // partner record rather than inventing a different one.
-  const days = Number.isFinite(termsDays as number) && (termsDays as number) >= 0
-    ? Math.floor(termsDays as number)
-    : 30;
+  // Postpaid. Precedence: the length stated in the company's own term wins,
+  // because the company profile is the single source of truth for commercial
+  // terms; a separately-recorded partner term is the fallback; 30 only when
+  // neither says anything — the same default business_partners carries, so the
+  // invoice agrees with the partner record rather than inventing a number.
+  const fromTerm = daysFromPaymentTerm(paymentTerm);
+  const days = fromTerm != null
+    ? fromTerm
+    : (Number.isFinite(termsDays as number) && (termsDays as number) >= 0
+        ? Math.floor(termsDays as number)
+        : 30);
   const due = new Date(day.getTime());
   due.setUTCDate(due.getUTCDate() + days);
-  return { dueDate: iso(due), dueLabel: `Net ${days} — due ${iso(due)}`, basis: 'postpaid', termsDays: days };
+  return {
+    dueDate: iso(due), dueLabel: `Net ${days} — due ${iso(due)}`,
+    basis: 'postpaid', termsDays: days, termLabel: paymentTermLabel(paymentTerm) ,
+  };
 }

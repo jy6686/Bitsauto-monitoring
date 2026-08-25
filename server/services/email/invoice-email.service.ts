@@ -171,6 +171,7 @@ export async function sendInvoiceEmail(
   // Due date from the same shared rule the PDF uses, so the email and the
   // attached invoice can never state different deadlines.
   let dueLabel: string | null = null;
+  let termLabel: string | null = null;
   try {
     const { db: database } = await import('../../db');
     const { sql: rawSql } = await import('drizzle-orm');
@@ -186,7 +187,8 @@ export async function sendInvoiceEmail(
       row.payment_term ?? null,
       row.terms_days != null ? Number(row.terms_days) : null,
     );
-    dueLabel = terms.basis === 'prepaid' ? 'Payment due immediately' : terms.dueDate;
+    dueLabel  = terms.basis === 'prepaid' ? 'On receipt' : terms.dueDate;
+    termLabel = terms.termLabel;
   } catch { /* omit the row rather than state a deadline we cannot justify */ }
 
   let testMode = false;
@@ -310,6 +312,7 @@ export async function sendInvoiceEmail(
       <tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Currency</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${currency}</td></tr>
       ${invoice.lineCount != null ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Calls billed</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${Number(invoice.lineCount).toLocaleString()}</td></tr>` : ''}
       ${totalMinutes != null ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Total minutes</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${totalMinutes}</td></tr>` : ''}
+      ${termLabel ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Payment terms</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${termLabel}</td></tr>` : ''}
       ${dueLabel ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Payment due</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0;font-weight:bold">${dueLabel}</td></tr>` : ''}
       <tr><td style="padding:9px 16px;color:#1a1a2e;font-weight:bold;border-top:2px solid #1a1a2e">Total amount</td><td style="padding:9px 16px;text-align:right;font-weight:bold;font-size:15px;color:#1a1a2e;border-top:2px solid #1a1a2e">${currency} ${Number(invoice.totalActual ?? 0).toFixed(2)}</td></tr>
     </table>

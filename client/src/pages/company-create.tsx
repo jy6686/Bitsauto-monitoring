@@ -25,7 +25,10 @@ const TIMEZONES = ["GMT+00:00 | UTC","GMT+01:00 | London","GMT+02:00 | Cairo","G
 const CURRENCIES = ["USD","EUR","GBP","AED","SAR","PKR","INR","BDT","NGN","KES","EGP"];
 const BILLING_CYCLES = ["weekly_cutoff","monthly","daily","bi_weekly"];
 const BILLING_CYCLE_LABELS: Record<string,string> = { weekly_cutoff:"Weekly Cutoff", monthly:"Monthly", daily:"Daily", bi_weekly:"Bi-Weekly" };
-const PAYMENT_TERMS = ["prepaid","postpaid","credit"];
+// Commercial terms live on the company profile and drive the invoice due date
+// directly — a term that states its own length ("net_30") needs no second
+// lookup. "postpaid" and "credit" are kept so existing records still resolve.
+const PAYMENT_TERMS = ["prepaid","net_7","net_15","net_30","net_45","net_60","postpaid","credit"];
 const CONTRACT_TYPES = ["bilateral","client","vendor"];
 const COMPANY_TYPES = ["retail","wholesale"];
 const DEPARTMENTS = ["retail","wholesale","enterprise","carrier","reseller"];

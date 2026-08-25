@@ -351,8 +351,8 @@ export async function renderInvoicePdf(invoiceId: number): Promise<InvoicePdfRes
     const items: [string, string][] = [
       ['Billing period', period],
       ['Invoice date',   invoiceDate],
-      ['Payment due',    terms.basis === 'prepaid' ? 'Immediately' : terms.dueDate],
-      ['Currency',       currency],
+      ['Payment terms',  terms.termLabel],
+      ['Payment due',    terms.basis === 'prepaid' ? 'On receipt' : terms.dueDate],
     ];
     const iw = W / items.length;
     items.forEach(([label, val], i) => {

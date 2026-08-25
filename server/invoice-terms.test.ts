@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { resolveInvoiceTerms } from './invoice-terms';
+import { resolveInvoiceTerms, daysFromPaymentTerm, paymentTermLabel } from './invoice-terms';
 
 describe('resolveInvoiceTerms', () => {
   it('prepaid falls due on the invoice date and states the condition', () => {
@@ -49,6 +49,35 @@ describe('resolveInvoiceTerms', () => {
   it('a missing payment term is postpaid too', () => {
     expect(resolveInvoiceTerms('2026-08-24', null, 7).basis).toBe('postpaid');
     expect(resolveInvoiceTerms('2026-08-24', '', 7).basis).toBe('postpaid');
+  });
+
+  it('the company profile term wins over a separately-recorded partner term', () => {
+    // Commercial terms belong to the company profile; a stale partner record
+    // must not override what the account actually agreed.
+    const t = resolveInvoiceTerms('2026-08-24', 'net_15', 45);
+    expect(t.termsDays).toBe(15);
+    expect(t.dueDate).toBe('2026-09-08');
+  });
+
+  it('reads the term length in any of the shapes the profile stores', () => {
+    expect(daysFromPaymentTerm('net_30')).toBe(30);
+    expect(daysFromPaymentTerm('Net 45')).toBe(45);
+    expect(daysFromPaymentTerm('net7')).toBe(7);
+    expect(daysFromPaymentTerm('postpaid')).toBeNull();
+    expect(daysFromPaymentTerm('credit')).toBeNull();
+    expect(daysFromPaymentTerm(null)).toBeNull();
+  });
+
+  it('a termless postpaid term still falls back to the partner record', () => {
+    expect(resolveInvoiceTerms('2026-08-24', 'postpaid', 7).termsDays).toBe(7);
+    expect(resolveInvoiceTerms('2026-08-24', 'credit', 45).termsDays).toBe(45);
+  });
+
+  it('labels terms the way a customer should read them', () => {
+    expect(paymentTermLabel('net_30')).toBe('Net 30');
+    expect(paymentTermLabel('prepaid')).toBe('Prepaid');
+    expect(paymentTermLabel('postpaid')).toBe('Postpaid');
+    expect(paymentTermLabel(null)).toBe('Not set');
   });
 
   it('an unparseable invoice date does not throw', () => {
