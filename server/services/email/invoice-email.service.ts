@@ -188,11 +188,18 @@ export async function sendInvoiceEmail(
     }
     sender = conn.from;
 
-    // Attach invoice HTML as a downloadable file
+    // Attach the invoice under a name the customer can file.
+    // "C-2608-0006.html" tells a recipient nothing and collides in a downloads
+    // folder holding several suppliers' invoices; the client, the number and
+    // the period belong in the filename.
     const attachments: any[] = [];
     if (invoice.htmlContent) {
+      const slug = (s: string) => String(s).trim().replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '');
+      const period = invoice.periodStart && invoice.periodEnd
+        ? `_${String(invoice.periodStart).slice(0, 10)}_to_${String(invoice.periodEnd).slice(0, 10)}`
+        : '';
       attachments.push({
-        filename:    `${invoice.invoiceNumber}.html`,
+        filename:    `Ichibaan_${slug(invoice.customerName ?? 'Client')}_Invoice_${slug(invoice.invoiceNumber)}${period}.html`,
         content:     invoice.htmlContent,
         contentType: 'text/html',
       });
@@ -226,10 +233,22 @@ export async function sendInvoiceEmail(
     ${body.replace(/\n\n/g, '</p><p style="margin:0 0 14px 0">').replace(/\n/g, '<br>').replace(/^/, '<p style="margin:0 0 14px 0">').replace(/$/, '</p>')}
   </div>
 
+  <!-- Invoice summary — the recipient should not have to open an attachment
+       to learn what they are being billed and for when. -->
+  <div style="margin:0 32px 20px;border:1px solid #e8e8e8;border-radius:4px;overflow:hidden">
+    <div style="background:#f8f8f8;padding:8px 16px;font-size:11px;font-weight:bold;color:#1a1a2e;letter-spacing:0.06em;text-transform:uppercase">Invoice summary</div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;color:#222">
+      <tr><td style="padding:7px 16px;color:#666;width:45%">Invoice number</td><td style="padding:7px 16px;text-align:right;font-weight:bold">${invoice.invoiceNumber}</td></tr>
+      <tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Customer</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${invoice.customerName ?? ''}</td></tr>
+      ${invoice.periodStart ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Billing period</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${String(invoice.periodStart).slice(0, 10)} &ndash; ${String(invoice.periodEnd ?? '').slice(0, 10)}</td></tr>` : ''}
+      ${invoice.lineCount != null ? `<tr><td style="padding:7px 16px;color:#666;border-top:1px solid #f0f0f0">Calls billed</td><td style="padding:7px 16px;text-align:right;border-top:1px solid #f0f0f0">${Number(invoice.lineCount).toLocaleString()}</td></tr>` : ''}
+      <tr><td style="padding:9px 16px;color:#1a1a2e;font-weight:bold;border-top:2px solid #1a1a2e">Total amount</td><td style="padding:9px 16px;text-align:right;font-weight:bold;font-size:15px;color:#1a1a2e;border-top:2px solid #1a1a2e">USD ${Number(invoice.totalActual ?? 0).toFixed(2)}</td></tr>
+    </table>
+  </div>
+
   ${invoice.htmlContent ? `
-  <!-- Attachment notice -->
-  <div style="margin:0 32px 20px;padding:12px 16px;background:#fff8e1;border-left:3px solid #f39c12;border-radius:3px;font-size:12px;color:#7f6003">
-    📎 The full invoice is attached as an HTML file. Open it in any browser to view, print, or save as PDF.
+  <div style="margin:0 32px 20px;font-size:12px;color:#666">
+    The full invoice, including the destination breakdown, is attached.
   </div>` : ''}
 
   <!-- Footer -->

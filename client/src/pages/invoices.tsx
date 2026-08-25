@@ -442,13 +442,16 @@ export default function InvoicesPage() {
       const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       return `${d}-${MONTHS[+m - 1]}-${y}`;
     };
-    const todayStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).toUpperCase();
-    const custUpper = (inv.customerName ?? '').toUpperCase();
-    const defaultSubject = `ICHIBAAN LOGIC INVOICE || ${custUpper} || ${todayStr}`;
     const periodLine = inv.periodStart
       ? `${fmtPeriodDate(inv.periodStart)} to ${fmtPeriodDate(inv.periodEnd ?? inv.periodStart)}`
       : '';
-    const defaultBody = `Dear Client,\n\nWe are pleased to share the invoice for the period ${periodLine}.\n\nIt is requested to please acknowledge the invoice and make sure that payment will be according to agreed term.\n\nFor dispute related questions please email to dispute@ichibaanlogic.com.\n\n\nThanks and Regards,\n\nIchibaan Billing Department\nInternational Voice Business\nIchibaan Logic Private Limited\n(formerly Bhaoo Private Limited)\n\nEmail   : billing@ichibaanlogic.com\nURL     : www.ichibaanlogic.com`;
+    // Lead with the invoice number: it is what a customer searches their mail
+    // for, and what they quote back when querying a charge. The send date is
+    // not useful in a subject — the billing period is.
+    const defaultSubject = inv.periodStart
+      ? `Invoice ${inv.invoiceNumber} | ${inv.customerName ?? ''} | ${fmtPeriodDate(inv.periodStart)} – ${fmtPeriodDate(inv.periodEnd ?? inv.periodStart)}`
+      : `Invoice ${inv.invoiceNumber} | ${inv.customerName ?? ''}`;
+    const defaultBody = `Dear ${inv.customerName ?? 'Client'} Team,\n\nPlease find attached invoice ${inv.invoiceNumber} covering the billing period ${periodLine}.\n\nKindly acknowledge receipt. Payment is due in accordance with the agreed commercial terms.\n\nFor any query regarding this invoice, please contact billing@ichibaanlogic.com. Disputes should be raised at dispute@ichibaanlogic.com.\n\nThanks and regards,\n\nIchibaan Billing Department\nInternational Voice Business\nIchibaan Logic Private Limited\n(formerly Bhaoo Private Limited)\n\nEmail   : billing@ichibaanlogic.com\nURL     : www.ichibaanlogic.com`;
 
     // Prefill with empty — open dialog immediately
     setSendId(inv.id);
@@ -1774,7 +1777,7 @@ export default function InvoicesPage() {
                     onChange={e => setSendForm(f => ({ ...f, body: e.target.value }))}
                     className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none font-mono"
                   />
-                  <p className="text-xs text-muted-foreground">Invoice HTML will be attached automatically as a file.</p>
+                  <p className="text-xs text-muted-foreground">The invoice is attached automatically, named for the client, invoice number and period. A summary of the amount and period is included in the email body.</p>
                 </div>
 
                 {/* Actions */}
