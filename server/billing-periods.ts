@@ -22,7 +22,10 @@
  * scheduler, the trace and whatever reads periods next.
  */
 
-export type BillingTerm = 'daily' | 'weekly' | 'bi_monthly' | 'monthly';
+// 'semi_monthly' is the standard accounting term for 1–15 / 16–end of month.
+// 'bi-monthly' is avoided deliberately: in business English it can mean twice a
+// month OR every two months, and a billing cycle cannot afford that ambiguity.
+export type BillingTerm = 'daily' | 'weekly' | 'semi_monthly' | 'monthly';
 
 /**
  * A customer's billing policy — WHEN to invoice, nothing about HOW periods
@@ -113,10 +116,10 @@ export function splitAtMonthEnd(start: string, end: string): Array<{ start: stri
 /**
  * The term's natural spans overlapping [since, until], BEFORE month splitting.
  *
- *   weekly     Monday–Sunday
- *   bi_monthly 1st–15th and 16th–end of month (NOT a rolling fortnight, which
- *              is what the previous scheduler implemented under this name)
- *   monthly    1st–end of month
+ *   weekly        Monday–Sunday
+ *   semi_monthly  1st–15th and 16th–end of month — NOT a rolling fortnight,
+ *                 which is what the previous scheduler implemented
+ *   monthly       1st–end of month
  */
 function naturalSpans(term: BillingTerm, since: string, until: string): Array<{ start: string; end: string }> {
   const spans: Array<{ start: string; end: string }> = [];
@@ -136,7 +139,7 @@ function naturalSpans(term: BillingTerm, since: string, until: string): Array<{ 
   let month = startOfMonth(since);
   while (month <= until) {
     const eom = endOfMonth(month);
-    if (term === 'bi_monthly') {
+    if (term === 'semi_monthly') {
       spans.push({ start: month, end: `${month.slice(0, 7)}-15` });
       spans.push({ start: `${month.slice(0, 7)}-16`, end: eom });
     } else {
@@ -202,6 +205,35 @@ export function latestClosedPeriods(term: BillingTerm, asOf: string): BillingPer
 }
 
 /**
+ * Has this period finished, as of a given day?
+ *
+ * A period is closed once the clock passes its exclusive boundary — 00:00 GMT
+ * on the day after its last billed day. Invoicing before that bills a period
+ * still receiving calls: the document understates what the customer owes, and
+ * the missing calls have nowhere to go afterwards, because a period is never
+ * invoiced twice.
+ *
+ * @param end   inclusive last day, YYYY-MM-DD
+ * @param asOf  today, YYYY-MM-DD (UTC)
+ */
+export function isPeriodClosed(end: string, asOf: string): boolean {
+  const e = String(end ?? '').slice(0, 10);
+  const a = String(asOf ?? '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(e) || !/^\d{4}-\d{2}-\d{2}$/.test(a)) return false;
+  return addDays(e, 1) <= a;   // the exclusive boundary has been reached
+}
+
+/**
+ * Has the accounting month this period belongs to finished? Month-end close
+ * needs the whole month behind it, not merely the period.
+ */
+export function isAccountingMonthClosed(accountingMonth: string, asOf: string): boolean {
+  const m = String(accountingMonth ?? '').slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(m)) return false;
+  return addDays(endOfMonth(`${m}-01`), 1) <= String(asOf ?? '').slice(0, 10);
+}
+
+/**
  * Accepts every vocabulary in use: the company's clientBillingCycle
  * ('weekly_cutoff' | 'monthly' | 'daily' | 'bi_weekly') and the schedule's
  * frequency ('weekly' | 'monthly' | 'fortnightly').
@@ -216,9 +248,9 @@ export function normalizeTerm(frequency: string | null | undefined): BillingTerm
   if (f === 'weekly' || f === 'weekly_cutoff') return 'weekly';
   if (f === 'monthly' || f === 'monthly_cutoff') return 'monthly';
   // 'fortnightly' and 'bi_weekly' were a rolling 14 days. Bi-monthly is the
-  // commercial term the owner named: 1–15 and 16–end of month.
-  if (f === 'bi_monthly' || f === 'bimonthly' || f === 'semi_monthly'
-      || f === 'fortnightly' || f === 'bi_weekly') return 'bi_monthly';
+  // accounting term for what the owner described: 1–15 and 16–end of month.
+  if (f === 'semi_monthly' || f === 'semimonthly' || f === 'bi_monthly'
+      || f === 'bimonthly' || f === 'fortnightly' || f === 'bi_weekly') return 'semi_monthly';
   return 'monthly';
 }
 

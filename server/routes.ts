@@ -32922,6 +32922,24 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
     }
 
+    // Stage 2b — finance freeze: the period must be FINISHED.
+    //
+    // Certification says every collected call priced correctly; it says nothing
+    // about whether more calls are coming. Invoicing an open period understates
+    // the bill and the remainder is unrecoverable, because a period is never
+    // invoiced twice. Deliberately not overridable: unlike an exception, there
+    // is no judgement to exercise — the period either ended or it did not.
+    {
+      const { isPeriodClosed } = await import('./billing-periods');
+      const asOf = new Date().toISOString().slice(0, 10);
+      if (!isPeriodClosed(opts.periodEnd, asOf)) {
+        return {
+          ok: false, stage: 'certify', seed,
+          error: `Billing period ${opts.periodStart}–${opts.periodEnd} has not closed as of ${asOf}. It closes at 00:00 GMT the day after ${opts.periodEnd}; invoicing before then bills a period still receiving calls.`,
+        };
+      }
+    }
+
     // Stage 3 — certified generator (refuses when the period has no snapshots)
     try {
       const r = await generateInvoice({
@@ -33423,6 +33441,99 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       console.error('[recertify] error:', e.message);
       res.status(500).json({ error: e.message });
     }
+  });
+
+  /**
+   * Finance freeze — is this period safe to turn into money?
+   *
+   * Certification answers "was every call priced correctly". It does NOT
+   * answer "is this period finished", and those are different questions. A
+   * period still receiving calls can certify perfectly on the calls collected
+   * so far, and invoicing it understates the bill with no way to recover the
+   * remainder — a period is never invoiced twice.
+   *
+   * Five conditions, reported separately because their remedies differ:
+   *
+   *   periodClosed     the exclusive boundary has passed        BLOCKING
+   *   monthClosed      the accounting month is behind us        advisory
+   *   snapshotsLocked  the billable rows are immutable          advisory
+   *   tariffLocked     the priced tariff version is frozen      advisory
+   *   certified        every call priced, no exceptions         BLOCKING
+   *
+   * Only periodClosed and certified block: nothing in this platform currently
+   * locks a tariff version, so gating on it would refuse every invoice. They
+   * are reported so the gap is visible rather than assumed closed.
+   */
+  async function _financeFreezeFor(iTariff: string, periodStart: string, periodEnd: string) {
+    const { isPeriodClosed, isAccountingMonthClosed } = await import('./billing-periods');
+    const asOf = new Date().toISOString().slice(0, 10);
+    const accountingMonth = String(periodStart ?? '').slice(0, 7);
+
+    const checks: Array<{ key: string; label: string; ok: boolean; blocking: boolean; detail: string }> = [];
+    const periodClosed = isPeriodClosed(periodEnd, asOf);
+    checks.push({
+      key: 'periodClosed', label: 'Billing period closed', ok: periodClosed, blocking: true,
+      detail: periodClosed
+        ? `Closed at 00:00 GMT on ${periodEnd} + 1 day.`
+        : `Period ends ${periodEnd} and is still open as of ${asOf} — calls can still arrive.`,
+    });
+    const monthClosed = isAccountingMonthClosed(accountingMonth, asOf);
+    checks.push({
+      key: 'monthClosed', label: 'Accounting month closed', ok: monthClosed, blocking: false,
+      detail: monthClosed ? `${accountingMonth} is closed.` : `${accountingMonth} is still open — a mid-month period may invoice before month-end close.`,
+    });
+
+    try {
+      const s = await db.execute(sql`
+        SELECT count(*)::int AS total, count(*) FILTER (WHERE verification_status = 'locked')::int AS locked
+          FROM invoice_cdr_snapshots
+         WHERE i_tariff = ${iTariff}
+           AND left(cdr_start_time, 10) BETWEEN ${periodStart} AND ${periodEnd}`);
+      const r: any = ((s as any).rows ?? [])[0] ?? {};
+      const total = Number(r.total ?? 0), locked = Number(r.locked ?? 0);
+      checks.push({
+        key: 'snapshotsLocked', label: 'Snapshot batch locked', ok: total > 0 && locked === total, blocking: false,
+        detail: total === 0 ? 'No billable snapshot exists for this period.' : `${locked}/${total} snapshot(s) locked.`,
+      });
+    } catch (e: any) {
+      checks.push({ key: 'snapshotsLocked', label: 'Snapshot batch locked', ok: false, blocking: false, detail: `Unreadable: ${e.message}` });
+    }
+
+    try {
+      const t = await db.execute(sql`
+        SELECT count(*)::int AS total, count(*) FILTER (WHERE is_locked)::int AS locked
+          FROM tariff_versions WHERE i_tariff = ${iTariff}`);
+      const r: any = ((t as any).rows ?? [])[0] ?? {};
+      const total = Number(r.total ?? 0), locked = Number(r.locked ?? 0);
+      checks.push({
+        key: 'tariffLocked', label: 'Tariff version locked', ok: total > 0 && locked > 0, blocking: false,
+        detail: total === 0 ? `No tariff version recorded for ${iTariff}.`
+          : locked === 0 ? `${total} version(s), none locked — nothing prevents a backdated edit re-pricing this period on re-certification.`
+          : `${locked}/${total} version(s) locked.`,
+      });
+    } catch (e: any) {
+      checks.push({ key: 'tariffLocked', label: 'Tariff version locked', ok: false, blocking: false, detail: `Unreadable: ${e.message}` });
+    }
+
+    const cert = await _certificationFor(iTariff, periodStart, periodEnd);
+    checks.push({
+      key: 'certified', label: 'Certification passed', ok: cert.state === 'certified', blocking: true,
+      detail: cert.state === 'certified' ? 'Every call priced exactly.' : `${cert.state}: ${cert.reasons.join('; ')}`,
+    });
+
+    const blockers = checks.filter(c => c.blocking && !c.ok);
+    return { frozen: blockers.length === 0, checks, blockers: blockers.map(b => b.label), certification: cert.state };
+  }
+
+  // GET /api/finance/freeze-check?iTariff=&periodStart=&periodEnd=
+  app.get('/api/finance/freeze-check', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { iTariff, periodStart, periodEnd } = req.query as Record<string, string>;
+      if (!iTariff || !periodStart || !periodEnd) {
+        return res.status(400).json({ error: 'iTariff, periodStart and periodEnd are required' });
+      }
+      res.json(await _financeFreezeFor(String(iTariff), String(periodStart).slice(0, 10), String(periodEnd).slice(0, 10)));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // GET /api/finance/pipeline-trace?customer=&periodStart=&periodEnd=

@@ -26,8 +26,8 @@ const CURRENCIES = ["USD","EUR","GBP","AED","SAR","PKR","INR","BDT","NGN","KES",
 // Bi-monthly is 1–15 and 16–end of month (an accounting period), not a
 // rolling 14 days. bi_weekly is kept so existing records still resolve; it
 // normalizes to bi_monthly server-side.
-const BILLING_CYCLES = ["weekly_cutoff","bi_monthly","monthly","daily","bi_weekly"];
-const BILLING_CYCLE_LABELS: Record<string,string> = { weekly_cutoff:"Weekly (Mon–Sun)", bi_monthly:"Bi-Monthly (1–15, 16–EOM)", monthly:"Monthly", daily:"Daily", bi_weekly:"Bi-Weekly (legacy → bi-monthly)" };
+const BILLING_CYCLES = ["weekly_cutoff","semi_monthly","monthly","daily","bi_weekly"];
+const BILLING_CYCLE_LABELS: Record<string,string> = { weekly_cutoff:"Weekly (Mon–Sun)", semi_monthly:"Semi-Monthly (1–15, 16–EOM)", monthly:"Monthly", daily:"Daily", bi_weekly:"Bi-Weekly (legacy → semi-monthly)" };
 // Commercial terms live on the company profile and drive the invoice due date
 // directly — a term that states its own length ("net_30") needs no second
 // lookup. "postpaid" and "credit" are kept so existing records still resolve.

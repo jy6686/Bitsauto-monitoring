@@ -13,6 +13,7 @@ import { describe, it, expect } from 'vitest';
 import {
   splitAtMonthEnd, closedPeriods, latestClosedPeriods, normalizeTerm,
   billingPolicyFor, calculateClosedBillingPeriods,
+  isPeriodClosed, isAccountingMonthClosed,
 } from './billing-periods';
 
 describe('splitAtMonthEnd', () => {
@@ -103,9 +104,9 @@ describe('weekly', () => {
   });
 });
 
-describe('bi_monthly', () => {
+describe('semi_monthly', () => {
   it('bills 1–15 and 16–end of month, not a rolling fortnight', () => {
-    const p = closedPeriods('bi_monthly', '2026-09-01', '2026-08-01');
+    const p = closedPeriods('semi_monthly', '2026-09-01', '2026-08-01');
     expect(p).toEqual([
       { start: '2026-08-01', end: '2026-08-15', endExclusive: '2026-08-16', accountingMonth: '2026-08', partial: false },
       { start: '2026-08-16', end: '2026-08-31', endExclusive: '2026-09-01', accountingMonth: '2026-08', partial: false },
@@ -113,12 +114,12 @@ describe('bi_monthly', () => {
   });
 
   it('the second half of February ends on the 29th in a leap year', () => {
-    const p = closedPeriods('bi_monthly', '2028-03-01', '2028-02-01');
+    const p = closedPeriods('semi_monthly', '2028-03-01', '2028-02-01');
     expect(p[1]).toMatchObject({ start: '2028-02-16', end: '2028-02-29' });
   });
 
   it('does not bill the second half before the month has ended', () => {
-    const p = closedPeriods('bi_monthly', '2026-08-20', '2026-08-01');
+    const p = closedPeriods('semi_monthly', '2026-08-20', '2026-08-01');
     expect(p).toEqual([
       { start: '2026-08-01', end: '2026-08-15', endExclusive: '2026-08-16', accountingMonth: '2026-08', partial: false },
     ]);
@@ -153,7 +154,7 @@ describe('latestClosedPeriods', () => {
   });
 
   it('never returns a period that has not closed', () => {
-    for (const term of ['weekly', 'bi_monthly', 'monthly'] as const) {
+    for (const term of ['weekly', 'semi_monthly', 'monthly'] as const) {
       for (const p of latestClosedPeriods(term, '2026-08-21')) {
         expect(p.end < '2026-08-21').toBe(true);
       }
@@ -165,12 +166,12 @@ describe('normalizeTerm', () => {
   it('maps the vocabulary schedules actually store', () => {
     expect(normalizeTerm('weekly')).toBe('weekly');
     expect(normalizeTerm('Monthly')).toBe('monthly');
-    expect(normalizeTerm('bi_monthly')).toBe('bi_monthly');
+    expect(normalizeTerm('bi_monthly')).toBe('semi_monthly');
   });
 
-  it('legacy rolling-fortnight names become bi-monthly, the commercial term', () => {
-    expect(normalizeTerm('fortnightly')).toBe('bi_monthly');
-    expect(normalizeTerm('bi_weekly')).toBe('bi_monthly');
+  it('legacy rolling-fortnight names become semi-monthly, the accounting term', () => {
+    expect(normalizeTerm('fortnightly')).toBe('semi_monthly');
+    expect(normalizeTerm('bi_weekly')).toBe('semi_monthly');
   });
 
   it('an unknown or missing term falls back to monthly, never to nothing', () => {
@@ -187,7 +188,7 @@ describe('normalizeTerm', () => {
  */
 describe('00:00 GMT accounting boundary', () => {
   it('endExclusive is always the day after the last billed day', () => {
-    for (const term of ['weekly', 'bi_monthly', 'monthly'] as const) {
+    for (const term of ['weekly', 'semi_monthly', 'monthly'] as const) {
       for (const p of closedPeriods(term, '2026-10-01', '2026-07-01')) {
         const next = new Date(`${p.end}T00:00:00Z`);
         next.setUTCDate(next.getUTCDate() + 1);
@@ -232,7 +233,7 @@ describe('billingPolicyFor', () => {
     expect(billingPolicyFor({ clientBillingCycle: 'weekly_cutoff' }).frequency).toBe('weekly');
     expect(billingPolicyFor({ clientBillingCycle: 'monthly' }).frequency).toBe('monthly');
     expect(billingPolicyFor({ clientBillingCycle: 'daily' }).frequency).toBe('daily');
-    expect(billingPolicyFor({ clientBillingCycle: 'bi_weekly' }).frequency).toBe('bi_monthly');
+    expect(billingPolicyFor({ clientBillingCycle: 'bi_weekly' }).frequency).toBe('semi_monthly');
   });
 
   it("'weekly_cutoff' is the DEFAULT on every company — it must not fall back to monthly", () => {
@@ -305,24 +306,24 @@ describe('invoice generation dates (owner spec)', () => {
     ]);
   });
 
-  it('bi-monthly first half: 1–15, generated on the 16th', () => {
-    const [first] = closedPeriods('bi_monthly', '2026-08-20', '2026-08-01');
+  it('semi-monthly first half: 1–15, generated on the 16th', () => {
+    const [first] = closedPeriods('semi_monthly', '2026-08-20', '2026-08-01');
     expect(`${first.start}..${first.end}`).toBe('2026-08-01..2026-08-15');
     expect(first.endExclusive).toBe('2026-08-16');
   });
 
-  it('bi-monthly second half: 16–end of month, generated on the 1st of next month', () => {
-    const p = closedPeriods('bi_monthly', '2026-09-02', '2026-08-01');
+  it('semi-monthly second half: 16–end of month, generated on the 1st of next month', () => {
+    const p = closedPeriods('semi_monthly', '2026-09-02', '2026-08-01');
     expect(p[1].start).toBe('2026-08-16');
     expect(p[1].end).toBe('2026-08-31');
     expect(p[1].endExclusive).toBe('2026-09-01');
   });
 
-  it('bi-monthly second half in February, leap and non-leap, both generate on 1 March', () => {
-    const leap = closedPeriods('bi_monthly', '2028-03-02', '2028-02-01');
+  it('semi-monthly second half in February, leap and non-leap, both generate on 1 March', () => {
+    const leap = closedPeriods('semi_monthly', '2028-03-02', '2028-02-01');
     expect(leap[1].end).toBe('2028-02-29');
     expect(leap[1].endExclusive).toBe('2028-03-01');
-    const plain = closedPeriods('bi_monthly', '2027-03-02', '2027-02-01');
+    const plain = closedPeriods('semi_monthly', '2027-03-02', '2027-02-01');
     expect(plain[1].end).toBe('2027-02-28');
     expect(plain[1].endExclusive).toBe('2027-03-01');
   });
@@ -338,5 +339,112 @@ describe('invoice generation dates (owner spec)', () => {
     // On 31 Aug the August monthly period has not closed; on 1 Sep it has.
     expect(closedPeriods('monthly', '2026-08-31', '2026-08-01')).toHaveLength(0);
     expect(closedPeriods('monthly', '2026-09-01', '2026-08-01')).toHaveLength(1);
+  });
+});
+
+/**
+ * Finance freeze: a period must have FINISHED before it becomes money.
+ * Certification says every collected call priced correctly; it says nothing
+ * about whether more calls are still coming.
+ */
+describe('isPeriodClosed', () => {
+  it('is closed only once the exclusive boundary has been reached', () => {
+    expect(isPeriodClosed('2026-08-23', '2026-08-23')).toBe(false);  // last day, still open
+    expect(isPeriodClosed('2026-08-23', '2026-08-24')).toBe(true);   // 00:00 GMT next day
+    expect(isPeriodClosed('2026-08-23', '2026-09-01')).toBe(true);
+  });
+
+  it('a future period is never closed', () => {
+    expect(isPeriodClosed('2026-12-31', '2026-08-24')).toBe(false);
+  });
+
+  it('a month period closes on the 1st of the next month', () => {
+    expect(isPeriodClosed('2026-08-31', '2026-08-31')).toBe(false);
+    expect(isPeriodClosed('2026-08-31', '2026-09-01')).toBe(true);
+  });
+
+  it('every period from closedPeriods is, by construction, closed', () => {
+    for (const term of ['daily', 'weekly', 'semi_monthly', 'monthly'] as const) {
+      for (const p of closedPeriods(term, '2026-09-15', '2026-07-01')) {
+        expect(isPeriodClosed(p.end, '2026-09-15')).toBe(true);
+      }
+    }
+  });
+
+  it('malformed input is not closed, rather than throwing or passing', () => {
+    expect(isPeriodClosed('', '2026-08-24')).toBe(false);
+    expect(isPeriodClosed('not-a-date', '2026-08-24')).toBe(false);
+  });
+});
+
+describe('isAccountingMonthClosed', () => {
+  it('closes on the 1st of the following month', () => {
+    expect(isAccountingMonthClosed('2026-08', '2026-08-31')).toBe(false);
+    expect(isAccountingMonthClosed('2026-08', '2026-09-01')).toBe(true);
+  });
+
+  it('handles February in a leap year', () => {
+    expect(isAccountingMonthClosed('2028-02', '2028-02-29')).toBe(false);
+    expect(isAccountingMonthClosed('2028-02', '2028-03-01')).toBe(true);
+  });
+
+  it("a period can be closed while its accounting month is not", () => {
+    // The 1–15 semi-monthly period closes on the 16th; August closes on 1 Sep.
+    expect(isPeriodClosed('2026-08-15', '2026-08-16')).toBe(true);
+    expect(isAccountingMonthClosed('2026-08', '2026-08-16')).toBe(false);
+  });
+
+  it('malformed input is not closed', () => {
+    expect(isAccountingMonthClosed('', '2026-09-01')).toBe(false);
+    expect(isAccountingMonthClosed('2026', '2026-09-01')).toBe(false);
+  });
+});
+
+/**
+ * Scheduler validation, as the owner framed it: at a given UTC instant, which
+ * customers should produce a job — and nothing else. This proves the POLICY
+ * mapping; whether the scheduler is wired to call it is a deployment check.
+ */
+describe('which cycles fire at a given instant', () => {
+  const fires = (asOf: string) =>
+    (['daily', 'weekly', 'semi_monthly', 'monthly'] as const).map(term => {
+      const p = latestClosedPeriods(term, asOf);
+      return `${term}: ${p.length ? p.map(x => `${x.start}..${x.end}`).join(' + ') : 'nothing'}`;
+    });
+
+  it('1 Sep 2026 00:00 GMT — month end, every cycle closes something', () => {
+    // 31 Aug 2026 is a Monday, so the weekly period straddles into September
+    // and only its August fragment has closed.
+    expect(fires('2026-09-01')).toEqual([
+      'daily: 2026-08-31..2026-08-31',
+      'weekly: 2026-08-31..2026-08-31',
+      'semi_monthly: 2026-08-16..2026-08-31',
+      'monthly: 2026-08-01..2026-08-31',
+    ]);
+  });
+
+  it('16 Aug 2026 — the semi-monthly first half closes, monthly does not', () => {
+    const f = fires('2026-08-16');
+    expect(f[2]).toBe('semi_monthly: 2026-08-01..2026-08-15');
+    expect(f[3]).toBe('monthly: 2026-07-01..2026-07-31');   // July, not August
+  });
+
+  it('a mid-week, mid-month instant closes nothing new for month-based cycles', () => {
+    // 19 Aug 2026 is a Wednesday. The week 17–23 is open; the current
+    // half-month is open; August is open.
+    const f = fires('2026-08-19');
+    expect(f[1]).toBe('weekly: 2026-08-10..2026-08-16');      // the PREVIOUS week
+    expect(f[2]).toBe('semi_monthly: 2026-08-01..2026-08-15');
+    expect(f[3]).toBe('monthly: 2026-07-01..2026-07-31');
+  });
+
+  it('no cycle ever fires a period that includes the current day', () => {
+    for (const asOf of ['2026-08-19', '2026-09-01', '2026-08-16', '2028-02-29']) {
+      for (const term of ['daily', 'weekly', 'semi_monthly', 'monthly'] as const) {
+        for (const p of latestClosedPeriods(term, asOf)) {
+          expect(p.end < asOf).toBe(true);
+        }
+      }
+    }
   });
 });
