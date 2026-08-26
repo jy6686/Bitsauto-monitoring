@@ -375,8 +375,14 @@ variables; generate-from-sippy wrote one figure into both invoice totals.
 > independent source, an independent calculation, and an observable failure
 > path.
 
-This is the review question for every future validator: *where does the other
-side of your comparison come from, and can this check ever fail?*
+Final form (owner, 2026-08-27): **every validation must identify both independent data sources
+being compared; if either side is derived from the other, it is not a validation.** At code review
+every reconciliation answers five questions: What is Source A? What is Source B? Can they disagree?
+If yes, how is the disagreement reported? If no, why is this implemented as a validation?
+
+**The architecture is FROZEN and the platform is in its VALIDATION PHASE** — see
+`docs/BILLING-VALIDATION-RUNBOOK.md` for the five reconciliations that must hold on production
+data before new capability is added.
 
 ### Per-period pipeline status
 
