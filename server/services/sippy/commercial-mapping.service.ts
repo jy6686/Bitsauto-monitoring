@@ -27,8 +27,8 @@
 import * as sippy from '../../sippy';
 import { storage } from '../../storage';
 import {
-  planMappingPersistence, describeMappingPlan,
-  type MappingPlan, type DiscoveredMapping,
+  planMappingPersistence, describeMappingPlan, mappingStatus,
+  type MappingPlan, type MappingStatus, type DiscoveredMapping,
 } from '../../commercial-mapping';
 
 /**
@@ -95,10 +95,11 @@ export async function discoverCommercialMapping(
       const { plans } = await sippy.listSippyBillingPlans(
         access.credPairs[0].username, access.credPairs[0].password, access.portalUrl,
       );
-      const plan = plans.find((p: any) =>
-        Number(p.id) === Number(info.iBillingPlan) ||
-        Number(p.iBillingPlan) === Number(info.iBillingPlan),
-      );
+      // Matched on `id` alone: listSippyBillingPlans builds
+      // { id, name, currency, iTariff } and never sets iBillingPlan, so the
+      // second half of what used to be an `||` here compared NaN to a number
+      // on every call — dead code that implied a fallback which cannot fire.
+      const plan = plans.find((p: any) => Number(p.id) === Number(info.iBillingPlan));
       if (plan?.iTariff != null) {
         iTariff = Number(plan.iTariff);
         tariffSource = 'billing_plan';
@@ -129,6 +130,12 @@ export interface PersistResult {
   plan:      MappingPlan;
   /** True when at least one column was written. */
   persisted: boolean;
+  /**
+   * What happened, in one word. Read this rather than `persisted`: a re-sync
+   * of an already-correct company writes nothing, so `persisted:false` alone
+   * cannot be told apart from a sync that discovered nothing.
+   */
+  status:    MappingStatus;
   summary:   string;
 }
 
@@ -158,9 +165,9 @@ export async function persistCommercialMapping(
   }
 
   if (plan.conflicts.length) console.warn(`[commercial-mapping] ${summary}`);
-  else if (hasUpdates)       console.log(`[commercial-mapping] ${summary}`);
+  else                       console.log(`[commercial-mapping] ${summary}`);
 
-  return { plan, persisted: hasUpdates, summary };
+  return { plan, persisted: hasUpdates, status: mappingStatus(plan), summary };
 }
 
 /**

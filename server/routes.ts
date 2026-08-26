@@ -866,11 +866,15 @@ export async function registerRoutes(
     try {
       const r = await db.execute(sql`SELECT max(filename) AS latest, count(*)::int AS applied FROM schema_migrations`);
       const row = ((r as any).rows ?? [])[0] ?? {};
-      info.schemaLatest  = row.latest ?? null;
-      info.schemaApplied = row.applied ?? null;
+      info.schemaLatest = row.latest ?? null;
+      // A COUNT of ledger rows, not a version number. Named `schemaApplied` it
+      // read as "applied up to 78" and raised a false alarm against
+      // schemaLatest 081; the two never align anyway, because filename is the
+      // migration's identity and 030 is used by two different files.
+      info.schemaMigrationsRecorded = row.applied ?? null;
     } catch {
       info.schemaLatest = null;
-      info.schemaApplied = null;
+      info.schemaMigrationsRecorded = null;
     }
 
     // WHICH DATABASE this instance is talking to, and how much billing data it
@@ -10627,7 +10631,7 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
       try {
         const company = await storage.getCompanyBySippyAccount(iAccount);
         if (company) {
-          const { planMappingPersistence } = await import('./commercial-mapping');
+          const { planMappingPersistence, mappingStatus } = await import('./commercial-mapping');
           const plan = planMappingPersistence(
             {
               sippyITariff:        company.sippyITariff,
@@ -10639,6 +10643,9 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
           mapping = {
             companyId:           company.id,
             companyName:         company.name,
+            // What a sync WOULD do — the same word the writers report, so a
+            // screen and a sync never describe the same state differently.
+            wouldBe:             mappingStatus(plan),
             mappingFound:        discovery.iTariff != null,
             // True when a sync would learn something. The operator's cue to
             // run one; nothing has been changed by looking.
@@ -31382,8 +31389,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           );
           if (result) {
             mapping = {
+              status:       result.persist.status,
               persisted:    result.persist.persisted,
               filled:       result.persist.plan.filled,
+              unchanged:    result.persist.plan.unchanged,
               conflicts:    result.persist.plan.conflicts,
               iTariff:      result.discovery.iTariff,
               tariffSource: result.discovery.tariffSource,
@@ -31456,10 +31465,16 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           // Named explicitly so the operator sees what the sync learned — and,
           // when stored and live disagree, that nothing was written.
           mapping: {
-            persisted: persist.persisted,
-            filled:    persist.plan.filled,
-            conflicts: persist.plan.conflicts,
-            warnings:  discovery.warnings,
+            // status first, and read it first: `persisted:false` alone cannot
+            // distinguish "already correct" from "learned nothing", which cost
+            // a full round of debugging on 2026-08-26.
+            status:        persist.status,          // conflict | filled | already_current | nothing_discovered
+            persisted:     persist.persisted,
+            filled:        persist.plan.filled,
+            unchanged:     persist.plan.unchanged,
+            notDiscovered: persist.plan.notDiscovered,
+            conflicts:     persist.plan.conflicts,
+            warnings:      discovery.warnings,
           },
         });
       } catch (e: any) { res.status(500).json({ message: e.message }); }

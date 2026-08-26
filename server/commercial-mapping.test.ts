@@ -17,7 +17,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { planMappingPersistence, describeMappingPlan } from './commercial-mapping';
+import { planMappingPersistence, describeMappingPlan, mappingStatus } from './commercial-mapping';
 
 describe('planMappingPersistence — filling what is absent', () => {
   it('fills the tariff on a linked account that never had one — the asterisk case', () => {
@@ -89,7 +89,10 @@ describe('planMappingPersistence — never overwriting', () => {
     );
     expect(plan.updates).toEqual({});
     expect(plan.conflicts).toEqual([]);
-    expect(plan.unchanged).toHaveLength(3);
+    // notDiscovered, NOT unchanged — "Sippy told us nothing" and "already
+    // correct" are opposite operational states and must not share a bucket.
+    expect(plan.notDiscovered).toHaveLength(3);
+    expect(plan.unchanged).toHaveLength(0);
   });
 
   it('never nulls a stored value even when everything is absent on both sides', () => {
@@ -115,12 +118,15 @@ describe('planMappingPersistence — never overwriting', () => {
   });
 
   it('classifies every field exactly once', () => {
-    // A field that slipped through all three buckets would be silently dropped.
+    // A field that slipped through all four buckets would be silently dropped.
     const plan = planMappingPersistence(
       { sippyITariff: 32, sippyIBillingPlan: null },
       { iTariff: 41, iBillingPlan: 12, currency: null },
     );
-    const seen = [...plan.filled, ...plan.unchanged, ...plan.conflicts.map(c => c.field)];
+    const seen = [
+      ...plan.filled, ...plan.unchanged, ...plan.notDiscovered,
+      ...plan.conflicts.map(c => c.field),
+    ];
     expect(seen.sort()).toEqual(['sippyIBillingPlan', 'sippyITariff', 'sippyTariffCurrency']);
   });
 });
@@ -140,7 +146,62 @@ describe('describeMappingPlan', () => {
     expect(describeMappingPlan('asterisk', plan)).toBe('asterisk: filled sippyITariff=32');
   });
 
-  it('says so plainly when nothing changed', () => {
-    expect(describeMappingPlan('asterisk', planMappingPersistence({}, {}))).toBe('asterisk: no change');
+  it('distinguishes "already current" from "learned nothing"', () => {
+    // These used to share the message "no change", which is how a successful
+    // sync and a sync that discovered nothing became indistinguishable in
+    // production. The two lines must never be the same string again.
+    const already = describeMappingPlan('asterisk',
+      planMappingPersistence({ sippyITariff: 32 }, { iTariff: 32 }));
+    const nothing = describeMappingPlan('asterisk', planMappingPersistence({}, {}));
+
+    expect(already).toBe('asterisk: already current (sippyITariff)');
+    expect(nothing).toBe('asterisk: nothing discovered in Sippy');
+    expect(already).not.toBe(nothing);
+  });
+});
+
+/**
+ * The one-word verdict.
+ *
+ * It exists because `persisted:false, filled:[], conflicts:[]` could not be
+ * read on its own: a re-sync of a correct company and a sync that learned
+ * nothing produce identical arrays, and an operator had to compare the stored
+ * tariff against the discovered one by eye to tell which had happened. That
+ * cost a full round of debugging on a live billing question.
+ */
+describe('mappingStatus', () => {
+  it('reports a fill', () => {
+    expect(mappingStatus(planMappingPersistence({}, { iTariff: 32 }))).toBe('filled');
+  });
+
+  it('reports an already-correct company — the re-sync case', () => {
+    expect(mappingStatus(planMappingPersistence({ sippyITariff: 32 }, { iTariff: 32 })))
+      .toBe('already_current');
+  });
+
+  it('reports when Sippy had nothing to offer', () => {
+    expect(mappingStatus(planMappingPersistence({}, {}))).toBe('nothing_discovered');
+    expect(mappingStatus(planMappingPersistence({}, { iTariff: null }))).toBe('nothing_discovered');
+  });
+
+  it('reports a conflict', () => {
+    expect(mappingStatus(planMappingPersistence({ sippyITariff: 32 }, { iTariff: 41 })))
+      .toBe('conflict');
+  });
+
+  it('lets a conflict outrank a successful fill', () => {
+    // A divergence must never be buried under a partial success — it is the
+    // only outcome meaning billing and the switch disagree about a price.
+    const plan = planMappingPersistence(
+      { sippyITariff: 32, sippyIBillingPlan: null },
+      { iTariff: 41, iBillingPlan: 12 },
+    );
+    expect(plan.filled).toEqual(['sippyIBillingPlan']);
+    expect(mappingStatus(plan)).toBe('conflict');
+  });
+
+  it('separates already_current from nothing_discovered — the whole point', () => {
+    expect(mappingStatus(planMappingPersistence({ sippyITariff: 32 }, { iTariff: 32 })))
+      .not.toBe(mappingStatus(planMappingPersistence({ sippyITariff: 32 }, { iTariff: null })));
   });
 });

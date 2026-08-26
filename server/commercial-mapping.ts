@@ -61,13 +61,40 @@ export interface MappingConflict {
 
 export interface MappingPlan {
   /** Exactly the columns to write. Empty when there is nothing to fill. */
-  updates:   Partial<Record<MappingField, number | string>>;
+  updates:      Partial<Record<MappingField, number | string>>;
   /** Fields newly learned — for the operator-facing summary and the log line. */
-  filled:    MappingField[];
+  filled:       MappingField[];
   /** Stored and live disagree. NOT written, and never auto-resolved. */
-  conflicts: MappingConflict[];
-  /** Nothing to learn: already equal, or Sippy had no answer. */
-  unchanged: MappingField[];
+  conflicts:    MappingConflict[];
+  /** Stored already equals what Sippy says — nothing to do, and nothing wrong. */
+  unchanged:    MappingField[];
+  /**
+   * Sippy had no value for this field.
+   *
+   * Split out from `unchanged` because collapsing them hides the difference
+   * between "already correct" and "we learned nothing", and those need
+   * opposite responses from an operator. That ambiguity reached production:
+   * a sync reporting `persisted:false, filled:[], conflicts:[]` could not be
+   * read on its own, and the true state had to be inferred by comparing the
+   * stored tariff against the discovered one by eye.
+   */
+  notDiscovered: MappingField[];
+}
+
+/**
+ * One word for what a sync did, so nobody has to infer it from three arrays.
+ *
+ * Conflict outranks everything: a divergence must never be buried under a
+ * partial success, because it is the only outcome that means billing and the
+ * switch disagree about what a customer is charged.
+ */
+export type MappingStatus = 'conflict' | 'filled' | 'already_current' | 'nothing_discovered';
+
+export function mappingStatus(plan: MappingPlan): MappingStatus {
+  if (plan.conflicts.length) return 'conflict';
+  if (plan.filled.length)    return 'filled';
+  if (plan.unchanged.length) return 'already_current';
+  return 'nothing_discovered';
 }
 
 /** Absent means null, undefined, or blank — a stored '' must not count as known. */
@@ -100,7 +127,7 @@ export function planMappingPersistence(
   stored: StoredMapping,
   discovered: DiscoveredMapping,
 ): MappingPlan {
-  const plan: MappingPlan = { updates: {}, filled: [], conflicts: [], unchanged: [] };
+  const plan: MappingPlan = { updates: {}, filled: [], conflicts: [], unchanged: [], notDiscovered: [] };
 
   const pairs: Array<{ field: MappingField; stored: unknown; discovered: unknown }> = [
     { field: 'sippyITariff',        stored: stored.sippyITariff,        discovered: discovered.iTariff },
@@ -109,7 +136,7 @@ export function planMappingPersistence(
   ];
 
   for (const { field, stored: s, discovered: d } of pairs) {
-    if (isAbsent(d)) { plan.unchanged.push(field); continue; }
+    if (isAbsent(d)) { plan.notDiscovered.push(field); continue; }
 
     if (isAbsent(s)) {
       plan.updates[field] = field === 'sippyTariffCurrency'
@@ -143,6 +170,12 @@ export function describeMappingPlan(companyName: string, plan: MappingPlan): str
       '— not written, billing continues on the stored value',
     );
   }
-  if (!parts.length) parts.push('no change');
+  // "no change" was previously the message for BOTH of these, which is how a
+  // successful sync and a sync that learned nothing came to look identical.
+  if (!parts.length) {
+    parts.push(plan.unchanged.length
+      ? `already current (${plan.unchanged.join(', ')})`
+      : 'nothing discovered in Sippy');
+  }
   return `${companyName}: ${parts.join(' | ')}`;
 }
