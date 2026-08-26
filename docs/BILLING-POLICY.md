@@ -340,12 +340,43 @@ period.
 | **Billing Reconciliation** | Does BitsAuto agree with Sippy? The financial gate. |
 | **Invoice** | Consumes approved data only. Performs no validation itself. |
 
-`/api/invoices/generate-from-sippy` currently violates the last row twice: it
-builds an invoice directly from a live fetch rather than from approved
-snapshots, and it writes the same figure into both `totalReproduced` and
-`totalActual` with `totalDelta: 0` — the fourth "comparison that cannot fail"
-found on this platform. Its fetch is now strict; its architecture is future
-work under this table.
+**The invoice engine never fetches live data** (owner, 2026-08-27, pre-deploy).
+`/api/invoices/generate-from-sippy` — which built invoices from an inline fetch,
+wrote the same figure into `totalReproduced` and `totalActual` with zero delta
+(the fourth "cannot fail" found here), and rendered from pseudo-snapshots that
+never passed the rating engine — now delegates to `_runBillingChain`: strict
+seed → freeze → certify → generate from locked snapshots. One chokepoint for
+every generation path. Generating from approved snapshots is what buys
+reproducibility, auditability, regeneration months later, identical documents
+every time, and independence from Sippy availability.
+
+### The period lifecycle and the invoice lock — frozen direction, not yet built
+
+Every billing period gets a LIFECYCLE with timestamped transitions —
+`Imported → Certified → DMR Generated → Reconciled → Approved → Invoiced →
+Locked` — as the source of truth about the period, in place of assembling its
+state from individual reports. Class D (a state table); design against the
+parked consolidated diagnostic, not as a parallel status system.
+
+Once an invoice issues, its period LOCKS: no tariff change, destination rename,
+commercial-mapping update or catalogue edit may ever change that invoice.
+Corrections are credit notes, debit notes, adjustments — never regeneration of
+a historical invoice against current configuration.
+
+### The independent-comparison rule — platform-wide engineering standard
+
+Four comparisons structurally incapable of failing have now been found: the
+seeder once copied the switch cost into both columns; the DMR sets its platform
+side equal to its Sippy side; carrier reconciliation sums one field into two
+variables; generate-from-sippy wrote one figure into both invoice totals.
+
+> A validation or reconciliation must never compare a value to another value
+> derived from the same computation or source. Every reconciliation has an
+> independent source, an independent calculation, and an observable failure
+> path.
+
+This is the review question for every future validator: *where does the other
+side of your comparison come from, and can this check ever fail?*
 
 ### Per-period pipeline status
 
