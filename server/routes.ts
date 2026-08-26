@@ -10602,40 +10602,58 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
       if (!settings) return res.status(503).json({ error: 'Sippy not configured' });
       const portalUrl = sippyPortalUrl(settings);
       const credPairs = sippyXmlCredsPairs(settings);
-      let info: any = null;
-      for (const { username, password } of credPairs) {
-        try {
-          info = await sippy.getAccountInfo(username, password, portalUrl, iAccount);
-          if (info) { xmlRpcRecordSuccess(); break; }
-        } catch { /* try next pair */ }
-      }
-      if (!info) return res.status(404).json({ error: 'Account not found or Sippy unavailable' });
 
-      // ── Resolve iTariff via Service Plan chain if not directly set ──────────
-      // Some Sippy instances assign tariffs via Service Plans (billing plans)
-      // rather than directly on the account. getAccountInfo's i_tariff comes
-      // back empty in that case, but i_billing_plan is populated.
-      let resolvedTariff = info.iTariff || null;
-      if (!resolvedTariff && info.iBillingPlan) {
-        try {
-          const { plans } = await sippy.listSippyBillingPlans(
-            credPairs[0].username, credPairs[0].password, portalUrl
+      // The account -> billing plan -> tariff walk lives in one place now
+      // (commercial-mapping.service). It used to be inline here, which meant
+      // this endpoint could resolve a company's tariff, show it, and discard
+      // it — while sync/pull fetched the same account and stored only status.
+      const { discoverCommercialMapping, persistCommercialMapping } =
+        await import('./services/sippy/commercial-mapping.service');
+      const discovery = await discoverCommercialMapping(iAccount, { portalUrl, credPairs });
+      if (!discovery) return res.status(404).json({ error: 'Account not found or Sippy unavailable' });
+      xmlRpcRecordSuccess();
+
+      // A GET that writes, deliberately. This endpoint already resolves the
+      // mapping to render it, and it is reached from client-config,
+      // rate-manager and the Invoices page — so healing an incomplete record
+      // here needs no new operator step, which matters because the only UI for
+      // sync/pull is on a page under a no-change rule. The write is safe to
+      // attach to a read because it can only FILL: a stored value that differs
+      // from Sippy is reported as a conflict and left alone, so concurrent
+      // reads converge on the same result and billing decisions stay with the
+      // stored record rather than with whatever Sippy answers during a refresh.
+      let mapping: any = null;
+      try {
+        const company = await storage.getCompanyBySippyAccount(iAccount);
+        if (company) {
+          const r = await persistCommercialMapping(
+            company.id, company.name,
+            {
+              sippyITariff:        company.sippyITariff,
+              sippyIBillingPlan:   company.sippyIBillingPlan,
+              sippyTariffCurrency: company.sippyTariffCurrency,
+            },
+            discovery,
           );
-          const plan = plans.find((p: any) => p.id === info.iBillingPlan || p.iBillingPlan === info.iBillingPlan);
-          if (plan?.iTariff) resolvedTariff = plan.iTariff;
-        } catch (e: any) {
-          console.warn(`[sippy/accounts/info] Service plan tariff lookup failed: ${e.message}`);
+          mapping = { companyId: company.id, persisted: r.persisted, filled: r.plan.filled, conflicts: r.plan.conflicts };
         }
+      } catch (e: any) {
+        // Never fail the read because the write failed — this endpoint's
+        // contract is account info, and persistence is opportunistic here.
+        console.warn(`[sippy/accounts/info] mapping persistence skipped: ${e.message}`);
       }
 
       res.json({
-        iAccount:      info.iAccount,
-        username:      info.username,
-        iRoutingGroup: info.iRoutingGroup ?? null,
-        iTariff:       resolvedTariff,
-        iBillingPlan:  info.iBillingPlan  ?? null,
-        description:   info.description   ?? null,
-        blocked:       info.blocked       ?? false,
+        iAccount:      discovery.iAccount,
+        username:      discovery.username,
+        iRoutingGroup: discovery.iRoutingGroup,
+        iTariff:       discovery.iTariff,
+        iBillingPlan:  discovery.iBillingPlan,
+        description:   discovery.description,
+        blocked:       discovery.blocked,
+        tariffSource:  discovery.tariffSource,
+        ...(discovery.warnings.length ? { warnings: discovery.warnings } : {}),
+        ...(mapping ? { mapping } : {}),
       });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
@@ -31335,8 +31353,44 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           provisionedBy:      (req as any).user?.id ?? 'system',
         } as any);
 
-        console.log(`[sync/link] Linked company #${companyId} "${company.name}" → Sippy i_account: ${iAccount}`);
-        res.json({ success: true, company: updated });
+        // Linking is where the half-mapping was created: this wrote
+        // sippyIAccount and stopped, while the wizard path wrote sippyITariff
+        // and no account — two halves that nothing ever joined. Resolving the
+        // tariff at link time is what makes the record complete enough to
+        // invoice. Failure is non-fatal: the link itself succeeded, and
+        // sync/pull can complete the mapping later.
+        let mapping: any = null;
+        try {
+          const settings  = await storage.getSettings();
+          const portalUrl = sippyPortalUrl(settings as any);
+          const credPairs = sippyXmlCredsPairs(settings as any);
+          const { syncCommercialMapping } = await import('./services/sippy/commercial-mapping.service');
+          const result = await syncCommercialMapping(
+            { ...(company as any), id: Number(companyId), sippyIAccount: Number(iAccount) },
+            { portalUrl, credPairs },
+          );
+          if (result) {
+            mapping = {
+              persisted:    result.persist.persisted,
+              filled:       result.persist.plan.filled,
+              conflicts:    result.persist.plan.conflicts,
+              iTariff:      result.discovery.iTariff,
+              tariffSource: result.discovery.tariffSource,
+              warnings:     result.discovery.warnings,
+            };
+          } else {
+            mapping = { persisted: false, error: 'Sippy account could not be read — run Sync Pull once reachable.' };
+          }
+        } catch (e: any) {
+          console.warn(`[sync/link] mapping resolution failed for company #${companyId}: ${e.message}`);
+          mapping = { persisted: false, error: e.message };
+        }
+
+        console.log(
+          `[sync/link] Linked company #${companyId} "${company.name}" → Sippy i_account: ${iAccount}` +
+          (mapping?.iTariff != null ? ` — tariff ${mapping.iTariff} via ${mapping.tariffSource}` : ' — tariff unresolved'),
+        );
+        res.json({ success: true, company: updated, mapping });
       } catch (e: any) { res.status(500).json({ message: e.message }); }
     }
   );
@@ -31357,19 +31411,46 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         if (!company.sippyIAccount) return res.status(400).json({ message: 'Company has no linked Sippy account.' });
 
         const settings = await storage.getSettings();
-        const { username, password } = sippyXmlCreds(settings as any);
         const portalUrl = sippyPortalUrl(settings as any);
+        const credPairs = sippyXmlCredsPairs(settings as any);
 
-        const info = await sippy.getAccountInfo(username, password, portalUrl, company.sippyIAccount);
-        if (!info) return res.status(502).json({ message: `Could not fetch Sippy account ${company.sippyIAccount}.` });
+        // Was: fetch the account, store only `status`, throw the commercial
+        // mapping away. That is why a linked company could hold
+        // sippyIAccount=315 with sippyITariff=NULL indefinitely and fail
+        // invoice generation for a value Sippy had all along.
+        const { syncCommercialMapping } = await import('./services/sippy/commercial-mapping.service');
+        const result = await syncCommercialMapping(company as any, { portalUrl, credPairs });
+        if (!result) return res.status(502).json({ message: `Could not fetch Sippy account ${company.sippyIAccount}.` });
+        const { discovery, persist } = result;
 
-        const updates: any = {
-          status: info.blocked ? 'inactive' : 'active',
-        };
+        // status is a live operational fact and is always refreshed; the
+        // commercial mapping is a billing decision and is only ever filled.
+        const updated = await storage.updateCompany(Number(companyId), {
+          status: discovery.blocked ? 'inactive' : 'active',
+        });
 
-        const updated = await storage.updateCompany(Number(companyId), updates);
-        console.log(`[sync/pull] Pulled Sippy i_account:${company.sippyIAccount} → company #${companyId} "${company.name}" (blocked=${info.blocked})`);
-        res.json({ success: true, company: updated, sippyInfo: { username: info.username, blocked: info.blocked, balance: info.balance, currency: info.baseCurrency } });
+        console.log(
+          `[sync/pull] Pulled Sippy i_account:${company.sippyIAccount} → company #${companyId} ` +
+          `"${company.name}" (blocked=${discovery.blocked}) — ${persist.summary}`,
+        );
+        res.json({
+          success: true,
+          company: updated,
+          sippyInfo: {
+            username: discovery.username, blocked: discovery.blocked,
+            balance: discovery.balance, currency: discovery.currency,
+            iTariff: discovery.iTariff, iBillingPlan: discovery.iBillingPlan,
+            tariffSource: discovery.tariffSource,
+          },
+          // Named explicitly so the operator sees what the sync learned — and,
+          // when stored and live disagree, that nothing was written.
+          mapping: {
+            persisted: persist.persisted,
+            filled:    persist.plan.filled,
+            conflicts: persist.plan.conflicts,
+            warnings:  discovery.warnings,
+          },
+        });
       } catch (e: any) { res.status(500).json({ message: e.message }); }
     }
   );
