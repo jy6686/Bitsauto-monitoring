@@ -34587,14 +34587,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             error: `Sippy account ${iAccount} has no tariff mapping — link it to a Company record with sippyITariff so the billing period can be certified before invoicing.`,
           });
         }
-        const cert = await _certificationFor(String(gateTariff), String(periodStart).slice(0, 10), String(periodEnd).slice(0, 10));
-        const overrideReason = String(req.body?.overrideReason ?? '').trim();
-        if (cert.state === 'uncertified') {
-          return res.status(422).json({ error: 'Invoice blocked: billing period is not certified', reasons: cert.reasons, certification: cert.state });
-        }
-        if (cert.state === 'exceptions' && !overrideReason) {
-          return res.status(422).json({ error: 'Invoice blocked: certification found exceptions — provide overrideReason to proceed', reasons: cert.reasons, certification: cert.state });
-        }
+        // Certification itself runs inside _runBillingChain below, AFTER the
+        // seed — so a first-time period is judged on the evidence the seed
+        // just created, and it is not certified twice per request.
       }
 
       const settings = await storage.getSippySettings();
@@ -34615,179 +34610,48 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const accountUsername = (accountInfo as any).username as string | undefined;
       const iTariff      = (accountInfo as any).iTariff ? String((accountInfo as any).iTariff) : undefined;
 
-      // ── 2. Fetch CDRs — STRICT Admin API only (owner rule, 2026-08-27) ────
-      // "There should be exactly one strict fetch implementation for anything
-      // that can affect money." This path previously tried one unpaginated
-      // 50,000-row call through the collapsing wrapper — where a fault reads
-      // as an empty month — then fell back to the portal scrape and the
-      // dashboard CDR cache, the two sources the billing seeder's own contract
-      // bans: "operational live-traffic data must never be mixed with
-      // invoice-quality billing records". An invoice was reachable on scrape
-      // data. Now: paginated strict fetch, method pinned for the run,
-      // all-or-nothing per credential, and a failed fetch is a 502 — never
-      // "No CDRs found", and never an invoice built on a non-billing source.
-      console.log(`[invoices/from-sippy] Fetching CDRs for account #${iAccount} ${periodStart}–${periodEnd}`);
-      const { classifyCdrPage: classifyInvPage } = await import('./cdr-fetch-page');
-      let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
-      const invFetchErrors: string[] = [];
-      let invCleanEmpty = false;
-      let invRowsBeforeError = 0;
-      const INV_PAGE = 500;
-
-      if (!xmlRpcCircuitGuard()) {
-        invCredLoop:
-        for (const { username, password } of credPairs) {
-          const acc: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
-          let offset = 0;
-          let credFailed = false;
-          let pinned: string | null = null;
-          while (true) {
-            const page = await sippy.getSippyCDRsPage(username, password, INV_PAGE,
-              { iAccount: Number(iAccount), startDate: periodStart, endDate: periodEnd, type: 'complete', offset },
-              portalUrl);
-            if (page.ok && pinned !== null && page.method !== pinned) {
-              invFetchErrors.push(`${username} @ offset ${offset}: method switched ${pinned} → ${page.method} mid-pagination`);
-              credFailed = true; break;
-            }
-            const outcome = classifyInvPage({ ok: page.ok, count: page.ok ? page.cdrs.length : 0 }, INV_PAGE);
-            if (outcome === 'error') {
-              console.warn(`[invoices/from-sippy] XML-RPC(${username}) ERROR at offset=${offset}: ${page.ok ? 'unknown' : page.error} — aborting this credential (${acc.length} partial CDRs discarded)`);
-              invFetchErrors.push(`${username} @ offset ${offset}: ${page.ok ? 'unknown' : page.error}`);
-              credFailed = true; break;
-            }
-            const rows = page.ok ? page.cdrs : [];
-            if (page.ok && pinned === null) pinned = page.method;
-            if (rows.length > 0) acc.push(...rows);
-            if (outcome === 'end_of_data') break;
-            offset += INV_PAGE;
-          }
-          if (!credFailed) {
-            xmlRpcRecordSuccess();
-            if (acc.length > 0) { cdrs = acc; break invCredLoop; }
-            invCleanEmpty = true;
-          } else {
-            invRowsBeforeError = Math.max(invRowsBeforeError, acc.length);
-          }
-        }
-      }
-
-      if (cdrs.length === 0) {
-        const neverRan     = xmlRpcCircuitGuard() || credPairs.length === 0;
-        const contradicted = invCleanEmpty && invRowsBeforeError > 0;
-        if ((invFetchErrors.length > 0 && !invCleanEmpty) || contradicted || neverRan) {
-          return res.status(502).json({
-            error: 'CDR fetch FAILED — not an empty period',
-            detail: neverRan
-              ? 'The XML-RPC circuit breaker is open, or no credentials are configured (Settings → Sippy Connection). This invoice path does not fall back to portal-scrape or cached data — those are not billing-quality sources.'
-              : (contradicted
-                  ? `A credential retrieved ${invRowsBeforeError} CDR(s) before erroring, so the period is NOT empty. ${invFetchErrors.join(' · ')}`
-                  : invFetchErrors.join(' · ')),
-          });
-        }
-        return res.status(422).json({
-          error: 'No CDRs found',
-          detail: `The Admin API answered and reports no completed CDRs for account #${iAccount} (${accountUsername ?? 'unknown'}) between ${periodStart} and ${periodEnd}. Verify the period and account ID.`,
-        });
-      }
-      console.log(`[invoices/from-sippy] ${cdrs.length} CDRs received for "${customerName}"`);
-
-      // ── 3. Group CDRs by destination prefix ──────────────────────────────────
-      const prefixMap = new Map<string, { durationSecs: number; cost: number; calls: number }>();
-      let totalCost = 0;
-      for (const cdr of cdrs as any[]) {
-        const cld    = String(cdr.cld || cdr.callee || '').replace(/\D/g, '');
-        const prefix = cld.slice(0, Math.min(cld.length, 8)) || 'unknown';
-        const dur    = Number(cdr.billedDuration ?? cdr.duration ?? 0);
-        const cost   = parseFloat(String(cdr.cost ?? '0')) || 0;
-        const prev   = prefixMap.get(prefix) ?? { durationSecs: 0, cost: 0, calls: 0 };
-        prev.durationSecs += dur;
-        prev.cost         += cost;
-        prev.calls++;
-        prefixMap.set(prefix, prev);
-        totalCost += cost;
-      }
-
-      // ── 4. Create invoice record ─────────────────────────────────────────────
-      // Number from the configured series under the DB's unique constraint;
-      // due date stamped from the shared terms rule (both migration 076).
-      const d = new Date();
-      const invTerms = await invoiceTermsForCustomer(customerName, d.toISOString().slice(0, 10));
-      const invoice = await createWithUniqueInvoiceNumber((invoiceNumber) => storage.createInvoice({
-        invoiceNumber,
+      // ── 2. Generate through the BILLING CHAIN — never from a live fetch ───
+      // Owner rule (2026-08-27): "The invoice engine should never fetch live
+      // data. It should generate invoices only from an approved billing
+      // snapshot for the period."
+      //
+      // This route used to fetch CDRs inline, group them by raw 8-digit
+      // prefix, and write an invoice whose totalReproduced and totalActual
+      // were THE SAME NUMBER with delta 0 — the fourth comparison that cannot
+      // fail found on this platform — rendered from pseudo-snapshots that had
+      // never passed the rating engine. Delegating to _runBillingChain gives
+      // it the same pipeline as every other path: strict seed into the raw
+      // repository → period freeze → certification → generation from LOCKED
+      // snapshots, with the totals cross-check. One chokepoint, one contract.
+      const chain = await _runBillingChain({
+        iAccount:    Number(iAccount),
         iTariff,
+        periodStart: String(periodStart),
+        periodEnd:   String(periodEnd),
         customerName,
-        periodStart,
-        periodEnd,
-        totalReproduced: +totalCost.toFixed(6),
-        totalActual:     +totalCost.toFixed(6),
-        totalDelta:      0,
-        lineCount:       prefixMap.size,
-        status:          'draft',
-        notes:           notes || `Generated from Sippy CDRs · ${cdrs.length} calls`,
-        generatedAt:     new Date(),
-        dueDate:           invTerms.dueDate,
-        paymentTermsLabel: invTerms.termLabel,
-      }), d);
+        notes,
+        override: String(req.body?.overrideReason ?? '').trim()
+          ? { reason: String(req.body.overrideReason).trim(), by: (req as any).user?.username ?? 'operator' }
+          : undefined,
+      });
 
-      // ── 5. Line items (one row per destination prefix) ───────────────────────
-      const lineItemBatch = [...prefixMap.entries()].map(([prefix, v]) => ({
-        invoiceId:      invoice.id,
-        snapshotId:     null,
-        cdrCallId:      null,
-        prefix,
-        durationSecs:   Math.round(v.durationSecs),
-        actualCost:     +v.cost.toFixed(6),
-        reproducedCost: +v.cost.toFixed(6),
-        delta:          0,
-      }));
-      for (let i = 0; i < lineItemBatch.length; i += 500) {
-        await storage.bulkCreateInvoiceLineItems(lineItemBatch.slice(i, i + 500));
-      }
-
-      // ── 6. Generate HTML using existing pipeline (pseudo-snapshots from CDRs) ─
-      try {
-        const { generateInvoiceHtml } = await import('./services/sippy/index');
-        const pseudoSnaps: any[] = (cdrs as any[]).map((cdr: any) => ({
-          callee:         String(cdr.cld || cdr.callee || ''),
-          prefix:         String(cdr.cld || cdr.callee || '').replace(/\D/g, '').slice(0, 8),
-          durationSecs:   Number(cdr.billedDuration ?? cdr.duration ?? 0),
-          reproducedCost: parseFloat(String(cdr.cost ?? '0')) || 0,
-          actualCost:     parseFloat(String(cdr.cost ?? '0')) || 0,
-          delta:          0,
-        }));
-
-        let branding: any = null;
-        let customerBranding: any = null;
-        try {
-          const [gp, cp] = await Promise.all([
-            storage.listBrandingProfiles({ isGlobal: true }),
-            storage.listBrandingProfiles({ clientName: customerName }),
-          ]);
-          branding         = gp[0] ?? null;
-          customerBranding = cp[0] ?? null;
-        } catch { /* non-fatal */ }
-
-        const fmtD2 = (s: string) => {
-          const dt = new Date(s + 'T00:00:00Z');
-          return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
-        };
-
-        const html = generateInvoiceHtml({
-          invoice,
-          lineItems:       [],
-          snapshots:       pseudoSnaps,
-          customerName,
-          periodLabel:     `${fmtD2(periodStart)} – ${fmtD2(periodEnd)}`,
-          branding,
-          customerBranding,
+      if (!chain.ok) {
+        // The stage tells the operator WHICH remedy applies — a fetch failure
+        // is connectivity, a freeze is patience, certification is reconciliation.
+        const httpFor: Record<string, number> = { duplicate: 409, seed: 502, freeze: 422, certify: 422, generate: 422 };
+        return res.status(httpFor[chain.stage ?? 'generate'] ?? 422).json({
+          error: chain.error,
+          stage: chain.stage,
+          seed: chain.seed,
+          certification: chain.certification,
         });
-
-        await storage.updateInvoice(invoice.id, { htmlContent: html } as any);
-        return res.json({ invoice: { ...invoice, htmlContent: html }, lineCount: prefixMap.size, cdrCount: cdrs.length });
-      } catch (htmlErr: any) {
-        console.warn('[invoices/from-sippy] HTML generation skipped:', htmlErr.message);
-        return res.json({ invoice, lineCount: prefixMap.size, cdrCount: cdrs.length });
       }
+      return res.json({
+        invoice:       chain.invoice,
+        seed:          chain.seed,
+        certification: chain.certification,
+        totalsCheck:   chain.totalsCheck,
+      });
     } catch (err: any) {
       console.error('[invoices/generate-from-sippy] error:', err.message);
       res.status(500).json({ error: err.message });
