@@ -39,6 +39,26 @@ describe('policyConformance — it measures rather than asserts', () => {
     expect(rate!.reference).toMatch(/§4\.1/);
   });
 
+  /**
+   * The business-level probe: a real ten-second call through the shipped
+   * reproduceCost, judged against the TARIFF's arithmetic, not the engine's.
+   *
+   * EXPECTED TO FLIP when rateCall is wired in: the engine will return 0.00583,
+   * the probe will report conforms, and this assertion will fail loudly — the
+   * signal that the units fix landed. Change it to 'conforms' then.
+   */
+  it('runs a real call through the rating engine and reports the 60x divergence', async () => {
+    const checks = await policyConformance();
+    const units = find(checks, 'per-minute prices per minute');
+
+    expect(units).toBeDefined();
+    expect(units!.kind).toBe('measured');
+    expect(units!.status).toBe('diverges');
+    // 0.35 reproduced where the tariff says 0.00583 — exactly 60x on 1/1.
+    expect(units!.detail).toMatch(/60\.0x/);
+    expect(units!.detail).toMatch(/invoices are unaffected/);
+  });
+
   it('probes the period module and finds it conforming', async () => {
     const checks = await policyConformance();
     const periods = find(checks, 'Periods are half-open');
@@ -63,9 +83,9 @@ describe('policyConformance — it measures rather than asserts', () => {
     expect(conv!.kind).toBe('measured');
     expect(conv!.reference).toMatch(/sippy\.ts:3565/);
 
-    // A probe that cannot load the code it measures is useless, so 'unknown' is
-    // a failure here rather than an acceptable outcome.
-    expect(conv!.status).not.toBe('unknown');
+    // A probe that cannot load the code it measures is useless, so probe_failed
+    // is a test failure here rather than an acceptable outcome.
+    expect(conv!.status).not.toBe('probe_failed');
 
     // Asserted against the host this suite runs on rather than a fixed
     // expectation, since the answer is a property of the machine. Verified both
@@ -116,7 +136,7 @@ describe('policyConformance — declared facts are labelled as such', () => {
     const checks = await policyConformance();
     expect(checks.length).toBeGreaterThanOrEqual(6);
     for (const c of checks) {
-      expect(['conforms', 'diverges', 'unknown']).toContain(c.status);
+      expect(['conforms', 'diverges', 'inconclusive', 'probe_failed']).toContain(c.status);
       expect(['measured', 'derived', 'declared']).toContain(c.kind);
       expect(c.rule).toBeTruthy();
       expect(c.reference).toBeTruthy();

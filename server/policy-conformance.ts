@@ -22,7 +22,17 @@
  * the first.
  */
 
-export type Conformance = 'conforms' | 'diverges' | 'unknown';
+/**
+ * A probe that could not run is not a probe that found nothing wrong, and
+ * neither is a probe that ran but could not decide. Collapsing the three into
+ * one value is how a broken probe comes to read as a clean bill of health.
+ *
+ *   conforms      the behaviour matches the frozen policy
+ *   diverges      the behaviour was measured and contradicts the policy
+ *   inconclusive  the probe RAN and could not decide — its fixture found nothing to judge
+ *   probe_failed  the probe could not run at all: threw, or the code would not load
+ */
+export type Conformance = 'conforms' | 'diverges' | 'inconclusive' | 'probe_failed';
 
 /**
  * How an item was obtained. A finance surface must never let one wear the
@@ -66,8 +76,9 @@ function probeRateRowDating(resolveRate: Function): PolicyCheck {
     ]);
     const picked = resolveRate('923001234567', snapshot);
     if (!picked) {
-      return { rule, status: 'unknown', kind: 'measured',
-        detail: 'The resolver returned no rate for a prefix that matches. Probe inconclusive.',
+      return { rule, status: 'inconclusive', kind: 'measured',
+        detail: 'The resolver returned no rate for a prefix that matches, so there was nothing ' +
+                'to judge. The probe ran; it did not fail.',
         reference };
     }
     const choseExpired = picked.expirationDate != null;
@@ -82,8 +93,8 @@ function probeRateRowDating(resolveRate: Function): PolicyCheck {
           detail: 'The resolver skipped an expired row and returned the row current at the call.',
           reference };
   } catch (e: any) {
-    return { rule, status: 'unknown', kind: 'measured',
-      detail: `Probe failed: ${e.message}`, reference };
+    return { rule, status: 'probe_failed', kind: 'measured',
+      detail: `Probe could not run: ${e.message}`, reference };
   }
 }
 
@@ -120,8 +131,71 @@ function probeBillingDateConversion(toSippyDate: Function): PolicyCheck {
                   `either way, so the shift is invisible downstream.`,
           reference };
   } catch (e: any) {
-    return { rule, status: 'unknown', kind: 'measured',
-      detail: `Probe failed: ${e.message}`, reference };
+    return { rule, status: 'probe_failed', kind: 'measured',
+      detail: `Probe could not run: ${e.message}`, reference };
+  }
+}
+
+/**
+ * Does the rating engine charge a per-minute price per MINUTE?
+ *
+ * The first business-level probe: it runs a real call through the shipped
+ * `reproduceCost` and compares the money against the tariff's own arithmetic.
+ *
+ * THE EXPECTED VALUE DOES NOT COME FROM THE CODE UNDER TEST. It is
+ * `price_per_minute x (billed_seconds / 60)` computed here, from the tariff
+ * alone. That independence is the whole point — three "reconciliations that
+ * cannot fail" already exist in this codebase, each because one side of a
+ * comparison was derived from the other, and a probe built the same way would
+ * report conforms over any defect at all.
+ *
+ * The fixture is production, not invented: tariff 32, prefix 192, price1 0.035
+ * per minute, intervals 1/1 — under which Sippy charged $5.09 for 145.37 minutes
+ * while the verifier reproduced $305.27. A ten-second call is the smallest case
+ * that exposes it: 0.035 x 10/60 = $0.00583, against $0.35 if the price is
+ * applied once per one-second interval.
+ */
+function probeRatingUnits(reproduceCost: Function): PolicyCheck {
+  const rule = 'The rating engine applies per-minute prices per minute';
+  const reference = 'BILLING-POLICY.md §3 · sippy.ts:5844 (SippyTariffRate contract) · ' +
+                    'sippy-rating-verification.service.ts:164';
+  try {
+    const PRICE_PER_MINUTE = 0.035;
+    const DURATION_SECS    = 10;
+    const rate = {
+      prefix: '192', price1: PRICE_PER_MINUTE, priceN: PRICE_PER_MINUTE,
+      interval1: 1, intervalN: 1,
+    };
+
+    const result = reproduceCost(DURATION_SECS, rate);
+    // The engine's field is reproducedCost (ReproducedRating), not cost.
+    const actual = Number(result?.reproducedCost);
+    if (!Number.isFinite(actual)) {
+      return { rule, status: 'inconclusive', kind: 'measured',
+        detail: 'The engine returned no numeric cost, so there was nothing to judge.', reference };
+    }
+
+    // Independent: the tariff's own arithmetic, not the engine's.
+    const expected = PRICE_PER_MINUTE * (DURATION_SECS / 60);
+    const ratio    = expected === 0 ? Infinity : actual / expected;
+
+    if (Math.abs(actual - expected) <= 0.000001) {
+      return { rule, status: 'conforms', kind: 'measured',
+        detail: `A ${DURATION_SECS}s call at ${PRICE_PER_MINUTE}/min on 1/1 intervals reproduced ` +
+                `as $${actual.toFixed(6)}, matching the tariff's own arithmetic.`,
+        reference };
+    }
+    return { rule, status: 'diverges', kind: 'measured',
+      detail: `A ${DURATION_SECS}s call at ${PRICE_PER_MINUTE}/min on 1/1 intervals reproduced as ` +
+              `$${actual.toFixed(6)} where the tariff gives $${expected.toFixed(6)} — ` +
+              `${ratio.toFixed(1)}x. The per-minute price is being charged once per billing ` +
+              `interval, so every tariff whose intervals are not 60/60 is mis-reproduced. ` +
+              `Certification cannot converge while this holds; invoices are unaffected because ` +
+              `they bill the switch's actual_cost.`,
+      reference };
+  } catch (e: any) {
+    return { rule, status: 'probe_failed', kind: 'measured',
+      detail: `Probe could not run: ${e.message}`, reference };
   }
 }
 
@@ -133,8 +207,9 @@ function probePeriods(billingPeriods: any): PolicyCheck {
     const periods = billingPeriods.latestClosedPeriods('weekly', '2026-08-27');
     const p = periods?.[0];
     if (!p) {
-      return { rule, status: 'unknown', kind: 'measured',
-        detail: 'The period module returned no closed weekly period to inspect.', reference };
+      return { rule, status: 'inconclusive', kind: 'measured',
+        detail: 'The period module returned no closed weekly period, so there was nothing to ' +
+                'inspect. The probe ran; it did not fail.', reference };
     }
     const startsMonday = new Date(`${p.start}T00:00:00Z`).getUTCDay() === 1;
     const halfOpen = new Date(`${p.endExclusive}T00:00:00Z`).getTime()
@@ -149,8 +224,8 @@ function probePeriods(billingPeriods: any): PolicyCheck {
                   `halfOpen=${halfOpen}.`,
           reference };
   } catch (e: any) {
-    return { rule, status: 'unknown', kind: 'measured',
-      detail: `Probe failed: ${e.message}`, reference };
+    return { rule, status: 'probe_failed', kind: 'measured',
+      detail: `Probe could not run: ${e.message}`, reference };
   }
 }
 
@@ -204,19 +279,21 @@ export async function policyConformance(
   } catch (e: any) {
     checks.push({
       rule: 'The date conversion billing uses emits UTC',
-      status: 'unknown', kind: 'measured',
+      status: 'probe_failed', kind: 'measured',
       detail: `Conversion could not be loaded: ${e.message}`,
       reference: 'BILLING-POLICY.md §1 · sippy.ts:3565',
     });
   }
 
   try {
-    const { resolveRate } = await import('./services/sippy/sippy-rating-verification.service');
+    const { resolveRate, reproduceCost } =
+      await import('./services/sippy/sippy-rating-verification.service');
     checks.push(probeRateRowDating(resolveRate));
+    checks.push(probeRatingUnits(reproduceCost));
   } catch (e: any) {
     checks.push({
       rule: 'Rate rows are selected by the date effective at the call',
-      status: 'unknown', kind: 'measured',
+      status: 'probe_failed', kind: 'measured',
       detail: `Resolver could not be loaded: ${e.message}`,
       reference: 'BILLING-POLICY.md §4.1',
     });
@@ -228,7 +305,7 @@ export async function policyConformance(
   } catch (e: any) {
     checks.push({
       rule: 'Periods are half-open UTC, weeks run Monday to Monday',
-      status: 'unknown', kind: 'measured',
+      status: 'probe_failed', kind: 'measured',
       detail: `Period module could not be loaded: ${e.message}`,
       reference: 'BILLING-POLICY.md §1.1',
     });
