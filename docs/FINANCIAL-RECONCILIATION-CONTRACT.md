@@ -152,7 +152,12 @@ netted against each other.
 | Rate | Exact, at full stored precision |
 | Billed seconds | Exact integer match |
 | Charged amount | Absolute difference ≤ **$0.01** per row |
-| Invoice total | Absolute difference ≤ **$0.01** |
+| Invoice total | Absolute difference ≤ **$0.01**, against **Sippy's own printed total** |
+
+The invoice total is compared against the total Sippy reports (`576.3327` on the reference above),
+**never against a sum of the rows that matched.** A total derived from matched rows passes whenever
+the rows pass and validates nothing — the same "cannot fail" shape §3 rejects. Comparing against
+Sippy's independently computed total is what catches rows present on only one side.
 
 **No percentage tolerances.** Finance audits money, not ratios. A percentage band scales the
 permitted error with the invoice, which is exactly backwards: a large invoice does not license a
@@ -170,6 +175,18 @@ different sets. Gating on them would produce permanent false failures.
 
 If a calls comparison is wanted later, it must first agree a definition on both sides. Until then
 it is a diagnostic.
+
+**Conditionally reopenable.** The owner subsequently asked for connected/billable calls to gate.
+The obstacle is the reference, not the policy: the Customer Summary carries **one** calls column
+and it counts attempts. Deriving connected calls from the imported CDRs and comparing them to
+BitsAuto's DMR is the self-referential check §3 forbids — both sides computed from the same rows.
+
+There may be a path. The report screen carries a `Show call records` filter, and the CDR API
+exposes `'all' | 'non_zero' | 'non_zero_and_errors' | 'complete' | 'incomplete' | 'errors'`
+(`server/sippy.ts:4491`). **If the report offers the same filters, a second pull with a
+connected-only filter yields an independently computed connected-call count, and this field becomes
+gateable exactly as asked.** Unverified. Until it is, calls stay informational — the frozen
+decision stands, and this note records why it may change rather than changing it silently.
 
 ---
 
@@ -206,6 +223,38 @@ one is a billing investigation, the other is a connectivity problem — and conf
 Finance to audit numbers that were never compared.
 
 It is equally not a PASS. An invoice may not proceed on an unavailable reference except by override.
+
+### 7.1 What a FAIL leads to
+
+Reconciliation is read-only (§9): it reports a disagreement, it never corrects the DMR. So a FAIL
+holds the invoice and changes nothing else, and without a defined exit every failure becomes a
+permanent hold. The loop back to PASS is:
+
+```
+FAIL
+  ↓
+Classify the difference
+  ↓
+  ├── population — rows or minutes missing on the BitsAuto side
+  │        ↓ re-run ingestion for the period, then re-reconcile
+  │
+  ├── rating — same population, amounts differ
+  │        ↓ certification investigation; the DMR is not re-rated to force agreement
+  │
+  ├── identity — prefix, rate or destination unmatched
+  │        ↓ commercial mapping / catalogue, then re-reconcile
+  │
+  └── reference — Sippy's own figure is believed wrong
+           ↓ override (§8); never "adjust BitsAuto until it matches"
+```
+
+Each re-reconciliation is a **new run**, never an edit of the previous one — same discipline as
+`snapshot_verification_runs` (migration 070), where a re-run creates a row rather than rewriting
+history. A period's reconciliation history is part of the audit trail, including the failures.
+
+**The forbidden remediation:** adjusting BitsAuto's stored figures so the comparison passes. That
+converts the gate into a mechanism for manufacturing agreement, which is worse than not having it.
+Ingestion may be re-run; results may not be edited.
 
 ---
 
