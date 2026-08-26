@@ -487,7 +487,12 @@ commercial mapping · tariffs · DMR · billing reports · invoice breakout · r
 statements · rating verification · margin · P&L.
 
 Conventions: UTF-8 · header row · UTC timestamps · `.` decimal separator · `YYYY-MM-DD` dates ·
-`YYYY-MM-DD HH:MM:SS UTC` datetimes · one worksheet per dataset.
+`YYYY-MM-DD HH:MM:SS UTC` datetimes · one worksheet per dataset · **stable column order** ·
+declared validation rules.
+
+Column order is part of the contract, not a rendering detail: an export whose columns move between
+releases breaks every saved import mapping and makes two exports of the same dataset undiffable.
+New columns are appended; existing ones do not move.
 
 **One shared library.** Today there are 48 export/import sites across 14 files and no shared
 server-side helper — `buildXLSXBuffer` in `server/services/billing/reconciliation-export.ts` and

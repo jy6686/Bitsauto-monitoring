@@ -83,6 +83,13 @@ invoice reproduces what Sippy actually charged.
 18:15  0.028
 ```
 
+Two prohibitions follow, and both have been observed as real failure modes:
+
+- **Never the latest rate.** A call at 09:30 is billed at 0.035 even though the tariff now reads
+  0.041. This is exactly what `resolveRate` does today — §4.1.
+- **Never an average.** A blended rate reconciles against nothing, because Sippy's own summary
+  reports each price separately.
+
 An invoice therefore carries **one breakout row per rate**, not a blended average:
 
 | Breakout Destination | Rate | Minutes | Amount |
@@ -165,9 +172,19 @@ month-end close, VAT and account reconciliation would then have to apportion.
 ## 7. Sequencing
 
 ```
-Sippy CDR → Import → Destination Catalogue → Tariff → Rating → DMR
-    → Billing Reconciliation → PASS → Invoice
+Sippy CDR → Import → Destination Catalogue → Tariff → Rating
+    → Certification (call level) → DMR
+    → Billing Reconciliation (invoice level) → PASS → Invoice
 ```
+
+Three layers, three questions, and they run in this order because each one's answer is
+meaningless without the one before it:
+
+| Layer | Question | Customer-facing |
+|---|---|---|
+| Certification | Does each imported call reproduce what the switch charged? | No |
+| Billing Reconciliation | Does the bill match Sippy's own summary for the period? | The gate |
+| Financial Reconciliation (F3) | Are our own financial snapshots internally consistent? | After billing, independent |
 
 Reconciliation starts report-only and becomes a gate per the rollout in
 `BILLING-RECONCILIATION-CONTRACT.md` §11. Invoice generation additionally requires the billing
