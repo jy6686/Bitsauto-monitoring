@@ -33047,6 +33047,56 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // GET /api/finance/cdr-repository/completeness — did we import everything?
+  //
+  // Counts one account's calls at each ingestion stage for one period and names
+  // the FIRST stage that lost any, because every later shortfall is inherited
+  // from it. Answers by measurement what previously took reading the seed-job
+  // log after the fact.
+  //
+  // The Sippy figures are supplied by the caller rather than fetched: the
+  // adapter that will fetch them is specified but not built, so until then an
+  // operator reads billed minutes off the Customer Summary. Leave them out and
+  // the verdict is `no_reference` — NOT a pass. A pipeline that agrees with
+  // itself has demonstrated nothing about the calls it never saw, and reporting
+  // that as complete would repeat the defect this endpoint exists to catch.
+  //
+  //   ?iAccount=315&from=2026-08-16&to=2026-08-23&refMinutes=17080.33
+  //
+  // The period is half-open per BILLING-POLICY.md §1.1 — `to` is EXCLUSIVE, so
+  // 16 → 23 is the seven days 16–22 and matches Sippy's own report boundary.
+  app.get('/api/finance/cdr-repository/completeness', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const iAccount = Number(req.query.iAccount);
+      const from     = String(req.query.from ?? '');
+      const to       = String(req.query.to   ?? '');
+      const isDate   = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+      if (!Number.isFinite(iAccount) || !isDate(from) || !isDate(to)) {
+        return res.status(400).json({
+          error: 'iAccount, from and to are required; dates are YYYY-MM-DD.',
+          example: '/api/finance/cdr-repository/completeness?iAccount=315&from=2026-08-16&to=2026-08-23',
+        });
+      }
+      if (from >= to) {
+        return res.status(400).json({ error: '`to` is exclusive and must be after `from`.' });
+      }
+
+      const optNum = (v: any) => (v == null || v === '' ? null : Number(v));
+      const { measureCompleteness } = await import('./services/finance/cdr-completeness.service');
+      res.json(await measureCompleteness({
+        iAccount,
+        from,
+        to,
+        referenceMinutes: optNum(req.query.refMinutes),
+        referenceCalls:   optNum(req.query.refCalls),
+        tolerancePct:     optNum(req.query.tolerancePct) ?? undefined,
+      }));
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // GET /api/finance/verification-runs — what the rating engine found, per
   // billing run. This is the record Finance approves or rejects a period on:
   // how many calls priced exactly, how many differed, and how many could not be
