@@ -241,12 +241,26 @@ export async function measureCompleteness(
   // indistinguishable from having asked the wrong database.
   const dbName = 'name' in environment.database ? environment.database.name : null;
   const dbCompanies = 'counts' in environment.database ? environment.database.counts.companies : null;
+  const repoPopulated = 'rawCdrs' in environment.repository
+    ? environment.repository.rawCdrs.populated
+    : null;
+
   if (repository.calls === 0) {
+    // The distinction that cost a day: an empty TABLE is an environment
+    // question, an empty SLICE of a populated table is a data question. They
+    // read identically in every other field of this payload.
     verdict.notes.push(
-      `The repository returned no rows for this account and period, from database ` +
-      `"${dbName ?? 'unknown'}" (${dbCompanies ?? '?'} companies). Confirm that is ` +
-      `the database the running application uses — compare these counts against ` +
-      `/api/build — before reading this as data loss.`,
+      repoPopulated === false
+        ? `raw_sippy_cdrs is EMPTY in database "${dbName ?? 'unknown'}" ` +
+          `(${dbCompanies ?? '?'} companies) — not merely empty for this account ` +
+          `and period. Nothing has ever been imported here. This is an ENVIRONMENT ` +
+          `question, not data loss: confirm against /api/build that this is the ` +
+          `database the running application uses.`
+        : `The repository holds data in database "${dbName ?? 'unknown'}" ` +
+          `(${dbCompanies ?? '?'} companies) but nothing for account ` +
+          `${q.iAccount} in [${q.from}, ${q.to}). The table is populated, so this ` +
+          `narrows to the account key, the period, or an import that never ran — ` +
+          `not to the environment.`,
     );
   }
 

@@ -204,6 +204,46 @@ period to be closed (`isPeriodClosed`, `isAccountingMonthClosed`).
 
 ---
 
+## 7.1 Provenance — every finance surface states where its numbers came from
+
+**Owner requirement, 2026-08-27. A permanent platform standard, not a debugging aid.**
+
+> Every finance and billing diagnostic must identify the environment before presenting
+> financial conclusions.
+
+Earned the hard way: `raw_sippy_cdrs = 0` is indistinguishable from *"production lost every CDR"*
+and *"you are querying the workspace database"*. Hours went into the first reading before
+`current_database()` revealed `heliumdb` with 24 companies and an empty repository. Six separate
+occasions have now been lost to the same ambiguity.
+
+Every finance surface — Billing Reconciliation · Certification · DMR · Carrier Reconciliation ·
+Pipeline Trace · Invoice Investigation · Revenue Assurance — carries this header, and it appears
+**before** the numbers:
+
+```
+Build             <commit>              Database        <name> @ <host>
+Generated (UTC)   <timestamp>           Companies       <count>
+Timezone          <zone>  UTC: yes/no   Repository      populated / EMPTY
+```
+
+Implemented once, in `server/environment-fingerprint.ts`, and shared — `/api/build` and the
+completeness endpoint call the same function. **Two fingerprints that could drift would defeat the
+comparison they exist to enable**, which is an operator glancing between a psql prompt and a
+running app to see whether they are the same database.
+
+Two rules inside it, both load-bearing:
+
+1. **`populated` is exact; `approxRows` is an estimate and is named so.** Emptiness is the field
+   that decides whether a result is an environment problem, so it is a real `EXISTS`, never derived
+   from `pg_class.reltuples`. Measured: a freshly loaded table reports `populated: true` with
+   `approxRows: null` before its first ANALYZE — an estimate alone would have called it empty. A
+   finance surface must never print an estimate as though it were a count.
+2. **An empty table and an empty slice are different findings.** `raw_sippy_cdrs` empty platform-wide
+   is an environment question; populated but holding nothing for this account and period narrows to
+   the key, the period, or an import that never ran. The diagnostic says which.
+
+---
+
 ## 8. Implementation status
 
 Honest as of 2026-08-26. Freezing a policy does not implement it.

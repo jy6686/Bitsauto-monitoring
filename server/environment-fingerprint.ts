@@ -46,9 +46,78 @@ export interface ClockFingerprint {
   utc: boolean;
 }
 
+/**
+ * Is each billing table populated, and roughly how large?
+ *
+ * `populated` is EXACT and cheap — a single EXISTS. It is the field that matters,
+ * because "empty" and "wrong database" look identical in every other output.
+ *
+ * `approxRows` is an ESTIMATE from pg_class.reltuples, refreshed by ANALYZE, and
+ * is labelled as one everywhere it is shown. An exact count(*) over a table
+ * holding 1.6M rows for a single account-week is a sequential scan, and a
+ * provenance header that is itself slow will be the first thing removed. A
+ * finance surface must never print an estimate as though it were a count — hence
+ * the name, and hence `populated` being exact rather than derived from it. A
+ * never-analysed table reports null rather than zero, since reltuples is -1
+ * before its first ANALYZE and zero would read as empty.
+ */
+export interface TableVolume {
+  populated:  boolean;
+  approxRows: number | null;
+}
+
+export interface RepositoryVolumes {
+  rawCdrs:              TableVolume;
+  ratingVerifications:  TableVolume;
+  invoiceCdrSnapshots:  TableVolume;
+  dmrRows:              TableVolume;
+  invoices:             TableVolume;
+}
+
 export interface EnvironmentFingerprint {
-  database: DatabaseFingerprint | { error: string };
-  clock:    ClockFingerprint;
+  /** Which commit is running — from the same source as /api/build. */
+  build:       Record<string, any>;
+  /** When this answer was produced, UTC. */
+  generatedAt: string;
+  database:    DatabaseFingerprint | { error: string };
+  clock:       ClockFingerprint;
+  repository:  RepositoryVolumes | { error: string };
+}
+
+const vol = (populated: any, approx: any): TableVolume => ({
+  populated: Boolean(populated),
+  approxRows: approx == null ? null : Number(approx),
+});
+
+export async function repositoryVolumes(): Promise<RepositoryVolumes | { error: string }> {
+  try {
+    const r = await db.execute(sql`
+      SELECT EXISTS(SELECT 1 FROM raw_sippy_cdrs)        AS raw_pop,
+             EXISTS(SELECT 1 FROM rating_verifications)  AS ver_pop,
+             EXISTS(SELECT 1 FROM invoice_cdr_snapshots) AS snap_pop,
+             EXISTS(SELECT 1 FROM daily_minutes_reports) AS dmr_pop,
+             EXISTS(SELECT 1 FROM invoices)              AS inv_pop,
+             (SELECT CASE WHEN reltuples < 0 THEN NULL ELSE reltuples::bigint END
+                FROM pg_class WHERE oid = 'raw_sippy_cdrs'::regclass)        AS raw_approx,
+             (SELECT CASE WHEN reltuples < 0 THEN NULL ELSE reltuples::bigint END
+                FROM pg_class WHERE oid = 'rating_verifications'::regclass)  AS ver_approx,
+             (SELECT CASE WHEN reltuples < 0 THEN NULL ELSE reltuples::bigint END
+                FROM pg_class WHERE oid = 'invoice_cdr_snapshots'::regclass) AS snap_approx,
+             (SELECT CASE WHEN reltuples < 0 THEN NULL ELSE reltuples::bigint END
+                FROM pg_class WHERE oid = 'daily_minutes_reports'::regclass) AS dmr_approx,
+             (SELECT CASE WHEN reltuples < 0 THEN NULL ELSE reltuples::bigint END
+                FROM pg_class WHERE oid = 'invoices'::regclass)              AS inv_approx`);
+    const x = ((r as any).rows ?? [])[0] ?? {};
+    return {
+      rawCdrs:             vol(x.raw_pop,  x.raw_approx),
+      ratingVerifications: vol(x.ver_pop,  x.ver_approx),
+      invoiceCdrSnapshots: vol(x.snap_pop, x.snap_approx),
+      dmrRows:             vol(x.dmr_pop,  x.dmr_approx),
+      invoices:            vol(x.inv_pop,  x.inv_approx),
+    };
+  } catch (e: any) {
+    return { error: e.message };
+  }
 }
 
 export async function databaseFingerprint(): Promise<DatabaseFingerprint | { error: string }> {
@@ -92,5 +161,16 @@ export function clockFingerprint(): ClockFingerprint {
 }
 
 export async function environmentFingerprint(): Promise<EnvironmentFingerprint> {
-  return { database: await databaseFingerprint(), clock: clockFingerprint() };
+  const { getBuildInfo } = await import('./build-info');
+  const [database, repository] = await Promise.all([
+    databaseFingerprint(),
+    repositoryVolumes(),
+  ]);
+  return {
+    build:       { ...getBuildInfo() },
+    generatedAt: new Date().toISOString(),
+    database,
+    clock:       clockFingerprint(),
+    repository,
+  };
 }
