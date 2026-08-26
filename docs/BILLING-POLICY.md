@@ -377,8 +377,9 @@ variables; generate-from-sippy wrote one figure into both invoice totals.
 
 Final form (owner, 2026-08-27): **every validation must identify both independent data sources
 being compared; if either side is derived from the other, it is not a validation.** At code review
-every reconciliation answers five questions: What is Source A? What is Source B? Can they disagree?
-If yes, how is the disagreement reported? If no, why is this implemented as a validation?
+every reconciliation answers five questions: 1. What is Source A? 2. What is Source B? 3. Are they
+independently produced? 4. Can they legitimately disagree? 5. If not, why is this implemented as a
+validation?
 
 **The architecture is FROZEN and the platform is in its VALIDATION PHASE** — see
 `docs/BILLING-VALIDATION-RUNBOOK.md` for the five reconciliations that must hold on production

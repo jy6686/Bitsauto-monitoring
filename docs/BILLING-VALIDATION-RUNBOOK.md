@@ -92,13 +92,13 @@ divergence and the reclassification is frozen in the reconciliation contract §2
 totals agree with the P&L for the day. That validates the OPERATIONAL function, which is the only
 function it now has.
 
-**⚠ DECISION NEEDED — found while writing this runbook:** `/api/invoices/generate` carries a "DMR
-governance gate" (`hasDMRVerifiedForPeriod`, routes.ts) requiring every period day to have a
-verified DMR row. But DMR rows are `verified` whenever `discrepancy === 'exact_match'` — and every
-row is exact_match by construction. **The gate therefore tests DMR row EXISTENCE, while presenting
-as verification — DMR acting as a financial control in exactly the way the frozen rule forbids.**
-Options: (a) remove the gate now; (b) leave it as a harmless existence check until Billing
-Reconciliation replaces it as THE gate, then retire it. Owner's call; no change made.
+**RESOLVED (owner, 2026-08-27) — transitional technical debt, documented, not removed:**
+`/api/invoices/generate` carries a "DMR governance gate" (`hasDMRVerifiedForPeriod`) requiring
+every period day to have a verified DMR row — but every DMR row is `verified` by construction
+(`exact_match`, platform set equal to Sippy), so the gate tests row EXISTENCE while presenting as
+verification. It stays, understood as an existence check and nothing more, until Billing
+Reconciliation replaces it as the financial gate — at which point it retires. DMR must never
+become a financial approval mechanism.
 
 ---
 
@@ -158,13 +158,37 @@ At code review, every reconciliation answers five questions:
 
 1. What is Source A?
 2. What is Source B?
-3. Can they disagree?
-4. If yes — how is the disagreement reported?
-5. If no — why is this implemented as a validation?
+3. Are they independently produced?
+4. Can they legitimately disagree?
+5. If not, why is this implemented as a validation?
 
 The four instances this rule would have prevented are listed in BILLING-POLICY.md §7.3.
 
 ---
+
+## Deployment discipline
+
+**Nothing in this runbook is marked complete from workspace evidence.** Every phase:
+
+```
+1. Deploy   2. Execute against production   3. Capture evidence
+4. Record PASS / FAIL   5. Only then move to the next phase
+```
+
+A phase without captured production evidence is not run, whatever the workspace showed.
+
+## Requirements freeze — how new findings are triaged
+
+With the architecture frozen, a newly discovered issue never prompts an architectural change.
+It is classified into exactly one bucket:
+
+| Bucket | Meaning | Action |
+|---|---|---|
+| **Validation defect** | The architecture is correct; implementation or data does not conform to it | Fix within the frozen design, re-run the phase |
+| **Implementation defect** | A code bug inside the frozen architecture | Fix, with the phase's evidence as the regression test |
+| **Enhancement** | Anything else | **Defer until the runbook passes** |
+
+The DMR-gate finding above is the worked example: classified transitional debt, not a redesign.
 
 ## Order and dependencies
 
