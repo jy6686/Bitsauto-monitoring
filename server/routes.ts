@@ -33097,7 +33097,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         tolerancePct:     optNum(req.query.tolerancePct) ?? undefined,
       }));
     } catch (e: any) {
-      res.status(500).json({ error: e.message });
+      res.status(500).json({ error: e.message, hint: 'raw_sippy_cdrs is created by migration 072; restart the server to apply pending migrations.' });
     }
   });
 

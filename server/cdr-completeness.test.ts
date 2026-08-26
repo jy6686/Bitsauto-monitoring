@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   assessCompleteness,
+  DEFAULT_MONEY_TOLERANCE_USD,
   DEFAULT_TOLERANCE_PCT,
   DIMENSIONS,
   STAGE_ORDER,
@@ -168,22 +169,84 @@ describe('assessCompleteness — tolerance', () => {
   it('treats a sub-tolerance difference as rounding', () => {
     const v = assessCompleteness([
       stage('sippy_reference', 1_000, 1_000, 100),
-      stage('repository',      1_000,   999.9, 99.99), // 0.01%
+      stage('repository',      1_000,   999.9, 99.995), // 0.01% / half a cent
     ]);
     expect(v.status).toBe('complete');
   });
 
-  it('honours an explicit tolerance', () => {
+  it('honours an explicit count tolerance', () => {
     const stages = [
       stage('sippy_reference', 1_000, 1_000, 100),
-      stage('repository',      1_000,   990,  99), // 1% short
+      stage('repository',      1_000,   990, 100), // 1% short on minutes only
     ];
     expect(assessCompleteness(stages).status).toBe('incomplete');
     expect(assessCompleteness(stages, { tolerancePct: 2 }).status).toBe('complete');
   });
 
-  it('defaults to half a percent', () => {
+  it('defaults to half a percent on counts', () => {
     expect(DEFAULT_TOLERANCE_PCT).toBe(0.5);
+  });
+
+  /**
+   * CONTRACT §5: "No percentage tolerances. Finance audits money, not ratios."
+   * A 0.5% band on the contract's own reference of $576.3327 would hide $2.88.
+   */
+  it('judges money absolutely, not proportionally', () => {
+    expect(DEFAULT_MONEY_TOLERANCE_USD).toBe(0.01);
+    // $2.88 short on $576.33 is 0.5% — inside any percentage band, far outside a cent.
+    const v = assessCompleteness([
+      stage('sippy_reference', 100, 1_000, 576.3327),
+      stage('repository',      100, 1_000, 573.4527),
+    ]);
+    expect(v.status).toBe('incomplete');
+    expect(v.lossStage!.lossyDimensions).toEqual(['cost']);
+  });
+
+  it('lets a half-cent difference pass as rounding', () => {
+    const v = assessCompleteness([
+      stage('sippy_reference', 100, 1_000, 576.3327),
+      stage('repository',      100, 1_000, 576.3277),
+    ]);
+    expect(v.status).toBe('complete');
+  });
+
+  it('honours an explicit money tolerance', () => {
+    const stages = [
+      stage('sippy_reference', 100, 1_000, 100),
+      stage('repository',      100, 1_000,  99.5),
+    ];
+    expect(assessCompleteness(stages).status).toBe('incomplete');
+    expect(assessCompleteness(stages, { moneyToleranceUsd: 1 }).status).toBe('complete');
+  });
+});
+
+describe('assessCompleteness — an empty period is not a clean run', () => {
+  /**
+   * pct(0, 0) used to return 100, so an account that imported nothing rendered
+   * as "100% retained at every stage, no loss found" — a clean bill of health
+   * for the exact condition the endpoint exists to detect.
+   */
+  it('does not report 100% retained when the prior stage is empty', () => {
+    const v = assessCompleteness([
+      stage('repository',  0, 0, 0),
+      stage('verified',    0, 0, 0),
+      stage('snapshotted', 0, 0, 0),
+    ]);
+    expect(v.transitions[0].retained.calls).toBeNull();
+    expect(v.transitions[0].retained.minutes).toBeNull();
+    expect(v.transitions[0].lossy).toBe(false);
+    expect(v.lossStage).toBeNull();
+    // The emptiness must be stated, since no transition can express it.
+    expect(v.notes.join(' ')).toMatch(/Stage "repository" is EMPTY/);
+  });
+
+  it('still calls an empty repository a loss when a reference exists', () => {
+    const v = assessCompleteness([
+      stage('sippy_reference', 1_712_336, 17_080.33, 576.33),
+      stage('repository',              0,         0,      0),
+    ]);
+    expect(v.status).toBe('incomplete');
+    expect(v.lossStage!.retained.minutes).toBe(0);
   });
 });
 

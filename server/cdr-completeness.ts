@@ -129,11 +129,27 @@ export interface CompletenessVerdict {
   notes: string[];
 }
 
-/** Below this, a difference is rounding rather than loss. */
+/** Below this, a COUNT difference is rounding rather than loss. Calls and minutes only. */
 export const DEFAULT_TOLERANCE_PCT = 0.5;
 
-function pct(part: number, whole: number): number {
-  if (whole === 0) return part === 0 ? 100 : 0;
+/**
+ * Money is judged on an absolute band, never a percentage.
+ *
+ * BILLING-RECONCILIATION-CONTRACT.md §5: "No percentage tolerances. Finance
+ * audits money, not ratios. A percentage band scales the permitted error with
+ * the invoice, which is exactly backwards." A 0.5% band on the contract's own
+ * worked reference of $576.3327 hides $2.88 where §5 permits one cent.
+ *
+ * Reachable here only because every money aggregate in this module casts to
+ * numeric before summing (§10 remedy 1); summing the underlying float4 columns
+ * as `real` accumulates dollars of error at this scale and no cent-level band
+ * would survive it.
+ */
+export const DEFAULT_MONEY_TOLERANCE_USD = 0.01;
+
+/** null when there is no base to be a fraction OF — not 100%. */
+function pct(part: number, whole: number): number | null {
+  if (whole === 0) return null;
   return +((part / whole) * 100).toFixed(4);
 }
 
@@ -148,6 +164,7 @@ function transition(
   from: StageCount,
   to: StageCount,
   tolerancePct: number,
+  moneyToleranceUsd: number,
 ): Transition {
   const retained = {} as Record<Dimension, number | null>;
   const lost     = {} as Record<Dimension, number | null>;
@@ -174,7 +191,15 @@ function transition(
     // not measuring the same period or account, which no retention percentage
     // can express. The negative `lost` value says so without pretending to
     // explain it.
-    if (retained[d]! < 100 - tolerancePct) lossyDimensions.push(d);
+    //
+    // Money is judged absolutely, counts proportionally. A zero base yields a
+    // null retention and cannot be lossy: nothing was there to lose, and
+    // reporting 100% retained for 0 → 0 would render an account that imported
+    // nothing as a clean run.
+    const lossy = d === 'cost'
+      ? lost[d]! > moneyToleranceUsd
+      : retained[d] !== null && retained[d]! < 100 - tolerancePct;
+    if (lossy) lossyDimensions.push(d);
   }
 
   return {
@@ -199,9 +224,14 @@ function transition(
  */
 export function assessCompleteness(
   stages: StageCount[],
-  opts: { tolerancePct?: number; identity?: IdentityCollision | null } = {},
+  opts: {
+    tolerancePct?: number;
+    moneyToleranceUsd?: number;
+    identity?: IdentityCollision | null;
+  } = {},
 ): CompletenessVerdict {
-  const tolerancePct = opts.tolerancePct ?? DEFAULT_TOLERANCE_PCT;
+  const tolerancePct      = opts.tolerancePct ?? DEFAULT_TOLERANCE_PCT;
+  const moneyToleranceUsd = opts.moneyToleranceUsd ?? DEFAULT_MONEY_TOLERANCE_USD;
   const notes: string[] = [];
 
   const byStage = new Map<StageName, StageCount>();
@@ -211,7 +241,7 @@ export function assessCompleteness(
 
   const transitions: Transition[] = [];
   for (let i = 0; i + 1 < ordered.length; i++) {
-    transitions.push(transition(ordered[i], ordered[i + 1], tolerancePct));
+    transitions.push(transition(ordered[i], ordered[i + 1], tolerancePct, moneyToleranceUsd));
   }
 
   const hasReference = byStage.has('sippy_reference');
@@ -226,6 +256,13 @@ export function assessCompleteness(
     const missing = DIMENSIONS.filter(d => valueOf(s, d) === null);
     if (missing.length) {
       notes.push(`Stage "${s.stage}" did not report ${missing.join(', ')}; those are not compared against it.`);
+    }
+    // An empty stage is a finding in itself, and it is invisible in the
+    // transitions: 0 → 0 yields a null retention, not a loss. Without this note
+    // an account that imported nothing reads as "no lossy transition".
+    const measured = DIMENSIONS.filter(d => valueOf(s, d) !== null);
+    if (measured.length && measured.every(d => valueOf(s, d) === 0)) {
+      notes.push(`Stage "${s.stage}" is EMPTY — every measured dimension is zero. Transitions out of an empty stage cannot show loss.`);
     }
   }
 

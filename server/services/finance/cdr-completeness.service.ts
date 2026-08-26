@@ -109,6 +109,15 @@ export async function measureCompleteness(
          AND started_at >= ${from}::timestamptz
          AND started_at <  ${to}::timestamptz`),
 
+    // duration_secs, NOT billed_secs. `billed_secs` on a verification is OUR
+    // REPRODUCED billed duration under our own tariff, and it is written NULL
+    // for every unrated and missing_rate row. Measuring the stage on it changes
+    // the basis mid-pipeline — Sippy's seconds, then ours, then Sippy's again at
+    // the snapshot — so interval rounding alone produces a minutes "loss" with
+    // every row present, and the classifier reports a rating problem that is not
+    // there. `duration_secs` is the switch's own figure, the same basis as
+    // raw_sippy_cdrs.billed_secs and invoice_cdr_snapshots.duration_secs.
+    //
     // EXISTS, not JOIN — deliberately, and this is load-bearing.
     //
     // Call ids repeat in the repository (that is the leading explanation for
@@ -120,7 +129,7 @@ export async function measureCompleteness(
     // counts each row once however many repository rows share its id.
     db.execute(sql`
       SELECT count(*)::int                                       AS calls,
-             coalesce(sum(v.billed_secs), 0)::numeric / 60.0     AS billed_minutes,
+             coalesce(sum(v.duration_secs), 0)::numeric / 60.0   AS billed_minutes,
              coalesce(sum(v.sippy_actual_cost::numeric), 0)      AS sippy_cost,
              coalesce(sum(v.reproduced_cost::numeric), 0)        AS our_cost
         FROM rating_verifications v
