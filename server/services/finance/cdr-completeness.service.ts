@@ -39,6 +39,7 @@
 import { sql } from 'drizzle-orm';
 import { db } from '../../db';
 import { environmentFingerprint, type EnvironmentFingerprint } from '../../environment-fingerprint';
+import { policyConformance, type PolicyCheck } from '../../policy-conformance';
 import {
   assessCompleteness,
   type CompletenessVerdict,
@@ -77,6 +78,12 @@ export interface CompletenessReport {
    * loss at sippy_reference → repository that no amount of re-importing fixes.
    */
   environment: EnvironmentFingerprint;
+  /**
+   * Which frozen billing rules the running code actually obeys, measured where
+   * it can be measured. A `diverges` here can invalidate the numbers below it —
+   * a non-UTC clock shifts the window this report just counted.
+   */
+  policy: PolicyCheck[];
   repository: {
     calls: number;
     billedMinutes: number;
@@ -222,7 +229,10 @@ export async function measureCompleteness(
       }
     : null;
 
-  const environment = await environmentFingerprint();
+  const [environment, policy] = await Promise.all([
+    environmentFingerprint(),
+    policyConformance(),
+  ]);
   const verdict = assessCompleteness(stages, { tolerancePct: q.tolerancePct, identity });
 
   if (!environment.clock.utc) {
@@ -268,6 +278,7 @@ export async function measureCompleteness(
     account: q.iAccount,
     period: { from: q.from, to: q.to, convention: '[from, to)' },
     environment,
+    policy,
     repository,
     verified,
     snapshotted,

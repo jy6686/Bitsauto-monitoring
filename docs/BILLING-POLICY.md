@@ -238,7 +238,17 @@ Two rules inside it, both load-bearing:
    from `pg_class.reltuples`. Measured: a freshly loaded table reports `populated: true` with
    `approxRows: null` before its first ANALYZE — an estimate alone would have called it empty. A
    finance surface must never print an estimate as though it were a count.
-2. **An empty table and an empty slice are different findings.** `raw_sippy_cdrs` empty platform-wide
+2. **The policy section MEASURES; it does not print the policy.** A green checklist rendered from
+   this document — "Timezone UTC ✓ · Effective dating ✓ · Activation dates ✓" — would assert
+   behaviour the code does not have (§4.1, §1.1) and put a tick beside a known defect on an audit
+   screen. `server/policy-conformance.ts` probes the real implementations instead: it hands the
+   shipped `resolveRate` a rate that expired in 2020 alongside a current one on the same prefix and
+   reports which came back. Today that returns **diverges**, and it will start returning
+   *conforms* on its own the day the resolver is fixed — nobody has to remember a flag. Rules that
+   cannot be cheaply probed are marked `declared`, carry the file:line they were read from, and are
+   understood to go stale. Never let a declared fact wear the clothes of a measured one.
+
+3. **An empty table and an empty slice are different findings.** `raw_sippy_cdrs` empty platform-wide
    is an environment question; populated but holding nothing for this account and period narrows to
    the key, the period, or an import that never ran. The diagnostic says which.
 
