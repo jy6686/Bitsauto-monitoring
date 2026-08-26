@@ -33061,7 +33061,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // itself has demonstrated nothing about the calls it never saw, and reporting
   // that as complete would repeat the defect this endpoint exists to catch.
   //
-  //   ?iAccount=315&from=2026-08-16&to=2026-08-23&refMinutes=17080.33
+  //   ?iAccount=315&from=2026-08-16&to=2026-08-23&refMinutes=17080.33&refCost=576.3327
+  //
+  // refCost is Sippy's "Charged Amount" column, NOT its "Cost" column — the
+  // latter is the vendor side and reconciles to a different per-minute figure.
   //
   // The period is half-open per BILLING-POLICY.md §1.1 — `to` is EXCLUSIVE, so
   // 16 → 23 is the seven days 16–22 and matches Sippy's own report boundary.
@@ -33090,6 +33093,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         to,
         referenceMinutes: optNum(req.query.refMinutes),
         referenceCalls:   optNum(req.query.refCalls),
+        referenceCost:    optNum(req.query.refCost),
         tolerancePct:     optNum(req.query.tolerancePct) ?? undefined,
       }));
     } catch (e: any) {

@@ -1,14 +1,26 @@
 /**
- * cdr-completeness.ts — where calls are lost between the switch and a snapshot.
+ * cdr-completeness.ts — where calls, minutes and money are lost between the
+ * switch and a snapshot.
  *
  * On 2026-08-26 an invoice was issued for roughly one percent of a customer's
  * traffic. Every per-call amount on it was correct; the population was not.
  * Nothing in the pipeline compared its own totals against anything outside
  * itself, so the gap was invisible until Sippy's own summary was read by hand.
  *
- * This turns that comparison into a measurement. Given the counts at each
- * stage it names the FIRST stage that lost calls, because that is the only
- * stage worth investigating — every later shortfall is inherited.
+ * This turns that comparison into a measurement. Given the counts at each stage
+ * it names the FIRST stage that lost anything, because that is the only stage
+ * worth investigating — every later shortfall is inherited.
+ *
+ * ── Three dimensions, because they fail differently ──────────────────────────
+ * Calls, minutes and cost are compared separately and a transition records
+ * WHICH of them it lost. The distinction is diagnostic, not cosmetic:
+ *
+ *   calls and minutes short, cost proportional  → population: rows never arrived
+ *   calls and minutes intact, cost short        → rating or mapping: rows arrived unpriced
+ *   cost short only at one stage                → an exclusion rule dropped priced calls
+ *
+ * A single "complete / incomplete" verdict cannot express that, and the three
+ * causes have nothing in common but their symptom.
  *
  * ── The pipeline being measured ──────────────────────────────────────────────
  *
@@ -20,15 +32,15 @@
  *         ↓           lockBatch drops unrated / no-rate calls
  *   snapshotted       invoice_cdr_snapshots — what an invoice can bill
  *
- * ── Minutes are authoritative, calls are not ─────────────────────────────────
+ * ── Minutes are authoritative across the reference boundary; calls are not ───
  * Sippy's "Number of Calls" counts ATTEMPTS. Proof from the reference itself:
  * Bangladesh reported 59,104 calls against 51,242 billed seconds, and with
  * interval1 >= 1s every billed call bills at least one second, so a call count
  * above billed seconds can only include unbilled attempts. BitsAuto counts
  * billable calls. Both are right; they measure different sets.
  *
- * So the reference comparison is made on MINUTES, and its call figure is
- * carried for information only. Comparing calls there would report a permanent
+ * So calls are NOT compared across that boundary and the reference's call
+ * figure is carried for information only. Comparing it would report a permanent
  * false shortfall on a complete import. Between BitsAuto's own stages calls are
  * comparable, because both sides then count the same thing.
  *
@@ -49,28 +61,37 @@ export const STAGE_ORDER: StageName[] = [
   'snapshotted',
 ];
 
+/** What a stage can lose. Each fails for different reasons — see the header. */
+export type Dimension = 'calls' | 'minutes' | 'cost';
+
+export const DIMENSIONS: Dimension[] = ['calls', 'minutes', 'cost'];
+
 export interface StageCount {
   stage: StageName;
   /** Rows at this stage. null when the stage was not measured. */
   calls: number | null;
   /** Billed minutes at this stage. null when not measured. */
   billedMinutes: number | null;
+  /**
+   * Money at this stage, ALWAYS the switch's own figure.
+   *
+   * Never the reproduced cost. The rating engine currently over-reports by up
+   * to 60x on tariffs whose intervals are not 60/60, so a stage measured on
+   * reproduced cost would appear to GAIN money and mask a real shortfall. The
+   * comparison is only meaningful between figures that mean the same thing.
+   */
+  cost: number | null;
 }
 
 export interface Transition {
   from: StageName;
   to:   StageName;
-  /** Minutes kept, as a percentage. null when either side is unmeasured. */
-  minutesRetainedPct: number | null;
-  minutesLost:        number | null;
-  /**
-   * Calls kept. Deliberately null across sippy_reference → repository: the two
-   * sides count different things there (see the header), and a number that
-   * cannot be compared is worse than no number.
-   */
-  callsRetainedPct: number | null;
-  callsLost:        number | null;
-  /** True when this transition lost more than the tolerance allows. */
+  /** Percentage kept, per dimension. null when that dimension is not comparable here. */
+  retained: Record<Dimension, number | null>;
+  /** Absolute amount lost, per dimension. Negative means the stage grew. */
+  lost: Record<Dimension, number | null>;
+  /** Which dimensions fell below tolerance. Empty when none did. */
+  lossyDimensions: Dimension[];
   lossy: boolean;
 }
 
@@ -90,7 +111,7 @@ export interface IdentityCollision {
 
 export type CompletenessStatus =
   | 'complete'       // every measured transition within tolerance
-  | 'incomplete'     // at least one transition lost calls
+  | 'incomplete'     // at least one transition lost something
   | 'no_reference';  // nothing external to compare against — see below
 
 export interface CompletenessVerdict {
@@ -100,6 +121,8 @@ export interface CompletenessVerdict {
    * inherited from it and say nothing new.
    */
   lossStage: Transition | null;
+  /** Every measured stage, in pipeline order — not only the lossy ones. */
+  stages: StageCount[];
   transitions: Transition[];
   identityCollision: IdentityCollision | null;
   /** Plain statements of what was and was not measured. */
@@ -115,48 +138,52 @@ function pct(part: number, whole: number): number {
 }
 
 function round(n: number): number {
-  return +n.toFixed(4);
+  return +n.toFixed(6);
 }
+
+const valueOf = (s: StageCount, d: Dimension): number | null =>
+  d === 'calls' ? s.calls : d === 'minutes' ? s.billedMinutes : s.cost;
 
 function transition(
   from: StageCount,
   to: StageCount,
   tolerancePct: number,
 ): Transition {
-  // Calls are only comparable once both sides count billable calls. Across the
-  // reference boundary they do not — see the header.
-  const callsComparable = from.stage !== 'sippy_reference';
+  const retained = {} as Record<Dimension, number | null>;
+  const lost     = {} as Record<Dimension, number | null>;
+  const lossyDimensions: Dimension[] = [];
 
-  const minutesMeasured =
-    from.billedMinutes !== null && to.billedMinutes !== null;
-  const callsMeasured =
-    callsComparable && from.calls !== null && to.calls !== null;
+  for (const d of DIMENSIONS) {
+    // Calls only become comparable once both sides count billable calls.
+    // Across the reference boundary they do not — see the header.
+    const comparable = !(d === 'calls' && from.stage === 'sippy_reference');
+    const a = valueOf(from, d);
+    const b = valueOf(to, d);
 
-  const minutesRetainedPct = minutesMeasured
-    ? pct(to.billedMinutes!, from.billedMinutes!)
-    : null;
-  const callsRetainedPct = callsMeasured
-    ? pct(to.calls!, from.calls!)
-    : null;
+    if (!comparable || a === null || b === null) {
+      retained[d] = null;
+      lost[d]     = null;
+      continue;
+    }
 
-  // A stage that GAINED rows is not lossy. It is a different problem — and one
-  // this function deliberately does not classify, because a gain means the two
-  // stages are not measuring the same period or account, which no retention
-  // percentage can express.
-  const lossy =
-    (minutesRetainedPct !== null && minutesRetainedPct < 100 - tolerancePct) ||
-    (callsRetainedPct   !== null && callsRetainedPct   < 100 - tolerancePct);
+    retained[d] = pct(b, a);
+    lost[d]     = round(a - b);
+
+    // A stage that GAINED is not lossy. It is a different problem, and one this
+    // function deliberately does not classify: a gain means the two stages are
+    // not measuring the same period or account, which no retention percentage
+    // can express. The negative `lost` value says so without pretending to
+    // explain it.
+    if (retained[d]! < 100 - tolerancePct) lossyDimensions.push(d);
+  }
 
   return {
     from: from.stage,
     to:   to.stage,
-    minutesRetainedPct,
-    minutesLost: minutesMeasured
-      ? round(from.billedMinutes! - to.billedMinutes!)
-      : null,
-    callsRetainedPct,
-    callsLost: callsMeasured ? from.calls! - to.calls! : null,
-    lossy,
+    retained,
+    lost,
+    lossyDimensions,
+    lossy: lossyDimensions.length > 0,
   };
 }
 
@@ -180,12 +207,11 @@ export function assessCompleteness(
   const byStage = new Map<StageName, StageCount>();
   for (const s of stages) byStage.set(s.stage, s);
 
-  const present = STAGE_ORDER.filter(s => byStage.has(s));
+  const ordered = STAGE_ORDER.filter(s => byStage.has(s)).map(s => byStage.get(s)!);
+
   const transitions: Transition[] = [];
-  for (let i = 0; i + 1 < present.length; i++) {
-    transitions.push(
-      transition(byStage.get(present[i])!, byStage.get(present[i + 1])!, tolerancePct),
-    );
+  for (let i = 0; i + 1 < ordered.length; i++) {
+    transitions.push(transition(ordered[i], ordered[i + 1], tolerancePct));
   }
 
   const hasReference = byStage.has('sippy_reference');
@@ -196,10 +222,10 @@ export function assessCompleteness(
     );
   }
 
-  for (const s of STAGE_ORDER) {
-    const c = byStage.get(s);
-    if (c && c.billedMinutes === null) {
-      notes.push(`Stage "${s}" reported no billed minutes; comparisons against it use calls only.`);
+  for (const s of ordered) {
+    const missing = DIMENSIONS.filter(d => valueOf(s, d) === null);
+    if (missing.length) {
+      notes.push(`Stage "${s.stage}" did not report ${missing.join(', ')}; those are not compared against it.`);
     }
   }
 
@@ -215,8 +241,27 @@ export function assessCompleteness(
 
   const lossStage = transitions.find(t => t.lossy) ?? null;
 
+  if (lossStage) {
+    const d = lossStage.lossyDimensions;
+    const populationLost = d.includes('calls') || d.includes('minutes');
+    notes.push(
+      populationLost
+        ? `Lost ${d.join(' and ')} at ${lossStage.from} → ${lossStage.to}: rows did not survive this stage.`
+        : `Minutes intact but money short at ${lossStage.from} → ${lossStage.to}: ` +
+          `the calls arrived and were not priced. This is a rating or mapping ` +
+          `problem, not a population problem.`,
+    );
+  }
+
   const status: CompletenessStatus =
     !hasReference ? 'no_reference' : lossStage ? 'incomplete' : 'complete';
 
-  return { status, lossStage, transitions, identityCollision: identity, notes };
+  return {
+    status,
+    lossStage,
+    stages: ordered,
+    transitions,
+    identityCollision: identity,
+    notes,
+  };
 }

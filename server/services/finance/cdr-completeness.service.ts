@@ -47,6 +47,8 @@ export interface CompletenessQuery {
   referenceMinutes?: number | null;
   /** Sippy's call count. Attempts — carried for information only. */
   referenceCalls?: number | null;
+  /** Sippy's charged amount for the period. Its "Charged Amount", not "Cost". */
+  referenceCost?: number | null;
   tolerancePct?: number;
 }
 
@@ -155,16 +157,24 @@ export async function measureCompleteness(
     actualCost:    +num(snap.actual_cost).toFixed(6),
   };
 
+  // Every stage's cost is the SWITCH's figure — repository.cost, the
+  // verification's sippy_actual_cost, the snapshot's actual_cost. Never
+  // `reproduced_cost`, which the rating engine currently over-reports by up to
+  // 60x on tariffs whose intervals are not 60/60: a stage measured on it shows
+  // a money GAIN while losing 99% of its calls, so the money check silently
+  // stops working. `ourCost` is returned alongside for comparison, and is not
+  // fed to the classifier.
   const stages: StageCount[] = [
-    { stage: 'repository',  calls: repository.calls,  billedMinutes: repository.billedMinutes },
-    { stage: 'verified',    calls: verified.calls,    billedMinutes: verified.billedMinutes },
-    { stage: 'snapshotted', calls: snapshotted.calls, billedMinutes: snapshotted.billedMinutes },
+    { stage: 'repository',  calls: repository.calls,  billedMinutes: repository.billedMinutes,  cost: repository.cost },
+    { stage: 'verified',    calls: verified.calls,    billedMinutes: verified.billedMinutes,    cost: verified.sippyCost },
+    { stage: 'snapshotted', calls: snapshotted.calls, billedMinutes: snapshotted.billedMinutes, cost: snapshotted.actualCost },
   ];
   if (q.referenceMinutes != null) {
     stages.unshift({
       stage: 'sippy_reference',
       calls: q.referenceCalls ?? null,
       billedMinutes: q.referenceMinutes,
+      cost: q.referenceCost ?? null,
     });
   }
 
