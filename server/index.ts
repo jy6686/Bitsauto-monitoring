@@ -412,11 +412,18 @@ app.use((req, res, next) => {
   const { storage: gdprStorage } = await import('./storage');
   initGdprRetention(gdprStorage);
 
-  // DMR daily email scheduler — fires at 07:00 UTC, sends Excel to finance team
-  import('./services/email/dmr-email.service').then(({ startDMREmailScheduler }) => {
-    startDMREmailScheduler();
+  // Daily finance pipeline — DMR, snapshot, DMR email, margin, assurance,
+  // billing-cycle detection. Supersedes startDMREmailScheduler(): the email is
+  // now stage 3 of the pipeline, so registering both would send it twice.
+  //
+  // It replaces that scheduler for a second reason. The old one held a 24-hour
+  // setTimeout, and materialization_runs shows this process sleeping for
+  // multi-hour stretches that swallow 07:00 UTC — so the timer rarely survived
+  // to fire. The pipeline catches up from the ledger instead of counting down.
+  import('./services/finance/daily-pipeline.service').then(({ startFinancePipelineScheduler }) => {
+    startFinancePipelineScheduler();
   }).catch((e: any) => {
-    console.error('[dmr-scheduler] Failed to start (non-fatal):', e?.message);
+    console.error('[finance-pipeline] Failed to start (non-fatal):', e?.message);
   });
 
   app.use((err: any, req: Request, res: Response, next: NextFunction) => {

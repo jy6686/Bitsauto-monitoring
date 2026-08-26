@@ -314,6 +314,20 @@ export async function sendDailyDMREmail(opts: {
 // ── Daily scheduler ───────────────────────────────────────────────────────────
 
 /**
+ * @deprecated SUPERSEDED — do not register this. Kept only so the history is
+ * legible; startFinancePipelineScheduler() now owns the daily send, with
+ * sendDailyDMREmail() as its email stage.
+ *
+ * Registering both would email the finance team the same DMR twice a day.
+ *
+ * It was replaced rather than kept because the 24-hour setTimeout below could
+ * not work on this deployment: materialization_runs shows the process
+ * restarting frequently and sleeping for multi-hour stretches — 24 Aug 19:02
+ * to 25 Aug 08:34 is a single gap, and it contains 07:00 UTC. The timer needs
+ * the process alive for a full day to fire once. The replacement asks a
+ * persisted ledger whether the day has been processed, so it catches up
+ * whenever the process is awake instead of counting down.
+ *
  * Schedules the DMR email to fire once per day at 07:00 UTC.
  * Call once from server startup (index.ts) — drift-proof via re-scheduling after each run.
  */

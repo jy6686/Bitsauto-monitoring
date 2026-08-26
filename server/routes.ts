@@ -40809,6 +40809,46 @@ ${footer}
     } catch (err: any) { res.status(500).json({ error: err.message }); }
   });
 
+  // ── Daily finance pipeline ──────────────────────────────────────────────────
+  // Read endpoints answer "is finance automation healthy?" without anyone
+  // reading logs or querying tables by hand — the reason the ledger exists.
+
+  app.get('/api/finance/pipeline/status', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (_req: any, res: any) => {
+    try {
+      const { getPipelineStatus } = await import('./services/finance/daily-pipeline.service');
+      res.json(await getPipelineStatus());
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/finance/pipeline/runs', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { listPipelineRuns } = await import('./services/finance/daily-pipeline.service');
+      res.json(await listPipelineRuns(req.query.limit ? Number(req.query.limit) : 30));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
+  // Manual run. skipEmail DEFAULTS TO TRUE: a manual run is normally a
+  // re-computation after fixing something, and the scheduled run has usually
+  // already mailed that date — re-sending would put a duplicate DMR in the
+  // finance team's inbox. Pass skipEmail:false to deliberately send.
+  app.post('/api/finance/pipeline/run-now', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { runDailyFinancePipeline } = await import('./services/finance/daily-pipeline.service');
+      const targetDate = typeof req.body?.targetDate === 'string' ? req.body.targetDate : undefined;
+      const skipEmail  = req.body?.skipEmail !== false;
+      // Fire and forget — the pipeline outlasts a request. Same contract as
+      // reconciliation/run-now above.
+      runDailyFinancePipeline({ targetDate, triggeredBy: 'api', skipEmail })
+        .catch((e: any) => console.error('[finance-pipeline] run-now error:', e.message));
+      res.json({
+        status: 'queued',
+        targetDate: targetDate ?? 'yesterday (UTC)',
+        emailWillSend: !skipEmail,
+        message: 'Pipeline started. Poll /api/finance/pipeline/status for progress.',
+      });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+  });
+
   // ── F1: 30-minute materialization scheduler ─────────────────────────────────
   {
     const INTERVAL_MS = 30 * 60 * 1000; // 30 minutes

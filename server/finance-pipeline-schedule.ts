@@ -1,0 +1,100 @@
+/**
+ * finance-pipeline-schedule.ts
+ *
+ * When the nightly finance pipeline should run — as pure arithmetic over the
+ * clock and the run ledger. No database, no Sippy, no imports at all, so the
+ * decision can be tested exhaustively rather than observed in production.
+ *
+ * Kept out of daily-pipeline.service.ts for the same reason billing-periods.ts
+ * is kept out of the invoice engine: the service cannot be imported without a
+ * live DATABASE_URL, and rules this consequential should not need one.
+ *
+ * ── Why the schedule is a catch-up, not a clock ──────────────────────────────
+ * The deployed process restarts frequently and sleeps for hours: in
+ * materialization_runs, 24 Aug 19:02 -> 25 Aug 08:34 is a single gap, and it
+ * swallows 07:00 UTC. A timer set 24 hours ahead only fires if the process
+ * survives 24 hours, which this one does not — so the DMR email's daily
+ * setTimeout could go weeks without firing while looking correctly registered
+ * in the boot log.
+ *
+ * The rule here instead asks, every few minutes, "has this business date been
+ * processed yet?" Whenever the process is awake past the scheduled hour, the
+ * day gets processed. The pipeline can therefore run LATE, but it cannot be
+ * silently skipped — and lateness is visible as started_at against target_date.
+ */
+
+/** Default hour (UTC) after which a business day is ready to process. */
+export const DEFAULT_SCHEDULED_HOUR_UTC = 7;
+
+/** Attempts per business date before the scheduler stops and waits for a human. */
+export const DEFAULT_MAX_ATTEMPTS = 3;
+
+/** A 'running' row older than this belonged to a process that died mid-run. */
+export const DEFAULT_STALE_RUNNING_MS = 30 * 60 * 1000;
+
+/** The subset of a ledger row the due decision depends on. */
+export interface AttemptRow {
+  id:        number;
+  status:    string;
+  startedAt: string | Date;
+}
+
+export interface DueDecision {
+  due:        boolean;
+  targetDate: string;
+  reason:     string;
+}
+
+/**
+ * Yesterday UTC — the most recent complete business day.
+ *
+ * UTC throughout: the business date must not depend on the container's
+ * timezone, and DMR windows are already defined as full GMT calendar days.
+ */
+export function defaultTargetDate(now: Date = new Date()): string {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Whether the pipeline should run now, given the clock and this date's attempts.
+ *
+ * Each branch prevents a specific production failure: double-running a date
+ * (duplicate DMR email, duplicate invoice jobs), stalling forever behind a
+ * 'running' row whose process was killed, and retrying a structural failure
+ * every ten minutes with nobody watching.
+ */
+export function decideDue(
+  rows: AttemptRow[],
+  now: Date,
+  opts: { scheduledHourUtc?: number; maxAttempts?: number; staleRunningMs?: number } = {},
+): DueDecision {
+  const hour        = opts.scheduledHourUtc ?? DEFAULT_SCHEDULED_HOUR_UTC;
+  const maxAttempts = opts.maxAttempts      ?? DEFAULT_MAX_ATTEMPTS;
+  const staleMs     = opts.staleRunningMs   ?? DEFAULT_STALE_RUNNING_MS;
+  const targetDate  = defaultTargetDate(now);
+
+  if (now.getUTCHours() < hour) {
+    return { due: false, targetDate, reason: `before ${String(hour).padStart(2, '0')}:00 UTC` };
+  }
+
+  if (rows.some(r => r.status === 'success')) {
+    return { due: false, targetDate, reason: 'already completed successfully' };
+  }
+
+  const live = rows.find(r =>
+    r.status === 'running' &&
+    now.getTime() - new Date(r.startedAt).getTime() < staleMs,
+  );
+  if (live) return { due: false, targetDate, reason: `run #${live.id} in progress` };
+
+  if (rows.length >= maxAttempts) {
+    return { due: false, targetDate, reason: `${rows.length} attempts already made — needs investigation` };
+  }
+
+  return {
+    due: true,
+    targetDate,
+    reason: rows.length === 0 ? 'no run yet' : `retry ${rows.length + 1}/${maxAttempts}`,
+  };
+}
