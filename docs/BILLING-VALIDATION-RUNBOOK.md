@@ -177,6 +177,22 @@ The four instances this rule would have prevented are listed in BILLING-POLICY.m
 
 A phase without captured production evidence is not run, whatever the workspace showed.
 
+**Who does what:** the OPERATOR (who alone holds Replit, production database and Sippy access)
+pulls, publishes, and captures every artifact — `/api/build`, the Customer Summary export, the
+runbook endpoints' responses. ANALYSIS reads that evidence against this runbook and records the
+verdicts. Neither side waits on the other for the thing only they can produce.
+
+**Every analysis of evidence labels each statement:**
+
+| Label | Meaning |
+|---|---|
+| **Observed** | Directly supported by a production artifact in hand |
+| **Inference** | A logical conclusion from observed evidence — stated as such |
+| **Unknown** | Not yet measured — never silently filled by assumption |
+
+PASS/FAIL are production outcomes only. A workspace result or a code reading can predict a verdict;
+it can never be one.
+
 ## Requirements freeze — how new findings are triaged
 
 With the architecture frozen, a newly discovered issue never prompts an architectural change.
