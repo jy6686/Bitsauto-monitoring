@@ -187,6 +187,7 @@ It is classified into exactly one bucket:
 | **Validation defect** | The architecture is correct; implementation or data does not conform to it | Fix within the frozen design, re-run the phase |
 | **Implementation defect** | A code bug inside the frozen architecture | Fix, with the phase's evidence as the regression test |
 | **Enhancement** | Anything else | **Defer until the runbook passes** |
+| **Architecture defect** | Production evidence proves the architecture itself cannot satisfy the requirements | The only bucket that reopens the design — expected to be RARE |
 
 The DMR-gate finding above is the worked example: classified transitional debt, not a redesign.
 
