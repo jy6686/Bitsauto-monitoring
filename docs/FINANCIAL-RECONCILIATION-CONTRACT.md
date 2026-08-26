@@ -304,6 +304,25 @@ writes to exactly two places.
 
 Everything else is read-only. Any pull request that widens this list is out of contract.
 
+### 9.1 Surfaces — no new pages
+
+**Owner decision: reconciliation adds no page and no navigation item.** It appears as a step inside
+the workflow Finance already uses, on screens they already know.
+
+| Existing surface | Addition |
+|---|---|
+| DMR / Billing | A reconciliation status panel after DMR generation — per-field ✓/✗ and an overall status |
+| Billing | A section or tab alongside DMR and Invoices — **not** a sibling page |
+| Invoice generation | The reconciliation result shown at the point of generation, with the reason when it blocks |
+| Invoice PDF | A provenance block: status, what it was verified against, when, by whom — or the override stamp (§8) |
+
+Untouched: Profit/Loss · margin reports · finance dashboard · DMR reports · billing reports ·
+customer statements · analytics. No report logic is replaced, no navigation is restructured, and no
+existing query is rewritten. Every one of these keeps reading the same BitsAuto tables it reads
+today.
+
+No duplicate billing tables. Reconciliation persists its own results (§9, write 1) and nothing else.
+
 ---
 
 ## 10. Blocking prerequisite — money is stored as `float4`
@@ -352,6 +371,11 @@ Neither belongs inside the reconciliation module. Both must land before Phase 3.
 
 Behind a feature flag, default **OFF**, per house pattern.
 
+**Two independent axes. Do not collapse them.** *Where* the result appears and *whether* it blocks
+are separate decisions, and the surfaces may all ship while enforcement stays off.
+
+### 11.1 Enforcement — when it starts blocking
+
 | Phase | Behaviour | Exit criterion |
 |---|---|---|
 | **1 — Report only** | Reconciliation runs and is visible. Blocks nothing. | Finance agrees the comparison is correct on real periods |
@@ -360,6 +384,31 @@ Behind a feature flag, default **OFF**, per house pattern.
 
 Phase 1 produces the evidence that the reconciliation logic is right *before* it can stop anyone
 from invoicing. A gate that blocks correct invoices will be switched off and never switched back on.
+
+**This sequencing is load-bearing, not caution.** Three known sources of false failure exist right
+now: `float4` summation (§10), the period boundary mismatch (§6), and rate display precision (§3.2).
+Enforcing before those are closed blocks correct invoices on day one.
+
+### 11.2 Surfaces — where it appears
+
+Independently, and in any order: the DMR/Billing status panel · the Billing section · the invoice
+generation screen · the invoice PDF provenance block (§9.1).
+
+A surface showing `FAIL` while enforcement is at Phase 1 is correct and intended: Finance sees the
+disagreement and decides, without the platform refusing to invoice.
+
+### 11.3 Build order
+
+Owner-set. Reconciliation cannot be trusted until the pipeline feeding it is:
+
+1. **Prove CDR completeness** — the population question. Until BitsAuto imports the full set, every
+   reconciliation fails for one reason and teaches nothing about the others.
+2. **Correct rating verification** — so reproduced values match the switch per call.
+3. **Reconciliation inside the existing Billing workflow** — no new pages (§9.1).
+4. **Gate invoice generation** on the result, per §11.1.
+5. **Existing reports unchanged**, consuming the same verified data they consume today.
+
+Steps 1 and 2 are prerequisites, not parallel work.
 
 **Gate 3 additionally requires:** §10 remedy 1 shipped · §6 period alignment shipped · the
 reconciliation installed at a single chokepoint.
