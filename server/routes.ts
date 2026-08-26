@@ -34312,7 +34312,12 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
-  app.post('/api/invoices/generate', async (req: any, res: any) => {
+  // Role guard matches /api/invoices/pipeline-run — its direct analogue, the
+  // same operation for one account and period. Both this route and
+  // /generate-from-sippy previously carried NO role middleware at all, so any
+  // authenticated non-portal user could create invoices, while the sibling
+  // invoice-jobs path required admin or management.
+  app.post('/api/invoices/generate', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
     try {
       const { generateInvoice } = await import('./services/sippy/index');
       const { iTariff, iAccount, periodStart, periodEnd, customerName, notes } = req.body ?? {};
@@ -34388,7 +34393,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // Direct Sippy CDR-based generation — NO DMR gate, NO snapshot pipeline.
   // Fetches CDRs for the account+period straight from Sippy, groups by destination
   // prefix, and creates a draft invoice with line items.
-  app.post('/api/invoices/generate-from-sippy', async (req: any, res: any) => {
+  app.post('/api/invoices/generate-from-sippy', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
     try {
       const { iAccount, periodStart, periodEnd, notes } = req.body ?? {};
       if (!iAccount || !periodStart || !periodEnd) {
@@ -36546,6 +36551,45 @@ ${footer}
       const id = Number(req.params.id);
       if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
 
+      // ── The period this job will actually bill ───────────────────────────
+      // Computed with the SAME UTC arithmetic generateInvoiceForJob uses
+      // (sippy-invoice-scheduler.service.ts), so the gates below check the
+      // period that gets invoiced rather than an approximation of it. The
+      // seed block further down builds its own dates with LOCAL-time getters
+      // and can land a day earlier; that is a separate defect, and it is not
+      // allowed to decide what the gates see.
+      let gatePeriod: { start: string; end: string } | null = null;
+      const gateJob = await storage.getInvoiceJob(id);
+      if (!gateJob) return res.status(404).json({ error: `Invoice job ${id} not found` });
+      {
+        const m = /^(\d{4})-(\d{2})$/.exec(gateJob.billingPeriod ?? '');
+        if (m) {
+          const lastDay = new Date(Date.UTC(Number(m[1]), Number(m[2]), 0)).getUTCDate();
+          gatePeriod = {
+            start: `${gateJob.billingPeriod}-01`,
+            end:   `${gateJob.billingPeriod}-${String(lastDay).padStart(2, '0')}`,
+          };
+        }
+      }
+
+      // ── Gate 1: the period must have closed ──────────────────────────────
+      // This path had no such check and bills WHOLE CALENDAR MONTHS, so on the
+      // 26th of a month it would invoice 01–31 of that same month — a period
+      // still receiving calls. Runs BEFORE the auto-seed below, unlike
+      // _runBillingChain which seeds first: seeding here is a whole-month
+      // Sippy pull awaited inside this request, and there is no reason to
+      // spend it on a period we are about to refuse.
+      // Not overridable. A period either ended or it did not.
+      if (gatePeriod) {
+        const { isPeriodClosed } = await import('./billing-periods');
+        const asOf = new Date().toISOString().slice(0, 10);
+        if (!isPeriodClosed(gatePeriod.end, asOf)) {
+          return res.status(422).json({
+            error: `Billing period ${gatePeriod.start}–${gatePeriod.end} has not closed as of ${asOf}. It closes at 00:00 GMT the day after ${gatePeriod.end}; invoicing before then bills a period still receiving calls.`,
+          });
+        }
+      }
+
       // Auto-seed: when the job's tariff+period has no rating snapshots yet,
       // pull them from the Sippy Admin API before generating — the operator
       // clicks Generate once, never seeds by hand. Resolution: tariff from
@@ -36579,6 +36623,41 @@ ${footer}
         }
       } catch (seedErr: any) {
         console.warn(`[invoice-jobs] job #${id}: auto-seed failed — ${seedErr.message} (generation will report if snapshots are missing)`);
+      }
+
+      // ── Gate 2: certification ────────────────────────────────────────────
+      // Runs AFTER the seed because certification reads what the seed writes:
+      // rating_verifications for this tariff and period. Gating before it
+      // would refuse every first-time job for lacking evidence it was about
+      // to create.
+      //
+      // Same contract as /api/invoices/generate and /generate-from-sippy —
+      // this path enforced neither, so unrated calls, price differences and
+      // unmapped destination prefixes could not stop it. A tariff that will
+      // not resolve is left to the generator, which already refuses with a
+      // message naming the fix.
+      if (gatePeriod) {
+        const { resolveInvoiceTariff } = await import('./services/sippy/index');
+        const gateTariff = await resolveInvoiceTariff({
+          iTariff:      gateJob.iTariff ?? undefined,
+          customerName: gateJob.clientName,
+        });
+        if (gateTariff) {
+          const cert = await _certificationFor(String(gateTariff), gatePeriod.start, gatePeriod.end);
+          const overrideReason = String(req.body?.overrideReason ?? '').trim();
+          if (cert.state === 'uncertified') {
+            return res.status(422).json({
+              error: 'Invoice blocked: billing period is not certified',
+              reasons: cert.reasons, certification: cert.state,
+            });
+          }
+          if (cert.state === 'exceptions' && !overrideReason) {
+            return res.status(422).json({
+              error: 'Invoice blocked: certification found exceptions — provide overrideReason to proceed',
+              reasons: cert.reasons, certification: cert.state,
+            });
+          }
+        }
       }
 
       const { generateInvoiceForJob } = await import('./services/sippy/index');
