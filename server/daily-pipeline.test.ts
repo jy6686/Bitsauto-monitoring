@@ -19,12 +19,16 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { decideDue, defaultTargetDate, type AttemptRow } from './finance-pipeline-schedule';
+import {
+  decideDue, defaultTargetDate, blockedBy, STAGE_PREREQUISITES,
+  DEFAULT_SCHEDULED_HOUR_UTC,
+  type AttemptRow, type StageName, type StageStatus,
+} from './finance-pipeline-schedule';
 
-/** 26 Aug 2026, 09:00 UTC — after the 07:00 scheduled hour. */
+/** 26 Aug 2026, 09:00 UTC — well after the 02:00 scheduled hour. */
 const AFTER_HOUR  = new Date('2026-08-26T09:00:00Z');
-/** 26 Aug 2026, 03:00 UTC — before it. */
-const BEFORE_HOUR = new Date('2026-08-26T03:00:00Z');
+/** 26 Aug 2026, 01:00 UTC — before it. */
+const BEFORE_HOUR = new Date('2026-08-26T01:00:00Z');
 
 function row(status: string, startedAt: string, id = 1): AttemptRow {
   return { id, status, startedAt };
@@ -53,7 +57,16 @@ describe('decideDue', () => {
   it('holds off before the scheduled hour, even with no run recorded', () => {
     const d = decideDue([], BEFORE_HOUR);
     expect(d.due).toBe(false);
-    expect(d.reason).toContain('07:00 UTC');
+    expect(d.reason).toContain('02:00 UTC');
+  });
+
+  it('starts at 02:00 UTC by default', () => {
+    // Pinned deliberately. The hour trades Sippy's CDR settling window against
+    // how early finance sees the reconciliation, so moving it should be a
+    // decision someone makes, not a constant someone edits.
+    expect(DEFAULT_SCHEDULED_HOUR_UTC).toBe(2);
+    expect(decideDue([], new Date('2026-08-26T01:59:00Z')).due).toBe(false);
+    expect(decideDue([], new Date('2026-08-26T02:00:00Z')).due).toBe(true);
   });
 
   it('runs after the scheduled hour when the date has no run yet', () => {
@@ -133,6 +146,107 @@ describe('decideDue', () => {
     // labelled with another would be worse than no display at all.
     for (const rows of [[], [row('success', '2026-08-26T07:00:00Z')], [row('failed', '2026-08-26T07:00:00Z')]]) {
       expect(decideDue(rows as AttemptRow[], AFTER_HOUR).targetDate).toBe('2026-08-25');
+    }
+  });
+});
+
+/**
+ * Stage dependencies.
+ *
+ * The graph is a STAR around `dmr`, not a chain, because every middle stage
+ * reads daily_minutes_reports and none reads the snapshot or the margin
+ * tables. Verified against the source: margin makes 1 DMR read and 0 snapshot
+ * reads; the assurance detectors make 4 DMR reads and 0 snapshot/margin reads.
+ *
+ * A linear chain would cost two things that matter, and both are pinned below:
+ * a snapshot failure would block margin and assurance, which never read it;
+ * and an assurance failure would block invoice job creation, even though
+ * assurance is advisory ("AI suggests, humans approve") and billing-cycle
+ * detection reads none of its output. Stopping billing because an advisory
+ * scan errored is a worse failure than the scan itself.
+ */
+describe('blockedBy — stage prerequisites', () => {
+  const failed  = (s: StageName): StageStatus => ({ stage: s, status: 'failed' });
+  const ok      = (s: StageName): StageStatus => ({ stage: s, status: 'success' });
+  const skipped = (s: StageName): StageStatus => ({ stage: s, status: 'skipped' });
+
+  it('lets everything run when nothing has failed', () => {
+    const done = [ok('dmr'), ok('snapshot')];
+    for (const s of Object.keys(STAGE_PREREQUISITES) as StageName[]) {
+      expect(blockedBy(s, done)).toBeNull();
+    }
+  });
+
+  it('blocks every DMR dependent when DMR fails', () => {
+    const done = [failed('dmr')];
+    expect(blockedBy('snapshot',  done)).toBe('dmr');
+    expect(blockedBy('dmr-email', done)).toBe('dmr');
+    expect(blockedBy('margin',    done)).toBe('dmr');
+    expect(blockedBy('assurance', done)).toBe('dmr');
+  });
+
+  it('still runs billing-cycle detection when DMR fails', () => {
+    // It reads sippy accounts and invoices, not DMR. Traffic-independent work
+    // must not stop because a report did.
+    expect(blockedBy('billing-cycles', [failed('dmr')])).toBeNull();
+  });
+
+  it('does NOT block margin or assurance on a snapshot failure', () => {
+    // The regression a linear chain would introduce. Both read DMR directly.
+    const done = [ok('dmr'), failed('snapshot')];
+    expect(blockedBy('margin',    done)).toBeNull();
+    expect(blockedBy('assurance', done)).toBeNull();
+  });
+
+  it('does NOT let an advisory assurance failure stop billing', () => {
+    const done = [ok('dmr'), ok('snapshot'), ok('margin'), failed('assurance')];
+    expect(blockedBy('billing-cycles', done)).toBeNull();
+  });
+
+  it('does NOT let a failed margin stop anything', () => {
+    const done = [ok('dmr'), failed('margin')];
+    expect(blockedBy('assurance',      done)).toBeNull();
+    expect(blockedBy('billing-cycles', done)).toBeNull();
+  });
+
+  it('does NOT let a failed email stop the computation stages', () => {
+    // An SMTP outage is not a data problem.
+    const done = [ok('dmr'), failed('dmr-email')];
+    expect(blockedBy('margin',         done)).toBeNull();
+    expect(blockedBy('assurance',      done)).toBeNull();
+    expect(blockedBy('billing-cycles', done)).toBeNull();
+  });
+
+  it('treats a SKIPPED prerequisite as satisfied, not as failed', () => {
+    // The most common healthy path: DMR skips because rows for the date
+    // already exist. Treating that as failure would stall the whole pipeline
+    // exactly when nothing is wrong.
+    const done = [skipped('dmr')];
+    expect(blockedBy('snapshot',  done)).toBeNull();
+    expect(blockedBy('margin',    done)).toBeNull();
+    expect(blockedBy('assurance', done)).toBeNull();
+  });
+
+  it('does not block on a prerequisite that has not run yet', () => {
+    // Keeps the rule correct if stages are ever reordered or run selectively.
+    expect(blockedBy('margin', [])).toBeNull();
+  });
+
+  it('dmr itself is never blocked — it is the root', () => {
+    expect(blockedBy('dmr', [failed('snapshot'), failed('margin')])).toBeNull();
+  });
+
+  it('every declared prerequisite is itself a real stage', () => {
+    // A typo'd prerequisite would silently never match and never block.
+    const names = Object.keys(STAGE_PREREQUISITES) as StageName[];
+    for (const prereqs of Object.values(STAGE_PREREQUISITES)) {
+      for (const p of prereqs) expect(names).toContain(p);
+    }
+  });
+
+  it('has no stage depending on itself', () => {
+    for (const [stage, prereqs] of Object.entries(STAGE_PREREQUISITES)) {
+      expect(prereqs).not.toContain(stage as StageName);
     }
   });
 });

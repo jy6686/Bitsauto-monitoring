@@ -1,10 +1,16 @@
 /**
  * daily-pipeline.service.ts
  *
- * The nightly finance pipeline: one ordered run per business day, recorded in
+ * The nightly finance pipeline: one run per business day, recorded in
  * finance_pipeline_runs.
  *
- *   DMR -> snapshot -> DMR email -> margin -> AI assurance -> billing cycles
+ * Stages RUN in this order — dmr, snapshot, dmr-email, margin, assurance,
+ * billing-cycles — but they do not DEPEND on it. Execution order and the
+ * dependency graph are different things, and conflating them is how an
+ * advisory scan ends up blocking billing. The real graph is a star: every
+ * middle stage reads daily_minutes_reports, so all four depend on `dmr` and on
+ * nothing else, while billing-cycles depends on nothing at all. It is declared
+ * once, from what each stage actually reads, in STAGE_PREREQUISITES.
  *
  * It STOPS at job creation. Approval and dispatch stay operator-triggered:
  * both are outward-facing (a dispatched invoice emails a real customer) and
@@ -35,24 +41,17 @@ import { db } from '../../db';
 import { sql } from 'drizzle-orm';
 import { storage } from '../../storage';
 import {
-  decideDue, defaultTargetDate,
+  decideDue, defaultTargetDate, blockedBy,
   DEFAULT_SCHEDULED_HOUR_UTC, DEFAULT_MAX_ATTEMPTS, DEFAULT_STALE_RUNNING_MS,
-  type AttemptRow, type DueDecision,
+  type AttemptRow, type DueDecision, type StageName,
 } from '../../finance-pipeline-schedule';
 
-export { decideDue, defaultTargetDate, type AttemptRow, type DueDecision };
+export { decideDue, defaultTargetDate, blockedBy, type AttemptRow, type DueDecision, type StageName };
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
-/**
- * Hour (UTC) after which a business day is considered ready to process.
- *
- * Default 07:00 rather than 00:05. The target date is yesterday, and at 00:05
- * yesterday ended five minutes ago — Sippy CDRs for the final minutes have not
- * necessarily settled, so a midnight run risks billing a short day. 07:00 is
- * also what the existing DMR email already assumed. Override with
- * FINANCE_PIPELINE_HOUR_UTC if the CDR settling window is known to be shorter.
- */
+/** Hour (UTC) after which a business day is ready to process — see the
+ *  reasoning on DEFAULT_SCHEDULED_HOUR_UTC. Override per instance. */
 const SCHEDULED_HOUR_UTC = (() => {
   const raw = Number(process.env.FINANCE_PIPELINE_HOUR_UTC);
   return Number.isInteger(raw) && raw >= 0 && raw <= 23 ? raw : DEFAULT_SCHEDULED_HOUR_UTC;
@@ -81,9 +80,6 @@ const ADVISORY_LOCK_KEY = 42002;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type StageName =
-  | 'dmr' | 'snapshot' | 'dmr-email' | 'margin' | 'assurance' | 'billing-cycles';
-
 export interface StageOutcome {
   stage:      StageName;
   status:     'success' | 'failed' | 'skipped';
@@ -111,17 +107,30 @@ function isIsoDate(v: string): boolean {
 // ── Stage runner ──────────────────────────────────────────────────────────────
 
 /**
- * Runs one stage and converts any throw into a recorded outcome.
+ * Runs one stage, unless something it depends on has failed.
  *
- * Stages do not abort the pipeline. A failed margin computation is not a
- * reason to skip billing-cycle detection — they read different data and a
- * fault in one says nothing about the other. The run's overall status
- * summarises what happened; the per-stage record says where.
+ * Failure is contained rather than propagated: a stage only skips when a
+ * prerequisite it genuinely READS has failed (see STAGE_PREREQUISITES, which
+ * is a star around `dmr`, not a chain). A failed margin computation is not a
+ * reason to skip billing-cycle detection — they read different data, and a
+ * fault in one says nothing about the other.
+ *
+ * A blocked stage is recorded as 'skipped' NAMING its blocker, so the ledger
+ * distinguishes "did not run because DMR failed" from "ran and failed" and
+ * from "had nothing to do". Those three look identical in a log line and want
+ * three different responses.
  */
 async function runStage(
   stage: StageName,
+  completed: StageOutcome[],
   fn: () => Promise<{ detail?: string; skipped?: boolean }>,
 ): Promise<StageOutcome> {
+  const blocker = blockedBy(stage, completed);
+  if (blocker) {
+    console.warn(`[finance-pipeline] ${stage}: skipped — prerequisite '${blocker}' failed`);
+    return { stage, status: 'skipped', durationMs: 0, detail: `blocked by failed '${blocker}'` };
+  }
+
   const t0 = Date.now();
   try {
     const r = await fn();
@@ -194,7 +203,7 @@ export async function runDailyFinancePipeline(opts: {
     // First, because everything downstream reads daily_minutes_reports. The
     // user-facing pipeline diagram put snapshot first; that order cannot work,
     // since materialization transforms DMR rows that would not exist yet.
-    stages.push(await runStage('dmr', async () => {
+    stages.push(await runStage('dmr', stages, async () => {
       const existing = await storage.listDMRReports({ reportDate: targetDate, latestVersionOnly: true });
       if (existing.length > 0) {
         return { skipped: true, detail: `${existing.length} row(s) already present for ${targetDate}` };
@@ -210,7 +219,7 @@ export async function runDailyFinancePipeline(opts: {
     }));
 
     // ── 2. Snapshot materialization ───────────────────────────────────────────
-    stages.push(await runStage('snapshot', async () => {
+    stages.push(await runStage('snapshot', stages, async () => {
       const { runMaterialization } = await import('../sippy/index');
       const r = await runMaterialization('scheduler', [targetDate]);
       if (r.status !== 'success') throw new Error(r.error ?? 'materialization reported failure');
@@ -220,7 +229,7 @@ export async function runDailyFinancePipeline(opts: {
     // ── 3. DMR email ──────────────────────────────────────────────────────────
     // The only outbound step in the pipeline, and the only one whose result was
     // previously invisible once logs rolled. Recipients are recorded here.
-    stages.push(await runStage('dmr-email', async () => {
+    stages.push(await runStage('dmr-email', stages, async () => {
       if (opts.skipEmail) return { skipped: true, detail: 'skipEmail requested' };
       const { scheduledDispatchAllowed } = await import('../../email');
       if (!scheduledDispatchAllowed()) {
@@ -233,7 +242,7 @@ export async function runDailyFinancePipeline(opts: {
     }));
 
     // ── 4. Margin ─────────────────────────────────────────────────────────────
-    stages.push(await runStage('margin', async () => {
+    stages.push(await runStage('margin', stages, async () => {
       const { materializeMargin } = await import('../sippy/index');
       const r = await materializeMargin(new Date(`${targetDate}T00:00:00Z`));
       if (r.errors?.length) console.warn(`[finance-pipeline] margin warnings: ${r.errors.join('; ')}`);
@@ -242,8 +251,12 @@ export async function runDailyFinancePipeline(opts: {
     }));
 
     // ── 5. AI assurance ───────────────────────────────────────────────────────
-    // After margin: detectMarginCollapse reads what the previous stage wrote.
-    stages.push(await runStage('assurance', async () => {
+    // Runs after margin, but does NOT depend on it — an earlier version of
+    // this comment claimed detectMarginCollapse reads what margin wrote. It
+    // does not: all five detectors read DMR reports, invoices, reconciliation
+    // records and credit notes. Hence prerequisite 'dmr', not 'margin'.
+    // Advisory by design, so nothing downstream waits on it either.
+    stages.push(await runStage('assurance', stages, async () => {
       const { runFullScan } = await import('../sippy/index');
       const r = await runFullScan('pipeline');
       return { detail: `scan #${r.scanRunId}: ${r.totalAlerts} alert(s) from ${r.detectorResults.length} detector(s)` };
@@ -252,7 +265,7 @@ export async function runDailyFinancePipeline(opts: {
     // ── 6. Billing cycle detection ────────────────────────────────────────────
     // The pipeline's last act. It CREATES invoice jobs in Pending; it does not
     // generate, approve, or send anything.
-    stages.push(await runStage('billing-cycles', async () => {
+    stages.push(await runStage('billing-cycles', stages, async () => {
       const { detectBillingCycles } = await import('../sippy/index');
       const r = await detectBillingCycles();
       return { detail: `${r.created} job(s) created, ${r.skipped} skipped${r.detected.length ? ` — ${r.detected.join(', ')}` : ''}` };
