@@ -6,6 +6,10 @@ import { describe, it, expect, vi } from 'vitest';
 // shipped implementation, which is the entire point of a probe.
 vi.mock('./storage', () => ({ storage: {} }));
 vi.mock('./db', () => ({ db: {} }));
+// sippy.ts is imported for the real toSippyDate — the conversion billing performs.
+// Its module-level integrations are irrelevant to a pure date format and are stubbed
+// only where importing would otherwise reach for them.
+vi.mock('./email', () => ({}));
 
 import { policyConformance, type PolicyCheck } from './policy-conformance';
 
@@ -18,7 +22,7 @@ describe('policyConformance — it measures rather than asserts', () => {
     const rate = find(checks, 'Rate rows are selected by the date');
 
     expect(rate).toBeDefined();
-    expect(rate!.method).toBe('probed');
+    expect(rate!.kind).toBe('measured');
 
     /**
      * BILLING-POLICY §4.1: resolveRate matches on prefix length only and never
@@ -40,30 +44,57 @@ describe('policyConformance — it measures rather than asserts', () => {
     const periods = find(checks, 'Periods are half-open');
 
     expect(periods).toBeDefined();
-    expect(periods!.method).toBe('probed');
+    expect(periods!.kind).toBe('measured');
     // billing-periods.ts is the one component already built to the frozen policy.
     expect(periods!.status).toBe('conforms');
     expect(periods!.detail).toMatch(/Monday/);
   });
 
-  it('probes the clock rather than reading a zone name', async () => {
+  /**
+   * Measuring `new Date()` would measure a JavaScript behaviour. What matters is
+   * the conversion the seeder's window actually passes through on its way to the
+   * switch, so the probe exercises toSippyDate itself.
+   */
+  it('measures the conversion billing performs, not a zone name', async () => {
     const checks = await policyConformance();
-    const clock = find(checks, 'UTC is the only billing clock');
+    const conv = find(checks, 'The date conversion billing uses emits UTC');
 
-    expect(clock).toBeDefined();
-    expect(clock!.method).toBe('probed');
-    // Whichever way it lands, the answer must be derived from this host, so it
-    // is asserted against the same expression the code under test uses rather
-    // than against a hard-coded expectation about the machine running the suite.
-    const hostIsUtc = new Date('2026-01-01T00:00:00').getUTCHours() === 0;
-    expect(clock!.status).toBe(hostIsUtc ? 'conforms' : 'diverges');
+    expect(conv).toBeDefined();
+    expect(conv!.kind).toBe('measured');
+    expect(conv!.reference).toMatch(/sippy\.ts:3565/);
+
+    // A probe that cannot load the code it measures is useless, so 'unknown' is
+    // a failure here rather than an acceptable outcome.
+    expect(conv!.status).not.toBe('unknown');
+
+    // Asserted against the host this suite runs on rather than a fixed
+    // expectation, since the answer is a property of the machine. Verified both
+    // ways before this was committed: TZ=UTC yields conforms, TZ=Asia/Karachi
+    // yields diverges — so the probe measures rather than always reporting one.
+    const hostIsUtc = new Date('2026-08-16T00:00:00').getUTCHours() === 0;
+    expect(conv!.status).toBe(hostIsUtc ? 'conforms' : 'diverges');
+  });
+
+  it('reports repository state as derived, not measured', async () => {
+    const empty = await policyConformance({ repositoryPopulated: false });
+    const check = find(empty, 'The CDR repository holds evidence');
+    expect(check!.kind).toBe('derived');
+    expect(check!.status).toBe('diverges');
+    expect(check!.detail).toMatch(/not the same finding as data loss/);
+
+    const full = await policyConformance({ repositoryPopulated: true });
+    expect(find(full, 'The CDR repository holds evidence')!.status).toBe('conforms');
+
+    // Omitted entirely when there is no runtime state to derive it from.
+    const none = await policyConformance();
+    expect(find(none, 'The CDR repository holds evidence')).toBeUndefined();
   });
 });
 
 describe('policyConformance — declared facts are labelled as such', () => {
   it('never presents a code-review fact as a measurement', async () => {
     const checks = await policyConformance();
-    const declared = checks.filter(c => c.method === 'declared');
+    const declared = checks.filter(c => c.kind === 'declared');
 
     expect(declared.length).toBeGreaterThan(0);
     // A declared fact goes stale silently, so every one must carry the place it
@@ -86,7 +117,7 @@ describe('policyConformance — declared facts are labelled as such', () => {
     expect(checks.length).toBeGreaterThanOrEqual(6);
     for (const c of checks) {
       expect(['conforms', 'diverges', 'unknown']).toContain(c.status);
-      expect(['probed', 'declared']).toContain(c.method);
+      expect(['measured', 'derived', 'declared']).toContain(c.kind);
       expect(c.rule).toBeTruthy();
       expect(c.reference).toBeTruthy();
     }

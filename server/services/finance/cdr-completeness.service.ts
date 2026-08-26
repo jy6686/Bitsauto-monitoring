@@ -229,10 +229,12 @@ export async function measureCompleteness(
       }
     : null;
 
-  const [environment, policy] = await Promise.all([
-    environmentFingerprint(),
-    policyConformance(),
-  ]);
+  const environment = await environmentFingerprint();
+  const policy = await policyConformance({
+    repositoryPopulated: 'rawCdrs' in environment.repository
+      ? environment.repository.rawCdrs.populated
+      : null,
+  });
   const verdict = assessCompleteness(stages, { tolerancePct: q.tolerancePct, identity });
 
   if (!environment.clock.utc) {
