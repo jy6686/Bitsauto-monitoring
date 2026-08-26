@@ -1,4 +1,10 @@
-# Financial Reconciliation Contract
+# Billing Reconciliation Contract
+
+> **Named deliberately.** `Financial Reconciliation` is already taken by F3
+> (`/finance/reconciliation`), which reads `financial_snapshot` only and never leaves BitsAuto's
+> own data. This document specifies **Billing Reconciliation** — the comparison against an
+> independent Sippy reference — as a new reconciliation *type* inside the existing Revenue
+> Assurance framework. See §2 and §9.2.
 
 **Status: FROZEN — 2026-08-26. Owner-decided. No code before this document is agreed.**
 
@@ -32,17 +38,23 @@ the customer.
 
 ---
 
-## 2. Terminology — two distinct gates
+## 2. Terminology — three things called reconciliation
 
-These have been used interchangeably and must not be.
+These have been used interchangeably and must not be. Two of them gate an invoice; one does not.
 
-| | Certification | Financial Reconciliation |
-|---|---|---|
-| **Question** | Does our rating engine compute what the switch computed, per call? | Does the bill we are about to issue match the switch's own summary? |
-| **Compares** | `reproducedCost` vs `actual_cost`, call by call | BitsAuto DMR vs Sippy Customer Summary, row by row |
-| **Reference** | The CDR's own cost field — already inside BitsAuto | An independently produced Sippy report |
-| **Proves** | The engine is correct | The bill is complete and correct |
-| **Exists today** | Yes | No |
+| | Certification | Billing Reconciliation | Financial Reconciliation (F3) |
+|---|---|---|---|
+| **Question** | Does our rating engine compute what the switch computed, per call? | Does the bill we are about to issue match the switch's own summary? | Are BitsAuto's own financial snapshots internally consistent? |
+| **Compares** | `reproducedCost` vs `actual_cost`, call by call | BitsAuto DMR vs Sippy Customer Summary, row by row | `financial_snapshot` against itself, with AI anomaly detection |
+| **Reference** | The CDR's own cost field — already inside BitsAuto | An independently produced Sippy report | None external — by contract, reads `financial_snapshot` ONLY |
+| **Proves** | The engine is correct | The bill is complete and correct | Nothing about completeness against the switch |
+| **Gates invoicing** | Yes | Yes, once enforced (§11) | No |
+| **Exists today** | Yes | No | Yes |
+
+**F3 is not a substitute and was never intended as one.** Its own contract rule — *"Read
+`financial_snapshot` ONLY"* — is what makes it unable to detect the failure that motivated this
+document: a population that is internally consistent and 99% incomplete. Both engines are correct
+at what they do. Only one of them ever looks outside BitsAuto.
 
 Certification cannot detect a missing population: it only inspects calls that were imported.
 Reconciliation cannot detect a per-call rating error that cancels out in aggregate.
@@ -309,11 +321,17 @@ Everything else is read-only. Any pull request that widens this list is out of c
 **Owner decision: reconciliation adds no page and no navigation item.** It appears as a step inside
 the workflow Finance already uses, on screens they already know.
 
+**And no sixth reconciliation system.** Five already exist, all routed: `/finance/reconciliation`
+(F3) · `/client-reconciliation` · `/carrier-reconciliation` · `/cdr-reconciliation` · `/recon-lab`,
+with migration 031 registering several under Finance → **Revenue Assurance**. Billing
+Reconciliation is a reconciliation *type* within that framework — a tab beside the existing ones,
+not a sibling application.
+
 | Existing surface | Addition |
 |---|---|
-| DMR / Billing | A reconciliation status panel after DMR generation — per-field ✓/✗ and an overall status |
-| Billing | A section or tab alongside DMR and Invoices — **not** a sibling page |
-| Invoice generation | The reconciliation result shown at the point of generation, with the reason when it blocks |
+| Revenue Assurance | Billing Reconciliation as a type alongside Financial / Client / Carrier / CDR |
+| DMR / Billing | A status panel after DMR generation — per-field ✓/✗ and an overall status |
+| Invoice generation | The result shown at the point of generation, with the reason when it blocks |
 | Invoice PDF | A provenance block: status, what it was verified against, when, by whom — or the override stamp (§8) |
 
 Untouched: Profit/Loss · margin reports · finance dashboard · DMR reports · billing reports ·
@@ -322,6 +340,29 @@ existing query is rewritten. Every one of these keeps reading the same BitsAuto 
 today.
 
 No duplicate billing tables. Reconciliation persists its own results (§9, write 1) and nothing else.
+
+### 9.2 Share the framework — only the comparison is new
+
+One framework, several engines. **Only the comparison logic differs**; everything around it is
+already built and must be reused rather than reimplemented:
+
+append-only reconciliation runs · audit history · export engine · scheduling · email delivery ·
+result storage · evidence attachments · version stamping
+
+F3 is the pattern to follow, from its own contract:
+
+- **Append-only** — no `UPDATE` to result rows; a re-run creates a new run
+- **`reason_code` non-null on every discrepancy** — a difference with no classification is not a
+  finding, it is a number
+- **Findings link their run and their record**, so any conclusion traces to the row that produced it
+- **Version-stamped reproducibility** — *same reference + same engine version → identical result.*
+  For Billing Reconciliation the reference is external, so the retrieved summary must be stored
+  with the run; re-running against a re-fetched summary is a different run, not a repeat of the
+  same one.
+
+The last point is the one that does not carry over unchanged from F3, and it matters: F3's input is
+a local snapshot that cannot move under it. Ours is a report fetched over the network, which can.
+Reproducibility therefore requires **persisting the reference as retrieved**, not just its verdict.
 
 ---
 
@@ -417,10 +458,13 @@ Owner-set. Reconciliation cannot be trusted until the pipeline feeding it is:
 3. **Standardise money aggregation** (§10) — so the tolerance means something. **Affects every
    financial total on the platform, not only reconciliation**, which is why it is not deferred into
    the reconciliation build.
-4. **Reconciliation inside the existing Billing workflow** — no new pages (§9.1), report-only.
-5. **Enable enforcement** — only after Phase 1 has demonstrated stability on production data.
+4. **Consolidate CSV/XLSX import and export into one shared library** — so identity fields survive a
+   round trip and exports carry stored rather than display precision (§12).
+5. **Billing Reconciliation inside the existing Revenue Assurance framework** — no new pages, no
+   sixth system (§9.1, §9.2), report-only.
+6. **Enable enforcement** — only after Phase 1 has demonstrated stability on production data.
 
-Steps 1–3 are prerequisites, not parallel work.
+Steps 1–4 are prerequisites, not parallel work.
 
 **Hard enforcement additionally requires all five closed:** CDR population completeness verified ·
 rating verification matching Sippy · money aggregation consistent (§10) · period boundaries aligned
@@ -435,7 +479,38 @@ identify the single point every invoice passes through, or create one.
 
 ---
 
-## 12. Open — not decided by this contract
+## 12. Data interchange — CSV and XLSX
+
+**CSV and XLSX are the platform's data formats; PDF is for customer-facing documents only.** Import
+and export both, everywhere finance data moves: rate cards · destination catalogue · accounts ·
+commercial mapping · tariffs · DMR · billing reports · invoice breakout · reconciliation · customer
+statements · rating verification · margin · P&L.
+
+Conventions: UTF-8 · header row · UTC timestamps · `.` decimal separator · `YYYY-MM-DD` dates ·
+`YYYY-MM-DD HH:MM:SS UTC` datetimes · one worksheet per dataset.
+
+**One shared library.** Today there are 48 export/import sites across 14 files and no shared
+server-side helper — `buildXLSXBuffer` in `server/services/billing/reconciliation-export.ts` and
+`client/src/lib/export-excel.ts` are two competing implementations, with more in `sippy.ts`,
+`rate-matrix.ts` and `destination-workbook.ts`. Consolidating them is build-order step 4 because
+two rules cannot be enforced piecemeal:
+
+**1. Identity columns must survive a round trip.** Prefix is part of the billing identity
+(`BILLING-POLICY.md` §5). Opened in Excel, a CSV turns `0044` into `44` — export, edit, re-import,
+and the destination a rate belongs to has silently changed. Prefixes, account ids, tariff ids and
+CDR ids are written as **text**, and importers must not coerce them.
+
+**2. Exports carry stored precision, never display precision.** The same defect as §3.2: Sippy
+renders `0.0098` for a rate that bills `0.00985`. Export a rate card at display precision, re-import
+it, and every rate on it changes. Exports intended as data — as opposed to a rendered document —
+carry the full stored value.
+
+Both rules exist because the platform has already been bitten by the display-vs-stored distinction
+in a different place this month. They are not hypothetical.
+
+---
+
+## 13. Open — not decided by this contract
 
 - Whether `customer_reports.php` CSV export is reachable with the credentials the platform holds.
   The whole design rests on it; unverified.
@@ -448,7 +523,7 @@ identify the single point every invoice passes through, or create one.
 
 ---
 
-## 13. Provenance
+## 14. Provenance
 
 Owner decisions, 2026-08-26, in sequence: reconciliation as a mandatory pre-invoice gate ·
 separate module from Profit/Loss · adapter interface for the reference · identity is

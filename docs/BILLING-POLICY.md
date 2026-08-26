@@ -6,7 +6,7 @@ The business rules every finance module follows: CDR import, rating, DMR, reconc
 generation, finance reports. Where a rule is already implemented this document points at the code
 rather than restating it — a policy that exists in two places drifts.
 
-Companion: `docs/FINANCIAL-RECONCILIATION-CONTRACT.md` (the pre-invoice gate).
+Companion: `docs/BILLING-RECONCILIATION-CONTRACT.md` (the pre-invoice gate).
 
 ---
 
@@ -35,7 +35,7 @@ business intent; only one of them is safe to implement. `BillingPeriod` therefor
 inclusive `end` (what the invoice *prints*) and an `endExclusive` (what every *query* compares
 against).
 
-**The seeder does not yet follow this** — `server/routes.ts:32719` builds `T23:59:59`. See §7.
+**The seeder does not yet follow this** — `server/routes.ts:32719` builds `T23:59:59`. See §8.
 
 ---
 
@@ -91,7 +91,7 @@ An invoice therefore carries **one breakout row per rate**, not a blended averag
 | Pakistan Fixed | 0.032 | 95.25 | 3.05 |
 | Pakistan Fixed | 0.030 | 80.10 | 2.40 |
 
-### 4.1 This rule is not implementable today — see §7
+### 4.1 This rule is not implementable today — see §8
 
 Effective dating exists at the **tariff version** level: `tariff_versions.effective_from` /
 `effective_to` are `timestamp` columns (migration 074), so sub-day changes are representable and no
@@ -132,7 +132,7 @@ Rate is part of the row's identity, not a display attribute derived after groupi
 `bd978ad8`. §4 is why: blend two rates into one row and a mid-period change becomes invisible on the
 document, and unreconcilable against Sippy, whose own summary groups by "Prefix and Price".
 
-The reconciliation uses this same identity (`FINANCIAL-RECONCILIATION-CONTRACT.md` §4), so DMR,
+The reconciliation uses this same identity (`BILLING-RECONCILIATION-CONTRACT.md` §4), so DMR,
 invoice, reconciliation and finance reports all aggregate the same business entity.
 
 ---
@@ -166,11 +166,11 @@ month-end close, VAT and account reconciliation would then have to apportion.
 
 ```
 Sippy CDR → Import → Destination Catalogue → Tariff → Rating → DMR
-    → Financial Reconciliation → PASS → Invoice
+    → Billing Reconciliation → PASS → Invoice
 ```
 
 Reconciliation starts report-only and becomes a gate per the rollout in
-`FINANCIAL-RECONCILIATION-CONTRACT.md` §11. Invoice generation additionally requires the billing
+`BILLING-RECONCILIATION-CONTRACT.md` §11. Invoice generation additionally requires the billing
 period to be closed (`isPeriodClosed`, `isAccountingMonthClosed`).
 
 ---
@@ -189,7 +189,7 @@ Honest as of 2026-08-26. Freezing a policy does not implement it.
 | §5 Breakout identity includes rate | `bd978ad8` |
 | §6 Cycles | `billing-periods.ts`, tested |
 | §6.1 Month-end precedence | `splitAtMonthEnd()`, tested |
-| §7 Reconciliation gate | Specified, not built |
+| §7 Reconciliation gate | Specified, not built. NB five reconciliation subsystems already exist; this is a new TYPE inside Revenue Assurance, not a sixth system |
 
 Three items need work before this policy is true end to end: the row-level rate resolver (§4.1),
 the seeder's period bound (§1.1), and an audit of which downstream surfaces still read raw Sippy
