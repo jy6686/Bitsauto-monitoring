@@ -4707,10 +4707,9 @@ export async function getSippyCDRsPage(
  * the dozens of dashboard/analytics callers. Billing ingestion must NOT use
  * this — it cannot tell a fault from an empty window; use getSippyCDRsPage.
  *
- * KNOWN BILLING CALLER STILL ON THIS SHAPE: /api/invoices/from-sippy
- * (routes.ts ~34537) — one unpaginated 50k call that also inherits the
- * fault-reads-as-empty defect. Migrating it needs real pagination and is
- * tracked separately; do not add new billing callers here.
+ * As of 2026-08-27 NO billing path uses this shape (owner rule: exactly one
+ * strict fetch implementation for anything that can affect money). Do not add
+ * billing callers here — use getSippyCDRsPage.
  */
 export async function getSippyCDRs(
   username: string,

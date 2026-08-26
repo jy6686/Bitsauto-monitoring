@@ -306,6 +306,59 @@ for, never a limit on this side.
 
 ---
 
+## 7.3 The fetch discipline and the four layers
+
+**Owner decisions, 2026-08-27.**
+
+### Three-state fetch — the standard everywhere Sippy is queried
+
+```
+SUCCESS  ├── records returned
+         └── no records            a valid empty window, said in-band
+FAILED   ├── authentication        · XML-RPC fault · timeout
+         ├── HTTP error            · invalid response · connectivity
+```
+
+**Never collapse FAILED into EMPTY.** Implemented for billing in
+`getSippyCDRsPage` + `server/cdr-fetch-page.ts`; the collapsing `getSippyCDRs`
+remains for dashboards only. **No path that can affect money may use the
+collapsing shape** — as of 2026-08-27 none does.
+
+Corollaries, all implemented: a failed seed STOPS the billing chain (there is no
+value in certifying an incomplete population) · imports are all-or-nothing per
+credential (a financial system never silently accepts a partial import) · a
+fetch that never ran (breaker open, no credentials) is a failure, not an empty
+period.
+
+### Four layers, one responsibility each
+
+| Layer | Responsibility |
+|---|---|
+| **Raw CDR Repository** | Truth. Never edited. |
+| **Certification** | Can we reproduce Sippy, per call? |
+| **DMR** | Commercial operational summary — **not** a financial control (§2.1 of the reconciliation contract) |
+| **Billing Reconciliation** | Does BitsAuto agree with Sippy? The financial gate. |
+| **Invoice** | Consumes approved data only. Performs no validation itself. |
+
+`/api/invoices/generate-from-sippy` currently violates the last row twice: it
+builds an invoice directly from a live fetch rather than from approved
+snapshots, and it writes the same figure into both `totalReproduced` and
+`totalActual` with `totalDelta: 0` — the fourth "comparison that cannot fail"
+found on this platform. Its fetch is now strict; its architecture is future
+work under this table.
+
+### Per-period pipeline status
+
+Owner requirement: one place showing, for a billing period,
+`CDR Import → Certification → DMR → Billing Reconciliation → Invoice` with each
+stage complete / failed / blocked — so why a period cannot be invoiced is read
+off one screen, not assembled from logs. **This is the Trace View of the
+consolidated diagnostic already designed (and parked on two fatal objections) —
+it must not become a sixth status system.** Build it as a projection of the
+shared diagnostic core when that design is repaired.
+
+---
+
 ## 8. Implementation status
 
 Honest as of 2026-08-26. Freezing a policy does not implement it.

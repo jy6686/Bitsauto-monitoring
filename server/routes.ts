@@ -34615,106 +34615,78 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const accountUsername = (accountInfo as any).username as string | undefined;
       const iTariff      = (accountInfo as any).iTariff ? String((accountInfo as any).iTariff) : undefined;
 
-      // ── 2. Fetch CDRs — XML-RPC first, portal scrape fallback ───────────────
+      // ── 2. Fetch CDRs — STRICT Admin API only (owner rule, 2026-08-27) ────
+      // "There should be exactly one strict fetch implementation for anything
+      // that can affect money." This path previously tried one unpaginated
+      // 50,000-row call through the collapsing wrapper — where a fault reads
+      // as an empty month — then fell back to the portal scrape and the
+      // dashboard CDR cache, the two sources the billing seeder's own contract
+      // bans: "operational live-traffic data must never be mixed with
+      // invoice-quality billing records". An invoice was reachable on scrape
+      // data. Now: paginated strict fetch, method pinned for the run,
+      // all-or-nothing per credential, and a failed fetch is a 502 — never
+      // "No CDRs found", and never an invoice built on a non-billing source.
       console.log(`[invoices/from-sippy] Fetching CDRs for account #${iAccount} ${periodStart}–${periodEnd}`);
+      const { classifyCdrPage: classifyInvPage } = await import('./cdr-fetch-page');
       let cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+      const invFetchErrors: string[] = [];
+      let invCleanEmpty = false;
+      let invRowsBeforeError = 0;
+      const INV_PAGE = 500;
 
-      // Attempt A: XML-RPC (try all credential pairs)
       if (!xmlRpcCircuitGuard()) {
+        invCredLoop:
         for (const { username, password } of credPairs) {
-          const batch = await sippy.getSippyCDRs(
-            username, password, 50_000,
-            { iAccount: Number(iAccount), startDate: periodStart, endDate: periodEnd, type: 'complete' },
-            portalUrl,
-          );
-          if (batch.length > 0) { xmlRpcRecordSuccess(); cdrs = batch; break; }
-        }
-      }
-
-      // Attempt B: portal scrape — scrapePortalCDRsAll with date filter, then filter by account
-      // Uses same credential strategy as refreshCdrCache (portUser+portPass → apiUser+webPass)
-      if (cdrs.length === 0) {
-        const portUser = settings.portalUsername    ?? '';
-        const portPass = settings.portalPassword    ?? '';
-        const apiUser  = settings.apiAdminUsername  ?? '';
-        const apiPass  = settings.apiAdminPassword  ?? '';
-        const webPass  = (settings as any).adminWebPassword ?? '';
-
-        // Portal scrape with server-side iAccount filter (caller=N_N param).
-        // scrapePortalCDRsAll now supports iAccount → no client-side user-field matching needed.
-        // Credential order mirrors refreshCdrCache: portUser+portPass → apiUser+webPass → apiUser+apiPass
-        const portalScrapeAttempts = [
-          { user: portUser, pass: portPass, fallbackUser: apiUser, fallbackPass: webPass || apiPass },
-          { user: apiUser,  pass: webPass  },
-          { user: apiUser,  pass: apiPass  },
-        ].filter(a => a.user && a.pass);
-
-        for (const { user, pass, fallbackUser, fallbackPass } of portalScrapeAttempts) {
-          if (cdrs.length > 0) break;
-          try {
-            // First attempt: with date filter (periodStart→periodEnd)
-            const withDate = await sippy.scrapePortalCDRsAll(user, pass, portalUrl, {
-              startDate:        periodStart,
-              endDate:          periodEnd,
-              iAccount:         Number(iAccount),
-              maxPages:         200,
-              fallbackUsername: fallbackUser,
-              fallbackPassword: fallbackPass,
-            });
-            if (withDate.length > 0) {
-              cdrs = withDate;
-              console.log(`[invoices/from-sippy] portal fallback (date-filtered): ${cdrs.length} CDRs for acct #${iAccount} via ${user}`);
-              break;
+          const acc: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
+          let offset = 0;
+          let credFailed = false;
+          let pinned: string | null = null;
+          while (true) {
+            const page = await sippy.getSippyCDRsPage(username, password, INV_PAGE,
+              { iAccount: Number(iAccount), startDate: periodStart, endDate: periodEnd, type: 'complete', offset },
+              portalUrl);
+            if (page.ok && pinned !== null && page.method !== pinned) {
+              invFetchErrors.push(`${username} @ offset ${offset}: method switched ${pinned} → ${page.method} mid-pagination`);
+              credFailed = true; break;
             }
-
-            // Second attempt: no date filter — portal CDR retention may not cover the invoice period.
-            // Fetch recent CDRs for this account and filter by date client-side.
-            // Useful when periodStart is within the last ~7 days of portal CDR history.
-            const startMs = new Date(periodStart).getTime();
-            const endMs   = new Date(periodEnd + 'T23:59:59Z').getTime();
-            const withoutDate = await sippy.scrapePortalCDRsAll(user, pass, portalUrl, {
-              iAccount:         Number(iAccount),
-              maxPages:         200,
-              fallbackUsername: fallbackUser,
-              fallbackPassword: fallbackPass,
-            });
-            if (withoutDate.length > 0) {
-              const inRange = withoutDate.filter((c: any) => {
-                const ts = c.startTime ? new Date(c.startTime).getTime() : 0;
-                return ts >= startMs && ts <= endMs;
-              });
-              if (inRange.length > 0) {
-                cdrs = inRange;
-                console.log(`[invoices/from-sippy] portal fallback (no-date filter, in-range): ${inRange.length}/${withoutDate.length} CDRs for acct #${iAccount} via ${user}`);
-                break;
-              }
-              console.log(`[invoices/from-sippy] portal returned ${withoutDate.length} recent CDRs for acct #${iAccount} via ${user}, but 0 match period ${periodStart}–${periodEnd} — portal CDR retention may not cover this period`);
+            const outcome = classifyInvPage({ ok: page.ok, count: page.ok ? page.cdrs.length : 0 }, INV_PAGE);
+            if (outcome === 'error') {
+              console.warn(`[invoices/from-sippy] XML-RPC(${username}) ERROR at offset=${offset}: ${page.ok ? 'unknown' : page.error} — aborting this credential (${acc.length} partial CDRs discarded)`);
+              invFetchErrors.push(`${username} @ offset ${offset}: ${page.ok ? 'unknown' : page.error}`);
+              credFailed = true; break;
             }
-          } catch { /* try next cred pair */ }
-        }
-      }
-
-      // Attempt C: CDR cache fallback (background-populated, filtered by account + date range)
-      if (cdrs.length === 0 && cdrCache.size > 0) {
-        const startMs = new Date(periodStart).getTime();
-        const endMs   = new Date(periodEnd + 'T23:59:59Z').getTime();
-        const fromCache = [...cdrCache.values()].filter((c: any) => {
-          const ts = c.startTime ? new Date(c.startTime).getTime() : 0;
-          if (ts < startMs || ts > endMs) return false;
-          if (accountUsername && c.user && c.user !== accountUsername) return false;
-          if (!accountUsername && c.iAccount && Number(c.iAccount) !== Number(iAccount)) return false;
-          return true;
-        });
-        if (fromCache.length > 0) {
-          cdrs = fromCache;
-          console.log(`[invoices/from-sippy] cache fallback: ${cdrs.length} CDRs for account #${iAccount}`);
+            const rows = page.ok ? page.cdrs : [];
+            if (page.ok && pinned === null) pinned = page.method;
+            if (rows.length > 0) acc.push(...rows);
+            if (outcome === 'end_of_data') break;
+            offset += INV_PAGE;
+          }
+          if (!credFailed) {
+            xmlRpcRecordSuccess();
+            if (acc.length > 0) { cdrs = acc; break invCredLoop; }
+            invCleanEmpty = true;
+          } else {
+            invRowsBeforeError = Math.max(invRowsBeforeError, acc.length);
+          }
         }
       }
 
       if (cdrs.length === 0) {
+        const neverRan     = xmlRpcCircuitGuard() || credPairs.length === 0;
+        const contradicted = invCleanEmpty && invRowsBeforeError > 0;
+        if ((invFetchErrors.length > 0 && !invCleanEmpty) || contradicted || neverRan) {
+          return res.status(502).json({
+            error: 'CDR fetch FAILED — not an empty period',
+            detail: neverRan
+              ? 'The XML-RPC circuit breaker is open, or no credentials are configured (Settings → Sippy Connection). This invoice path does not fall back to portal-scrape or cached data — those are not billing-quality sources.'
+              : (contradicted
+                  ? `A credential retrieved ${invRowsBeforeError} CDR(s) before erroring, so the period is NOT empty. ${invFetchErrors.join(' · ')}`
+                  : invFetchErrors.join(' · ')),
+          });
+        }
         return res.status(422).json({
           error: 'No CDRs found',
-          detail: `No completed CDRs found for account #${iAccount} (${accountUsername ?? 'unknown'}) between ${periodStart} and ${periodEnd}. XML-RPC and portal scrape both returned 0. Verify the period and account ID.`,
+          detail: `The Admin API answered and reports no completed CDRs for account #${iAccount} (${accountUsername ?? 'unknown'}) between ${periodStart} and ${periodEnd}. Verify the period and account ID.`,
         });
       }
       console.log(`[invoices/from-sippy] ${cdrs.length} CDRs received for "${customerName}"`);
