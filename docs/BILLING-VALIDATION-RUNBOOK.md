@@ -190,6 +190,11 @@ It is classified into exactly one bucket:
 
 The DMR-gate finding above is the worked example: classified transitional debt, not a redesign.
 
+**The only condition that reopens the architecture** (owner, 2026-08-27): production evidence
+demonstrating that the frozen architecture itself is insufficient. Workspace reasoning, review
+findings, and better ideas do not qualify — only a measurement from the running system that the
+design cannot accommodate.
+
 ## Order and dependencies
 
 ```
