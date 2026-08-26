@@ -378,12 +378,20 @@ are separate decisions, and the surfaces may all ship while enforcement stays of
 
 | Phase | Behaviour | Exit criterion |
 |---|---|---|
-| **1 — Report only** | Reconciliation runs and is visible. Blocks nothing. | Finance agrees the comparison is correct on real periods |
-| **2 — Warning** | A failing reconciliation is shown on the invoice. Generation still permitted. | No false failures across a full billing cycle |
-| **3 — Enforcement** | Reconciliation gates invoice approval. Audited override available. | — |
+| **1 — Observe** | Runs and is visible on every surface. Blocks nothing. Invoice generation is byte-for-byte what it is today. | The backtest below is answered |
+| **2 — Soft enforcement** | A failure is prominent and routes the invoice to Finance approval; a director override is recorded with its reason. Invoices can still be issued. | No false failures across a full billing cycle |
+| **3 — Hard enforcement** | FAIL blocks generation. The audited override path (§8) remains. | — |
 
 Phase 1 produces the evidence that the reconciliation logic is right *before* it can stop anyone
 from invoicing. A gate that blocks correct invoices will be switched off and never switched back on.
+
+**Phase 1's deliverable is a backtest, not a screen.** Run the reconciliation over periods already
+invoiced and answer one question:
+
+> If reconciliation had been mandatory today, how many invoices would have failed — and why?
+
+Every failure is then classified per §7.1. A phase that produces only a status panel has not
+validated anything; the retrospective failure report is what earns Phase 2.
 
 **This sequencing is load-bearing, not caution.** Three known sources of false failure exist right
 now: `float4` summation (§10), the period boundary mismatch (§6), and rate display precision (§3.2).
@@ -402,16 +410,22 @@ disagreement and decides, without the platform refusing to invoice.
 Owner-set. Reconciliation cannot be trusted until the pipeline feeding it is:
 
 1. **Prove CDR completeness** — the population question. Until BitsAuto imports the full set, every
-   reconciliation fails for one reason and teaches nothing about the others.
-2. **Correct rating verification** — so reproduced values match the switch per call.
-3. **Reconciliation inside the existing Billing workflow** — no new pages (§9.1).
-4. **Gate invoice generation** on the result, per §11.1.
-5. **Existing reports unchanged**, consuming the same verified data they consume today.
+   reconciliation fails for one reason and teaches nothing about the others. Affects invoice
+   accuracy directly.
+2. **Correct rating verification** — so reproduced values match the switch per call. Affects
+   certification accuracy.
+3. **Standardise money aggregation** (§10) — so the tolerance means something. **Affects every
+   financial total on the platform, not only reconciliation**, which is why it is not deferred into
+   the reconciliation build.
+4. **Reconciliation inside the existing Billing workflow** — no new pages (§9.1), report-only.
+5. **Enable enforcement** — only after Phase 1 has demonstrated stability on production data.
 
-Steps 1 and 2 are prerequisites, not parallel work.
+Steps 1–3 are prerequisites, not parallel work.
 
-**Gate 3 additionally requires:** §10 remedy 1 shipped · §6 period alignment shipped · the
-reconciliation installed at a single chokepoint.
+**Hard enforcement additionally requires all five closed:** CDR population completeness verified ·
+rating verification matching Sippy · money aggregation consistent (§10) · period boundaries aligned
+(§6) · rate precision handled at full stored precision (§3.2) — plus the reconciliation installed at
+a single chokepoint.
 
 ### Single chokepoint
 
