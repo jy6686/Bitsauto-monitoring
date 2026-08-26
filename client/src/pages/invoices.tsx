@@ -925,10 +925,17 @@ export default function InvoicesPage() {
                     <TableHead>Invoice #</TableHead>
                     <TableHead>Customer</TableHead>
                     <TableHead>Period</TableHead>
+                    {/* Order MUST match the cells below: lineCount, totalReproduced,
+                        totalActual, totalDelta. `Lines` used to be declared last of
+                        these four while being rendered first, so every money column
+                        sat under the wrong header: an invoice billing $0.28 displayed
+                        its REPRODUCED $16.52 under "Billed Amount", and its delta
+                        under "Lines". An operator reading the register saw a figure
+                        60x the one on the customer's invoice. */}
+                    <TableHead>Lines</TableHead>
                     <TableHead className="text-right text-xs">Verified Amount</TableHead>
                     <TableHead className="text-right text-xs">Billed Amount</TableHead>
                     <TableHead className="text-right text-xs">Difference</TableHead>
-                    <TableHead>Lines</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
