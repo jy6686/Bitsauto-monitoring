@@ -4484,7 +4484,7 @@ const CDR_AUTH_FAIL_TTL_MS = 5 * 60_000; // 5 minutes
  * Billing callers use this; everything else keeps the old shape.
  */
 export type CdrPageResult =
-  | { ok: true;  cdrs: SippyCDR[] }
+  | { ok: true;  cdrs: SippyCDR[]; method: string }
   | { ok: false; error: string };
 
 export async function getSippyCDRsPage(
@@ -4518,7 +4518,7 @@ export async function getSippyCDRsPage(
   if (cdrBlocked && cdrBlocked > Date.now()) {
     const secsLeft = Math.ceil((cdrBlocked - Date.now()) / 1000);
     console.log(`[getSippyCDRs] ${username} — CDR auth failure cached, skipping for ${secsLeft}s`);
-    return { ok: false, error: `CDR auth failure cached, retry in ${secsLeft}s` };
+    return { ok: false, error: `CDR auth failure cached (both CDR methods returned 401/403 within the last 5 minutes) — retry in ${secsLeft}s, or fix the credentials in Settings → Sippy Connection` };
   }
 
   // Convert ISO dates to Sippy format if needed (Sippy requires '%H:%M:%S.000 GMT %a %b %d %Y')
@@ -4558,8 +4558,9 @@ export async function getSippyCDRsPage(
   // A method that reaches the parse stage SUCCEEDED even if it parsed zero rows —
   // that is Sippy saying "no records", which is not a failure. Only when no
   // method got that far is the page an error.
-  let anySuccess  = false;
-  let lastFailure = 'all CDR methods failed';
+  let anySuccess    = false;
+  let successMethod = '';
+  let lastFailure   = 'all CDR methods failed';
   for (const method of methods) {
     try {
       // Set the correct trusted-mode field per method
@@ -4585,6 +4586,14 @@ export async function getSippyCDRsPage(
         lastFailure = `${method} faultCode=${fc}: ${fs}`;
         continue;
       }
+      // A 200 whose body is not an XML-RPC response at all — a proxy error
+      // page, maintenance HTML, a truncated body — must not read as success:
+      // "no structs in a non-response" is a failure, not an empty window.
+      if (!text.includes('<methodResponse')) {
+        console.log(`[getSippyCDRs] ${method} → 200 but not an XML-RPC response (bodyLen=${text.length})`);
+        lastFailure = `${method}: HTTP 200 but not an XML-RPC response`;
+        continue;
+      }
 
       const structs = extractAllTags(text, 'struct');
       if (structs.length > 0) {
@@ -4593,7 +4602,6 @@ export async function getSippyCDRsPage(
       } else {
         console.log(`[getSippyCDRs] ${method} → 0 structs in response (bodyLen=${text.length})`);
       }
-      anySuccess = true;
       const cdrs: SippyCDR[] = [];
       for (const s of structs) {
         const m = extractStructMembers(s);
@@ -4670,7 +4678,11 @@ export async function getSippyCDRsPage(
           pktLoss:                  nf('i_pkt_loss')    ?? nf('pkt_loss'),
         });
       }
-      if (cdrs.length > 0) return { ok: true, cdrs };
+      // Success is claimed only here — after the mapping loop completed. An
+      // exception mid-mapping is caught below and the method counts as failed.
+      anySuccess    = true;
+      successMethod = method;
+      if (cdrs.length > 0) return { ok: true, cdrs, method };
     } catch (err: any) {
       console.log(`[getSippyCDRs] ${method} error: ${err?.message ?? err}`);
       lastFailure = `${method}: ${err?.message ?? err}`;
@@ -4685,13 +4697,20 @@ export async function getSippyCDRsPage(
   }
 
   // Empty is only claimable when some method actually answered.
-  return anySuccess ? { ok: true, cdrs: [] } : { ok: false, error: lastFailure };
+  return anySuccess
+    ? { ok: true, cdrs: [], method: successMethod }
+    : { ok: false, error: lastFailure };
 }
 
 /**
  * Compatibility shape: every failure collapses to []. Unchanged behaviour for
  * the dozens of dashboard/analytics callers. Billing ingestion must NOT use
  * this — it cannot tell a fault from an empty window; use getSippyCDRsPage.
+ *
+ * KNOWN BILLING CALLER STILL ON THIS SHAPE: /api/invoices/from-sippy
+ * (routes.ts ~34537) — one unpaginated 50k call that also inherits the
+ * fault-reads-as-empty defect. Migrating it needs real pagination and is
+ * tracked separately; do not add new billing callers here.
  */
 export async function getSippyCDRs(
   username: string,

@@ -32344,6 +32344,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // ── Step 2: if cache empty and we have an account + period, fetch via Admin API (XML-RPC) ──
       // Portal / RTST1 scraping is excluded from billing pipelines.
       // Only the Admin API is an authoritative source for rating verification CDR data.
+      const rvFetchErrors: string[] = [];
+      let rvCleanEmpty = false;
       if (workList.length === 0 && iAccount && periodStart) {
         console.log(`[rating-verification] cache empty — fetching via Admin API for account ${iAccount} ${periodStart}→${periodEnd}`);
         try {
@@ -32354,20 +32356,38 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           const RV_PAGE   = 500;
           const allPages: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
 
+          // Same three-outcome discipline as the seeder: these rows become
+          // rating_verifications, which certification reads, so a truncated
+          // fetch here writes verification evidence for a partial population.
+          const { classifyCdrPage: classifyRvPage } = await import('./cdr-fetch-page');
           if (!xmlRpcCircuitGuard()) {
             for (const { username, password } of sippyXmlCredsPairs(settings)) {
               const pagesAcc: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
               let offset = 0;
+              let credFailed = false;
               try {
                 while (true) {
-                  const page = await sippy.getSippyCDRs(username, password, RV_PAGE,
+                  const page = await sippy.getSippyCDRsPage(username, password, RV_PAGE,
                     { iAccount: Number(iAccount), startDate: startIso, endDate: endIso, offset },
                     portalUrl);
-                  if (page.length > 0) { pagesAcc.push(...page); xmlRpcRecordSuccess(); }
-                  if (page.length < RV_PAGE) break;
+                  const outcome = classifyRvPage(
+                    { ok: page.ok, count: page.ok ? page.cdrs.length : 0 }, RV_PAGE);
+                  if (outcome === 'error') {
+                    console.warn(`[rating-verification] XML-RPC(${username}) ERROR at offset=${offset}: ${page.ok ? 'unknown' : page.error} — aborting this credential (${pagesAcc.length} partial CDRs discarded)`);
+                    rvFetchErrors.push(`${username} @ offset ${offset}: ${page.ok ? 'unknown' : page.error}`);
+                    credFailed = true;
+                    break;
+                  }
+                  const rows = page.ok ? page.cdrs : [];
+                  if (rows.length > 0) pagesAcc.push(...rows);
+                  if (outcome === 'end_of_data') break;
                   offset += RV_PAGE;
                 }
-                if (pagesAcc.length > 0) { allPages.push(...pagesAcc); break; }
+                if (!credFailed) {
+                  xmlRpcRecordSuccess();
+                  if (pagesAcc.length > 0) { allPages.push(...pagesAcc); break; }
+                  rvCleanEmpty = true;
+                }
               } catch (e: any) {
                 console.warn(`[rating-verification] XML-RPC(${username}) error: ${e.message}`);
               }
@@ -32382,6 +32402,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       }
 
       workList = workList.slice(0, limit);
+
+      // A failed fetch is not "no CDRs found" — the empty message below tells
+      // the operator to check the account id, which is the wrong remedy for a
+      // connectivity or credential fault.
+      if (workList.length === 0 && rvFetchErrors.length > 0 && !rvCleanEmpty) {
+        return res.status(502).json({
+          error: `CDR fetch FAILED — not an empty period. ${rvFetchErrors.join(' · ')}`,
+        });
+      }
 
       if (workList.length === 0) {
         return res.json({
@@ -32687,7 +32716,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     opts: { iAccount: number | string; iTariff: string; periodStart: string; periodEnd?: string | null },
     jobState?: _SeedJobState,
     label = 'sync',
-  ): Promise<{ fetched: number; created: number; skipped: number; message?: string }> {
+  ): Promise<{ fetched: number; created: number; skipped: number; message?: string;
+               /** true = the FETCH failed; absent = ran (message may still note an empty window) */
+               failed?: true }> {
     const { iAccount, iTariff, periodStart, periodEnd } = opts;
     const job = jobState ?? ({ status: 'running', phase: '', fetched: 0, created: 0, skipped: 0, errors: 0, total: 0, startedAt: Date.now() } as _SeedJobState);
     const jobId = label;
@@ -32724,6 +32755,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const { classifyCdrPage } = await import('./cdr-fetch-page');
         const fetchErrors: string[] = [];
         let sawCleanEmpty = false;
+        let rowsSeenBeforeError = 0; // proof the window has data, from a credential that then failed
         if (!xmlRpcCircuitGuard()) {
           credLoop:
           for (const { username, password } of sippyXmlCredsPairs(settings)) {
@@ -32731,12 +32763,23 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             const pagesAccum: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
             let offset = 0;
             let credFailed = false;
+            // The method that served page 0 must serve every page. If the
+            // primary method faults mid-run and the fallback answers, those
+            // offsets index a DIFFERENT result set — a differently-scoped
+            // stream is not the same data stream ending.
+            let pinnedMethod: string | null = null;
             try {
               pageLoop:
               while (true) {
                 const page = await sippy.getSippyCDRsPage(username, password, XML_PAGE,
                   { iAccount: Number(iAccount), startDate: startIso, endDate: endIso, offset },
                   portalUrl);
+                if (page.ok && pinnedMethod !== null && page.method !== pinnedMethod) {
+                  console.warn(`[seed-job:${jobId}] XML-RPC(${username}) method switched ${pinnedMethod} → ${page.method} at offset=${offset} — aborting this credential (${pagesAccum.length} partial CDRs discarded; a different method is a different result set)`);
+                  fetchErrors.push(`${username} @ offset ${offset}: method switched ${pinnedMethod} → ${page.method} mid-pagination`);
+                  credFailed = true;
+                  break pageLoop;
+                }
                 const outcome = classifyCdrPage(
                   { ok: page.ok, count: page.ok ? page.cdrs.length : 0 }, XML_PAGE);
                 switch (outcome) {
@@ -32750,10 +32793,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                   case 'continue':
                   case 'end_of_data': {
                     const cdrs = page.ok ? page.cdrs : [];
+                    if (page.ok && pinnedMethod === null) pinnedMethod = page.method;
                     console.log(`[seed-job:${jobId}] XML-RPC(${username}) offset=${offset} → ${cdrs.length} CDRs`);
                     if (cdrs.length > 0) {
                       pagesAccum.push(...cdrs);
-                      xmlRpcRecordSuccess();
                       job.phase = `Admin API (XML-RPC) — ${pagesAccum.length} CDRs fetched…`;
                     }
                     if (outcome === 'end_of_data') break pageLoop; // Sippy said so, in-band
@@ -32762,30 +32805,54 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                 }
               }
               if (!credFailed) {
+                // The circuit breaker learns from CREDENTIALS that completed, not
+                // from pages later discarded — otherwise an endpoint that always
+                // fails at page 3 feeds the breaker two successes per attempt and
+                // it can never open.
+                xmlRpcRecordSuccess();
                 if (pagesAccum.length > 0) {
                   rawCdrs = pagesAccum;
                   break credLoop; // complete fetch — stop trying other credentials
                 }
                 sawCleanEmpty = true; // a method answered and the window is genuinely empty
+              } else {
+                rowsSeenBeforeError = Math.max(rowsSeenBeforeError, pagesAccum.length);
               }
             } catch (e: any) {
               console.warn(`[seed-job:${jobId}] XML-RPC(${username}) error: ${e.message}`);
               fetchErrors.push(`${username}: ${e.message}`);
+              rowsSeenBeforeError = Math.max(rowsSeenBeforeError, pagesAccum.length);
             }
           }
         }
 
-        // Every credential ERRORED and none delivered a clean answer: the fetch
-        // FAILED. This must never fall through to the "0 CDRs" diagnostic below,
-        // which describes an empty window — a different fact with a different
-        // remedy. status 'error', never 'done'.
-        if (rawCdrs.length === 0 && fetchErrors.length > 0 && !sawCleanEmpty) {
-          const msg = `CDR fetch FAILED — not an empty period. ${fetchErrors.join(' · ')}`;
-          console.error(`[seed-job:${jobId}] ${msg}`);
-          job.status = 'error';
-          job.error  = msg;
-          job.phase  = msg;
-          return { fetched: 0, created: 0, skipped: 0, message: msg };
+        // The fetch FAILED — as opposed to the window being empty — when:
+        //   · a credential errored and none delivered a clean in-band answer, or
+        //   · a credential SAW ROWS and then errored: a later clean-empty from a
+        //     differently-scoped credential is contradicted evidence, not truth, or
+        //   · the circuit breaker (or missing credentials) meant no attempt ran —
+        //     a fetch that never happened is not an empty period.
+        // None of these may fall through to the "0 CDRs" diagnostic below, which
+        // describes an empty window — a different fact with a different remedy.
+        // status 'error', never 'done'.
+        if (rawCdrs.length === 0) {
+          const fetchNeverRan = xmlRpcCircuitGuard() || !xmlRpcAttempted;
+          const contradicted  = sawCleanEmpty && rowsSeenBeforeError > 0;
+          const allErrored    = fetchErrors.length > 0 && !sawCleanEmpty;
+          if (allErrored || contradicted || fetchNeverRan) {
+            const msg = fetchNeverRan
+              ? (xmlRpcCircuitGuard()
+                  ? 'CDR fetch DID NOT RUN — the XML-RPC circuit breaker is open after repeated failures. Reset via Settings → Sippy Connection → Reset Circuit Breaker. A fetch that never happened is not an empty period.'
+                  : 'CDR fetch DID NOT RUN — no XML-RPC credentials are configured (Settings → Sippy Connection).')
+              : contradicted
+                ? `CDR fetch FAILED — a credential retrieved ${rowsSeenBeforeError} CDR(s) before erroring, so the period is NOT empty; a later credential's empty answer is contradicted evidence. ${fetchErrors.join(' · ')}`
+                : `CDR fetch FAILED — not an empty period. ${fetchErrors.join(' · ')}`;
+            console.error(`[seed-job:${jobId}] ${msg}`);
+            job.status = 'error';
+            job.error  = msg;
+            job.phase  = msg;
+            return { fetched: 0, created: 0, skipped: 0, message: msg, failed: true };
+          }
         }
 
         // If the Admin API returned 0 CDRs, stop here.
@@ -33191,7 +33258,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
     // Stage 1 — seed rating snapshots (idempotent; needs account id + tariff —
     // without either, skip straight to the generator, which self-resolves)
-    let seed: { fetched: number; created: number; skipped: number; message?: string } | undefined;
+    let seed: Awaited<ReturnType<typeof _seedRatingSnapshotsSync>> | undefined;
     if (opts.iAccount && opts.iTariff) {
       try {
         seed = await _seedRatingSnapshotsSync(
@@ -33200,6 +33267,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         );
       } catch (e: any) {
         return { ok: false, stage: 'seed', error: e.message };
+      }
+      // A FAILED fetch must stop the chain exactly like a thrown one. It used
+      // to signal only through a job object this path never passes, so the
+      // chain sailed into freeze → certify → generate — and certification
+      // certifies by the absence of discrepancies among the calls it HAS,
+      // which a fetch failure does not create.
+      if (seed.failed) {
+        return { ok: false, stage: 'seed', error: seed.message ?? 'CDR fetch failed' };
       }
     }
 
@@ -33728,6 +33803,19 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         { iAccount: Number(iAccount), iTariff: String(iTariff), periodStart: String(periodStart), periodEnd: String(periodEnd) },
         undefined, `recert-${periodStart}-${iAccount}`,
       );
+      // The route has already DELETED the period's snapshots and verifications
+      // and superseded its run. If the re-seed's FETCH failed, certifying now
+      // would certify an emptied period and a 200 would read as success — while
+      // the true state is "evidence cleared, nothing rebuilt". Say exactly that.
+      if (seeded.failed) {
+        console.error(`[recertify] ${iTariff} ${periodStart}–${periodEnd}: seed FAILED after evidence was cleared — ${seeded.message}`);
+        return res.status(502).json({
+          error: 'seed-failed',
+          message: seeded.message,
+          warning: 'The period\'s snapshots and verifications were cleared and its run superseded, but the re-fetch FAILED — the period is currently uncertified and empty. Re-run recertification once the fetch succeeds.',
+          supersededRunIds: supersededIds,
+        });
+      }
       const cert = await _certificationFor(String(iTariff), String(periodStart), String(periodEnd));
 
       // Link the new run back to what it replaced.
@@ -36699,6 +36787,12 @@ ${footer}
               const seeded = await _seedRatingSnapshotsSync(
                 { iAccount, iTariff, periodStart, periodEnd }, undefined, `job-${id}`,
               );
+              // A failed FETCH would otherwise fall through to the
+              // certification gate, which tells the operator to reconcile the
+              // period — the wrong remedy for a connectivity/credential fault.
+              if (seeded.failed) {
+                return res.status(502).json({ error: `CDR fetch failed while preparing this period — not a certification problem. ${seeded.message}` });
+              }
               console.log(`[invoice-jobs] job #${id}: auto-seeded ${seeded.created} billable snapshot(s) for tariff ${iTariff} ${periodStart}–${periodEnd}`);
               if (seeded.message) console.warn(`[invoice-jobs] job #${id}: ${seeded.message}`);
             }
@@ -38413,6 +38507,14 @@ ${footer}
             { iAccount: a.iAccount, iTariff: a.iTariff, periodStart: date, periodEnd: date },
             undefined, `recon-${date}-${a.iAccount}`,
           );
+          // A failed FETCH is a failed night for this account — counting it as
+          // collected-with-exclusions made a connectivity fault invisible in
+          // the summary line, distinguishable only by grepping the warn log.
+          if (r.failed) {
+            failed++;
+            console.error(`[recon-nightly] ${a.name}: FETCH FAILED — ${r.message}`);
+            continue;
+          }
           ok++;
           totalCreated += Number(r.created ?? 0);
           if (r.message) {
