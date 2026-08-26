@@ -31481,6 +31481,115 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   );
 
+  // ── Commercial mapping: estate-wide preview and apply ────────────────────────
+  // 24 of 25 linked companies have no stored tariff, and every one of them fails
+  // invoice generation for that reason alone. Syncing them one at a time is not
+  // an operation anyone will actually perform, so the fill-only sync gets a
+  // batch form — with the review step built into the protocol rather than left
+  // to a checkbox: preview reports what WOULD happen, and apply refuses to act
+  // on anything the caller has not named by id.
+
+  /** How many accounts one call may sweep. Each is an XML-RPC round trip to a
+   *  live switch, and the whole sweep is awaited inside one HTTP request — on
+   *  this deployment a long request is a request that may not survive. */
+  const MAPPING_BATCH_MAX = 30;
+
+  function _mappingAccess() {
+    return (async () => {
+      const settings = await storage.getSettings();
+      return {
+        portalUrl: sippyPortalUrl(settings as any),
+        credPairs: sippyXmlCredsPairs(settings as any),
+      };
+    })();
+  }
+
+  // POST, not GET, despite writing nothing: this sweeps up to 30 XML-RPC calls
+  // against production Sippy, and an endpoint that expensive should not be
+  // reachable by a prefetch, a monitor or a crawler.
+  app.post('/api/sippy/commercial-mappings/preview',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const only: number[] | undefined = Array.isArray(req.body?.companyIds)
+          ? req.body.companyIds.map(Number).filter((n: number) => Number.isFinite(n))
+          : undefined;
+
+        const all = await storage.getCompanies();
+        const linked = (all as any[])
+          .filter(c => c.sippyIAccount)
+          .filter(c => !only || only.includes(Number(c.id)));
+
+        if (linked.length > MAPPING_BATCH_MAX) {
+          return res.status(400).json({
+            error: `${linked.length} linked companies exceeds the ${MAPPING_BATCH_MAX}-account limit for one sweep. Pass companyIds to do it in batches.`,
+            linkedCount: linked.length,
+          });
+        }
+
+        const { previewCommercialMappings } = await import('./services/sippy/commercial-mapping.service');
+        const rows = await previewCommercialMappings(linked as any, await _mappingAccess());
+
+        const summary: Record<string, number> = {};
+        for (const r of rows) summary[r.action] = (summary[r.action] ?? 0) + 1;
+
+        res.json({
+          scanned: rows.length,
+          summary,
+          // Ready to paste straight into the apply call — the ids that would
+          // actually learn something. Conflicts are deliberately excluded:
+          // they are never written, and offering them here would imply they
+          // could be resolved by running the sync again.
+          wouldFillCompanyIds: rows.filter(r => r.action === 'filled').map(r => r.companyId),
+          rows,
+        });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    },
+  );
+
+  app.post('/api/sippy/commercial-mappings/sync',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        // companyIds is REQUIRED and has no "all" shorthand. The confirmation
+        // step is structural: an operator cannot write to the estate without
+        // having read a preview and named the rows they accept.
+        const ids: number[] = Array.isArray(req.body?.companyIds)
+          ? req.body.companyIds.map(Number).filter((n: number) => Number.isFinite(n))
+          : [];
+        if (!ids.length) {
+          return res.status(400).json({
+            error: 'companyIds is required — run POST /api/sippy/commercial-mappings/preview first and pass the ids you accept.',
+          });
+        }
+        if (ids.length > MAPPING_BATCH_MAX) {
+          return res.status(400).json({ error: `At most ${MAPPING_BATCH_MAX} companies per call.` });
+        }
+
+        const all = await storage.getCompanies();
+        const chosen = (all as any[]).filter(c => ids.includes(Number(c.id)) && c.sippyIAccount);
+        const missing = ids.filter(id => !chosen.some(c => Number(c.id) === id));
+
+        const { applyCommercialMappings } = await import('./services/sippy/commercial-mapping.service');
+        const result = await applyCommercialMappings(chosen as any, await _mappingAccess());
+
+        console.log(
+          `[commercial-mappings] sync by ${(req as any).user?.id ?? 'unknown'}: ` +
+          `${result.summary.filled} filled, ${result.summary.already_current} already current, ` +
+          `${result.summary.conflict} conflict, ${result.summary.nothing_discovered} not discoverable, ` +
+          `${result.summary.unreachable} unreachable`,
+        );
+
+        res.json({
+          ...result,
+          // Named rather than silently dropped: an id that matched no linked
+          // company is an operator mistake worth seeing, not a no-op.
+          skippedIds: missing,
+        });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    },
+  );
+
   // ── SMTP Sender Profiles ─────────────────────────────────────────────────────
   app.get('/api/sender-profiles', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (_req: any, res: any) => {
     try {

@@ -170,6 +170,158 @@ export async function persistCommercialMapping(
   return { plan, persisted: hasUpdates, status: mappingStatus(plan), summary };
 }
 
+// ── Estate-wide preview and apply ─────────────────────────────────────────────
+
+/** A company as these functions need it. */
+export interface MappableCompany {
+  id: number;
+  name: string;
+  sippyIAccount?: number | null;
+  sippyITariff?: number | null;
+  sippyIBillingPlan?: number | null;
+  sippyTariffCurrency?: string | null;
+}
+
+/**
+ * `unreachable` is deliberately NOT one of MappingStatus's four values.
+ *
+ * "Sippy has no tariff for this account" and "we could not read this account"
+ * look identical in a results table and mean opposite things: the first is a
+ * data gap on the switch, the second is a failed read that should be retried.
+ * Collapsing them would put a transient outage in the same column as a real
+ * commercial gap.
+ */
+export type PreviewAction = MappingStatus | 'unreachable';
+
+export interface MappingPreviewRow {
+  companyId:          number;
+  companyName:        string;
+  sippyIAccount:      number;
+  storedITariff:      number | null;
+  liveITariff:        number | null;
+  storedIBillingPlan: number | null;
+  liveIBillingPlan:   number | null;
+  action:             PreviewAction;
+  tariffSource?:      string;
+  conflicts:          MappingPlan['conflicts'];
+  warnings:           string[];
+  error?:             string;
+}
+
+/**
+ * What a sync WOULD do across a set of companies. Writes nothing.
+ *
+ * Sequential rather than parallel: this is 25+ XML-RPC round trips to a live
+ * production switch, and BitsAuto has no business opening 25 concurrent
+ * connections to it to save a few seconds on a screen nobody is watching.
+ */
+export async function previewCommercialMappings(
+  companies: MappableCompany[],
+  access: SippyAccess,
+  opts: { pauseMs?: number } = {},
+): Promise<MappingPreviewRow[]> {
+  const pauseMs = opts.pauseMs ?? 60;
+  const rows: MappingPreviewRow[] = [];
+
+  for (const [i, c] of companies.entries()) {
+    if (!c.sippyIAccount) continue;
+    const base = {
+      companyId: c.id, companyName: c.name, sippyIAccount: c.sippyIAccount,
+      storedITariff: c.sippyITariff ?? null,
+      storedIBillingPlan: c.sippyIBillingPlan ?? null,
+    };
+    try {
+      const d = await discoverCommercialMapping(c.sippyIAccount, access);
+      if (!d) {
+        rows.push({
+          ...base, liveITariff: null, liveIBillingPlan: null,
+          action: 'unreachable', conflicts: [], warnings: [],
+          error: 'Sippy account could not be read',
+        });
+      } else {
+        const plan = planMappingPersistence(
+          { sippyITariff: c.sippyITariff, sippyIBillingPlan: c.sippyIBillingPlan,
+            sippyTariffCurrency: c.sippyTariffCurrency },
+          d,
+        );
+        rows.push({
+          ...base,
+          liveITariff: d.iTariff ?? null, liveIBillingPlan: d.iBillingPlan ?? null,
+          action: mappingStatus(plan), tariffSource: d.tariffSource,
+          conflicts: plan.conflicts, warnings: d.warnings,
+        });
+      }
+    } catch (e: any) {
+      rows.push({
+        ...base, liveITariff: null, liveIBillingPlan: null,
+        action: 'unreachable', conflicts: [], warnings: [], error: e?.message ?? String(e),
+      });
+    }
+    if (pauseMs && i < companies.length - 1) await new Promise(r => setTimeout(r, pauseMs));
+  }
+
+  return rows;
+}
+
+export interface ApplyRow {
+  companyId:   number;
+  companyName: string;
+  action:      PreviewAction;
+  filled:      string[];
+  conflicts:   MappingPlan['conflicts'];
+  error?:      string;
+}
+
+export interface ApplyResult {
+  requested: number;
+  rows:      ApplyRow[];
+  summary:   Record<PreviewAction, number>;
+}
+
+/**
+ * Apply the fill-only sync to an explicitly named set of companies.
+ *
+ * Continues past failures: one unreadable account must not abandon the other
+ * twenty-four. Every company appears in `rows` whatever happened to it, so the
+ * report is complete rather than "the ones that worked".
+ */
+export async function applyCommercialMappings(
+  companies: MappableCompany[],
+  access: SippyAccess,
+  opts: { pauseMs?: number } = {},
+): Promise<ApplyResult> {
+  const pauseMs = opts.pauseMs ?? 60;
+  const rows: ApplyRow[] = [];
+
+  for (const [i, c] of companies.entries()) {
+    try {
+      const r = await syncCommercialMapping(c, access);
+      if (!r) {
+        rows.push({
+          companyId: c.id, companyName: c.name, action: 'unreachable',
+          filled: [], conflicts: [], error: 'Sippy account could not be read',
+        });
+      } else {
+        rows.push({
+          companyId: c.id, companyName: c.name, action: r.persist.status,
+          filled: r.persist.plan.filled, conflicts: r.persist.plan.conflicts,
+        });
+      }
+    } catch (e: any) {
+      rows.push({
+        companyId: c.id, companyName: c.name, action: 'unreachable',
+        filled: [], conflicts: [], error: e?.message ?? String(e),
+      });
+    }
+    if (pauseMs && i < companies.length - 1) await new Promise(r => setTimeout(r, pauseMs));
+  }
+
+  const summary = { filled: 0, already_current: 0, conflict: 0, nothing_discovered: 0, unreachable: 0 } as Record<PreviewAction, number>;
+  for (const r of rows) summary[r.action] = (summary[r.action] ?? 0) + 1;
+
+  return { requested: companies.length, rows, summary };
+}
+
 /**
  * Discover and persist in one step — what both sync endpoints call.
  *
