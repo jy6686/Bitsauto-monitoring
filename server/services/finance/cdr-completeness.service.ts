@@ -55,6 +55,19 @@ export interface CompletenessQuery {
 export interface CompletenessReport {
   account: number;
   period: { from: string; to: string; convention: '[from, to)' };
+  /**
+   * The server's own clock. Reported because it can invalidate the comparison.
+   *
+   * This query bounds its period with an explicit Z, so its side is UTC. The
+   * SEEDER does not: routes.ts:32718 builds `${'${periodStart}'}T00:00:00` with no
+   * offset, and toSippyDate then does `new Date(s)` — which ES parses as LOCAL
+   * for an offsetless date-time — before reading getUTC* and labelling the
+   * result "GMT". On a UTC+5 host, a request for 16 Aug 00:00 UTC leaves as
+   * "19:00:00.000 GMT Sat Aug 15". The repository would then hold a window
+   * shifted from the one measured here, and the difference would surface as
+   * loss at sippy_reference → repository that no amount of re-importing fixes.
+   */
+  environment: { serverTimezone: string; utc: boolean };
   repository: {
     calls: number;
     billedMinutes: number;
@@ -191,12 +204,26 @@ export async function measureCompleteness(
       }
     : null;
 
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'unknown';
+  const utc = /^(UTC|Etc\/UTC|GMT|Etc\/GMT)$/.test(tz) ||
+              new Date('2026-01-01T00:00:00').getUTCHours() === 0;
+  const verdict = assessCompleteness(stages, { tolerancePct: q.tolerancePct, identity });
+  if (!utc) {
+    verdict.notes.push(
+      `Server timezone is ${tz}, not UTC. The CDR fetch window is built without ` +
+      `an offset and parsed as local time, so the repository may hold a shifted ` +
+      `period. Treat a loss at sippy_reference → repository as unattributed until ` +
+      `that is resolved.`,
+    );
+  }
+
   return {
     account: q.iAccount,
     period: { from: q.from, to: q.to, convention: '[from, to)' },
+    environment: { serverTimezone: tz, utc },
     repository,
     verified,
     snapshotted,
-    verdict: assessCompleteness(stages, { tolerancePct: q.tolerancePct, identity }),
+    verdict,
   };
 }
