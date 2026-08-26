@@ -93,7 +93,14 @@ app.use(helmet({
       connectSrc:     ["'self'", "ws:", "wss:"],  // WebSocket for Vite HMR
       fontSrc:        ["'self'", "data:", "https://fonts.gstatic.com"],
       objectSrc:      ["'none'"],
-      frameSrc:       ["'none'"],
+      // SAME-ORIGIN ONLY, and deliberately not wider. frame-src governs what
+      // THIS page may embed; frameAncestors below governs who may embed this
+      // page, and that stays 'self' so the clickjacking protection is
+      // untouched. 'none' here blocked the invoice approval screen from
+      // showing its own PDF — the browser reported only "This content is
+      // blocked", which reads like a fault in the PDF response rather than in
+      // our own policy. No external origin is permitted.
+      frameSrc:       ["'self'"],
       frameAncestors: ["'self'"],
     },
   },
