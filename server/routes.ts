@@ -10607,27 +10607,28 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
       // (commercial-mapping.service). It used to be inline here, which meant
       // this endpoint could resolve a company's tariff, show it, and discard
       // it — while sync/pull fetched the same account and stored only status.
-      const { discoverCommercialMapping, persistCommercialMapping } =
+      const { discoverCommercialMapping } =
         await import('./services/sippy/commercial-mapping.service');
       const discovery = await discoverCommercialMapping(iAccount, { portalUrl, credPairs });
       if (!discovery) return res.status(404).json({ error: 'Account not found or Sippy unavailable' });
       xmlRpcRecordSuccess();
 
-      // A GET that writes, deliberately. This endpoint already resolves the
-      // mapping to render it, and it is reached from client-config,
-      // rate-manager and the Invoices page — so healing an incomplete record
-      // here needs no new operator step, which matters because the only UI for
-      // sync/pull is on a page under a no-change rule. The write is safe to
-      // attach to a read because it can only FILL: a stored value that differs
-      // from Sippy is reported as a conflict and left alone, so concurrent
-      // reads converge on the same result and billing decisions stay with the
-      // stored record rather than with whatever Sippy answers during a refresh.
+      // THIS READ DOES NOT WRITE. An earlier revision persisted the mapping
+      // here because it had already resolved it and the endpoint is reached
+      // from four UI pages — convenient, but a GET with side effects is only
+      // safe until something prefetches, caches, monitors or crawls it, and a
+      // billing column is the wrong place to discover that. sync/link and
+      // sync/pull are the ONLY writers.
+      //
+      // What it does instead is REPORT the gap, computed with the same pure
+      // planner the writers use — so the advice here and the write there can
+      // never disagree.
       let mapping: any = null;
       try {
         const company = await storage.getCompanyBySippyAccount(iAccount);
         if (company) {
-          const r = await persistCommercialMapping(
-            company.id, company.name,
+          const { planMappingPersistence } = await import('./commercial-mapping');
+          const plan = planMappingPersistence(
             {
               sippyITariff:        company.sippyITariff,
               sippyIBillingPlan:   company.sippyIBillingPlan,
@@ -10635,12 +10636,22 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
             },
             discovery,
           );
-          mapping = { companyId: company.id, persisted: r.persisted, filled: r.plan.filled, conflicts: r.plan.conflicts };
+          mapping = {
+            companyId:           company.id,
+            companyName:         company.name,
+            mappingFound:        discovery.iTariff != null,
+            // True when a sync would learn something. The operator's cue to
+            // run one; nothing has been changed by looking.
+            mappingNeedsPersist: plan.filled.length > 0,
+            wouldFill:           plan.filled,
+            conflicts:           plan.conflicts,
+            storedITariff:       company.sippyITariff ?? null,
+          };
         }
       } catch (e: any) {
-        // Never fail the read because the write failed — this endpoint's
-        // contract is account info, and persistence is opportunistic here.
-        console.warn(`[sippy/accounts/info] mapping persistence skipped: ${e.message}`);
+        // A reporting failure must not fail the read — the contract here is
+        // account info; the mapping block is advisory.
+        console.warn(`[sippy/accounts/info] mapping report skipped: ${e.message}`);
       }
 
       res.json({
