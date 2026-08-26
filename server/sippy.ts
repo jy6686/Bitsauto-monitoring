@@ -4476,7 +4476,18 @@ const CDR_AUTH_FAIL_TTL_MS = 5 * 60_000; // 5 minutes
 // Trusted-mode notes (per docs):
 //   getCustomerCDRs — trusted mode uses i_wholesaler (docs 107429)
 //   getAccountCDRs  — trusted mode uses i_customer   (docs 107367)
-export async function getSippyCDRs(
+/**
+ * One page of CDRs as a RESULT, so a failed fetch is distinguishable from an
+ * empty one. The classic getSippyCDRs below collapses every failure to [] —
+ * fine for dashboards, catastrophic for the billing importer, whose pagination
+ * loop read a short page as "no more records" and certified partial months.
+ * Billing callers use this; everything else keeps the old shape.
+ */
+export type CdrPageResult =
+  | { ok: true;  cdrs: SippyCDR[] }
+  | { ok: false; error: string };
+
+export async function getSippyCDRsPage(
   username: string,
   password: string,
   limit = 50,
@@ -4494,11 +4505,11 @@ export async function getSippyCDRs(
     offset?: number;
   } = {},
   fallbackPortalUrl?: string,  // used when activeSession is not yet established (startup race)
-): Promise<SippyCDR[]> {
+): Promise<CdrPageResult> {
   // Use activeSession URL if available; fall back to the caller-supplied URL
   // so CDR fetching works even during the startup window before auto-connect completes.
   const portalBase = activeSession?.portalUrl ?? fallbackPortalUrl;
-  if (!portalBase) return [];
+  if (!portalBase) return { ok: false, error: 'No Sippy portal URL — not connected and no fallback supplied' };
   const apiUrl = `${portalBase}/xmlapi/xmlapi`;
 
   // CDR 401 negative cache — skip this credential if it recently got 401 from both CDR methods.
@@ -4507,7 +4518,7 @@ export async function getSippyCDRs(
   if (cdrBlocked && cdrBlocked > Date.now()) {
     const secsLeft = Math.ceil((cdrBlocked - Date.now()) / 1000);
     console.log(`[getSippyCDRs] ${username} — CDR auth failure cached, skipping for ${secsLeft}s`);
-    return [];
+    return { ok: false, error: `CDR auth failure cached, retry in ${secsLeft}s` };
   }
 
   // Convert ISO dates to Sippy format if needed (Sippy requires '%H:%M:%S.000 GMT %a %b %d %Y')
@@ -4544,6 +4555,11 @@ export async function getSippyCDRs(
     : ['getCustomerCDRs', 'getAccountCDRs'];
 
   let cdrAuthFailCount = 0; // how many methods returned 401/403 for this credential
+  // A method that reaches the parse stage SUCCEEDED even if it parsed zero rows —
+  // that is Sippy saying "no records", which is not a failure. Only when no
+  // method got that far is the page an error.
+  let anySuccess  = false;
+  let lastFailure = 'all CDR methods failed';
   for (const method of methods) {
     try {
       // Set the correct trusted-mode field per method
@@ -4556,15 +4572,17 @@ export async function getSippyCDRs(
       const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password, 45000);
       if (resp.statusCode === 401 || resp.statusCode === 403) {
         console.log(`[getSippyCDRs] ${method} HTTP ${resp.statusCode}`);
+        lastFailure = `${method} HTTP ${resp.statusCode}`;
         cdrAuthFailCount++;
         continue;
       }
-      if (resp.statusCode !== 200) { console.log(`[getSippyCDRs] ${method} HTTP ${resp.statusCode}`); continue; }
+      if (resp.statusCode !== 200) { console.log(`[getSippyCDRs] ${method} HTTP ${resp.statusCode}`); lastFailure = `${method} HTTP ${resp.statusCode}`; continue; }
       const text = resp.body.toString?.() ?? resp.body;
       if (text.includes('faultCode')) {
         const fc = text.match(/<name>faultCode<\/name>[\s\S]*?<value><int>(\d+)<\/int>/)?.[1] ?? '?';
         const fs = text.match(/<name>faultString<\/name>[\s\S]*?<value><string>([^<]*)<\/string>/)?.[1] ?? text.substring(0, 120);
         console.log(`[getSippyCDRs] ${method} faultCode=${fc}: ${fs}`);
+        lastFailure = `${method} faultCode=${fc}: ${fs}`;
         continue;
       }
 
@@ -4575,6 +4593,7 @@ export async function getSippyCDRs(
       } else {
         console.log(`[getSippyCDRs] ${method} → 0 structs in response (bodyLen=${text.length})`);
       }
+      anySuccess = true;
       const cdrs: SippyCDR[] = [];
       for (const s of structs) {
         const m = extractStructMembers(s);
@@ -4651,9 +4670,10 @@ export async function getSippyCDRs(
           pktLoss:                  nf('i_pkt_loss')    ?? nf('pkt_loss'),
         });
       }
-      if (cdrs.length > 0) return cdrs;
+      if (cdrs.length > 0) return { ok: true, cdrs };
     } catch (err: any) {
       console.log(`[getSippyCDRs] ${method} error: ${err?.message ?? err}`);
+      lastFailure = `${method}: ${err?.message ?? err}`;
       continue;
     }
   }
@@ -4664,7 +4684,24 @@ export async function getSippyCDRs(
     _cdrAuthFailCache.set(cdrCacheKey, Date.now() + CDR_AUTH_FAIL_TTL_MS);
   }
 
-  return [];
+  // Empty is only claimable when some method actually answered.
+  return anySuccess ? { ok: true, cdrs: [] } : { ok: false, error: lastFailure };
+}
+
+/**
+ * Compatibility shape: every failure collapses to []. Unchanged behaviour for
+ * the dozens of dashboard/analytics callers. Billing ingestion must NOT use
+ * this — it cannot tell a fault from an empty window; use getSippyCDRsPage.
+ */
+export async function getSippyCDRs(
+  username: string,
+  password: string,
+  limit = 50,
+  opts: Parameters<typeof getSippyCDRsPage>[3] = {},
+  fallbackPortalUrl?: string,
+): Promise<SippyCDR[]> {
+  const r = await getSippyCDRsPage(username, password, limit, opts, fallbackPortalUrl);
+  return r.ok ? r.cdrs : [];
 }
 
 // ── exportVendorsCDRs_Mera() (docs 107436) ───────────────────────────────────

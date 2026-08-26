@@ -32713,34 +32713,79 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         job.phase = 'Fetching via Admin API (XML-RPC)';
         let xmlRpcAttempted = false;
 
+        // Three page outcomes, and an ERROR is NEVER end-of-data (owner rule,
+        // 2026-08-27). getSippyCDRs collapses every failure to [] — auth, HTTP,
+        // XML-RPC fault, timeout — and [] is shorter than a page, so a fault at
+        // page 800 of 900 used to read as "no more records": the job logged
+        // Complete and the period was certified on a partial month. The strict
+        // variant makes failure a distinct value, and classifyCdrPage pins the
+        // rule. A failed credential discards its partial pages entirely —
+        // all-or-nothing, so a partial fetch can never pose as a complete one.
+        const { classifyCdrPage } = await import('./cdr-fetch-page');
+        const fetchErrors: string[] = [];
+        let sawCleanEmpty = false;
         if (!xmlRpcCircuitGuard()) {
           credLoop:
           for (const { username, password } of sippyXmlCredsPairs(settings)) {
             xmlRpcAttempted = true;
             const pagesAccum: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
             let offset = 0;
+            let credFailed = false;
             try {
+              pageLoop:
               while (true) {
-                const page = await sippy.getSippyCDRs(username, password, XML_PAGE,
+                const page = await sippy.getSippyCDRsPage(username, password, XML_PAGE,
                   { iAccount: Number(iAccount), startDate: startIso, endDate: endIso, offset },
                   portalUrl);
-                console.log(`[seed-job:${jobId}] XML-RPC(${username}) offset=${offset} → ${page.length} CDRs`);
-                if (page.length > 0) {
-                  pagesAccum.push(...page);
-                  xmlRpcRecordSuccess();
-                  job.phase = `Admin API (XML-RPC) — ${pagesAccum.length} CDRs fetched…`;
+                const outcome = classifyCdrPage(
+                  { ok: page.ok, count: page.ok ? page.cdrs.length : 0 }, XML_PAGE);
+                switch (outcome) {
+                  case 'error': {
+                    const why = page.ok ? 'unknown' : page.error;
+                    console.warn(`[seed-job:${jobId}] XML-RPC(${username}) ERROR at offset=${offset}: ${why} — aborting this credential (${pagesAccum.length} partial CDRs discarded; an error is not end-of-data)`);
+                    fetchErrors.push(`${username} @ offset ${offset}: ${why}`);
+                    credFailed = true;
+                    break pageLoop;
+                  }
+                  case 'continue':
+                  case 'end_of_data': {
+                    const cdrs = page.ok ? page.cdrs : [];
+                    console.log(`[seed-job:${jobId}] XML-RPC(${username}) offset=${offset} → ${cdrs.length} CDRs`);
+                    if (cdrs.length > 0) {
+                      pagesAccum.push(...cdrs);
+                      xmlRpcRecordSuccess();
+                      job.phase = `Admin API (XML-RPC) — ${pagesAccum.length} CDRs fetched…`;
+                    }
+                    if (outcome === 'end_of_data') break pageLoop; // Sippy said so, in-band
+                    offset += XML_PAGE;
+                  }
                 }
-                if (page.length < XML_PAGE) break; // last page
-                offset += XML_PAGE;
               }
-              if (pagesAccum.length > 0) {
-                rawCdrs = pagesAccum;
-                break credLoop; // found CDRs — stop trying other credentials
+              if (!credFailed) {
+                if (pagesAccum.length > 0) {
+                  rawCdrs = pagesAccum;
+                  break credLoop; // complete fetch — stop trying other credentials
+                }
+                sawCleanEmpty = true; // a method answered and the window is genuinely empty
               }
             } catch (e: any) {
               console.warn(`[seed-job:${jobId}] XML-RPC(${username}) error: ${e.message}`);
+              fetchErrors.push(`${username}: ${e.message}`);
             }
           }
+        }
+
+        // Every credential ERRORED and none delivered a clean answer: the fetch
+        // FAILED. This must never fall through to the "0 CDRs" diagnostic below,
+        // which describes an empty window — a different fact with a different
+        // remedy. status 'error', never 'done'.
+        if (rawCdrs.length === 0 && fetchErrors.length > 0 && !sawCleanEmpty) {
+          const msg = `CDR fetch FAILED — not an empty period. ${fetchErrors.join(' · ')}`;
+          console.error(`[seed-job:${jobId}] ${msg}`);
+          job.status = 'error';
+          job.error  = msg;
+          job.phase  = msg;
+          return { fetched: 0, created: 0, skipped: 0, message: msg };
         }
 
         // If the Admin API returned 0 CDRs, stop here.
