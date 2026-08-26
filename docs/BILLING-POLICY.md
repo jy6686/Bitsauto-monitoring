@@ -254,6 +254,58 @@ Two rules inside it, both load-bearing:
 
 ---
 
+## 7.2 Operational intelligence — completeness is not optional
+
+**Owner decision, 2026-08-27.**
+
+> Reports, analytics, dashboards, reconciliation, certification and monitoring must process the
+> **complete** CDR repository with no artificial record limits. CDR ingestion must not impose
+> arbitrary row or page caps — it continues until Sippy indicates there are no more records.
+> Performance is controlled through batching, throttling and resumable processing, **not** by
+> limiting how much data is retrieved.
+
+Earned on 2026-08-26, when an invoice covered roughly one percent of a customer's traffic and every
+figure on it was individually correct. A truncated population does not announce itself: it produces
+a smaller number that looks like a number.
+
+### The distinction every limit must be classified against
+
+| Class | What it does | Disposition |
+|---|---|---|
+| **Artificial cap** | Silently truncates the population — "first N records", a `LIMIT` on a query whose result is then summed, a max-pages counter, a `slice()` before aggregation | **Remove** |
+| **Operational safeguard** | Controls the RATE of work without reducing its total — page size inside a loop that continues, throttling, retries, backoff, timeouts | **Keep, make configurable** |
+| **Deliberate gate** | Refuses to proceed until a precondition holds — invoice generation awaiting certification | **Keep** |
+| **Display pagination** | A list showing 50 of N, where N is also reported | **Keep** — it caps the view, not the answer |
+
+A `LIMIT` on a list endpoint that also returns a total is pagination. The same `LIMIT` on a query
+whose rows are then summed is a cap, and it makes the sum wrong while looking identical in the code.
+
+### Invoice generation is the one exception
+
+Everything else reads the complete repository. Invoice generation stays **gated** — not limited —
+on complete import · certification · reconciliation, or an authorised override (§7,
+`BILLING-RECONCILIATION-CONTRACT.md` §8). A gate refuses; a cap lies.
+
+### Sippy must not be degraded
+
+> The objective is unlimited **completeness**, not unlimited **concurrency**.
+
+Removing caps does not mean removing safeguards. Ingestion keeps a configurable page size, request
+throttling, retry with backoff, and per-page checkpointing so a failure at page 800 resumes at 800
+rather than at 1. Heavy historical backfills run outside Sippy's reporting hours; incremental daily
+imports are small enough not to matter. Sippy is the system of record and its own operational
+reports — Profit/Loss, Customer Summary, routing, portal users — must stay responsive while
+BitsAuto imports.
+
+### Note on the Profit/Loss report
+
+It has no CDR cap because it reads no CDRs. `scrapeProfitLossReport()` (`server/sippy.ts:1657`)
+posts to Sippy's own `/profit_loss_report.php` and parses the rendered table — one already-aggregated
+row per day. If its figures look short, the cause is Sippy's own report or the window it was asked
+for, never a limit on this side.
+
+---
+
 ## 8. Implementation status
 
 Honest as of 2026-08-26. Freezing a policy does not implement it.
