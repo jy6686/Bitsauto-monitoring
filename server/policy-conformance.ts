@@ -199,6 +199,144 @@ function probeRatingUnits(reproduceCost: Function): PolicyCheck {
   }
 }
 
+/**
+ * Does the invoice DOCUMENT read the fields the invoice ROW carries?
+ *
+ * The business-level probe the owner asked for: one invoice rendered in memory
+ * through the REAL shipped renderer (`generateInvoiceHtml`, the html_content
+ * every generation path stores), with zero writes — the renderer is a pure
+ * function returning a string, so the probe is structurally unable to persist.
+ *
+ * ── Sensitivity testing, not format parsing ─────────────────────────────────
+ * An adversarial review killed three of five originally designed checks as
+ * tautologies — comparisons whose two sides came from the same arithmetic, the
+ * exact "reconciliation that cannot fail" shape this platform has produced
+ * three times. What survived is a method that cannot be tautological: render
+ * twice with ONE field changed, and if the output does not move, the document
+ * provably does not read that field. No expected value is derived from the
+ * code under test, and no date/number format has to be guessed.
+ *
+ * ── The fixture is shaped like PRODUCTION rows ──────────────────────────────
+ * `invoice_cdr_snapshots` has one writer, and it sets `callee` to the
+ * VERIFICATION'S DESTINATION NAME (sippy-rating-snapshot.service.ts:192), not
+ * a dialable number. A fixture with a dialable callee — the first draft's —
+ * would tick green over a live identity failure, because the renderer resolves
+ * country by dial-code lookup on that field. The fixture therefore carries
+ * exactly what production carries: a name in `callee`, digits in `prefix`.
+ */
+function probeInvoiceDocument(generateInvoiceHtml: Function): PolicyCheck[] {
+  const mkSnapshot = (over: Record<string, unknown>) => ({
+    id: 0, cdrId: null, cdrStartTime: '2026-08-18T14:35:00Z',
+    // Production shape: destination NAME in callee, digits in prefix.
+    callee: 'Pakistan Mobile', prefix: '192',
+    durationSecs: 10, iTariff: '32', tariffVersionId: 1, ratingVerificationId: null,
+    reproducedCost: 0.35, actualCost: 0.00583, delta: null,
+    interval1Used: 1, intervalNUsed: 1, price1Used: 0.035, priceNUsed: 0.035,
+    connectFeeUsed: 0, gracePeriodUsed: 0, freeSecondsUsed: 0, postCallSurchargeUsed: 0,
+    verificationStatus: 'locked', snapshotHash: 'probe', lockedAt: new Date(0), createdAt: new Date(0),
+    ...over,
+  });
+  const mkInvoice = (over: Record<string, unknown>) => ({
+    id: 0, invoiceNumber: 'PROBE-0000', iTariff: '32', customerName: 'PROBE',
+    periodStart: '2026-08-17', periodEnd: '2026-08-23',
+    totalReproduced: 0, totalActual: 0, totalDelta: 0, lineCount: 2,
+    status: 'draft', generatedAt: new Date('2026-08-24T00:00:00Z'),
+    dueDate: '2026-09-15', htmlContent: null,
+    ...over,
+  });
+  const render = (invoice: unknown, snapshots: unknown[]): string =>
+    String(generateInvoiceHtml({
+      invoice, snapshots, lineItems: [], customerName: 'PROBE',
+      periodLabel: '2026-08', branding: null, customerBranding: null,
+    }));
+
+  const checks: PolicyCheck[] = [];
+  const base = [mkSnapshot({}), mkSnapshot({ cdrStartTime: '2026-08-19T09:00:00Z' })];
+
+  // ── Which cost column feeds the document? ─────────────────────────────────
+  // Invoices bill actual_cost — the switch's figure — settled when the preview
+  // was made canonical. Move each column separately and watch the output.
+  {
+    const rule = 'The invoice document bills the switch\'s actual cost';
+    const reference = 'BILLING-RECONCILIATION-CONTRACT.md §2 · sippy-invoice.service.ts:128';
+    try {
+      const doc      = render(mkInvoice({}), base);
+      const docActal = render(mkInvoice({}), base.map(r => ({ ...r, actualCost: 999.99 })));
+      const docRepro = render(mkInvoice({}), base.map(r => ({ ...r, reproducedCost: 888.88 })));
+      const readsActual = docActal !== doc;
+      const readsRepro  = docRepro !== doc;
+      checks.push(
+        readsActual && !readsRepro
+          ? { rule, status: 'conforms', kind: 'measured',
+              detail: 'Moving actual_cost changes the document; moving reproduced cost does not. ' +
+                      'The document bills the switch\'s figure.', reference }
+          : !readsActual && readsRepro
+            ? { rule, status: 'diverges', kind: 'measured',
+                detail: 'Moving reproduced cost changes the document; moving actual_cost does NOT. ' +
+                        'The stored html_content bills the rating engine\'s reproduction — currently ' +
+                        'up to 60x wrong — while the canonical PDF sums actual_cost. The two ' +
+                        'renderers still disagree about which column is money.', reference }
+            : { rule, status: 'inconclusive', kind: 'measured',
+                detail: `Sensitivity unclear (actual:${readsActual}, reproduced:${readsRepro}).`,
+                reference },
+      );
+    } catch (e: any) {
+      checks.push({ rule, status: 'probe_failed', kind: 'measured',
+        detail: `Probe could not run: ${e.message}`, reference });
+    }
+  }
+
+  // ── Does the document print the invoice row's own due date? ───────────────
+  {
+    const rule = 'The invoice document prints the stored due date';
+    const reference = 'BILLING-POLICY.md §6 · sippy-invoice.service.ts:190-192 vs invoice-terms';
+    try {
+      const a = render(mkInvoice({ dueDate: '2026-09-15' }), base);
+      const b = render(mkInvoice({ dueDate: '2026-12-31' }), base);
+      checks.push(a === b
+        ? { rule, status: 'diverges', kind: 'measured',
+            detail: 'Changing the invoice row\'s due date does not change the document. The ' +
+                    'document recomputes its own due date as periodEnd + (branding days ?? 6), so ' +
+                    'the row and the printed document can carry different due dates computed by ' +
+                    'different rules.', reference }
+        : { rule, status: 'conforms', kind: 'measured',
+            detail: 'The document\'s due date follows the invoice row\'s.', reference });
+    } catch (e: any) {
+      checks.push({ rule, status: 'probe_failed', kind: 'measured',
+        detail: `Probe could not run: ${e.message}`, reference });
+    }
+  }
+
+  // ── Does destination identity survive production-shaped rows? ─────────────
+  {
+    const rule = 'The document resolves destinations for production-shaped snapshot rows';
+    const reference = 'BILLING-POLICY.md §2 · sippy-invoice.service.ts:122-125 · ' +
+                      'sippy-rating-snapshot.service.ts:192';
+    try {
+      const doc = render(mkInvoice({}), base);
+      const resolved = /pakistan/i.test(doc);
+      const unknown  = /unknown/i.test(doc);
+      checks.push(
+        resolved && !unknown
+          ? { rule, status: 'conforms', kind: 'measured',
+              detail: 'A row whose callee holds the destination name resolves to its country.',
+              reference }
+          : { rule, status: 'diverges', kind: 'measured',
+              detail: 'The renderer resolves country by DIAL-CODE lookup on `callee` — but the ' +
+                      'snapshot writer stores the destination NAME there, which no dial-code ' +
+                      'table matches. Production-shaped rows render ' +
+                      (unknown ? 'as country "Unknown"' : 'without their country') + '. The ' +
+                      'catalogue, not a dial-code lookup on a name, owns identity.', reference },
+      );
+    } catch (e: any) {
+      checks.push({ rule, status: 'probe_failed', kind: 'measured',
+        detail: `Probe could not run: ${e.message}`, reference });
+    }
+  }
+
+  return checks;
+}
+
 /** Does the period module produce half-open UTC weeks starting Monday? */
 function probePeriods(billingPeriods: any): PolicyCheck {
   const rule = 'Periods are half-open UTC, weeks run Monday to Monday';
@@ -296,6 +434,18 @@ export async function policyConformance(
       status: 'probe_failed', kind: 'measured',
       detail: `Resolver could not be loaded: ${e.message}`,
       reference: 'BILLING-POLICY.md §4.1',
+    });
+  }
+
+  try {
+    const { generateInvoiceHtml } = await import('./services/sippy/sippy-invoice.service');
+    checks.push(...probeInvoiceDocument(generateInvoiceHtml));
+  } catch (e: any) {
+    checks.push({
+      rule: 'The invoice document reads the fields the invoice row carries',
+      status: 'probe_failed', kind: 'measured',
+      detail: `Renderer could not be loaded: ${e.message}`,
+      reference: 'sippy-invoice.service.ts:175',
     });
   }
 

@@ -111,6 +111,40 @@ describe('policyConformance — it measures rather than asserts', () => {
   });
 });
 
+describe('policyConformance — the invoice document probe', () => {
+  /**
+   * All three are sensitivity tests: render twice with one field moved, and if
+   * the output does not move the document provably does not read that field.
+   * No expected value comes from the code under test, so none can be a
+   * tautology — the failure mode an adversarial review found in three of the
+   * five originally designed checks.
+   *
+   * All three assert diverges on TODAY's code and each is expected to flip
+   * when its defect is fixed; flip the assertion then, deliberately.
+   */
+  it('finds the document bills reproduced cost, not the switch figure', async () => {
+    const checks = await policyConformance();
+    const cost = find(checks, "bills the switch's actual cost");
+    expect(cost!.kind).toBe('measured');
+    expect(cost!.status).toBe('diverges');
+    expect(cost!.detail).toMatch(/renderers still disagree/);
+  });
+
+  it('finds the document ignores the stored due date', async () => {
+    const checks = await policyConformance();
+    const due = find(checks, 'prints the stored due date');
+    expect(due!.status).toBe('diverges');
+    expect(due!.detail).toMatch(/different rules/);
+  });
+
+  it('finds production-shaped rows lose their destination identity', async () => {
+    const checks = await policyConformance();
+    const dest = find(checks, 'production-shaped snapshot rows');
+    expect(dest!.status).toBe('diverges');
+    expect(dest!.detail).toMatch(/destination NAME/);
+  });
+});
+
 describe('policyConformance — declared facts are labelled as such', () => {
   it('never presents a code-review fact as a measurement', async () => {
     const checks = await policyConformance();
