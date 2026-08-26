@@ -12,8 +12,17 @@
  * The 60x case is first because it is the one that reached production.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { rateCall } from './rating-cost';
+
+// The shipped engine imports storage at module load, which needs a live
+// DATABASE_URL. reproduceCost itself touches neither, so stubbing that one
+// import lets the two functions be compared directly — which is the only way
+// to PROVE the interval rounding is untouched rather than assert values I
+// happen to believe are right.
+vi.mock('./storage', () => ({ storage: {} }));
+const shipped = async () =>
+  (await import('./services/sippy/sippy-rating-verification.service')).reproduceCost;
 
 /** Real rows from snapshot v142740, tariff 32. */
 const PAKISTAN   = { prefix: '192',  price1: 0.035,   priceN: 0.035,   interval1: 1,  intervalN: 1 };
@@ -145,5 +154,138 @@ describe('rateCall — degenerate input', () => {
 
   it('costs nothing on a zero rate, however long the call', () => {
     expect(rateCall(3600, { price1: 0, priceN: 0, interval1: 1, intervalN: 1 }).cost).toBe(0);
+  });
+});
+
+/**
+ * Differential against the SHIPPED engine.
+ *
+ * A units fix must change money and nothing else. Asserting billedSecs values
+ * I chose would not show that — it would only show that I agree with myself.
+ * These run both functions over the same matrix and compare, so "rounding is
+ * untouched" is a proof rather than a claim.
+ *
+ * The three billing modes are the ones that actually occur in tariff 32:
+ * 1/1 (per-second), 60/1 (minimum a minute, then per-second) and 60/60
+ * (whole minutes). 30/6 is included because a fix that happened to work for
+ * 60-second blocks could still be wrong for any other block size.
+ */
+describe('differential vs the shipped engine', () => {
+  const MODES = [
+    { name: '1/1',   interval1: 1,  intervalN: 1  },
+    { name: '60/1',  interval1: 60, intervalN: 1  },
+    { name: '60/60', interval1: 60, intervalN: 60 },
+    { name: '30/6',  interval1: 30, intervalN: 6  },
+  ];
+  const DURATIONS = [0, 1, 10, 29, 30, 31, 59, 60, 61, 90, 120, 3599, 3600];
+  const PRICE = 0.035;
+
+  it('bills IDENTICAL seconds to the shipped engine, in every mode and duration', async () => {
+    const reproduceCost = await shipped();
+    const mismatches: string[] = [];
+    for (const m of MODES) {
+      for (const dur of DURATIONS) {
+        const rate = { price1: PRICE, priceN: PRICE, interval1: m.interval1, intervalN: m.intervalN };
+        const a = reproduceCost(dur, rate as any).billedSecs;
+        const b = rateCall(dur, rate).billedSecs;
+        if (a !== b) mismatches.push(`${m.name} @ ${dur}s: shipped ${a} vs new ${b}`);
+      }
+    }
+    expect(mismatches).toEqual([]);
+  });
+
+  // The two engines differ by 60 x blocks / billedSecs. That is NOT a constant,
+  // and assuming it was would have asserted a falsehood: it collapses to 1 when
+  // a block IS a minute, and to 60 when a block is a second. So the blast radius
+  // of the defect is "every tariff whose intervals are not 60/60".
+
+  it('agrees exactly on 60/60 tariffs — the shipped engine is right there', async () => {
+    // A 60-second block priced per minute and priced per block are the same
+    // number, which is why this was never a total outage. Whole-minute tariffs
+    // billed correctly throughout.
+    const reproduceCost = await shipped();
+    const rate = { price1: 0.06, priceN: 0.06, interval1: 60, intervalN: 60 };
+    for (const dur of DURATIONS) {
+      expect(reproduceCost(dur, rate as any).reproducedCost)
+        .toBeCloseTo(rateCall(dur, rate).cost, 8);
+    }
+  });
+
+  it('differs by exactly 60x on 1/1 tariffs — where the production calls were', async () => {
+    // Prefixes 192 and 1880 are both 1/1, which is why asterisk's connected
+    // calls came out sixty times high while the aggregate looked merely wrong.
+    const reproduceCost = await shipped();
+    const rate = { price1: 0.06, priceN: 0.06, interval1: 1, intervalN: 1 };
+    for (const dur of DURATIONS.filter(d => d > 0)) {
+      const old = reproduceCost(dur, rate as any).reproducedCost;
+      const now = rateCall(dur, rate).cost;
+      expect(old / now).toBeCloseTo(60, 6);
+    }
+  });
+
+  it('overcharges by SOMETHING on every other block size, never undercharges', async () => {
+    // The general invariant. A mixed tariff is wrong by a factor between 1 and
+    // 60 that moves with call duration — which is why no single correction
+    // factor could have been applied downstream instead of fixing the units.
+    const reproduceCost = await shipped();
+    for (const m of MODES.filter(x => x.name === '60/1' || x.name === '30/6')) {
+      for (const dur of DURATIONS.filter(d => d > 0)) {
+        const rate = { price1: PRICE, priceN: PRICE, interval1: m.interval1, intervalN: m.intervalN };
+        const old = reproduceCost(dur, rate as any).reproducedCost;
+        const now = rateCall(dur, rate).cost;
+        expect(old).toBeGreaterThanOrEqual(now - 1e-9);
+        expect(old / now).toBeLessThanOrEqual(60 + 1e-6);
+      }
+    }
+  });
+
+  it('the shipped engine prices the production call at 0.35 — the defect itself', async () => {
+    // Prefix 192, snapshot v142740, one real 10-second call. Sippy charged
+    // 0.035 x 10/60. This test exists to fail LOUDLY when reproduceCost is
+    // corrected, so the fix cannot land without someone deleting it on purpose.
+    const reproduceCost = await shipped();
+    const rate = { price1: 0.035, priceN: 0.035, interval1: 1, intervalN: 1 };
+    expect(reproduceCost(10, rate as any).reproducedCost).toBeCloseTo(0.35, 8);
+    expect(rateCall(10, rate).cost).toBeCloseTo(0.035 * 10 / 60, 8);
+  });
+});
+
+/**
+ * Money, per billing mode, checked independently of rounding.
+ *
+ * Owner's requirement: interval rounding and the money calculation must be
+ * verified separately, so a regression in one cannot be masked by the other.
+ * Above proves the rounding; these fix the money against known-correct values.
+ */
+describe('cost by billing mode', () => {
+  const R = 0.06;   // 6 cents per minute, chosen so every expectation is exact
+
+  it('1/1 — charges the exact seconds used', () => {
+    near(rateCall(10, { price1: R, priceN: R, interval1: 1, intervalN: 1 }).cost, R * 10 / 60);
+    near(rateCall(90, { price1: R, priceN: R, interval1: 1, intervalN: 1 }).cost, R * 90 / 60);
+  });
+
+  it('60/1 — a minimum of one minute, then exact seconds', () => {
+    const rate = { price1: R, priceN: R, interval1: 60, intervalN: 1 };
+    near(rateCall(10, rate).cost, R);            // rounded up to the minimum
+    near(rateCall(60, rate).cost, R);
+    near(rateCall(90, rate).cost, R * 90 / 60);  // minute, then 30 seconds
+  });
+
+  it('60/60 — whole minutes only', () => {
+    const rate = { price1: R, priceN: R, interval1: 60, intervalN: 60 };
+    near(rateCall(1,   rate).cost, R);
+    near(rateCall(60,  rate).cost, R);
+    near(rateCall(61,  rate).cost, R * 2);
+    near(rateCall(120, rate).cost, R * 2);
+    near(rateCall(121, rate).cost, R * 3);
+  });
+
+  it('30/6 — a block size that is neither a second nor a minute', () => {
+    // 40s → first 30s block, then ceil(10/6) = 2 blocks of 6s = 42s billed.
+    const rate = { price1: R, priceN: R, interval1: 30, intervalN: 6 };
+    const r = rateCall(40, rate);
+    expect(r.billedSecs).toBe(42);
+    near(r.cost, R * 42 / 60);
   });
 });
