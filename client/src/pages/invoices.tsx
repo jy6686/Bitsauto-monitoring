@@ -46,7 +46,17 @@ interface Invoice {
   approvedAt?:     string;
   sentAt?:         string;
   notes?:          string;
+  /** @deprecated Phase 1 of retirement — still written, no longer read.
+   *  The preview renders the canonical PDF; this frozen blob was built from
+   *  reproducedCost while the invoice bills actualCost, and predated the
+   *  destination catalogue, so it showed different destinations, different
+   *  rates and a total 60x the customer's on the approval screen. */
   htmlContent?:    string;
+  /** Certification state AT GENERATION TIME — provenance for the approver. */
+  certificationStatus?: string;
+  verificationRunId?:   number;
+  overrideReason?:      string;
+  overriddenBy?:        string;
   createdAt:       string;
 }
 
@@ -1606,18 +1616,58 @@ export default function InvoicesPage() {
             </button>
           </div>
           {previewTab === 'preview' ? (
-            <div className="flex-1 overflow-auto rounded border border-border">
-              {preview?.htmlContent ? (
-                <iframe
-                  data-testid="iframe-invoice-preview"
-                  srcDoc={preview.htmlContent}
-                  className="w-full min-h-[600px]"
-                  title="Invoice Preview"
-                  sandbox="allow-same-origin"
-                />
-              ) : (
-                <div className="text-center py-10 text-muted-foreground">Loading invoice…</div>
+            <div className="flex-1 overflow-auto flex flex-col gap-3">
+              {/* Provenance the approver would otherwise open three pages to find.
+                  certificationStatus is the state AT GENERATION TIME, so it says
+                  what was true when this document was built — not what is true now. */}
+              {preview && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-2 text-xs rounded border border-border p-3">
+                  <div><span className="text-muted-foreground">Certification</span><div className="font-medium">
+                    {preview.certificationStatus
+                      ? <span className={preview.certificationStatus === 'certified' ? 'text-emerald-400' : 'text-amber-400'}>{preview.certificationStatus}</span>
+                      : <span className="text-muted-foreground">not recorded</span>}
+                  </div></div>
+                  <div><span className="text-muted-foreground">Verification run</span><div className="font-medium font-mono">{preview.verificationRunId ?? "—"}</div></div>
+                  <div><span className="text-muted-foreground">Tariff</span><div className="font-medium font-mono">{preview.iTariff ?? "—"}</div></div>
+                  <div><span className="text-muted-foreground">Generated</span><div className="font-medium">{preview.generatedAt ? new Date(preview.generatedAt).toLocaleString() : "—"}</div></div>
+                  {preview.overrideReason && (
+                    <div className="col-span-2 md:col-span-4 pt-1 border-t border-border/60">
+                      <span className="text-muted-foreground">Override</span>
+                      <div className="font-medium text-amber-400">
+                        {preview.overrideReason}{preview.overriddenBy ? ` — ${preview.overriddenBy}` : ""}
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
+              <div className="flex items-center gap-2">
+                <Button
+                  data-testid="button-download-pdf-preview" size="sm" variant="outline"
+                  onClick={() => preview && window.open(`/api/invoices/${preview.id}/pdf`, "_blank")}
+                >
+                  <FileText className="h-3.5 w-3.5 mr-1.5" /> Download PDF
+                </Button>
+                <span className="text-[11px] text-muted-foreground">
+                  This is the exact document the customer receives — same renderer, same source.
+                </span>
+              </div>
+              {/* The canonical PDF, not a second rendering of it. Two renderers
+                  drift: the HTML blob this replaced showed 1880 at 0.59100 for
+                  $16.52 while the customer's PDF showed Bangladesh at 0.00985
+                  for $0.28, same invoice, same minutes. One renderer cannot
+                  disagree with itself. */}
+              <div className="flex-1 rounded border border-border overflow-hidden">
+                {preview ? (
+                  <iframe
+                    data-testid="iframe-invoice-preview"
+                    src={`/api/invoices/${preview.id}/pdf#toolbar=0`}
+                    className="w-full min-h-[600px] h-full"
+                    title="Invoice Preview"
+                  />
+                ) : (
+                  <div className="text-center py-10 text-muted-foreground">Loading invoice…</div>
+                )}
+              </div>
             </div>
           ) : (
             <div className="flex-1 overflow-auto">
