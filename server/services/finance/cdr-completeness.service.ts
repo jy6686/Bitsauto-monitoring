@@ -17,7 +17,15 @@
  *    which is the correct place: the evidence is missing, whatever else
  *    survived.
  *
- * 2. The Sippy reference is supplied by the caller, not fetched. The adapter
+ * 2. Every result carries an environment fingerprint — which database answered and
+ *    whether the clock is UTC. A valid query against the wrong data source returns
+ *    a confident wrong answer and nothing else in the payload reveals it. On
+ *    2026-08-27 a psql session reported an EMPTY raw_sippy_cdrs and 24 companies
+ *    while the deployed app held 804 snapshots and 49; every conclusion drawn from
+ *    it was about the wrong database. An empty repository is the shape that
+ *    misleads most, because it is indistinguishable from catastrophic loss.
+ *
+ * 3. The Sippy reference is supplied by the caller, not fetched. The adapter
  *    that will fetch it is specified in BILLING-RECONCILIATION-CONTRACT.md §3
  *    and not built; until it is, an operator reads the two figures off the
  *    Customer Summary. Omitting them yields `no_reference` rather than a pass —
@@ -30,6 +38,7 @@
 
 import { sql } from 'drizzle-orm';
 import { db } from '../../db';
+import { environmentFingerprint, type EnvironmentFingerprint } from '../../environment-fingerprint';
 import {
   assessCompleteness,
   type CompletenessVerdict,
@@ -67,7 +76,7 @@ export interface CompletenessReport {
    * shifted from the one measured here, and the difference would surface as
    * loss at sippy_reference → repository that no amount of re-importing fixes.
    */
-  environment: { serverTimezone: string; utc: boolean };
+  environment: EnvironmentFingerprint;
   repository: {
     calls: number;
     billedMinutes: number;
@@ -213,23 +222,38 @@ export async function measureCompleteness(
       }
     : null;
 
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'unknown';
-  const utc = /^(UTC|Etc\/UTC|GMT|Etc\/GMT)$/.test(tz) ||
-              new Date('2026-01-01T00:00:00').getUTCHours() === 0;
+  const environment = await environmentFingerprint();
   const verdict = assessCompleteness(stages, { tolerancePct: q.tolerancePct, identity });
-  if (!utc) {
+
+  if (!environment.clock.utc) {
     verdict.notes.push(
-      `Server timezone is ${tz}, not UTC. The CDR fetch window is built without ` +
-      `an offset and parsed as local time, so the repository may hold a shifted ` +
-      `period. Treat a loss at sippy_reference → repository as unattributed until ` +
-      `that is resolved.`,
+      `Server timezone is ${environment.clock.timezone}, not UTC. The CDR fetch ` +
+      `window is built without an offset and parsed as local time, so the ` +
+      `repository may hold a shifted period. Treat a loss at sippy_reference → ` +
+      `repository as unattributed until that is resolved.`,
+    );
+  }
+
+  // Which database answered. A valid query against the wrong data source returns
+  // a confident wrong answer, and nothing else in this payload would reveal it —
+  // six rounds of debugging have been lost to exactly that. An empty repository
+  // is the shape that misleads most: it reads as catastrophic loss and is
+  // indistinguishable from having asked the wrong database.
+  const dbName = 'name' in environment.database ? environment.database.name : null;
+  const dbCompanies = 'counts' in environment.database ? environment.database.counts.companies : null;
+  if (repository.calls === 0) {
+    verdict.notes.push(
+      `The repository returned no rows for this account and period, from database ` +
+      `"${dbName ?? 'unknown'}" (${dbCompanies ?? '?'} companies). Confirm that is ` +
+      `the database the running application uses — compare these counts against ` +
+      `/api/build — before reading this as data loss.`,
     );
   }
 
   return {
     account: q.iAccount,
     period: { from: q.from, to: q.to, convention: '[from, to)' },
-    environment: { serverTimezone: tz, utc },
+    environment,
     repository,
     verified,
     snapshotted,

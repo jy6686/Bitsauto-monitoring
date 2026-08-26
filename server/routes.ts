@@ -882,27 +882,11 @@ export async function registerRoutes(
     // app's: a psql session reported 0 snapshots and 0 invoices while this app
     // displayed 804 and 6, and that ambiguity has cost four rounds of debugging
     // on separate occasions. Host and database name only — never credentials.
-    try {
-      const d = await db.execute(sql`
-        SELECT current_database() AS db,
-               coalesce(host(inet_server_addr())::text, 'local') AS host,
-               inet_server_port() AS port,
-               (SELECT count(*)::int FROM companies)             AS companies,
-               (SELECT count(*)::int FROM invoice_schedules)     AS schedules,
-               (SELECT count(*)::int FROM invoice_cdr_snapshots) AS snapshots,
-               (SELECT count(*)::int FROM invoices)              AS invoices`);
-      const d0 = ((d as any).rows ?? [])[0] ?? {};
-      info.database = {
-        name: d0.db ?? null, host: d0.host ?? null, port: d0.port ?? null,
-        // A fingerprint an operator can compare against psql in one glance.
-        counts: {
-          companies: d0.companies ?? null, schedules: d0.schedules ?? null,
-          snapshots: d0.snapshots ?? null, invoices: d0.invoices ?? null,
-        },
-      };
-    } catch (e: any) {
-      info.database = { error: e.message };
-    }
+    // Shared with the completeness diagnostic (server/environment-fingerprint.ts)
+    // so both report the same shape from the same query — two fingerprints that
+    // could drift would defeat the comparison they exist to enable.
+    const { databaseFingerprint } = await import('./environment-fingerprint');
+    info.database = await databaseFingerprint();
     // Note: no "healthy: true" field. A value that is true whenever you can
     // read it asserts nothing — the response arriving IS the liveness signal.
     res.json(info);
