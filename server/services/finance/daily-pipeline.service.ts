@@ -231,9 +231,19 @@ export async function runDailyFinancePipeline(opts: {
     // previously invisible once logs rolled. Recipients are recorded here.
     stages.push(await runStage('dmr-email', stages, async () => {
       if (opts.skipEmail) return { skipped: true, detail: 'skipEmail requested' };
-      const { scheduledDispatchAllowed } = await import('../../email');
+      const { scheduledDispatchAllowed, alertEmailConfigured } = await import('../../email');
       if (!scheduledDispatchAllowed()) {
         return { skipped: true, detail: 'scheduled dispatch disabled on this instance (FP-03)' };
+      }
+      // Not configured is a SKIP, not a failure. The first production run
+      // proved why: with no alert transport set up, this stage failed, which
+      // made the whole run 'partial', which made the date look retryable — so
+      // the scheduler would re-run snapshot, margin and assurance every ten
+      // minutes, burn all three attempts on a condition no retry can change,
+      // and end at "needs investigation" though everything but the email had
+      // succeeded. Absent configuration is not a transient fault.
+      if (!(await alertEmailConfigured())) {
+        return { skipped: true, detail: 'alert email transport not configured — set it up in Settings' };
       }
       const { sendDailyDMREmail } = await import('../email/dmr-email.service');
       const r = await sendDailyDMREmail({ date: targetDate });
@@ -246,8 +256,12 @@ export async function runDailyFinancePipeline(opts: {
       const { materializeMargin } = await import('../sippy/index');
       const r = await materializeMargin(new Date(`${targetDate}T00:00:00Z`));
       if (r.errors?.length) console.warn(`[finance-pipeline] margin warnings: ${r.errors.join('; ')}`);
-      const pct = r.aggregateMargin != null ? `${(r.aggregateMargin * 100).toFixed(2)}%` : 'n/a';
-      return { detail: `${r.clientRows} client / ${r.vendorRows} vendor rows, margin ${pct}, ${r.alertsGenerated} alert(s)` };
+      // aggregateMargin is `totalSell - totalBuy` — a USD AMOUNT, not a ratio.
+      // The first production run printed "margin 862.01%" because this
+      // multiplied $8.62 by 100 and called it a percentage. The field name
+      // reads like a rate; it is not one.
+      const margin = r.aggregateMargin != null ? `$${r.aggregateMargin.toFixed(2)}` : 'n/a';
+      return { detail: `${r.clientRows} client / ${r.vendorRows} vendor rows, margin ${margin}, ${r.alertsGenerated} alert(s)` };
     }));
 
     // ── 5. AI assurance ───────────────────────────────────────────────────────

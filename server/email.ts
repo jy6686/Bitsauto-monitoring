@@ -25,6 +25,19 @@ export function scheduledDispatchAllowed(): boolean {
   return process.env.NODE_ENV === 'production' || process.env.ALLOW_DEV_SCHEDULED_EMAIL === '1';
 }
 
+/**
+ * Whether this instance can send alert email at all.
+ *
+ * Companion to scheduledDispatchAllowed(): that one answers "is this instance
+ * ALLOWED to send on a schedule", this one answers "is it CAPABLE of sending".
+ * Both are configuration facts, and a caller that treats either as a delivery
+ * failure will retry something that cannot succeed until a human changes a
+ * setting. Callers should skip, not fail, when this returns false.
+ */
+export async function alertEmailConfigured(): Promise<boolean> {
+  return !!(await getTransporter());
+}
+
 export type AlertEmailPayload = {
   subject: string;
   bodyHtml: string;
