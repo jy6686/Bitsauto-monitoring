@@ -35,7 +35,19 @@ business intent; only one of them is safe to implement. `BillingPeriod` therefor
 inclusive `end` (what the invoice *prints*) and an `endExclusive` (what every *query* compares
 against).
 
-**The seeder does not yet follow this** — `server/routes.ts:32719` builds `T23:59:59`. See §8.
+**The seeder does not yet follow this, and it is worse than an off-by-one-second.**
+`server/routes.ts:32718` builds `${periodStart}T00:00:00` with **no offset**. That string reaches
+`toSippyDate` (`server/sippy.ts:3565`), which does `new Date(s)` — ES parses an offsetless
+date-time as LOCAL — then reads `getUTC*` and labels the output **"GMT"**. Measured:
+`TZ=Asia/Karachi node -e "new Date('2026-08-16T00:00:00')"` yields `2026-08-15T19:00:00Z`, a five-hour
+shift, mislabelled GMT. `/api/finance/pipeline-trace` builds its switch probe the same way
+(`routes.ts:33893`).
+
+**Owner decision 2026-08-27: this is a PREREQUISITE, not a follow-up.** Unlike a defect confined to
+one report, it moves the window for imports, certification, billing periods, reconciliation and
+invoices alike — every time-bounded operation on the platform — and the policy above is frozen on
+UTC. No production comparison can be trusted until every component shares one period convention.
+Latent on a UTC host; silent on any other. See §8.
 
 ---
 

@@ -51,6 +51,31 @@ These have been used interchangeably and must not be. Two of them gate an invoic
 | **Gates invoicing** | Yes | Yes, once enforced (§11) | No |
 | **Exists today** | Yes | No | Yes |
 
+### 2.1 Which engine is authoritative
+
+Owner decision, 2026-08-27, after finding three live components that each present themselves as
+reconciliation. Three engines determining "truth" independently is how they come to disagree.
+
+| Engine | Role | Authority |
+|---|---|---|
+| **Certification** | Technical validator — the rating engine reproduces the switch, per call | Authoritative on ARITHMETIC |
+| **Billing Reconciliation** | Commercial validator — the bill matches the switch's own summary | **Authoritative on WHETHER AN INVOICE MAY ISSUE** |
+| **Financial Reconciliation (F3)** | Accounting verification after billing | Authoritative on nothing pre-invoice |
+| **DMR** | Presentation / report | Not a validator — see below |
+| **Carrier reconciliation** | Vendor dispute | Out of the customer-invoice path |
+
+**The DMR becomes a report, not a control.** It currently *reports informational parity rather than
+independent reconciliation*: `sippy-dmr.service.ts:277-278` sets `platDur = sipDur` and
+`platAmt = sipAmt`, and every other row-construction path in that function does the same, so
+`driftDuration`, `driftAmount` and `discrepancyType` are structurally fixed and `missing_cdr`
+("Sippy shows usage, platform sees none") can never fire. That is the precise description: the
+comparison was written as a placeholder awaiting a tariff-snapshot wire-up that never came, and it
+has been serving as a control in the meantime. Its own field names are what mislead — a report that
+says `verificationStatus: 'verified'` over a number compared with itself.
+
+Nothing about the DMR changes until Billing Reconciliation is proven. It keeps generating, keeps
+emailing, keeps its page. What changes is what anyone is entitled to conclude from it.
+
 **F3 is not a substitute and was never intended as one.** Its own contract rule — *"Read
 `financial_snapshot` ONLY"* — is what makes it unable to detect the failure that motivated this
 document: a population that is internally consistent and 99% incomplete. Both engines are correct
