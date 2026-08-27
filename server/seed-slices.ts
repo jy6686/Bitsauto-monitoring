@@ -27,7 +27,17 @@
 export interface SeedSlice {
   /** ISO with explicit Z, inclusive start of the slice. */
   startIso: string;
-  /** ISO with explicit Z, inclusive end (last second), matching the seeder's convention. */
+  /**
+   * ISO with explicit Z — EQUAL to the next slice's start (the shared boundary
+   * second). Consecutive slices deliberately OVERLAP on that second: whichever
+   * inclusivity the switch applies to end_date, no instant falls between two
+   * slices, and the one-second overlap is absorbed by the idempotent i_cdr
+   * insert and the accumulator's dedup. The rejected alternative — ending one
+   * second early — created a GAP instead: a CDR timestamped inside the boundary
+   * second (Sippy carries milliseconds) was fetched by neither slice, 48
+   * silent chances per day, systematic across re-runs. Dedup can absorb an
+   * overlap; nothing can repair a gap.
+   */
   endIso: string;
   /** 1-based position, for progress reporting. */
   index: number;
@@ -40,9 +50,9 @@ export const DEFAULT_SLICE_MINUTES = 30;
 /**
  * Cut [periodStart, periodEnd] (inclusive DATES, per the seeder's contract)
  * into consecutive slices of `sliceMinutes`, covering
- * [periodStart 00:00:00Z, periodEnd+1 00:00:00Z) with no gap and no overlap
- * beyond the shared boundary second the inclusive-end convention implies —
- * which the idempotent repository insert absorbs.
+ * [periodStart 00:00:00Z, periodEnd+1 00:00:00Z) with NO GAP: each slice's end
+ * equals the next slice's start, and the shared boundary second is fetched by
+ * both — an overlap the idempotent repository insert absorbs.
  */
 export function computeSeedSlices(
   periodStart: string,
@@ -66,11 +76,7 @@ export function computeSeedSlices(
   while (cursor < endMs) {
     const next = Math.min(cursor + stepMs, endMs);
     const startIso = new Date(cursor).toISOString().replace(/\.\d{3}Z$/, 'Z');
-    // Inclusive end: one second before the next slice begins, same convention
-    // as the unsliced seeder's T23:59:59. The boundary second is unreachable
-    // twice in practice and harmless if a switch treats end as inclusive —
-    // duplicates dedup on insert.
-    const endIso = new Date(next - 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const endIso   = new Date(next).toISOString().replace(/\.\d{3}Z$/, 'Z');
     slices.push({
       startIso,
       endIso,

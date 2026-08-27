@@ -2346,6 +2346,21 @@ export type InsertAiScanRun = typeof aiScanRuns.$inferInsert;
 // the table is what makes the diff see it as expected.
 //
 // Read by raw SQL in daily-pipeline.service.ts, so keep this in step with 081.
+export const financePipelineRuns = pgTable("finance_pipeline_runs", {
+  id:          serial("id").primaryKey(),
+  /** BUSINESS date processed (normally yesterday UTC), not the date it ran. */
+  targetDate:  date("target_date").notNull(),
+  startedAt:   timestamp("started_at",   { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  /** running | success | partial | failed */
+  status:      varchar("status",       { length: 16 }).notNull().default('running'),
+  triggeredBy: varchar("triggered_by", { length: 24 }).notNull().default('scheduler'),
+  /** [{ stage, status, durationMs, detail?, error? }] in execution order. */
+  stages:      jsonb("stages").notNull().default([]),
+  durationMs:  integer("duration_ms"),
+  error:       text("error"),
+});
+
 // Slice-level CDR import progress (migration 082). Operational metadata, not
 // billing evidence — deliberately NOT a durable job engine (owner scope,
 // 2026-08-27): enough to know which slice completed, which failed, and where
@@ -2371,20 +2386,6 @@ export const seedJobs = pgTable("seed_jobs", {
 });
 export type SeedJob = typeof seedJobs.$inferSelect;
 
-export const financePipelineRuns = pgTable("finance_pipeline_runs", {
-  id:          serial("id").primaryKey(),
-  /** BUSINESS date processed (normally yesterday UTC), not the date it ran. */
-  targetDate:  date("target_date").notNull(),
-  startedAt:   timestamp("started_at",   { withTimezone: true }).defaultNow().notNull(),
-  completedAt: timestamp("completed_at", { withTimezone: true }),
-  /** running | success | partial | failed */
-  status:      varchar("status",       { length: 16 }).notNull().default('running'),
-  triggeredBy: varchar("triggered_by", { length: 24 }).notNull().default('scheduler'),
-  /** [{ stage, status, durationMs, detail?, error? }] in execution order. */
-  stages:      jsonb("stages").notNull().default([]),
-  durationMs:  integer("duration_ms"),
-  error:       text("error"),
-});
 export type FinancePipelineRun       = typeof financePipelineRuns.$inferSelect;
 export type InsertFinancePipelineRun = typeof financePipelineRuns.$inferInsert;
 

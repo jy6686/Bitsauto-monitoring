@@ -7,15 +7,22 @@ describe('computeSeedSlices — a day in shallow windows', () => {
     expect(DEFAULT_SLICE_MINUTES).toBe(30);
     expect(s).toHaveLength(48);
     expect(s[0].startIso).toBe('2026-08-18T00:00:00Z');
-    expect(s[0].endIso).toBe('2026-08-18T00:29:59Z');
+    expect(s[0].endIso).toBe('2026-08-18T00:30:00Z');
     expect(s[47].startIso).toBe('2026-08-18T23:30:00Z');
-    expect(s[47].endIso).toBe('2026-08-18T23:59:59Z');
+    expect(s[47].endIso).toBe('2026-08-19T00:00:00Z');
   });
 
-  it('covers the period with no gap: each slice starts where the last ended plus one second', () => {
+  /**
+   * NO GAP, by construction: each slice's end IS the next slice's start. The
+   * shared boundary second is fetched by both slices — an overlap the
+   * idempotent i_cdr insert absorbs — because a CDR timestamped inside that
+   * second (Sippy carries milliseconds) must belong to at least one slice.
+   * Ending a second early created 48 silent drop-chances per day.
+   */
+  it('covers the period with no gap: each slice ends exactly where the next starts', () => {
     const s = computeSeedSlices('2026-08-18', '2026-08-18', 30);
     for (let i = 1; i < s.length; i++) {
-      expect(Date.parse(s[i].startIso) - Date.parse(s[i - 1].endIso)).toBe(1000);
+      expect(s[i].startIso).toBe(s[i - 1].endIso);
     }
   });
 
@@ -23,7 +30,7 @@ describe('computeSeedSlices — a day in shallow windows', () => {
     const s = computeSeedSlices('2026-08-16', '2026-08-22', 60);
     expect(s).toHaveLength(7 * 24);
     expect(s[0].startIso).toBe('2026-08-16T00:00:00Z');
-    expect(s[s.length - 1].endIso).toBe('2026-08-22T23:59:59Z');
+    expect(s[s.length - 1].endIso).toBe('2026-08-23T00:00:00Z');
   });
 
   it('defaults periodEnd to periodStart, matching the seeder contract', () => {
@@ -35,7 +42,7 @@ describe('computeSeedSlices — a day in shallow windows', () => {
     const s = computeSeedSlices('2026-08-18', '2026-08-18', 7 * 60); // 7h slices
     expect(s).toHaveLength(4); // 7+7+7+3
     expect(s[3].startIso).toBe('2026-08-18T21:00:00Z');
-    expect(s[3].endIso).toBe('2026-08-18T23:59:59Z');
+    expect(s[3].endIso).toBe('2026-08-19T00:00:00Z');
   });
 
   /** Every bound carries an explicit Z — new code does not inherit the
@@ -50,7 +57,7 @@ describe('computeSeedSlices — a day in shallow windows', () => {
   it('indexes slices 1-based with readable labels', () => {
     const s = computeSeedSlices('2026-08-18', '2026-08-18', 360);
     expect(s.map(x => x.index)).toEqual([1, 2, 3, 4]);
-    expect(s[1].label).toBe('2026-08-18 06:00–11:59Z');
+    expect(s[1].label).toBe('2026-08-18 06:00–12:00Z');
   });
 
   it('rejects nonsense inputs with an empty result, never a throw', () => {

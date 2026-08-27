@@ -17,6 +17,8 @@
 -- Rows are operational metadata, not billing evidence. The import NEVER fails
 -- because a progress write failed; writers are best-effort by contract.
 
+BEGIN;
+
 CREATE TABLE IF NOT EXISTS seed_jobs (
   job_id           varchar(64) PRIMARY KEY,
   i_account        integer,
@@ -48,3 +50,5 @@ BEGIN
   SELECT count(*) INTO n FROM seed_jobs;
   RAISE NOTICE '082: seed_jobs ready — % existing job record(s).', n;
 END $$;
+
+COMMIT;

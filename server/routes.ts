@@ -32775,10 +32775,25 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
         const { classifyCdrPage } = await import('./cdr-fetch-page');
         const { computeSeedSlices, DEFAULT_SLICE_MINUTES } = await import('./seed-slices');
-        const sliceMinutes = Number(process.env.SEED_SLICE_MINUTES) >= 1
-          ? Math.floor(Number(process.env.SEED_SLICE_MINUTES))
+        const envSliceMin = Number(process.env.SEED_SLICE_MINUTES);
+        const sliceMinutes = Number.isFinite(envSliceMin) && envSliceMin >= 1
+          ? Math.floor(envSliceMin)
           : DEFAULT_SLICE_MINUTES;
         const slices = computeSeedSlices(periodStart, periodEnd, sliceMinutes);
+
+        // Zero slices means the PERIOD was malformed (unparseable dates, or end
+        // before start) — no fetch will ever run, and falling through to the
+        // clean-empty diagnostic would report "Admin API answered, 0 CDRs" for
+        // an API that was never called. A fetch that never happened is not an
+        // empty period.
+        if (slices.length === 0) {
+          const msg = `Seed period is invalid: periodStart="${periodStart}" periodEnd="${periodEnd ?? periodStart}" produced no fetch windows (dates must be YYYY-MM-DD with end >= start). No fetch was attempted.`;
+          console.error(`[seed-job:${jobId}] ${msg}`);
+          job.status = 'error';
+          job.error  = msg;
+          job.phase  = msg;
+          return { fetched: 0, created: 0, skipped: 0, message: msg, failed: true };
+        }
 
         {
           const idPairs = sippyXmlCredsPairs(settings);
@@ -32792,28 +32807,39 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         // metadata that survives the process, after a mid-run republish killed
         // a job and left no record beyond a log viewer. Best-effort BY
         // CONTRACT: the import never fails because a progress write failed.
-        const progress = async (fields: Record<string, unknown>) => {
+        // jobId doubles as the seed_jobs primary key, and three of the five
+        // callers REUSE labels (chain-<acct>, recert-…, recon-…). The first
+        // write of a run therefore RESETS every descriptive field — period,
+        // slice geometry, counters, started/finished — so a reused label's row
+        // always describes the current run, never last month's period wearing
+        // this run's progress.
+        const progress = async (fields: Record<string, unknown>, reset = false) => {
           try {
             const { seedJobs } = await import('@shared/schema');
             const { sql: dsql } = await import('drizzle-orm');
-            await db.insert(seedJobs).values({
-              jobId,
+            const descriptive = {
               iAccount:     Number(iAccount) || null,
               iTariff:      String(iTariff),
               periodStart:  String(periodStart),
               periodEnd:    String(periodEnd ?? periodStart),
               sliceMinutes,
               totalSlices:  slices.length,
-              ...fields,
+            };
+            const resetFields = reset
+              ? { ...descriptive, completedSlices: 0, fetchedTotal: 0, storedTotal: 0,
+                  lastError: null, finishedAt: null, startedAt: dsql`now()` }
+              : {};
+            await db.insert(seedJobs).values({
+              jobId, ...descriptive, ...fields,
             } as any).onConflictDoUpdate({
               target: seedJobs.jobId,
-              set: { ...fields, updatedAt: dsql`now()` } as any,
+              set: { ...resetFields, ...fields, updatedAt: dsql`now()` } as any,
             });
           } catch (e: any) {
-            console.warn(`[seed-job:${jobId}] progress write failed (non-fatal): ${e.message}`);
+            console.warn(`[seed-job:${jobId}] progress write failed (non-fatal): ${String(e?.message ?? e)}`);
           }
         };
-        await progress({ status: 'running', currentSlice: slices[0]?.label ?? null });
+        await progress({ status: 'running', currentSlice: slices[0]?.label ?? null }, true);
 
         // One time window, fetched with the strict three-outcome page model:
         // an ERROR is never end-of-data, a mid-run method switch is a different
@@ -32985,15 +33011,16 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         // collapse distinct calls, the exact hazard the register documents.
         const byICdr = new Map<string, any>();
         const noICdr: any[] = [];
+        const noICdrSeen = new Set<string>();
         let fetchedTotal = 0;
         let storedTotal  = 0;
-        let sliceFailure: { slice: string; msg: string; neverRan: boolean } | null = null;
+        let sliceFailure: { slice: string; msg: string } | null = null;
 
         for (const slice of slices) {
           job.phase = `Slice ${slice.index}/${slices.length} (${slice.label})`;
           const win = await fetchWindow(slice.startIso, slice.endIso);
           if (!win.ok) {
-            sliceFailure = { slice: slice.label, msg: win.msg, neverRan: win.failed === 'never_ran' };
+            sliceFailure = { slice: slice.label, msg: win.msg };
             break; // first failed slice aborts — the period is known-incomplete
           }
           let rows = win.cdrs as any[];
@@ -33012,7 +33039,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             for (const c of rows) {
               const icdr = c.iCdr ?? c.i_cdr;
               if (icdr != null && icdr !== '') byICdr.set(String(icdr), c);
-              else noICdr.push(c);
+              else {
+                // Slices share their boundary second, so a row lacking an
+                // i_cdr can arrive twice. The repository absorbs that via its
+                // unique index; this seen-set absorbs it for verification.
+                const k = `${c.callId ?? ''}|${c.startTime ?? ''}|${c.callee ?? ''}|${c.duration ?? c.billedDuration ?? ''}`;
+                if (!noICdrSeen.has(k)) { noICdrSeen.add(k); noICdr.push(c); }
+              }
             }
           }
           job.fetched = fetchedTotal;
@@ -33025,7 +33058,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         }
 
         if (sliceFailure) {
-          const msg = `Slice ${sliceFailure.slice} FAILED after ${byICdr.size + noICdr.length} CDR(s) from earlier slices were stored — the period is INCOMPLETE. ${sliceFailure.msg}`;
+          const msg = `Slice ${sliceFailure.slice} FAILED after ${fetchedTotal} CDR(s) fetched from earlier slices (${storedTotal} newly stored) — the period is INCOMPLETE. ${sliceFailure.msg}`;
           console.error(`[seed-job:${jobId}] ${msg}`);
           await progress({ status: 'error', lastError: msg, currentSlice: sliceFailure.slice,
             finishedAt: new Date(), fetchedTotal, storedTotal });
@@ -33037,21 +33070,28 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
         rawCdrs = [...byICdr.values(), ...noICdr];
 
-        // Every slice answered clean-empty: a genuinely empty period, said
-        // in-band. Never fall back to portal / RTST1 data for billing.
+        // Nothing to verify. Two different facts land here and each gets its
+        // own message: every slice answered clean-empty (a genuinely empty
+        // period, said in-band), or Sippy DID return rows and the account-name
+        // filter removed them all — a mapping problem, not an empty period.
+        // Never fall back to portal / RTST1 data for billing.
         if (rawCdrs.length === 0) {
-          const diagMsg =
-            `Admin API answered and reports 0 CDRs for account ${iAccount} in ` +
-            `${periodStart} → ${periodEnd ?? periodStart} (${slices.length} slice(s) checked). ` +
-            'Check: (1) the iAccount ID is correct in Sippy, (2) CDRs exist for this period.';
+          const diagMsg = fetchedTotal > 0
+            ? `${fetchedTotal} CDR(s) fetched but NONE matched account name "${targetAccountName}" — ` +
+              'the iAccount → client name mapping is wrong, or the CDRs belong to other accounts. ' +
+              'Check the company record and the account cache.'
+            : `Admin API answered and reports 0 CDRs for account ${iAccount} in ` +
+              `${periodStart} → ${periodEnd ?? periodStart} (${slices.length} slice(s) checked). ` +
+              'Check: (1) the iAccount ID is correct in Sippy, (2) CDRs exist for this period.';
           console.warn(`[seed-job:${jobId}] ${diagMsg}`);
-          await progress({ status: 'done', finishedAt: new Date(), fetchedTotal, storedTotal });
+          await progress({ status: 'done', finishedAt: new Date(), fetchedTotal, storedTotal,
+            currentSlice: null });
           job.status  = 'done';
           job.total   = 0;
           job.created = 0;
           job.skipped = 0;
           job.phase   = diagMsg;
-          return { fetched: 0, created: 0, skipped: 0, message: diagMsg };
+          return { fetched: fetchedTotal, created: 0, skipped: 0, message: diagMsg };
         }
 
         await progress({ status: 'done', finishedAt: new Date(), fetchedTotal, storedTotal,
