@@ -2346,6 +2346,31 @@ export type InsertAiScanRun = typeof aiScanRuns.$inferInsert;
 // the table is what makes the diff see it as expected.
 //
 // Read by raw SQL in daily-pipeline.service.ts, so keep this in step with 081.
+// Slice-level CDR import progress (migration 082). Operational metadata, not
+// billing evidence — deliberately NOT a durable job engine (owner scope,
+// 2026-08-27): enough to know which slice completed, which failed, and where
+// to restart manually. Declared here so Replit's publish-time schema diff
+// never proposes dropping it.
+export const seedJobs = pgTable("seed_jobs", {
+  jobId:           varchar("job_id", { length: 64 }).primaryKey(),
+  iAccount:        integer("i_account"),
+  iTariff:         varchar("i_tariff", { length: 64 }),
+  periodStart:     varchar("period_start", { length: 32 }).notNull(),
+  periodEnd:       varchar("period_end", { length: 32 }).notNull(),
+  sliceMinutes:    integer("slice_minutes").notNull(),
+  totalSlices:     integer("total_slices").notNull(),
+  completedSlices: integer("completed_slices").notNull().default(0),
+  currentSlice:    varchar("current_slice", { length: 64 }),
+  status:          varchar("status", { length: 16 }).notNull().default('running'),
+  lastError:       text("last_error"),
+  fetchedTotal:    integer("fetched_total").notNull().default(0),
+  storedTotal:     integer("stored_total").notNull().default(0),
+  startedAt:       timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt:       timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  finishedAt:      timestamp("finished_at", { withTimezone: true }),
+});
+export type SeedJob = typeof seedJobs.$inferSelect;
+
 export const financePipelineRuns = pgTable("finance_pipeline_runs", {
   id:          serial("id").primaryKey(),
   /** BUSINESS date processed (normally yesterday UTC), not the date it ran. */

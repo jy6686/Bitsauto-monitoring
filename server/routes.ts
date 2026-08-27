@@ -32752,55 +32752,96 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const webPass   = (settings as any).adminWebPassword ?? '';
         const portUser  = settings.portalUsername   ?? '';
         const portPass  = settings.portalPassword   ?? '';
-        const startIso  = `${periodStart}T00:00:00`;
-        const endIso    = `${periodEnd ?? periodStart}T23:59:59`;
-
         let rawCdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
 
-        // ── Admin API (XML-RPC) — paginated getAccountCDRs ───────────────────
-        // This is the ONLY authoritative source for billing CDR data.
-        // Portal / RTST1 scraping is intentionally excluded from the billing
-        // pipeline — operational live-traffic data must never be mixed with
-        // invoice-quality billing records.
+        // ── Admin API (XML-RPC), fetched in TIME SLICES ──────────────────────
+        // This is the ONLY authoritative source for billing CDR data. Portal /
+        // RTST1 scraping is intentionally excluded from the billing pipeline.
+        //
+        // Owner-approved design (2026-08-27), earned in production the same day:
+        // a single-window day is ~500 pages, Sippy's page time grows with
+        // OFFSET depth (10s near 0, ~2min by 5,500, fault at ~9,000), and one
+        // all-or-nothing commit meant a fault discarded everything fetched.
+        // Each slice keeps offsets shallow, is fetched all-or-nothing on its
+        // own, and COMMITS TO THE REPOSITORY IMMEDIATELY on completion — the
+        // idempotent insert (unique on the switch's own i_cdr) makes re-runs
+        // and boundary overlaps safe, so a failure loses one slice, not the
+        // period. The FIRST failed slice aborts the job: the period is then
+        // known-incomplete, which is the honest outcome — completed slices stay
+        // stored, and a re-run re-fetches cheaply past them.
         const XML_PAGE = 500; // Sippy CDR page size for pagination
-        job.phase = 'Fetching via Admin API (XML-RPC)';
+        job.phase = 'Fetching via Admin API (XML-RPC), sliced';
         let xmlRpcAttempted = false;
 
-        // Three page outcomes, and an ERROR is NEVER end-of-data (owner rule,
-        // 2026-08-27). getSippyCDRs collapses every failure to [] — auth, HTTP,
-        // XML-RPC fault, timeout — and [] is shorter than a page, so a fault at
-        // page 800 of 900 used to read as "no more records": the job logged
-        // Complete and the period was certified on a partial month. The strict
-        // variant makes failure a distinct value, and classifyCdrPage pins the
-        // rule. A failed credential discards its partial pages entirely —
-        // all-or-nothing, so a partial fetch can never pose as a complete one.
         const { classifyCdrPage } = await import('./cdr-fetch-page');
-        const fetchErrors: string[] = [];
-        let sawCleanEmpty = false;
-        let rowsSeenBeforeError = 0; // proof the window has data, from a credential that then failed
+        const { computeSeedSlices, DEFAULT_SLICE_MINUTES } = await import('./seed-slices');
+        const sliceMinutes = Number(process.env.SEED_SLICE_MINUTES) >= 1
+          ? Math.floor(Number(process.env.SEED_SLICE_MINUTES))
+          : DEFAULT_SLICE_MINUTES;
+        const slices = computeSeedSlices(periodStart, periodEnd, sliceMinutes);
+
         {
           const idPairs = sippyXmlCredsPairs(settings);
           console.log(
             `[seed-job:${jobId}] XML-RPC identity: ${idPairs.map(p => p.username).join(', ') || 'NONE CONFIGURED'} ` +
-            `(${idPairs.length} pair(s), portalFallback=${process.env.SIPPY_XMLRPC_PORTAL_FALLBACK === '1' ? 'on' : 'off'})`);
+            `(${idPairs.length} pair(s), portalFallback=${process.env.SIPPY_XMLRPC_PORTAL_FALLBACK === '1' ? 'on' : 'off'}) · ` +
+            `${slices.length} slice(s) of ${sliceMinutes}min`);
         }
-        if (!xmlRpcCircuitGuard()) {
+
+        // Slice-level progress in seed_jobs (migration 082) — operational
+        // metadata that survives the process, after a mid-run republish killed
+        // a job and left no record beyond a log viewer. Best-effort BY
+        // CONTRACT: the import never fails because a progress write failed.
+        const progress = async (fields: Record<string, unknown>) => {
+          try {
+            const { seedJobs } = await import('@shared/schema');
+            const { sql: dsql } = await import('drizzle-orm');
+            await db.insert(seedJobs).values({
+              jobId,
+              iAccount:     Number(iAccount) || null,
+              iTariff:      String(iTariff),
+              periodStart:  String(periodStart),
+              periodEnd:    String(periodEnd ?? periodStart),
+              sliceMinutes,
+              totalSlices:  slices.length,
+              ...fields,
+            } as any).onConflictDoUpdate({
+              target: seedJobs.jobId,
+              set: { ...fields, updatedAt: dsql`now()` } as any,
+            });
+          } catch (e: any) {
+            console.warn(`[seed-job:${jobId}] progress write failed (non-fatal): ${e.message}`);
+          }
+        };
+        await progress({ status: 'running', currentSlice: slices[0]?.label ?? null });
+
+        // One time window, fetched with the strict three-outcome page model:
+        // an ERROR is never end-of-data, a mid-run method switch is a different
+        // result set, a failed credential discards its partial pages, and a
+        // clean-empty from one credential is contradicted by rows another saw.
+        type WindowResult =
+          | { ok: true; cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> }
+          | { ok: false; failed: 'error' | 'never_ran'; msg: string };
+        const fetchWindow = async (winStart: string, winEnd: string): Promise<WindowResult> => {
+          const fetchErrors: string[] = [];
+          let sawCleanEmpty = false;
+          let rowsSeenBeforeError = 0;
+          if (xmlRpcCircuitGuard()) {
+            return { ok: false, failed: 'never_ran',
+              msg: 'CDR fetch DID NOT RUN — the XML-RPC circuit breaker is open. Reset via Settings → Sippy Connection → Reset Circuit Breaker. A fetch that never happened is not an empty period.' };
+          }
           credLoop:
           for (const { username, password } of sippyXmlCredsPairs(settings)) {
             xmlRpcAttempted = true;
             const pagesAccum: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
             let offset = 0;
             let credFailed = false;
-            // The method that served page 0 must serve every page. If the
-            // primary method faults mid-run and the fallback answers, those
-            // offsets index a DIFFERENT result set — a differently-scoped
-            // stream is not the same data stream ending.
             let pinnedMethod: string | null = null;
             try {
               pageLoop:
               while (true) {
                 const page = await sippy.getSippyCDRsPage(username, password, XML_PAGE,
-                  { iAccount: Number(iAccount), startDate: startIso, endDate: endIso, offset },
+                  { iAccount: Number(iAccount), startDate: winStart, endDate: winEnd, offset },
                   portalUrl);
                 if (page.ok && pinnedMethod !== null && page.method !== pinnedMethod) {
                   console.warn(`[seed-job:${jobId}] XML-RPC(${username}) method switched ${pinnedMethod} → ${page.method} at offset=${offset} — aborting this credential (${pagesAccum.length} partial CDRs discarded; a different method is a different result set)`);
@@ -32822,26 +32863,17 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                   case 'end_of_data': {
                     const cdrs = page.ok ? page.cdrs : [];
                     if (page.ok && pinnedMethod === null) pinnedMethod = page.method;
-                    console.log(`[seed-job:${jobId}] XML-RPC(${username}) offset=${offset} → ${cdrs.length} CDRs`);
-                    if (cdrs.length > 0) {
-                      pagesAccum.push(...cdrs);
-                      job.phase = `Admin API (XML-RPC) — ${pagesAccum.length} CDRs fetched…`;
-                    }
+                    if (cdrs.length > 0) pagesAccum.push(...cdrs);
                     if (outcome === 'end_of_data') break pageLoop; // Sippy said so, in-band
                     offset += XML_PAGE;
                   }
                 }
               }
               if (!credFailed) {
-                // The circuit breaker learns from CREDENTIALS that completed, not
-                // from pages later discarded — otherwise an endpoint that always
-                // fails at page 3 feeds the breaker two successes per attempt and
-                // it can never open.
+                // The breaker learns from credentials that completed, not from
+                // pages later discarded.
                 xmlRpcRecordSuccess();
-                if (pagesAccum.length > 0) {
-                  rawCdrs = pagesAccum;
-                  break credLoop; // complete fetch — stop trying other credentials
-                }
+                if (pagesAccum.length > 0) return { ok: true, cdrs: pagesAccum };
                 sawCleanEmpty = true; // a method answered and the window is genuinely empty
               } else {
                 rowsSeenBeforeError = Math.max(rowsSeenBeforeError, pagesAccum.length);
@@ -32852,158 +32884,181 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
               rowsSeenBeforeError = Math.max(rowsSeenBeforeError, pagesAccum.length);
             }
           }
-        }
-
-        // The fetch FAILED — as opposed to the window being empty — when:
-        //   · a credential errored and none delivered a clean in-band answer, or
-        //   · a credential SAW ROWS and then errored: a later clean-empty from a
-        //     differently-scoped credential is contradicted evidence, not truth, or
-        //   · the circuit breaker (or missing credentials) meant no attempt ran —
-        //     a fetch that never happened is not an empty period.
-        // None of these may fall through to the "0 CDRs" diagnostic below, which
-        // describes an empty window — a different fact with a different remedy.
-        // status 'error', never 'done'.
-        if (rawCdrs.length === 0) {
-          const fetchNeverRan = xmlRpcCircuitGuard() || !xmlRpcAttempted;
-          const contradicted  = sawCleanEmpty && rowsSeenBeforeError > 0;
-          const allErrored    = fetchErrors.length > 0 && !sawCleanEmpty;
-          if (allErrored || contradicted || fetchNeverRan) {
-            const msg = fetchNeverRan
-              ? (xmlRpcCircuitGuard()
-                  ? 'CDR fetch DID NOT RUN — the XML-RPC circuit breaker is open after repeated failures. Reset via Settings → Sippy Connection → Reset Circuit Breaker. A fetch that never happened is not an empty period.'
-                  : 'CDR fetch DID NOT RUN — no XML-RPC credentials are configured (Settings → Sippy Connection).')
-              : contradicted
-                ? `CDR fetch FAILED — a credential retrieved ${rowsSeenBeforeError} CDR(s) before erroring, so the period is NOT empty; a later credential's empty answer is contradicted evidence. ${fetchErrors.join(' · ')}`
-                : `CDR fetch FAILED — not an empty period. ${fetchErrors.join(' · ')}`;
-            console.error(`[seed-job:${jobId}] ${msg}`);
-            job.status = 'error';
-            job.error  = msg;
-            job.phase  = msg;
-            return { fetched: 0, created: 0, skipped: 0, message: msg, failed: true };
+          const contradicted = sawCleanEmpty && rowsSeenBeforeError > 0;
+          if (fetchErrors.length > 0 && (!sawCleanEmpty || contradicted)) {
+            return { ok: false, failed: 'error',
+              msg: contradicted
+                ? `CDR fetch FAILED — a credential retrieved ${rowsSeenBeforeError} CDR(s) before erroring, so the window is NOT empty; a later credential's empty answer is contradicted evidence. ${fetchErrors.join(' · ')}`
+                : `CDR fetch FAILED — not an empty window. ${fetchErrors.join(' · ')}` };
           }
+          if (!xmlRpcAttempted) {
+            return { ok: false, failed: 'never_ran',
+              msg: 'CDR fetch DID NOT RUN — no XML-RPC credentials are configured (Settings → Sippy Connection).' };
+          }
+          return { ok: true, cdrs: [] }; // clean in-band empty window
+        };
+
+        // ── Store one slice's evidence IMMEDIATELY (migration 072) ───────────
+        // Everything the switch returned is persisted before anything is
+        // interpreted, so the repository holds what was actually said. The
+        // per-slice commit is the checkpoint: idempotent on i_cdr, so a killed
+        // job's completed slices survive and a re-run inserts nothing twice.
+        // A storage failure still does not stop billing — the invoice path can
+        // proceed on the fetched batch — but the gap is logged because the
+        // period then has no durable evidence behind those rows.
+        const { rawSippyCdrs } = await import('@shared/schema');
+        const toIso = (v: any) => {
+          if (!v) return null;
+          const d = new Date(String(v));
+          return isNaN(d.getTime()) ? null : d;
+        };
+        const num = (v: any) => (v == null || v === '' ? null : (Number.isNaN(Number(v)) ? null : Number(v)));
+        const storeSlice = async (batch: any[]): Promise<number> => {
+          try {
+            const rows = batch.map((c: any) => ({
+              iCdr:        c.iCdr ? String(c.iCdr) : (c.i_cdr ? String(c.i_cdr) : null),
+              iCall:       c.iCall ? String(c.iCall) : null,
+              cdrCallId:   c.callId ? String(c.callId) : null,
+              iAccount:    num(c.iAccount) ?? Number(iAccount),
+              iCustomer:   num(c.iCustomer),
+              iTariff:     String(iTariff),
+              clientName:  c.clientName ?? null,
+              caller:      c.caller ?? null,
+              callee:      c.callee ?? null,
+              prefix:      c.prefix ?? null,
+              country:     c.country ?? null,
+              areaName:    c.areaName ?? null,
+              description: c.description ?? null,
+              startedAt:   toIso(c.startTime ?? c.setupTime ?? c.connectTime),
+              setupTimeRaw:      c.startTime ? String(c.startTime) : null,
+              connectTimeRaw:    c.connectTime ? String(c.connectTime) : null,
+              disconnectTimeRaw: c.disconnectTime ? String(c.disconnectTime) : null,
+              billedSecs:  num(c.billedDuration ?? c.duration),
+              totalSecs:   num(c.totalDuration),
+              freeSeconds: num(c.freeSeconds),
+              gracePeriod: num(c.gracePeriod),
+              interval1:   num(c.interval1),
+              intervalN:   num(c.intervalN),
+              pdd:         num(c.pdd),
+              cost:        num(c.cost),
+              connectFee:  num(c.connectFee),
+              price1:      num(c.price1),
+              priceN:      num(c.priceN),
+              postCallSurcharge: num(c.postCallSurcharge),
+              result:        c.result ? String(c.result).slice(0, 128) : null,
+              releaseSource: c.releaseSource ?? null,
+              q850Code:      c.q850Code ?? null,
+              remoteIp:      c.remoteIp ?? null,
+              protocol:      c.protocol ?? null,
+              userAgent:     c.userAgent ? String(c.userAgent).slice(0, 256) : null,
+              vendor:        c.vendor ?? null,
+              iConnection:   c.iConnection ? String(c.iConnection) : null,
+              mosTerm:       num(c.iVqTermMos),
+              mosOrig:       num(c.iVqOrigMos),
+              jitter:        num(c.jitter),
+              pktLoss:       num(c.pktLoss),
+              sourceMethod:  c.dispositionSource ?? 'xmlrpc',
+              importRunId:   jobId,
+              payload:       c,
+            }));
+            let stored = 0;
+            for (let i = 0; i < rows.length; i += 500) {
+              const chunk = rows.slice(i, i + 500);
+              const res: any = await db.insert(rawSippyCdrs).values(chunk as any).onConflictDoNothing();
+              stored += res?.rowCount ?? chunk.length;
+            }
+            return stored;
+          } catch (e: any) {
+            console.error(`[seed-job:${jobId}] CDR repository write FAILED — billing continues but these rows have no stored evidence: ${e.message}`);
+            return 0;
+          }
+        };
+
+        // ── The slice loop ───────────────────────────────────────────────────
+        const targetAccountName = accountNameCache.get(String(iAccount));
+        if (!targetAccountName) {
+          console.log(`[seed-job:${jobId}] account name not in cache for iAccount=${iAccount} — skipping clientName filter`);
+        }
+        // Accumulator for the verification phase, deduped ONLY by i_cdr —
+        // mirroring the repository's unique index. Rows without an i_cdr are
+        // always kept: deduping them by the '-' placeholder call id would
+        // collapse distinct calls, the exact hazard the register documents.
+        const byICdr = new Map<string, any>();
+        const noICdr: any[] = [];
+        let fetchedTotal = 0;
+        let storedTotal  = 0;
+        let sliceFailure: { slice: string; msg: string; neverRan: boolean } | null = null;
+
+        for (const slice of slices) {
+          job.phase = `Slice ${slice.index}/${slices.length} (${slice.label})`;
+          const win = await fetchWindow(slice.startIso, slice.endIso);
+          if (!win.ok) {
+            sliceFailure = { slice: slice.label, msg: win.msg, neverRan: win.failed === 'never_ran' };
+            break; // first failed slice aborts — the period is known-incomplete
+          }
+          let rows = win.cdrs as any[];
+          fetchedTotal += rows.length;
+          if (targetAccountName && rows.length > 0) {
+            const before = rows.length;
+            rows = rows.filter((c: any) => !c.clientName || c.clientName === targetAccountName);
+            if (before !== rows.length) {
+              console.log(`[seed-job:${jobId}] slice ${slice.index} account filter (${targetAccountName}): ${before} → ${rows.length}`);
+            }
+          }
+          if (rows.length > 0) {
+            const stored = await storeSlice(rows);
+            storedTotal += stored;
+            console.log(`[seed-job:${jobId}] slice ${slice.index}/${slices.length} (${slice.label}): ${rows.length} CDR(s), repository +${stored}`);
+            for (const c of rows) {
+              const icdr = c.iCdr ?? c.i_cdr;
+              if (icdr != null && icdr !== '') byICdr.set(String(icdr), c);
+              else noICdr.push(c);
+            }
+          }
+          job.fetched = fetchedTotal;
+          await progress({
+            completedSlices: slice.index,
+            currentSlice: slices[slice.index]?.label ?? slice.label,
+            fetchedTotal,
+            storedTotal,
+          });
         }
 
-        // If the Admin API returned 0 CDRs, stop here.
-        // Never fall back to portal / RTST1 data for billing purposes.
+        if (sliceFailure) {
+          const msg = `Slice ${sliceFailure.slice} FAILED after ${byICdr.size + noICdr.length} CDR(s) from earlier slices were stored — the period is INCOMPLETE. ${sliceFailure.msg}`;
+          console.error(`[seed-job:${jobId}] ${msg}`);
+          await progress({ status: 'error', lastError: msg, currentSlice: sliceFailure.slice,
+            finishedAt: new Date(), fetchedTotal, storedTotal });
+          job.status = 'error';
+          job.error  = msg;
+          job.phase  = msg;
+          return { fetched: fetchedTotal, created: 0, skipped: 0, message: msg, failed: true };
+        }
+
+        rawCdrs = [...byICdr.values(), ...noICdr];
+
+        // Every slice answered clean-empty: a genuinely empty period, said
+        // in-band. Never fall back to portal / RTST1 data for billing.
         if (rawCdrs.length === 0) {
-          const diagMsg = xmlRpcCircuitGuard()
-            ? 'Admin API circuit breaker is open after repeated failures. ' +
-              'Reset via Settings → Sippy Connection → Reset Circuit Breaker.'
-            : xmlRpcAttempted
-              ? `Admin API returned 0 CDRs for account ${iAccount} in ` +
-                `${periodStart} → ${periodEnd ?? periodStart}. ` +
-                'Check: (1) the iAccount ID is correct in Sippy, ' +
-                '(2) CDRs exist for this period, ' +
-                '(3) XML-RPC credentials have CDR access (Settings → Sippy Connection).'
-              : 'XML-RPC circuit breaker skipped the attempt — wait for cooldown ' +
-                'or reset via Settings → Sippy Connection.';
+          const diagMsg =
+            `Admin API answered and reports 0 CDRs for account ${iAccount} in ` +
+            `${periodStart} → ${periodEnd ?? periodStart} (${slices.length} slice(s) checked). ` +
+            'Check: (1) the iAccount ID is correct in Sippy, (2) CDRs exist for this period.';
           console.warn(`[seed-job:${jobId}] ${diagMsg}`);
+          await progress({ status: 'done', finishedAt: new Date(), fetchedTotal, storedTotal });
           job.status  = 'done';
           job.total   = 0;
           job.created = 0;
           job.skipped = 0;
           job.phase   = diagMsg;
-          // do not proceed — portal fallback is not allowed for billing data
           return { fetched: 0, created: 0, skipped: 0, message: diagMsg };
         }
 
-        job.fetched = rawCdrs.length;
-
-        // ── Post-filter by account name (belt-and-suspenders) ────────────────
-        // The admin portal caller=N_N filter may be ignored by some Sippy builds.
-        // Resolve iAccount → display name from the in-process account cache, then
-        // filter any CDRs whose clientName doesn't match so we never mix accounts.
-        const targetAccountName = accountNameCache.get(String(iAccount));
-        if (targetAccountName && rawCdrs.length > 0) {
-          const before = rawCdrs.length;
-          // Portal CDRs with a clientName that doesn't match are from other accounts.
-          // CDRs with no clientName (e.g. from XML-RPC) are always kept.
-          rawCdrs = rawCdrs.filter((c: any) =>
-            !c.clientName || c.clientName === targetAccountName,
-          );
-          console.log(`[seed-job:${jobId}] account filter (${targetAccountName}): ${before} → ${rawCdrs.length} CDRs`);
-        } else if (!targetAccountName) {
-          console.log(`[seed-job:${jobId}] account name not in cache for iAccount=${iAccount} — skipping clientName filter`);
-        }
-
-        job.total = rawCdrs.length;
-        console.log(`[seed-job:${jobId}] fetched ${job.fetched} CDRs, ${rawCdrs.length} after account filter`);
-
-        // ── Store the evidence FIRST (migration 072) ────────────────────────
-        // Everything the switch returned is persisted before anything is
-        // interpreted, so the repository holds what was actually said — not
-        // only the calls that turned out to be billable. Verification, disputes
-        // and analytics read from here instead of re-fetching.
-        //
-        // Idempotent on the switch's own CDR id, so re-importing a day inserts
-        // nothing twice. A storage failure does NOT stop billing: the invoice
-        // path can still proceed on the fetched batch, but the gap is logged
-        // because the period then has no durable evidence behind it.
-        try {
-          const { rawSippyCdrs } = await import('@shared/schema');
-          const toIso = (v: any) => {
-            if (!v) return null;
-            const d = new Date(String(v));
-            return isNaN(d.getTime()) ? null : d;
-          };
-          const num = (v: any) => (v == null || v === '' ? null : (Number.isNaN(Number(v)) ? null : Number(v)));
-          const rows = rawCdrs.map((c: any) => ({
-            iCdr:        c.iCdr ? String(c.iCdr) : (c.i_cdr ? String(c.i_cdr) : null),
-            iCall:       c.iCall ? String(c.iCall) : null,
-            cdrCallId:   c.callId ? String(c.callId) : null,
-            iAccount:    num(c.iAccount) ?? Number(iAccount),
-            iCustomer:   num(c.iCustomer),
-            iTariff:     String(iTariff),
-            clientName:  c.clientName ?? null,
-            caller:      c.caller ?? null,
-            callee:      c.callee ?? null,
-            prefix:      c.prefix ?? null,
-            country:     c.country ?? null,
-            areaName:    c.areaName ?? null,
-            description: c.description ?? null,
-            startedAt:   toIso(c.startTime ?? c.setupTime ?? c.connectTime),
-            setupTimeRaw:      c.startTime ? String(c.startTime) : null,
-            connectTimeRaw:    c.connectTime ? String(c.connectTime) : null,
-            disconnectTimeRaw: c.disconnectTime ? String(c.disconnectTime) : null,
-            billedSecs:  num(c.billedDuration ?? c.duration),
-            totalSecs:   num(c.totalDuration),
-            freeSeconds: num(c.freeSeconds),
-            gracePeriod: num(c.gracePeriod),
-            interval1:   num(c.interval1),
-            intervalN:   num(c.intervalN),
-            pdd:         num(c.pdd),
-            cost:        num(c.cost),
-            connectFee:  num(c.connectFee),
-            price1:      num(c.price1),
-            priceN:      num(c.priceN),
-            postCallSurcharge: num(c.postCallSurcharge),
-            result:        c.result ? String(c.result).slice(0, 128) : null,
-            releaseSource: c.releaseSource ?? null,
-            q850Code:      c.q850Code ?? null,
-            remoteIp:      c.remoteIp ?? null,
-            protocol:      c.protocol ?? null,
-            userAgent:     c.userAgent ? String(c.userAgent).slice(0, 256) : null,
-            vendor:        c.vendor ?? null,
-            iConnection:   c.iConnection ? String(c.iConnection) : null,
-            mosTerm:       num(c.iVqTermMos),
-            mosOrig:       num(c.iVqOrigMos),
-            jitter:        num(c.jitter),
-            pktLoss:       num(c.pktLoss),
-            sourceMethod:  c.dispositionSource ?? 'xmlrpc',
-            importRunId:   jobId,
-            payload:       c,
-          }));
-          let stored = 0;
-          for (let i = 0; i < rows.length; i += 500) {
-            const chunk = rows.slice(i, i + 500);
-            const res: any = await db.insert(rawSippyCdrs).values(chunk as any).onConflictDoNothing();
-            stored += res?.rowCount ?? chunk.length;
-          }
-          job.phase = `Stored ${stored} call record(s) in the repository`;
-          console.log(`[seed-job:${jobId}] repository: ${stored} of ${rows.length} call record(s) stored (duplicates ignored)`);
-        } catch (e: any) {
-          console.error(`[seed-job:${jobId}] CDR repository write FAILED — billing continues but this period has no stored evidence: ${e.message}`);
-        }
+        await progress({ status: 'done', finishedAt: new Date(), fetchedTotal, storedTotal,
+          currentSlice: null });
+        job.fetched = fetchedTotal;
+        job.total   = rawCdrs.length;
+        console.log(`[seed-job:${jobId}] fetched ${fetchedTotal} CDR(s) across ${slices.length} slice(s), ${rawCdrs.length} after account filter + i_cdr dedup, repository +${storedTotal}`);
 
         // ── Batch dedup: 1 SELECT instead of N ──────────────────────────────
         job.phase = 'Deduplicating against existing snapshots';
