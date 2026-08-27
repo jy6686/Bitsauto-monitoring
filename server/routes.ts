@@ -38605,7 +38605,7 @@ ${footer}
     return { ready, noTariff };
   }
 
-  async function _runNightlyReconciliation() {
+  async function _runNightlyReconciliation(targetDate?: string) {
     const startedAt = Date.now();
     try {
       const { ready, noTariff } = await _accountsForCollection();
@@ -38621,7 +38621,9 @@ ${footer}
       // read a day still in progress and report gaps that are not gaps.
       const now  = new Date();
       const day  = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
-      const date = day.toISOString().slice(0, 10);
+      // The scheduler names the day so a BACKLOG can be drained. Defaulting to
+      // yesterday keeps the on-demand path unchanged.
+      const date = targetDate ?? day.toISOString().slice(0, 10);
 
       console.log(`[recon-nightly] collecting ${date} for ${ready.length} account(s) with traffic capability`);
       let ok = 0, failed = 0, totalExcluded = 0, totalCreated = 0;
@@ -38667,20 +38669,64 @@ ${footer}
   }
 
   {
-    const msUntilMidnightUtc = () => {
-      const now  = new Date();
-      const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
-      if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-      return next.getTime() - now.getTime();
+    // Forward CDR capture — catch-up scheduler.
+    //
+    // This was `setTimeout(fn, msUntilMidnightUtc())`: a timer of up to
+    // twenty-four hours on a process that autoscale recycles and puts to sleep.
+    // It has essentially never fired, which is why the repository only ever
+    // held rows an operator imported by hand.
+    //
+    // Now it ticks every ten minutes and ASKS PERSISTED STATE which day is
+    // still owed (server/nightly-ingest-due.ts), so a process starting at 14:00
+    // collects immediately rather than waiting for a midnight it will not
+    // survive to see, and a gap it slept through is repaired oldest-first.
+    // The ledger is seed_jobs: each per-account run is keyed `recon-<date>-<id>`.
+    const NIGHTLY_CHECK_MS      = 10 * 60_000;
+    const NIGHTLY_FIRST_TICK_MS = 60_000;   // let boot finish first
+    let nightlyBusy = false;
+    let lastNightlySkip = '';
+
+    const nightlyTick = async () => {
+      if (nightlyBusy) return;
+      nightlyBusy = true;
+      try {
+        const { decideNightlyIngest } = await import('./nightly-ingest-due');
+        const { seedJobs } = await import('@shared/schema');
+        const rows = await db.select({
+          date: seedJobs.periodStart, status: seedJobs.status, startedAt: seedJobs.startedAt,
+        }).from(seedJobs).where(sql`job_id LIKE 'recon-%' AND started_at > now() - interval '30 days'`);
+
+        const decision = decideNightlyIngest({
+          nowIso: new Date().toISOString(),
+          attempts: rows.map((r: any) => ({
+            date: String(r.date), status: String(r.status),
+            startedAtIso: r.startedAt ? new Date(r.startedAt).toISOString() : undefined,
+          })),
+        });
+
+        if (!decision.due) {
+          // Say it once, not every ten minutes.
+          if (decision.reason !== lastNightlySkip) {
+            console.log(`[recon-nightly] not due: ${decision.reason}`);
+            lastNightlySkip = decision.reason;
+          }
+          return;
+        }
+        lastNightlySkip = '';
+        console.log(`[recon-nightly] due: ${decision.reason}`);
+        await _runNightlyReconciliation(decision.targetDate!);
+      } catch (e: any) {
+        console.error('[recon-nightly] scheduler tick error:', e?.message ?? e);
+      } finally {
+        nightlyBusy = false;
+      }
     };
-    const runAndReschedule = async () => {
-      await _runNightlyReconciliation();
-      // Re-schedule from the clock rather than a fixed interval, so the job
-      // stays on 00:00 GMT instead of drifting by its own runtime.
-      setTimeout(runAndReschedule, msUntilMidnightUtc());
-    };
-    setTimeout(runAndReschedule, msUntilMidnightUtc());
-    console.log(`[recon-nightly] Scheduled — next run at 00:00 GMT (${new Date(Date.now() + msUntilMidnightUtc()).toUTCString()})`);
+
+    setTimeout(() => { nightlyTick(); setInterval(nightlyTick, NIGHTLY_CHECK_MS); }, NIGHTLY_FIRST_TICK_MS);
+    console.log(
+      `[recon-nightly] catch-up scheduler registered — checks every ${NIGHTLY_CHECK_MS / 60000} min, ` +
+      'collects the oldest owed day (never today), decided from seed_jobs',
+    );
   }
 
   // POST /api/finance/reconcile-now — run the nightly reconciliation on demand,
