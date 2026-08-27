@@ -542,6 +542,7 @@ const DEFAULT_SIPPY_URL      = 'https://191.101.30.107';
 const DEFAULT_SIPPY_USERNAME = 'ssp-root';
 const DEFAULT_SIPPY_PASSWORD = '!chiaan1';
 type SippyCreds = { portalUrl?: string | null; apiAdminUsername?: string | null; apiAdminPassword?: string | null; portalUsername?: string | null; portalPassword?: string | null; adminWebPassword?: string | null };
+import { selectXmlRpcCredentials } from './xmlrpc-credentials';
 
 // Returns credential pairs ordered so the most likely admin/XML-RPC pair comes first.
 // Tries cross-combos and adminWebPassword variants to handle:
@@ -585,8 +586,29 @@ function sippyXmlCredsPairs(s: SippyCreds): Array<{ username: string; password: 
   // push() deduplicates so this is a no-op when already present via stored credentials.
   push(DEFAULT_SIPPY_USERNAME, DEFAULT_SIPPY_PASSWORD);
   if (!pairs.length) pairs.push({ username: DEFAULT_SIPPY_USERNAME, password: DEFAULT_SIPPY_PASSWORD });
-  return pairs;
+
+  // Owner rule (2026-08-27): the Admin API is the single authoritative identity
+  // for XML-RPC. The ladder above still BUILDS every recovery combination, but
+  // only admin-username pairs survive selection — the reseller/portal identity
+  // (RTST1) no longer participates in billing ingestion. Filtering by USERNAME
+  // keeps every admin password variant, so whichever pair authenticated on
+  // 2026-08-26 is still in the list. Set SIPPY_XMLRPC_PORTAL_FALLBACK=1 to
+  // deliberately restore the old try-everything behaviour.
+  const selection = selectXmlRpcCredentials(
+    pairs,
+    [s.apiAdminUsername, DEFAULT_SIPPY_USERNAME],
+    process.env.SIPPY_XMLRPC_PORTAL_FALLBACK === '1',
+  );
+  if (selection.skippedUsernames.length && !_xmlCredsSkipLogged) {
+    _xmlCredsSkipLogged = true;
+    console.log(
+      `[sippy-xmlrpc] Admin API only — portal/reseller credential(s) ` +
+      `${selection.skippedUsernames.join(', ')} excluded from XML-RPC ` +
+      `(SIPPY_XMLRPC_PORTAL_FALLBACK=1 enables the fallback ladder)`);
+  }
+  return selection.pairs;
 }
+let _xmlCredsSkipLogged = false;
 
 function sippyXmlCreds(s: SippyCreds, sw?: { portalUsername?: string | null; portalPassword?: string | null }) {
   return {
