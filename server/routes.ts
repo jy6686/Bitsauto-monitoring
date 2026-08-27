@@ -38718,7 +38718,27 @@ ${footer}
     // collection stable". Loud on both branches so it can never be silently off.
     const forwardCaptureArmed = String(process.env.FORWARD_CAPTURE ?? '').toLowerCase() === 'on';
     let nightlyBusy = false;
-    let lastNightlySkip = '';
+    let lastNightlySaid = '';
+    let ticksSinceSaid  = 0;
+    /** ~hourly at a 10-minute interval. */
+    const HEARTBEAT_TICKS = 6;
+    /**
+     * Repeat-suppressed, but never silent for long.
+     *
+     * Saying the same line every ten minutes is noise; saying it once and then
+     * going quiet is worse, because silence then reads identically whether the
+     * scheduler is healthy or dead — and a collector that stopped without
+     * saying so is exactly how this repository stayed empty for four days.
+     * So: suppress repeats, but force a line roughly hourly regardless.
+     */
+    const say = (msg: string) => {
+      ticksSinceSaid++;
+      if (msg !== lastNightlySaid || ticksSinceSaid >= HEARTBEAT_TICKS) {
+        console.log(`[recon-nightly] ${forwardCaptureArmed ? 'ARMED' : 'observe-only'} · ${msg}`);
+        lastNightlySaid = msg;
+        ticksSinceSaid  = 0;
+      }
+    };
 
     const nightlyTick = async () => {
       if (nightlyBusy) return;
@@ -38739,14 +38759,9 @@ ${footer}
         });
 
         if (!decision.due) {
-          // Say it once, not every ten minutes.
-          if (decision.reason !== lastNightlySkip) {
-            console.log(`[recon-nightly] not due: ${decision.reason}`);
-            lastNightlySkip = decision.reason;
-          }
+          say(`not due: ${decision.reason}`);
           return;
         }
-        lastNightlySkip = '';
 
         // OBSERVE-ONLY unless explicitly armed. The scheduling decision and the
         // execution environment are separate questions, and only the first has
@@ -38757,12 +38772,14 @@ ${footer}
         // the decision logic in production at zero cost; arming is a separate,
         // deliberate act once execution has somewhere safe to run.
         if (!forwardCaptureArmed) {
-          console.log(
-            `[recon-nightly] WOULD collect ${decision.targetDate} (${decision.reason}) — ` +
-            'OBSERVE-ONLY, nothing fetched. Set FORWARD_CAPTURE=on to arm.');
+          // Also repeat-suppressed: an owed day stays owed while observing, so
+          // an unsuppressed line here would repeat every ten minutes forever.
+          say(`WOULD collect ${decision.targetDate} (${decision.reason}) — nothing fetched. ` +
+              'Set FORWARD_CAPTURE=on to arm.');
           return;
         }
-        console.log(`[recon-nightly] due: ${decision.reason}`);
+        console.log(`[recon-nightly] ARMED · due: ${decision.reason}`);
+        lastNightlySaid = ''; ticksSinceSaid = 0;
         await _runNightlyReconciliation(decision.targetDate!);
       } catch (e: any) {
         console.error('[recon-nightly] scheduler tick error:', e?.message ?? e);
