@@ -33018,24 +33018,24 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
         for (const slice of slices) {
           job.phase = `Slice ${slice.index}/${slices.length} (${slice.label})`;
+          const sliceStartedMs = Date.now();
           const win = await fetchWindow(slice.startIso, slice.endIso);
           if (!win.ok) {
+            const secs = ((Date.now() - sliceStartedMs) / 1000).toFixed(1);
+            console.error(`[seed-job:${jobId}] slice ${slice.index}/${slices.length} (${slice.label}): FAILED after ${secs}s — ${win.msg} (no rows committed from this slice)`);
             sliceFailure = { slice: slice.label, msg: win.msg };
             break; // first failed slice aborts — the period is known-incomplete
           }
+          const fetched = (win.cdrs as any[]).length;
           let rows = win.cdrs as any[];
           fetchedTotal += rows.length;
           if (targetAccountName && rows.length > 0) {
-            const before = rows.length;
             rows = rows.filter((c: any) => !c.clientName || c.clientName === targetAccountName);
-            if (before !== rows.length) {
-              console.log(`[seed-job:${jobId}] slice ${slice.index} account filter (${targetAccountName}): ${before} → ${rows.length}`);
-            }
           }
+          let stored = 0;
           if (rows.length > 0) {
-            const stored = await storeSlice(rows);
+            stored = await storeSlice(rows);
             storedTotal += stored;
-            console.log(`[seed-job:${jobId}] slice ${slice.index}/${slices.length} (${slice.label}): ${rows.length} CDR(s), repository +${stored}`);
             for (const c of rows) {
               const icdr = c.iCdr ?? c.i_cdr;
               if (icdr != null && icdr !== '') byICdr.set(String(icdr), c);
@@ -33048,6 +33048,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
               }
             }
           }
+          // One structured line per slice (owner spec): every number an
+          // operator needs, on one grep-able line, ending in its verdict.
+          // duplicates = rows the idempotent insert skipped as already stored.
+          const secs = ((Date.now() - sliceStartedMs) / 1000).toFixed(1);
+          console.log(
+            `[seed-job:${jobId}] slice ${slice.index}/${slices.length} (${slice.label}): ` +
+            `fetched=${fetched} filtered=${rows.length} inserted=${stored} ` +
+            `duplicates=${Math.max(0, rows.length - stored)} duration=${secs}s SUCCESS`);
           job.fetched = fetchedTotal;
           await progress({
             completedSlices: slice.index,
