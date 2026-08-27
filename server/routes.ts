@@ -32719,6 +32719,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
      *  fetched count is the signature of a storage fault, and it belongs in the
      *  same response an operator is already polling. */
     repositoryStored?: number;
+    /** What this job is importing. Recorded so a second request for the SAME
+     *  account+tariff+period can be refused while this one is still running. */
+    request?: { iAccount: number | string; iTariff: string | number; periodStart: string; periodEnd?: string | null };
     /** The snapshot batch filled its limit and left verified CDRs behind. A
      *  period measured from a truncated run is partial, whatever `created` says. */
     snapshotsTruncated?: boolean;
@@ -32755,10 +32758,37 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       return res.status(400).json({ error: 'iAccount, iTariff, and periodStart are required' });
     }
     _cleanSeedJobs();
+
+    // Refuse work already in flight. Production 2026-08-27: two imports of
+    // account 315 / tariff 32 / 2026-08-25 ran concurrently, walking the same
+    // 48 slices against one Sippy credential on an instance that had already
+    // lost its API three times under import load. Nothing refused it because
+    // nothing was asking.
+    //
+    // Checked against IN-PROCESS state, not seed_jobs: a row reading 'running'
+    // in the database usually means a process was killed mid-run, and that must
+    // never block a fresh attempt. Only a genuinely live job blocks.
+    {
+      const { findRunningDuplicate } = await import('./seed-single-flight');
+      const req = { iAccount, iTariff, periodStart, periodEnd };
+      const dup = findRunningDuplicate(
+        [..._seedJobs.entries()].map(([jobId, j]) => ({ jobId, status: j.status, request: j.request })),
+        req,
+      );
+      if (dup) {
+        return res.status(409).json({
+          error: 'An import for this account, tariff and period is already running.',
+          jobId: dup.jobId,
+          hint: 'Poll /api/rating-snapshots/seed-job/' + dup.jobId + ' rather than starting a second walk of the same slices.',
+        });
+      }
+    }
+
     const jobId = _seedJobId();
     const job: _SeedJobState = {
       status: 'running', phase: 'Starting', fetched: 0, created: 0,
       skipped: 0, errors: 0, total: 0, startedAt: Date.now(),
+      request: { iAccount, iTariff, periodStart, periodEnd },
     };
     _seedJobs.set(jobId, job);
 
@@ -38683,6 +38713,10 @@ ${footer}
     // The ledger is seed_jobs: each per-account run is keyed `recon-<date>-<id>`.
     const NIGHTLY_CHECK_MS      = 10 * 60_000;
     const NIGHTLY_FIRST_TICK_MS = 60_000;   // let boot finish first
+    // Default OFF. A collector that starts fetching the moment it ships gives
+    // no chance to separate "did the deployment work" from "is unattended
+    // collection stable". Loud on both branches so it can never be silently off.
+    const forwardCaptureArmed = String(process.env.FORWARD_CAPTURE ?? '').toLowerCase() === 'on';
     let nightlyBusy = false;
     let lastNightlySkip = '';
 
@@ -38713,6 +38747,21 @@ ${footer}
           return;
         }
         lastNightlySkip = '';
+
+        // OBSERVE-ONLY unless explicitly armed. The scheduling decision and the
+        // execution environment are separate questions, and only the first has
+        // been validated. The importer runs IN-PROCESS on the web instance, and
+        // on 2026-08-27 the API became unreachable three times while imports
+        // were running — so an unattended nightly collection across ~25
+        // accounts could take the platform down every night. Observing proves
+        // the decision logic in production at zero cost; arming is a separate,
+        // deliberate act once execution has somewhere safe to run.
+        if (!forwardCaptureArmed) {
+          console.log(
+            `[recon-nightly] WOULD collect ${decision.targetDate} (${decision.reason}) — ` +
+            'OBSERVE-ONLY, nothing fetched. Set FORWARD_CAPTURE=on to arm.');
+          return;
+        }
         console.log(`[recon-nightly] due: ${decision.reason}`);
         await _runNightlyReconciliation(decision.targetDate!);
       } catch (e: any) {
@@ -38725,7 +38774,10 @@ ${footer}
     setTimeout(() => { nightlyTick(); setInterval(nightlyTick, NIGHTLY_CHECK_MS); }, NIGHTLY_FIRST_TICK_MS);
     console.log(
       `[recon-nightly] catch-up scheduler registered — checks every ${NIGHTLY_CHECK_MS / 60000} min, ` +
-      'collects the oldest owed day (never today), decided from seed_jobs',
+      'decides the oldest owed day (never today) from seed_jobs — ' +
+      (forwardCaptureArmed
+        ? 'ARMED: it will collect.'
+        : 'OBSERVE-ONLY: it will report what it would collect and fetch nothing (FORWARD_CAPTURE=on to arm).'),
     );
   }
 
