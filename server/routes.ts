@@ -32774,11 +32774,24 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         let xmlRpcAttempted = false;
 
         const { classifyCdrPage } = await import('./cdr-fetch-page');
+        const CDR_AUTH_CACHE_MS = 5 * 60_000; // mirrors sippy.ts CDR_AUTH_FAIL_TTL_MS
         const { computeSeedSlices, DEFAULT_SLICE_MINUTES } = await import('./seed-slices');
         const envSliceMin = Number(process.env.SEED_SLICE_MINUTES);
         const sliceMinutes = Number.isFinite(envSliceMin) && envSliceMin >= 1
           ? Math.floor(envSliceMin)
           : DEFAULT_SLICE_MINUTES;
+        // Owner's original spec, restored: pace requests so a long import does
+        // not degrade the switch's own reporting. Production 2026-08-27 showed
+        // 15 slices at full speed followed by an immediate 401 at offset 0 —
+        // the signature of a switch-side rate limit or lockout under sustained
+        // query pressure, not a bad password.
+        const envDelay = Number(process.env.SEED_PAGE_DELAY_MS);
+        const pageDelayMs = Number.isFinite(envDelay) && envDelay >= 0
+          ? Math.floor(envDelay) : 150;
+        const envRetries = Number(process.env.SEED_SLICE_RETRIES);
+        const sliceRetries = Number.isFinite(envRetries) && envRetries >= 0
+          ? Math.floor(envRetries) : 2;
+        const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
         const slices = computeSeedSlices(periodStart, periodEnd, sliceMinutes);
 
         // Zero slices means the PERIOD was malformed (unparseable dates, or end
@@ -32800,7 +32813,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           console.log(
             `[seed-job:${jobId}] XML-RPC identity: ${idPairs.map(p => p.username).join(', ') || 'NONE CONFIGURED'} ` +
             `(${idPairs.length} pair(s), portalFallback=${process.env.SIPPY_XMLRPC_PORTAL_FALLBACK === '1' ? 'on' : 'off'}) · ` +
-            `${slices.length} slice(s) of ${sliceMinutes}min`);
+            `${slices.length} slice(s) of ${sliceMinutes}min · pageDelay=${pageDelayMs}ms · sliceRetries=${sliceRetries}`);
         }
 
         // Slice-level progress in seed_jobs (migration 082) — operational
@@ -32892,6 +32905,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                     if (cdrs.length > 0) pagesAccum.push(...cdrs);
                     if (outcome === 'end_of_data') break pageLoop; // Sippy said so, in-band
                     offset += XML_PAGE;
+                    if (pageDelayMs > 0) await sleep(pageDelayMs);
                   }
                 }
               }
@@ -33026,12 +33040,25 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         for (const slice of slices) {
           job.phase = `Slice ${slice.index}/${slices.length} (${slice.label})`;
           const sliceStartedMs = Date.now();
-          const win = await fetchWindow(slice.startIso, slice.endIso);
+          // A slice is all-or-nothing and its commit is idempotent, so retrying
+          // one is free of side effects. Backoff for an AUTH-flavoured failure
+          // must outlast the 5-minute negative auth cache — retrying sooner
+          // just re-reads the cached rejection without contacting the switch,
+          // burning an attempt and proving nothing.
+          let win = await fetchWindow(slice.startIso, slice.endIso);
+          for (let attempt = 1; !win.ok && attempt <= sliceRetries; attempt++) {
+            const authFlavoured = /401|403|auth/i.test(win.msg);
+            const waitMs = authFlavoured ? (CDR_AUTH_CACHE_MS + 30_000) * attempt : 30_000 * attempt;
+            console.warn(`[seed-job:${jobId}] slice ${slice.index}/${slices.length} (${slice.label}): attempt ${attempt}/${sliceRetries} after ${Math.round(waitMs / 1000)}s — ${authFlavoured ? 'auth-flavoured failure, waiting out the negative auth cache' : 'retrying'}: ${win.msg}`);
+            job.phase = `Slice ${slice.index}/${slices.length} — retry ${attempt}/${sliceRetries} in ${Math.round(waitMs / 1000)}s`;
+            await sleep(waitMs);
+            win = await fetchWindow(slice.startIso, slice.endIso);
+          }
           if (!win.ok) {
             const secs = ((Date.now() - sliceStartedMs) / 1000).toFixed(1);
-            console.error(`[seed-job:${jobId}] slice ${slice.index}/${slices.length} (${slice.label}): FAILED after ${secs}s — ${win.msg} (no rows committed from this slice)`);
+            console.error(`[seed-job:${jobId}] slice ${slice.index}/${slices.length} (${slice.label}): FAILED after ${secs}s and ${sliceRetries} retry(ies) — ${win.msg} (no rows committed from this slice)`);
             sliceFailure = { slice: slice.label, msg: win.msg };
-            break; // first failed slice aborts — the period is known-incomplete
+            break; // exhausted retries — the period is known-incomplete
           }
           const fetched = (win.cdrs as any[]).length;
           let rows = win.cdrs as any[];
