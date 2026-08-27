@@ -32791,6 +32791,23 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const envRetries = Number(process.env.SEED_SLICE_RETRIES);
         const sliceRetries = Number.isFinite(envRetries) && envRetries >= 0
           ? Math.floor(envRetries) : 2;
+        // Owner decision, 2026-08-27: the Finance repository captures BILLABLE
+        // calls, not every attempt. Observed ~244k attempts/day against ~25k
+        // connected calls for one account — a ~10x reduction in pages, depth,
+        // switch load, writes and storage, all from one fetch parameter.
+        //
+        // CAVEAT, and Phase A is the guard: a zero-duration call can still
+        // carry a connect fee, and non_zero would not capture it. No tariff
+        // observed here uses one — Sippy's own summary reconciles exactly to
+        // billed_minutes x rate — but if one ever does, the completeness
+        // check's CHARGED AMOUNT comparison against the Customer Summary is
+        // precisely what detects it. The policy is guarded by the validation
+        // layer rather than by assumption.
+        //
+        // Failed attempts for fraud analysis get their own ingestion path if
+        // ever needed, rather than every nightly Finance import carrying 10x
+        // its weight for a consumer that does not exist.
+        const cdrType = String(process.env.SEED_CDR_TYPE || 'non_zero');
         const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
         const slices = computeSeedSlices(periodStart, periodEnd, sliceMinutes);
 
@@ -32813,7 +32830,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           console.log(
             `[seed-job:${jobId}] XML-RPC identity: ${idPairs.map(p => p.username).join(', ') || 'NONE CONFIGURED'} ` +
             `(${idPairs.length} pair(s), portalFallback=${process.env.SIPPY_XMLRPC_PORTAL_FALLBACK === '1' ? 'on' : 'off'}) · ` +
-            `${slices.length} slice(s) of ${sliceMinutes}min · pageDelay=${pageDelayMs}ms · sliceRetries=${sliceRetries}`);
+            `${slices.length} slice(s) of ${sliceMinutes}min · type=${cdrType} · pageDelay=${pageDelayMs}ms · sliceRetries=${sliceRetries}`);
         }
 
         // Slice-level progress in seed_jobs (migration 082) — operational
@@ -32880,7 +32897,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
               pageLoop:
               while (true) {
                 const page = await sippy.getSippyCDRsPage(username, password, XML_PAGE,
-                  { iAccount: Number(iAccount), startDate: winStart, endDate: winEnd, offset },
+                  { iAccount: Number(iAccount), startDate: winStart, endDate: winEnd, offset,
+                    type: cdrType },
                   portalUrl);
                 if (page.ok && pinnedMethod !== null && page.method !== pinnedMethod) {
                   console.warn(`[seed-job:${jobId}] XML-RPC(${username}) method switched ${pinnedMethod} → ${page.method} at offset=${offset} — aborting this credential (${pagesAccum.length} partial CDRs discarded; a different method is a different result set)`);

@@ -397,6 +397,59 @@ shared diagnostic core when that design is repaired.
 
 ---
 
+## 7.4 Capture and retention
+
+**Owner decisions, 2026-08-27**, answering the data-retention question §7.2 left open. They are two
+halves of one principle: **the repository is OPERATIONAL, not an archive.**
+
+### Capture — billable calls, not every attempt
+
+The Finance importer fetches `type: non_zero`. Observed: ~244,000 attempts/day against ~25,000
+connected calls for one account — a ~10× reduction in pages, pagination depth, switch load,
+database writes, index growth and backup size, from one fetch parameter. The repository's purpose
+is reconciliation, certification, dispute support and financial reporting, and all four rest on
+billable calls.
+
+**Filter at FETCH time, not at store time.** `type` is what Sippy sends. Discarding attempts before
+insert saves storage only; the pagination, the runtime and the pressure on the switch remain — and
+those are where the failures live.
+
+**Guarded, not assumed:** a zero-duration call can still carry a connect fee, which `non_zero`
+would not capture. No tariff observed here uses one — Sippy's own summary reconciles exactly to
+`billed_minutes × rate` — and if one ever does, Phase A's **charged-amount** comparison against the
+Customer Summary is what detects it. `SEED_CDR_TYPE` overrides deliberately.
+
+**Failed attempts get their own path if fraud analysis ever needs them** — narrow and occasional,
+rather than every nightly Finance import carrying ten times its weight for a consumer that does not
+exist.
+
+### Retention — lifecycle, never age alone
+
+```
+raw_sippy_cdrs        rolling 90 days, by LIFECYCLE
+invoice_cdr_snapshots permanent
+financial summaries   permanent
+AI analytics          permanent
+disputed periods      pinned until the dispute closes
+```
+
+**Nothing is deleted on age alone.** Each imported period carries a lifecycle —
+`OPEN → VERIFIED → INVOICED → RETENTION ELIGIBLE` — and the sweeper removes only periods that are
+older than the window **and** invoiced **and** not disputed **and** not pinned **and** not under
+investigation. Age is one condition among five, never the only one.
+
+**Why 90 days costs so little:** invoices source *exclusively* from `invoice_cdr_snapshots`
+(`sippy-invoice.service.ts:7`), which is separate, immutable and permanent. Purging raw CDRs does
+NOT affect invoice reproducibility, the PDF, or invoice-level dispute evidence. What it removes is
+narrower — the ability to **re-certify or re-rate a period from scratch**, and raw-level forensics.
+So the retention floor is one question: *how long after a period closes might certification need to
+re-run against it?* The dispute window answers it.
+
+**Status: capture SHIPPED; retention is a BUILD ITEM** — lifecycle column, sweeper, pin flag — and
+it is sequenced after the validation runbook passes, per the freeze.
+
+---
+
 ## 8. Implementation status
 
 Honest as of 2026-08-26. Freezing a policy does not implement it.
