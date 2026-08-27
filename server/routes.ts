@@ -32675,6 +32675,23 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     total:   number;
     source?: string;
     error?:  string;
+    /**
+     * The repository write failure — the one the billing-continues contract
+     * deliberately swallows so that a storage fault never blocks invoicing.
+     * Swallowed is not the same as hidden: it was written only to
+     * seed_jobs.last_error, which the poll endpoint serves ONLY after the
+     * in-memory entry expires. So for the first ten minutes — exactly when an
+     * operator is watching — a job could report status "done", errors 0, and
+     * nothing at all about a repository that stored no rows.
+     */
+    repositoryWriteError?: string;
+    /** Rows actually committed to raw_sippy_cdrs. Zero here with a healthy
+     *  fetched count is the signature of a storage fault, and it belongs in the
+     *  same response an operator is already polling. */
+    repositoryStored?: number;
+    /** The snapshot batch filled its limit and left verified CDRs behind. A
+     *  period measured from a truncated run is partial, whatever `created` says. */
+    snapshotsTruncated?: boolean;
     startedAt: number;
     // Verification outcome — billing ingestion now runs every CDR through the
     // rating engine, so the job reports WHY calls did or did not become billable
@@ -33058,6 +33075,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             // poll endpoint serves it untruncated to a browser. Status is NOT
             // changed — the billing-continues contract holds.
             await progress({ lastError: `repository write: ${err}`.slice(0, 4000) });
+            job.repositoryWriteError = err;
             return 0;
           }
         };
@@ -33181,6 +33199,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           currentSlice: null });
         job.fetched = fetchedTotal;
         job.total   = rawCdrs.length;
+        job.repositoryStored = storedTotal;
         console.log(`[seed-job:${jobId}] fetched ${fetchedTotal} CDR(s) across ${slices.length} slice(s), ${rawCdrs.length} after account filter + i_cdr dedup, repository +${storedTotal}`);
 
         // ── Batch dedup: 1 SELECT instead of N ──────────────────────────────
@@ -33249,6 +33268,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
         job.phase = 'Locking verified CDRs into billing snapshots';
         const lock = await lockBatch({ iTariff: String(iTariff), limit: Math.max(toVerify.length * 2, 1000) });
+        if (lock.truncated) {
+          // `created` equalling the limit is not a count, it is a cut-off. Left
+          // unsaid, a job reports "done / errors 0" over an unfinished queue.
+          job.snapshotsTruncated = true;
+          console.warn(
+            `[seed-job:${jobId}] SNAPSHOT BATCH TRUNCATED — created ${lock.created} of a ${lock.limit}-row limit; ` +
+            'verified CDRs remain unsnapshotted. Re-run to drain, and treat any period total from this run as PARTIAL.');
+        }
 
         // ── Persist the run (migration 070) ─────────────────────────────────
         // The engine's findings are the basis on which Finance approves or

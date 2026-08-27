@@ -214,6 +214,19 @@ export interface SnapshotBatchResult {
   skipped:   number;
   errors:    number;
   durationMs: number;
+  /**
+   * The batch filled its limit, so there are almost certainly MORE verified
+   * CDRs still waiting to be snapshotted. Callers must not read a full batch
+   * as "everything is snapshotted".
+   *
+   * Production 2026-08-26 (job sj-1787842082071-moe8dx): a seed job reported
+   * status "done", errors 0, created exactly 1000 — the limit, to the row —
+   * and said nothing about what it left behind. BILLING-POLICY §7.2: a gate
+   * refuses; a cap lies.
+   */
+  truncated: boolean;
+  /** The limit that produced `truncated`, so the report can name it. */
+  limit:     number;
 }
 
 /**
@@ -231,15 +244,19 @@ export async function lockBatch(opts: {
   limit?:                number;
 }): Promise<SnapshotBatchResult> {
   const t0 = Date.now();
+  const effectiveLimit = opts.limit ?? 1000;
   const result: SnapshotBatchResult = {
     total: 0, created: 0, skipped: 0, errors: 0, durationMs: 0,
+    truncated: false, limit: effectiveLimit,
   };
 
   // Load verified rating records that don't yet have snapshots
   const verifications = await storage.listRatingVerifications({
     iTariff: opts.iTariff,
-    limit:   opts.limit ?? 1000,
+    limit:   effectiveLimit,
   });
+  // A full page means the query was cut off, not that the queue is empty.
+  result.truncated = verifications.length >= effectiveLimit;
 
   // Filter to actionable records only
   const actionable = verifications.filter(v => {
