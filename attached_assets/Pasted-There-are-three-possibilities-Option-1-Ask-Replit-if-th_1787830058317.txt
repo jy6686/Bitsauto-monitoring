@@ -1,0 +1,70 @@
+There are three possibilities:
+Option 1 — Ask Replit if they have database snapshots/backups ⭐⭐⭐⭐⭐ (Best first step)
+Since you're using Replit Managed PostgreSQL (Neon), Replit support may be able to help if this is a platform issue.
+Ask them:
+We have a long-running import process that may have been interrupted by autoscaling/deployments. Is there any way to access:
+- database backups
+- point-in-time recovery (PITR)
+- WAL history
+- database snapshots
+- deployment-time snapshots
+for our managed PostgreSQL instance?
+
+If they support PITR or snapshots, you might recover data or inspect historical state.
+Option 2 — Ask whether the Autoscale instance can run long background jobs ⭐⭐⭐⭐
+This is actually the bigger question.
+Ask Replit:
+Our application performs 2–6 hour background imports.
+During deployments or autoscaling, are running processes guaranteed to survive?
+If not, what is the recommended architecture for long-running jobs?
+
+They may recommend:
+- Background Workers
+- Reserved VM
+- Scheduled workers
+- Persistent workers
+- Queue service
+That answer could save weeks of engineering.
+Option 3 — Ask whether they can inspect logs ⭐⭐⭐
+Sometimes platform support can access logs beyond what the UI exposes.
+Ask:
+Can you inspect deployment logs for deployment ID XXXXX and determine whether the process was terminated during autoscaling or deployment?
+
+Sometimes internal logs show:
+- SIGTERM
+- OOM
+- Container replacement
+- Health check failure
+which the user cannot see.
+What Replit cannot do
+They cannot magically recover Sippy CDRs unless:
+- they had already been written into your PostgreSQL database, or
+- a backup exists containing them.
+Remember:
+Sippy
+   ↓
+Importer
+   ↓
+PostgreSQL
+If the importer never committed the rows, Replit never had them.
+They only host your database—they don't cache the XML-RPC responses coming from Sippy.
+Could they have the imported data somewhere?
+Only if one of these happened:
+- transaction committed before the crash
+- temporary staging table was written
+- import partially committed
+- backup captured the committed data
+From your completeness endpoint, we saw:
+repository.calls = 0
+which suggests the repository table was never populated for that run.
+I think the better opportunity
+Rather than asking Replit for the missing CDRs, I would ask them how to run this importer correctly.
+Something like:
+We have a production application importing ~250k XML-RPC records over several hours. It currently runs inside our Express server. What is the recommended Replit architecture for reliable long-running background jobs that survive deployments and autoscaling?
+
+That's a question they can answer very well, and their recommendation may be much better aligned with the platform than building everything yourself.
+So my priority would be:
+1. Ask Replit about long-running background job architecture ⭐⭐⭐⭐⭐
+2. Ask whether Managed PostgreSQL supports PITR/snapshots ⭐⭐⭐⭐
+3. Ask whether they can inspect the deployment/container termination logs ⭐⭐⭐⭐
+Those three questions are likely to yield much more value than trying to recover data that was probably never committed to the database.
