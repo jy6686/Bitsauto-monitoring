@@ -32778,6 +32778,12 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const fetchErrors: string[] = [];
         let sawCleanEmpty = false;
         let rowsSeenBeforeError = 0; // proof the window has data, from a credential that then failed
+        {
+          const idPairs = sippyXmlCredsPairs(settings);
+          console.log(
+            `[seed-job:${jobId}] XML-RPC identity: ${idPairs.map(p => p.username).join(', ') || 'NONE CONFIGURED'} ` +
+            `(${idPairs.length} pair(s), portalFallback=${process.env.SIPPY_XMLRPC_PORTAL_FALLBACK === '1' ? 'on' : 'off'})`);
+        }
         if (!xmlRpcCircuitGuard()) {
           credLoop:
           for (const { username, password } of sippyXmlCredsPairs(settings)) {

@@ -4465,7 +4465,7 @@ export async function debugCdrPortalHtml(
 // CDR 401 negative cache — key = `${username}@${apiUrl}`, value = epoch ms when the block expires.
 // When a credential pair consistently gets 401 from CDR methods, block it for 5 minutes so we
 // don't flood the Sippy server with repeated failing auth requests (30+ per minute observed).
-const _cdrAuthFailCache = new Map<string, number>();
+const _cdrAuthFailCache = new Map<string, { until: number; reason: string; at: string }>();
 const CDR_AUTH_FAIL_TTL_MS = 5 * 60_000; // 5 minutes
 
 // getSippyCDRs — uses official getAccountCDRs() (docs 107367) or
@@ -4515,10 +4515,10 @@ export async function getSippyCDRsPage(
   // CDR 401 negative cache — skip this credential if it recently got 401 from both CDR methods.
   const cdrCacheKey = `${username}@${apiUrl}`;
   const cdrBlocked = _cdrAuthFailCache.get(cdrCacheKey);
-  if (cdrBlocked && cdrBlocked > Date.now()) {
-    const secsLeft = Math.ceil((cdrBlocked - Date.now()) / 1000);
-    console.log(`[getSippyCDRs] ${username} — CDR auth failure cached, skipping for ${secsLeft}s`);
-    return { ok: false, error: `CDR auth failure cached (both CDR methods returned 401/403 within the last 5 minutes) — retry in ${secsLeft}s, or fix the credentials in Settings → Sippy Connection` };
+  if (cdrBlocked && cdrBlocked.until > Date.now()) {
+    const secsLeft = Math.ceil((cdrBlocked.until - Date.now()) / 1000);
+    console.log(`[getSippyCDRs] ${username} — CDR auth failure cached, skipping for ${secsLeft}s (cached_from: ${cdrBlocked.reason} at ${cdrBlocked.at})`);
+    return { ok: false, error: `CDR auth failure cached (cached_from: ${cdrBlocked.reason} at ${cdrBlocked.at}) — retry in ${secsLeft}s, or fix the credentials in Settings → Sippy Connection` };
   }
 
   // Convert ISO dates to Sippy format if needed (Sippy requires '%H:%M:%S.000 GMT %a %b %d %Y')
@@ -4693,7 +4693,14 @@ export async function getSippyCDRsPage(
   // Both methods returned 401/403 — cache this auth failure for 5 minutes.
   // This is the key throttle: without it the server floods Sippy with 30+ 401s/minute.
   if (cdrAuthFailCount >= methods.length) {
-    _cdrAuthFailCache.set(cdrCacheKey, Date.now() + CDR_AUTH_FAIL_TTL_MS);
+    // Record WHAT populated the cache, so the skip message five minutes from
+    // now names the original HTTP status instead of sending the reader on a
+    // backwards search through earlier log entries.
+    _cdrAuthFailCache.set(cdrCacheKey, {
+      until: Date.now() + CDR_AUTH_FAIL_TTL_MS,
+      reason: lastFailure,
+      at: new Date().toISOString(),
+    });
   }
 
   // Empty is only claimable when some method actually answered.
