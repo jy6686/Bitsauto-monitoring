@@ -32604,6 +32604,36 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // GET /api/rating-snapshots/seed-jobs — the last N durable job records.
+  //
+  // Exists because reading a failed import's exception required either waiting
+  // out a 10-minute in-memory TTL or running SQL by hand — and running it by
+  // hand is a trap on this deployment: a shell's $DATABASE_URL points at the
+  // DEV database, while the rows live in the PRODUCTION one the app is
+  // connected to. This endpoint answers from the same connection that wrote
+  // them, so the answer cannot come from the wrong database.
+  //
+  // No new page (BILLING-POLICY §9.1) — an operator surface for a browser tab.
+  //
+  // REGISTERED BEFORE /:id DELIBERATELY. Express matches in registration
+  // order, so with /:id first this path bound id="seed-jobs" and answered
+  // 400 "Invalid ID" — a route that exists, reporting that it does not.
+  // /summary above sits ahead of /:id for exactly this reason.
+  app.get('/api/rating-snapshots/seed-jobs', async (req: any, res: any) => {
+    try {
+      const { seedJobs } = await import('@shared/schema');
+      const n = Math.min(Math.max(Number(req.query.limit ?? 5) || 5, 1), 50);
+      const rows = await db.select().from(seedJobs)
+        .orderBy(sql`started_at DESC`).limit(n);
+      // Name the database that answered. The whole point of this endpoint is
+      // that the reader can trust WHICH database the rows came from.
+      const { databaseFingerprint } = await import('./environment-fingerprint');
+      res.json({ database: await databaseFingerprint(), count: rows.length, jobs: rows });
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message ?? e) });
+    }
+  });
+
   app.get('/api/rating-snapshots/:id', async (req: any, res: any) => {
     try {
       const id = Number(req.params.id);
@@ -33486,30 +33516,6 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     res.json(job);
   });
 
-  // GET /api/rating-snapshots/seed-jobs — the last N durable job records.
-  //
-  // Exists because reading a failed import's exception required either waiting
-  // out a 10-minute in-memory TTL or running SQL by hand — and running it by
-  // hand is a trap on this deployment: a shell's $DATABASE_URL points at the
-  // DEV database, while the rows live in the PRODUCTION one the app is
-  // connected to. This endpoint answers from the same connection that wrote
-  // them, so the answer cannot come from the wrong database.
-  //
-  // No new page (BILLING-POLICY §9.1) — an operator surface for a browser tab.
-  app.get('/api/rating-snapshots/seed-jobs', async (req: any, res: any) => {
-    try {
-      const { seedJobs } = await import('@shared/schema');
-      const n = Math.min(Math.max(Number(req.query.limit ?? 5) || 5, 1), 50);
-      const rows = await db.select().from(seedJobs)
-        .orderBy(sql`started_at DESC`).limit(n);
-      // Name the database that answered. The whole point of this endpoint is
-      // that the reader can trust WHICH database the rows came from.
-      const { databaseFingerprint } = await import('./environment-fingerprint');
-      res.json({ database: await databaseFingerprint(), count: rows.length, jobs: rows });
-    } catch (e: any) {
-      res.status(500).json({ error: String(e?.message ?? e) });
-    }
-  });
 
   // ── One-call billing chain: seed rating snapshots → generate invoice ──────
   // Replaces the manual "browser-console seed, then generate" sequence.
