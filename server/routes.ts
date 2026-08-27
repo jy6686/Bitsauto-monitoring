@@ -32703,7 +32703,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   //   3. Bulk insert  — 500-row chunks (was 1 INSERT per CDR)
   //   4. Larger admin portal page size (500 vs 50 → up to 10× fewer HTTP pages)
   app.post('/api/rating-snapshots/seed-from-portal', async (req: any, res: any) => {
-    const { iAccount, iTariff, periodStart, periodEnd, limit = 5000 } = req.body ?? {};
+    const { iAccount, iTariff, periodStart, periodEnd, limit = 5000, sliceMinutes } = req.body ?? {};
     if (!iAccount || !iTariff || !periodStart) {
       return res.status(400).json({ error: 'iAccount, iTariff, and periodStart are required' });
     }
@@ -32718,7 +32718,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     // fire-and-forget — runs after response is sent
     (async () => {
       try {
-        await _seedRatingSnapshotsSync({ iAccount, iTariff, periodStart, periodEnd }, job, jobId);
+        await _seedRatingSnapshotsSync({ iAccount, iTariff, periodStart, periodEnd, sliceMinutes }, job, jobId);
       } catch (err: any) {
         job.status = 'error';
         job.error  = err.message;
@@ -32735,7 +32735,12 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // billing CDRs — portal/RTST1 scrape data never enters the billing store.
   // Idempotent: dedup by cdr-id means re-running never duplicates snapshots.
   async function _seedRatingSnapshotsSync(
-    opts: { iAccount: number | string; iTariff: string; periodStart: string; periodEnd?: string | null },
+    opts: { iAccount: number | string; iTariff: string; periodStart: string; periodEnd?: string | null;
+            /** Per-run slice width. A heavy day needs narrower windows than a quiet
+             *  one, and the operator must be able to narrow them WITHOUT an env
+             *  change — on this host an env change restarts the process, which
+             *  kills the very import being tuned. */
+            sliceMinutes?: number | null },
     jobState?: _SeedJobState,
     label = 'sync',
   ): Promise<{ fetched: number; created: number; skipped: number; message?: string;
@@ -32776,15 +32781,26 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const { classifyCdrPage } = await import('./cdr-fetch-page');
         const CDR_AUTH_CACHE_MS = 5 * 60_000; // mirrors sippy.ts CDR_AUTH_FAIL_TTL_MS
         const { computeSeedSlices, DEFAULT_SLICE_MINUTES } = await import('./seed-slices');
+        // Precedence: this run's request, then the environment, then the default.
+        // Slice width is the lever against deep-offset degradation: page times
+        // grow with OFFSET, so the fix for a busy period is a NARROWER window,
+        // not a slower one.
+        const reqSliceMin = Number(opts.sliceMinutes);
         const envSliceMin = Number(process.env.SEED_SLICE_MINUTES);
-        const sliceMinutes = Number.isFinite(envSliceMin) && envSliceMin >= 1
+        const sliceMinutes = Number.isFinite(reqSliceMin) && reqSliceMin >= 1
+          ? Math.floor(reqSliceMin)
+          : Number.isFinite(envSliceMin) && envSliceMin >= 1
           ? Math.floor(envSliceMin)
           : DEFAULT_SLICE_MINUTES;
         // Owner's original spec, restored: pace requests so a long import does
-        // not degrade the switch's own reporting. Production 2026-08-27 showed
-        // 15 slices at full speed followed by an immediate 401 at offset 0 —
-        // the signature of a switch-side rate limit or lockout under sustained
-        // query pressure, not a bad password.
+        // not degrade the switch's own reporting.
+        //
+        // CORRECTION, 2026-08-27: the "immediate 401 at offset 0" that motivated
+        // this was NOT a switch-side rate limit. getCustomerCDRs 401s permanently
+        // for an admin (non-wholesaler) credential; it was only ever reached
+        // after getAccountCDRs had already failed, and its 401 then overwrote the
+        // real error in the report. Pacing remains sound practice toward a
+        // production switch, but it was never the fix for that symptom.
         const envDelay = Number(process.env.SEED_PAGE_DELAY_MS);
         const pageDelayMs = Number.isFinite(envDelay) && envDelay >= 0
           ? Math.floor(envDelay) : 150;
@@ -32896,9 +32912,16 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             try {
               pageLoop:
               while (true) {
+                // Page 1 discovers the method; every later page is PINNED to it.
+                // Previously each page re-derived the order, so when a deep page
+                // faulted on getAccountCDRs the fallback getCustomerCDRs answered
+                // — and for an admin (non-wholesaler) credential that fallback is
+                // a permanent 401 whose text then replaced the real getAccountCDRs
+                // error. Pinning makes a failed page report why the method we
+                // actually use failed, instead of a constant we cannot act on.
                 const page = await sippy.getSippyCDRsPage(username, password, XML_PAGE,
                   { iAccount: Number(iAccount), startDate: winStart, endDate: winEnd, offset,
-                    type: cdrType },
+                    type: cdrType, onlyMethod: pinnedMethod ?? undefined },
                   portalUrl);
                 if (page.ok && pinnedMethod !== null && page.method !== pinnedMethod) {
                   console.warn(`[seed-job:${jobId}] XML-RPC(${username}) method switched ${pinnedMethod} → ${page.method} at offset=${offset} — aborting this credential (${pagesAccum.length} partial CDRs discarded; a different method is a different result set)`);

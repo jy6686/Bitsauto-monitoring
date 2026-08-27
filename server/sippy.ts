@@ -4503,6 +4503,14 @@ export async function getSippyCDRsPage(
     cli?: string;            // filter by CLI (after translation)
     cld?: string;            // filter by CLD (after translation)
     offset?: number;
+    /**
+     * Pin pagination to the method that answered page 1. Without it every
+     * page re-derives the method order, so a deep page whose primary method
+     * faults can be answered by the FALLBACK instead — a different result set
+     * behind the same offsets, and (for an admin credential that is not a
+     * wholesaler) a permanent 401 that masks the primary method's real error.
+     */
+    onlyMethod?: string;
   } = {},
   fallbackPortalUrl?: string,  // used when activeSession is not yet established (startup race)
 ): Promise<CdrPageResult> {
@@ -4558,9 +4566,14 @@ export async function getSippyCDRsPage(
   // Each method has a different trusted-mode field:
   //   getCustomerCDRs → i_wholesaler (defaults to 1 for root access)
   //   getAccountCDRs  → i_customer   (defaults to 1 for root access)
-  const methods = opts.iAccount
+  // When the caller has already established which method answers (page 1 of a
+  // paginated fetch), it pins that method for every later page. Without the pin
+  // each page re-derives the order and may silently answer via the OTHER method
+  // — a different result set behind the same offsets.
+  const allMethods = opts.iAccount
     ? ['getAccountCDRs', 'getCustomerCDRs']
     : ['getCustomerCDRs', 'getAccountCDRs'];
+  const methods = opts.onlyMethod ? [opts.onlyMethod] : allMethods;
 
   let cdrAuthFailCount = 0; // how many methods returned 401/403 for this credential
   // A method that reaches the parse stage SUCCEEDED even if it parsed zero rows —
@@ -4568,7 +4581,23 @@ export async function getSippyCDRsPage(
   // method got that far is the page an error.
   let anySuccess    = false;
   let successMethod = '';
-  let lastFailure   = 'all CDR methods failed';
+  /**
+   * EVERY method's failure, in the order attempted — not just the last one.
+   *
+   * Production 2026-08-18/27: every failed page in this system reported
+   * "getCustomerCDRs HTTP 401", and three days were spent hunting a
+   * load-related credential problem that did not exist. ssp-root is an admin,
+   * not a wholesaler, so getCustomerCDRs 401s PERMANENTLY — on every page,
+   * including the successful ones, where it is never reached because
+   * getAccountCDRs answers first. It only becomes visible when getAccountCDRs
+   * has already failed, and a single `lastFailure` string then overwrote the
+   * getAccountCDRs diagnosis with the fallback's constant, meaningless 401.
+   *
+   * The error that matters is always the FIRST method's. Keeping only the last
+   * one made this reporter incapable of naming the actual cause — the same
+   * defect class as a comparison that cannot fail.
+   */
+  const methodFailures: string[] = [];
   for (const method of methods) {
     try {
       // Set the correct trusted-mode field per method
@@ -4581,17 +4610,17 @@ export async function getSippyCDRsPage(
       const resp = await sippyPost(apiUrl, xmlRpcCall(method, params), username, password, 45000);
       if (resp.statusCode === 401 || resp.statusCode === 403) {
         console.log(`[getSippyCDRs] ${method} HTTP ${resp.statusCode}`);
-        lastFailure = `${method} HTTP ${resp.statusCode}`;
+        methodFailures.push(`${method} HTTP ${resp.statusCode}`);
         cdrAuthFailCount++;
         continue;
       }
-      if (resp.statusCode !== 200) { console.log(`[getSippyCDRs] ${method} HTTP ${resp.statusCode}`); lastFailure = `${method} HTTP ${resp.statusCode}`; continue; }
+      if (resp.statusCode !== 200) { console.log(`[getSippyCDRs] ${method} HTTP ${resp.statusCode}`); methodFailures.push(`${method} HTTP ${resp.statusCode}`); continue; }
       const text = resp.body.toString?.() ?? resp.body;
       if (text.includes('faultCode')) {
         const fc = text.match(/<name>faultCode<\/name>[\s\S]*?<value><int>(\d+)<\/int>/)?.[1] ?? '?';
         const fs = text.match(/<name>faultString<\/name>[\s\S]*?<value><string>([^<]*)<\/string>/)?.[1] ?? text.substring(0, 120);
         console.log(`[getSippyCDRs] ${method} faultCode=${fc}: ${fs}`);
-        lastFailure = `${method} faultCode=${fc}: ${fs}`;
+        methodFailures.push(`${method} faultCode=${fc}: ${fs}`);
         continue;
       }
       // A 200 whose body is not an XML-RPC response at all — a proxy error
@@ -4599,7 +4628,7 @@ export async function getSippyCDRsPage(
       // "no structs in a non-response" is a failure, not an empty window.
       if (!text.includes('<methodResponse')) {
         console.log(`[getSippyCDRs] ${method} → 200 but not an XML-RPC response (bodyLen=${text.length})`);
-        lastFailure = `${method}: HTTP 200 but not an XML-RPC response`;
+        methodFailures.push(`${method}: HTTP 200 but not an XML-RPC response`);
         continue;
       }
 
@@ -4693,20 +4722,31 @@ export async function getSippyCDRsPage(
       if (cdrs.length > 0) return { ok: true, cdrs, method };
     } catch (err: any) {
       console.log(`[getSippyCDRs] ${method} error: ${err?.message ?? err}`);
-      lastFailure = `${method}: ${err?.message ?? err}`;
+      methodFailures.push(`${method}: ${err?.message ?? err}`);
       continue;
     }
   }
 
   // Both methods returned 401/403 — cache this auth failure for 5 minutes.
   // This is the key throttle: without it the server floods Sippy with 30+ 401s/minute.
-  if (cdrAuthFailCount >= methods.length) {
+  // The whole chain of failures, first attempted to last. The FIRST entry is
+  // the diagnosis; later entries are fallbacks that were only reached because
+  // the first had already failed.
+  const failureChain = methodFailures.length
+    ? methodFailures.join(' · then ')
+    : 'all CDR methods failed';
+
+  // Only a credential rejected by every method AVAILABLE TO IT is comprehensively
+  // rejected. A pinned single-method page (opts.onlyMethod) proves nothing about
+  // the credential as a whole, so it must not poison a cache shared with every
+  // other caller — its retry policy belongs to the importer that pinned it.
+  if (cdrAuthFailCount >= methods.length && !opts.onlyMethod) {
     // Record WHAT populated the cache, so the skip message five minutes from
     // now names the original HTTP status instead of sending the reader on a
     // backwards search through earlier log entries.
     _cdrAuthFailCache.set(cdrCacheKey, {
       until: Date.now() + CDR_AUTH_FAIL_TTL_MS,
-      reason: lastFailure,
+      reason: failureChain,
       at: new Date().toISOString(),
     });
   }
@@ -4714,7 +4754,7 @@ export async function getSippyCDRsPage(
   // Empty is only claimable when some method actually answered.
   return anySuccess
     ? { ok: true, cdrs: [], method: successMethod }
-    : { ok: false, error: lastFailure };
+    : { ok: false, error: failureChain };
 }
 
 /**
