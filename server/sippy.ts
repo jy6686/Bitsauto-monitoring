@@ -4513,7 +4513,15 @@ export async function getSippyCDRsPage(
   const apiUrl = `${portalBase}/xmlapi/xmlapi`;
 
   // CDR 401 negative cache — skip this credential if it recently got 401 from both CDR methods.
-  const cdrCacheKey = `${username}@${apiUrl}`;
+  //
+  // The key includes a FINGERPRINT OF THE PASSWORD, not just the username.
+  // Production 2026-08-27: four ssp-root password variants shared one
+  // username-only key, so the first variant's real 401 blocked the other three
+  // UNTRIED for the cache TTL — a seed job reported "auth failure" for
+  // credentials it never actually presented to the switch. Each (user, pass)
+  // pair now caches independently. The fingerprint is a truncated hash and
+  // never appears in logs.
+  const cdrCacheKey = `${username}#${crypto.createHash('sha256').update(password).digest('hex').slice(0, 8)}@${apiUrl}`;
   const cdrBlocked = _cdrAuthFailCache.get(cdrCacheKey);
   if (cdrBlocked && cdrBlocked.until > Date.now()) {
     const secsLeft = Math.ceil((cdrBlocked.until - Date.now()) / 1000);
