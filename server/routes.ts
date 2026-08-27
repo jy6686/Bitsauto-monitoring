@@ -32995,7 +32995,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             }
             return stored;
           } catch (e: any) {
-            console.error(`[seed-job:${jobId}] CDR repository write FAILED — billing continues but these rows have no stored evidence: ${e.message}`);
+            const err = String(e?.message ?? e);
+            console.error(`[seed-job:${jobId}] CDR repository write FAILED — billing continues but these rows have no stored evidence: ${err}`);
+            // The log viewer truncates long lines, and that truncation has
+            // already cost multiple investigation round-trips. The full
+            // database exception goes into seed_jobs.last_error, where the
+            // poll endpoint serves it untruncated to a browser. Status is NOT
+            // changed — the billing-continues contract holds.
+            await progress({ lastError: `repository write: ${err}`.slice(0, 4000) });
             return 0;
           }
         };
@@ -33350,10 +33357,22 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
-  // GET /api/rating-snapshots/seed-job/:jobId — poll seeding job progress
-  app.get('/api/rating-snapshots/seed-job/:jobId', (req: any, res: any) => {
+  // GET /api/rating-snapshots/seed-job/:jobId — poll seeding job progress.
+  // Live in-memory state first; when that has expired (10-min TTL) or the
+  // process restarted, fall back to the durable seed_jobs row (migration 082)
+  // so a job's outcome — including the full repository-write error — is
+  // readable from a browser long after the process forgot it.
+  app.get('/api/rating-snapshots/seed-job/:jobId', async (req: any, res: any) => {
     const job = _seedJobs.get(req.params.jobId);
-    if (!job) return res.status(404).json({ error: 'Job not found or expired (10 min TTL)' });
+    if (!job) {
+      try {
+        const { seedJobs } = await import('@shared/schema');
+        const [row] = await db.select().from(seedJobs)
+          .where(eq(seedJobs.jobId, String(req.params.jobId))).limit(1);
+        if (row) return res.json({ source: 'seed_jobs', ...row });
+      } catch { /* table may predate 082 on this instance */ }
+      return res.status(404).json({ error: 'Job not found or expired (10 min TTL), and no seed_jobs record exists' });
+    }
     res.json(job);
   });
 
