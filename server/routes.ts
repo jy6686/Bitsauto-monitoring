@@ -32796,6 +32796,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         let xmlRpcAttempted = false;
 
         const { classifyCdrPage } = await import('./cdr-fetch-page');
+        const { decimalOrNull, intOrNull, wouldRound } = await import('./cdr-column-coercion');
+        // A tariff-configuration field that arrives fractional means we
+        // classified it wrongly, not that the value is bad. Counted and
+        // reported at the end of the run rather than silently rounded away.
+        let roundedConfigFields = 0;
         const CDR_AUTH_CACHE_MS = 5 * 60_000; // mirrors sippy.ts CDR_AUTH_FAIL_TTL_MS
         const { computeSeedSlices, DEFAULT_SLICE_MINUTES } = await import('./seed-slices');
         // Precedence: this run's request, then the environment, then the default.
@@ -33010,7 +33015,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           const d = new Date(String(v));
           return isNaN(d.getTime()) ? null : d;
         };
-        const num = (v: any) => (v == null || v === '' ? null : (Number.isNaN(Number(v)) ? null : Number(v)));
+        const num = decimalOrNull;
         const storeSlice = async (batch: any[]): Promise<number> => {
           try {
             const rows = batch.map((c: any) => ({
@@ -33031,12 +33036,16 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
               setupTimeRaw:      c.startTime ? String(c.startTime) : null,
               connectTimeRaw:    c.connectTime ? String(c.connectTime) : null,
               disconnectTimeRaw: c.disconnectTime ? String(c.disconnectTime) : null,
-              billedSecs:  num(c.billedDuration ?? c.duration),
-              totalSecs:   num(c.totalDuration),
-              freeSeconds: num(c.freeSeconds),
-              gracePeriod: num(c.gracePeriod),
-              interval1:   num(c.interval1),
-              intervalN:   num(c.intervalN),
+              // Durations are measurements — full precision (migration 083).
+              billedSecs:  decimalOrNull(c.billedDuration ?? c.duration),
+              totalSecs:   decimalOrNull(c.totalDuration),
+              // Tariff configuration echoes, INTEGER by Sippy's own model.
+              // Rounded deliberately: "should always be whole" is precisely the
+              // assumption that cost four days of evidence here.
+              freeSeconds: (wouldRound(c.freeSeconds) && roundedConfigFields++, intOrNull(c.freeSeconds)),
+              gracePeriod: (wouldRound(c.gracePeriod) && roundedConfigFields++, intOrNull(c.gracePeriod)),
+              interval1:   (wouldRound(c.interval1)   && roundedConfigFields++, intOrNull(c.interval1)),
+              intervalN:   (wouldRound(c.intervalN)   && roundedConfigFields++, intOrNull(c.intervalN)),
               pdd:         num(c.pdd),
               cost:        num(c.cost),
               connectFee:  num(c.connectFee),
@@ -33201,6 +33210,12 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         job.total   = rawCdrs.length;
         job.repositoryStored = storedTotal;
         console.log(`[seed-job:${jobId}] fetched ${fetchedTotal} CDR(s) across ${slices.length} slice(s), ${rawCdrs.length} after account filter + i_cdr dedup, repository +${storedTotal}`);
+        if (roundedConfigFields > 0) {
+          console.warn(
+            `[seed-job:${jobId}] ${roundedConfigFields} tariff-configuration field(s) arrived FRACTIONAL and were rounded ` +
+            '— free_seconds/grace_period/interval_1/interval_n are declared INTEGER on the assumption that Sippy models ' +
+            'them in whole seconds. If this recurs they are measurements, and the column type is wrong (cf. migration 083).');
+        }
 
         // ── Batch dedup: 1 SELECT instead of N ──────────────────────────────
         job.phase = 'Deduplicating against existing snapshots';

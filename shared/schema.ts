@@ -5340,8 +5340,12 @@ export const rawSippyCdrs = pgTable("raw_sippy_cdrs", {
   setupTimeRaw:      varchar("setup_time_raw",      { length: 64 }),
   connectTimeRaw:    varchar("connect_time_raw",    { length: 64 }),
   disconnectTimeRaw: varchar("disconnect_time_raw", { length: 64 }),
-  billedSecs:        integer("billed_secs"),
-  totalSecs:         integer("total_secs"),
+  // MEASUREMENTS, not counts. Sippy reports call duration fractionally
+  // ("7.697271466"), and declaring these INTEGER made every repository write
+  // fail for four days (migration 083). A measurement is never narrowed at
+  // ingestion — the repository is the evidence reconciliation compares against.
+  billedSecs:        numeric("billed_secs", { precision: 14, scale: 6 }),
+  totalSecs:         numeric("total_secs",  { precision: 14, scale: 6 }),
   freeSeconds:       integer("free_seconds"),
   gracePeriod:       integer("grace_period"),
   interval1:         integer("interval_1"),
