@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
-  Search, CheckCircle2, XCircle, Clock, History, Layers, Rocket, Loader2, ShieldCheck, Hash,
+  Search, CheckCircle2, XCircle, Clock, History, Layers, Rocket, Loader2, ShieldCheck, Hash, Pencil,
 } from "lucide-react";
 
 type Catalogue = {
@@ -31,7 +31,7 @@ type Catalogue = {
   file_sha256: string | null; imported_at: string | null;
 };
 type DestRow = {
-  id: number; name: string; approval_status: string; approved_by: string | null; approved_at: string | null;
+  id: number; name: string; commercial_name: string | null; display_name: string; approval_status: string; approved_by: string | null; approved_at: string | null;
   prefix_count: string; prefix_preview: string[] | null;
   supplier_rate: string | null; billing_increment: string | null; effective_date: string | null;
 };
@@ -55,6 +55,7 @@ export default function CommercialCataloguePage() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState<string | null>(null);
 
   const { data: cats } = useQuery<{ catalogues: Catalogue[] }>({ queryKey: ["/api/commercial/catalogues"] });
   const catalogues = cats?.catalogues ?? [];
@@ -87,6 +88,14 @@ export default function CommercialCataloguePage() {
       (await apiRequest("POST", `/api/commercial/destinations/${v.id}/approval`, { status: v.status, reason: v.reason })).json(),
     onSuccess: (_d, v) => { refresh(); toast({ title: `Marked ${v.status}` }); },
     onError: (e: any) => toast({ title: "Failed", description: e.message, variant: "destructive" }),
+  });
+
+  const rename = useMutation({
+    mutationFn: async (v: { id: number; commercialName: string | null }) =>
+      (await apiRequest("PATCH", `/api/commercial/destinations/${v.id}/name`, { commercialName: v.commercialName })).json(),
+    onSuccess: (_d, v) => { refresh(); setEditingName(null);
+      toast({ title: v.commercialName ? `Renamed to "${v.commercialName}"` : "Reverted to the supplier name" }); },
+    onError: (e: any) => toast({ title: "Rename failed", description: e.message, variant: "destructive" }),
   });
 
   const bulk = useMutation({
@@ -216,11 +225,16 @@ export default function CommercialCataloguePage() {
               >
                 <div className="flex items-center gap-2">
                   <StatusDot status={r.approval_status} />
-                  <span className="text-sm font-medium truncate">{r.name}</span>
+                  <span className="text-sm font-medium truncate">{r.display_name}</span>
                   <span className="ml-auto text-[11px] text-muted-foreground shrink-0">
                     {n(r.prefix_count)} {Number(r.prefix_count) === 1 ? "code" : "codes"}
                   </span>
                 </div>
+                {r.commercial_name && (
+                  <div className="pl-4 text-[11px] text-muted-foreground/70 truncate">
+                    supplier: {r.name}
+                  </div>
+                )}
                 {/* Approval state on the row itself. With 1,344 destinations a reviewer must be
                     able to see what has been decided without opening each one. */}
                 <div className="pl-4 flex items-center gap-2 text-[11px]">
@@ -263,12 +277,47 @@ export default function CommercialCataloguePage() {
           ) : (
             <div className="p-6 space-y-6">
               <div className="flex items-start gap-4">
-                <div>
-                  <h2 className="text-lg font-semibold">{detail.destination.name}</h2>
+                <div className="min-w-0">
+                  {editingName === null ? (
+                    <h2 className="text-lg font-semibold flex items-center gap-2">
+                      {detail.destination.commercial_name ?? detail.destination.name}
+                      <Button size="sm" variant="ghost" className="h-6 px-1.5 text-muted-foreground"
+                        onClick={() => setEditingName(detail.destination.commercial_name ?? "")}
+                        data-testid="rename-open" title="Set the commercial name">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </Button>
+                    </h2>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <Input autoFocus value={editingName} onChange={e => setEditingName(e.target.value)}
+                        className="h-8 w-[320px]" placeholder={detail.destination.name}
+                        onKeyDown={e => {
+                          if (e.key === "Enter") rename.mutate({ id: detail.destination.id, commercialName: editingName });
+                          if (e.key === "Escape") setEditingName(null);
+                        }}
+                        data-testid="rename-input" />
+                      <Button size="sm" disabled={rename.isPending}
+                        onClick={() => rename.mutate({ id: detail.destination.id, commercialName: editingName })}
+                        data-testid="rename-save">Save</Button>
+                      {detail.destination.commercial_name && (
+                        <Button size="sm" variant="ghost" disabled={rename.isPending}
+                          onClick={() => rename.mutate({ id: detail.destination.id, commercialName: null })}
+                          title="Revert to the supplier name">Reset</Button>
+                      )}
+                      <Button size="sm" variant="ghost" onClick={() => setEditingName(null)}>Cancel</Button>
+                    </div>
+                  )}
+                  {/* Supplier name is always visible, never editable — it is what the next
+                      import matches against and what makes an audit possible. */}
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                    <span className="font-mono">{detail.destination.name}</span>
+                    <span className="opacity-60"> · supplier name, immutable</span>
+                  </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {detail.destination.version_label} · {detail.prefixes.length}{" "}
                     {detail.prefixes.length === 1 ? "prefix" : "prefixes"}
                     {detail.destination.approved_by && <> · approved by {detail.destination.approved_by}</>}
+                    {detail.destination.renamed_by && <> · renamed by {detail.destination.renamed_by}</>}
                   </p>
                 </div>
                 <Badge variant="outline" className={cn("uppercase text-[10px]", STATUS_STYLE[detail.destination.approval_status])}>

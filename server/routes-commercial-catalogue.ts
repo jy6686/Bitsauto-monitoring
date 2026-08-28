@@ -90,7 +90,9 @@ export function registerCommercialCatalogueRoutes(app: Express) {
 
       const r = await db.execute(sql`
         WITH agg AS (
-          SELECT d.id, d.name, d.approval_status, d.approved_by, d.approved_at,
+          SELECT d.id, d.name, d.commercial_name,
+                 COALESCE(d.commercial_name, d.name) AS display_name,
+                 d.approval_status, d.approved_by, d.approved_at,
                  count(p.id)                                                   AS prefix_count,
                  (array_agg(p.prefix ORDER BY p.prefix))[1:4]                  AS prefix_preview,
                  max(p.supplier_rate)                                          AS supplier_rate,
@@ -108,7 +110,9 @@ export function registerCommercialCatalogueRoutes(app: Express) {
                    -- name; order and punctuation between them are irrelevant.
                    NOT EXISTS (
                      SELECT 1 FROM unnest(string_to_array(lower(${q}), ' ')) AS t(tok)
-                      WHERE tok <> '' AND lower(d.name) NOT LIKE '%' || tok || '%')
+                      WHERE tok <> ''
+                        AND lower(d.name || ' ' || coalesce(d.commercial_name, ''))
+                            NOT LIKE '%' || tok || '%')
                    OR EXISTS (
                      SELECT 1 FROM commercial_destination_prefixes px
                       WHERE px.destination_id = d.id AND px.prefix LIKE ${q + '%'})))
@@ -178,6 +182,37 @@ export function registerCommercialCatalogueRoutes(app: Express) {
                       WHERE destination_id = ${id} ORDER BY changed_at DESC LIMIT 1)`);
       res.json({ ok: true, destination: row });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── PATCH /api/commercial/destinations/:id/name — the BUSINESS name ──────────────────
+  // Sets commercial_name only. `name` is the supplier's and the database refuses it, so there
+  // is no path here that could rewrite supplier data even by mistake. null/empty clears the
+  // rename and the destination falls back to displaying the supplier name.
+  app.patch('/api/commercial/destinations/:id/name',
+    (req: any, res, next) => requireRole(WRITE, req, res, next), async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'id must be numeric' });
+      const raw = req.body?.commercialName;
+      const commercialName = raw === null || raw === undefined || String(raw).trim() === ''
+        ? null : String(raw).trim();
+      if (commercialName && commercialName.length > 200)
+        return res.status(400).json({ error: 'commercial name is limited to 200 characters' });
+
+      const r = await db.execute(sql`
+        UPDATE commercial_destinations
+           SET commercial_name = ${commercialName}, renamed_by = ${commercialName ? actor(req) : null}
+         WHERE id = ${id}
+         RETURNING id, name, commercial_name, renamed_by, renamed_at`);
+      const row = rows(r)[0];
+      if (!row) return res.status(404).json({ error: 'destination not found' });
+      res.json({ ok: true, destination: row });
+    } catch (e: any) {
+      // The partial unique index is the guard; translate it into something an operator can act on.
+      if (String(e.message).includes('cd_commercial_name_unique'))
+        return res.status(409).json({ error: 'another destination in this version already uses that commercial name — one commercial name means one identity' });
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // ── POST /api/commercial/catalogues/:versionId/approvals/bulk ────────────────────────
