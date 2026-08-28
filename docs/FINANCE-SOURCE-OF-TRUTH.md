@@ -173,17 +173,32 @@ assumption.
 
 ## 8. Priority order
 
-Owner-set, 2026-08-28:
+Owner-set, 2026-08-28 (supersedes an earlier draft that placed the
+Reconciliation Gate third):
 
-1. **Persist vendor CDRs** — small change, unlocks repository-backed P&L
-2. **`rateCall` parity** — certification cannot pass while rating is 60× out
-3. **Billing Reconciliation Gate** — nothing is "certified" until this exists
-4. **Repository-backed P&L** — gated on (1) and the §7 coverage numbers
+1. **`rateCall` parity** — remove the 60× divergence; certification cannot pass
+   while it stands
+2. **Repository Quality metrics** (§7) — read-only additions to the completeness
+   service: vendor coverage, freshness, duplicate rate, import latency
+3. **Persist vendor CDRs** (§2) — move the existing feed from memory to the
+   repository, scoped by what (2) measured
+4. **Repository-backed P&L** — rewire the existing module to read from the
+   repository
 5. **Consolidation** — retire `/api/sippy/pnl`, fix or retire the zero-valued
    analytics P&L, collapse the three margin computations onto one source
+6. **Billing Reconciliation Gate** — PASS / FAIL / REFERENCE UNAVAILABLE,
+   $0.01 absolute tolerance, director override, before invoice release
 
-(1) and (2) are independent and can proceed in parallel. (4) must not start
-before §7 has been measured.
+Measure before building: (2) precedes (3) deliberately, and (4) must not start
+before (2) has produced numbers.
+
+**Consequence of the Gate sitting at (6), recorded so it is a decision and not
+an oversight:** steps (4) and (5) put repository-backed P&L and consolidated
+dashboards in front of management *before* anything can prove BitsAuto agrees
+with Sippy. Those figures will be internally consistent and externally
+unverified. Until (6) exists, every completeness verdict reads `no_reference` —
+the platform compared against itself — and no financial output may be described
+as *certified*, however green the dashboards look.
 
 ---
 
