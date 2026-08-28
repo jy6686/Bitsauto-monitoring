@@ -127,6 +127,15 @@ const TYPE_WORDS = new Set([
   "mobile", "fixed", "services", "special", "satellite", "premium", "roaming", "unclassified",
   "toll", "free", "voip", "paging", "shared", "cost", "personal", "number", "other",
 ]);
+/**
+ * The `(9236)` suffix below is a COLLISION MARKER, not decoration. It is appended only when two
+ * catalogue rows would otherwise render the same commercial label. Removing it produces two
+ * indistinguishable `Pakistan Mobile` entries that select different destination ids — and so
+ * push different rates to Sippy — with nothing on screen to tell them apart.
+ *
+ * The suffixes go away when the duplicate identities do, not when the UI stops printing them.
+ * Frozen as Principle 3 in docs/DESTINATION-COMMERCIAL-IDENTITY-PRINCIPLES.md.
+ */
 function breakoutOptions(nodes: DestNode[], countryName: string): { value: string; label: string }[] {
   const stop = new Set([...countryName.toLowerCase().split(/\s+/), ...TYPE_WORDS]);
   const unbranded = (d: DestNode) => d.name.toLowerCase().split(/\s+/).every(t => stop.has(t));
@@ -150,8 +159,10 @@ function breakoutOptions(nodes: DestNode[], countryName: string): { value: strin
  * A row commercial pickers may offer. `pending` is excluded: the 059-merged legacy imports
  * (`PAK Mobile MOBLIN`, `PAK Mobile PAKTEL`, …) are all pending, and 065 correctly parented
  * them under their country's type node — which put them straight into the operator dropdowns.
- * They belong in the catalogue, not in commercial selection; 066/067 settles their status in
- * data, and this stops offering them meanwhile. `blocked` is NOT excluded here — the Analysis
+ * They belong in the catalogue, not in commercial selection; the dedup and status migrations
+ * settle that in data, and this stops offering them meanwhile. (Those were scheduled as
+ * "066/067" in 065's header before the finance workstream took both numbers — catalogue work
+ * is now numbered 500+, see docs/MIGRATIONS.md.) `blocked` is NOT excluded here — the Analysis
  * tab's unblock workflow has to be able to see what is blocked.
  */
 const commerciallyVisible = (d: DestNode) => d.commercialStatus !== "pending";
