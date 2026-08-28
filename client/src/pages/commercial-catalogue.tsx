@@ -164,10 +164,18 @@ export default function CommercialCataloguePage() {
 
       {/* Activation is the only irreversible-looking action here, so say what it does. */}
       {version.status !== "active" && (
-        <div className="px-6 py-2 text-[12px] text-muted-foreground border-b border-border/40 bg-muted/30">
-          <ShieldCheck className="w-3.5 h-3.5 inline mr-1.5 -mt-0.5" />
-          Nothing in this version reaches Rate Manager, Send Rate or Notifications while it is <b>{version.status}</b>.
-          Approving a destination does not publish it — activating the version does, and only for rows already approved.
+        <div className="px-6 py-3 border-b border-amber-500/30 bg-amber-500/[0.07] flex items-start gap-3">
+          <ShieldCheck className="w-4 h-4 mt-0.5 text-amber-600 shrink-0" />
+          <div className="text-[13px]">
+            <div className="font-semibold text-amber-700 dark:text-amber-500">
+              {version.label} is {version.status.toUpperCase()} — nothing in it is commercially available.
+            </div>
+            <div className="text-muted-foreground mt-0.5">
+              {n(version.approved)} approved · {n(version.pending)} pending · <b>0 reachable</b> by Rate Manager,
+              Send Rate, Product Rates or Notifications. Approving a destination does not publish it —
+              activating this version does, and only for rows already approved.
+            </div>
+          </div>
         </div>
       )}
 
@@ -212,6 +220,20 @@ export default function CommercialCataloguePage() {
                   <span className="ml-auto text-[11px] text-muted-foreground shrink-0">
                     {n(r.prefix_count)} {Number(r.prefix_count) === 1 ? "code" : "codes"}
                   </span>
+                </div>
+                {/* Approval state on the row itself. With 1,344 destinations a reviewer must be
+                    able to see what has been decided without opening each one. */}
+                <div className="pl-4 flex items-center gap-2 text-[11px]">
+                  <span className={cn("uppercase tracking-wide",
+                    r.approval_status === "approved" ? "text-emerald-600"
+                    : r.approval_status === "blocked" ? "text-rose-600" : "text-amber-600")}>
+                    {r.approval_status === "unapproved" ? "pending" : r.approval_status}
+                  </span>
+                  {r.approved_at && (
+                    <span className="text-muted-foreground">
+                      · {new Date(r.approved_at).toLocaleDateString()}{r.approved_by && ` · ${r.approved_by}`}
+                    </span>
+                  )}
                 </div>
                 {/* Prefix preview, so approving a 1,757-code destination is an informed decision. */}
                 {r.prefix_preview?.length ? (
