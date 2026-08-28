@@ -2120,6 +2120,20 @@ type QueuedDest = {
   rate: string;
 };
 
+/** Shape of /api/commercial/picker — Country › Type › Operator, derived server-side from the
+ *  supplier name and stored in no table. `destinationId` is non-null when the type node is
+ *  itself sellable (PAKISTAN - MOBILE); `operators` is empty where the supplier sells none
+ *  (INDIA - MOBILE), and the selection ends at the type. */
+type PickerCountry = {
+  country: string;
+  types: {
+    type: string;
+    destinationId: number | null;
+    prefixCount: number;
+    operators: { id: number; name: string; label: string; prefixCount: number }[];
+  }[];
+};
+
 function SendRateTab({
   products,
   accounts,
@@ -2140,11 +2154,13 @@ function SendRateTab({
   const [format, setFormat] = useState("Default");
   const [rateType, setRateType] = useState("Current");
 
-  // Destination picker state
-  const [notifCountry, setNotifCountry] = useState<string>("");
-  const [notifOperator, setNotifOperator] = useState<string>("");
-  const [notifCategory, setNotifCategory] = useState<string>("");
-  const [notifDetail, setNotifDetail] = useState<string>("");
+  // Destination picker state — Country › Type › Operator over the COMMERCIAL catalogue.
+  // The fourth tier is gone with the legacy tree: "Detail" was where an operator selected
+  // `Jazz (92300)`, an operator SERIES, and pushed a rate covering a tenth of the range.
+  // Prefixes are no longer selectable anywhere on this screen.
+  const [pickCountry, setPickCountry] = useState<string>("");
+  const [pickType, setPickType] = useState<string>("");
+  const [pickOperatorId, setPickOperatorId] = useState<string>("");
   const [price, setPrice] = useState<string>("");
   // ── Effective from the PLATFORM clock, not the browser's ───────────────────
   // This used to read `new Date()` in the browser and round DOWN to the hour. In Karachi
@@ -2184,67 +2200,66 @@ function SendRateTab({
   const trunkPrefix = product?.trunkPrefix ?? "";
   const stripPlus = (s: string) => s.replace(/^\+/, '');
 
-  // Same source as Rate Analysis — /api/product-registry/destinations — and it was never
-  // filtered here, which is why this picker still listed `PAK Mobile MOBLIN` and `PAK Mobile
-  // PAKTEL`. cb62b68f scoped its fix to Rate Analysis alone. See countryNodes().
-  const countries = useMemo(() => countryNodes(allDests), [allDests]);
-  const operators = useMemo(
-    // Type tier only — `UFONE` and its kind are mis-parented operators, not networks.
-    () => notifCountry ? childrenOf(allDests, countries, [notifCountry], 2).filter(isServiceTierNode) : [],
-    [allDests, countries, notifCountry],
+  // ── The picker reads the COMMERCIAL catalogue ───────────────────────────────────────
+  // /api/commercial/picker serves approved destinations in the ACTIVE supplier version, with
+  // Country › Type › Operator derived server-side from the supplier name and stored nowhere.
+  // The legacy /api/product-registry/destinations tree is gone from this screen: it is what
+  // listed `PAK Mobile MOBLIN`, what produced the `(9236)` collision suffixes, and what let
+  // an operator select the `92300` series.
+  const { data: picker } = useQuery<{ countries: PickerCountry[] }>({
+    queryKey: ["/api/commercial/picker"],
+  });
+  const pickerCountries = picker?.countries ?? [];
+  const pickCountryNode = useMemo(
+    () => pickerCountries.find(c => c.country === pickCountry) ?? null,
+    [pickerCountries, pickCountry],
   );
-  const categories = useMemo(
-    () => notifOperator ? allDests.filter(d => d.level === 3 && String(d.parentId) === notifOperator && commerciallyVisible(d)) : [],
-    [allDests, notifOperator],
-  );
-  const details = useMemo(
-    () => notifCategory ? allDests.filter(d => d.level === 4 && String(d.parentId) === notifCategory && commerciallyVisible(d)) : [],
-    [allDests, notifCategory],
+  const pickTypeNode = useMemo(
+    () => pickCountryNode?.types.find(t => t.type === pickType) ?? null,
+    [pickCountryNode, pickType],
   );
 
-  // Resolve the most specific dialPrefix — normalize "+" away
-  const resolvedDialPrefix = useMemo(() => {
-    const detailNode = allDests.find(d => String(d.id) === notifDetail);
-    if (detailNode?.dialPrefix) return stripPlus(detailNode.dialPrefix);
-    const catNode = allDests.find(d => String(d.id) === notifCategory);
-    if (catNode?.dialPrefix) return stripPlus(catNode.dialPrefix);
-    const opNode = allDests.find(d => String(d.id) === notifOperator);
-    if (opNode?.dialPrefix) return stripPlus(opNode.dialPrefix);
-    const cNode = allDests.find(d => String(d.id) === notifCountry);
-    if (cNode?.dialPrefix) return stripPlus(cNode.dialPrefix);
-    return "";
-  }, [allDests, notifCountry, notifOperator, notifCategory, notifDetail]);
-
-  const previewFullPrefix = trunkPrefix + resolvedDialPrefix;
+  // The destination is the operator where one is chosen, otherwise the type node itself.
+  // INDIA - MOBILE has no operator tier because the supplier does not sell one, and the
+  // selection simply ends there rather than facing an empty dropdown.
+  const selectedDestId = pickOperatorId
+    || (pickTypeNode?.destinationId ? String(pickTypeNode.destinationId) : "");
+  const { data: selectedDest } = useQuery<{ destination: { name: string }; prefixes: { prefix: string }[] }>({
+    queryKey: [`/api/commercial/destinations/${selectedDestId}`],
+    enabled: !!selectedDestId,
+  });
+  const selectedPrefixes = (selectedDest?.prefixes ?? []).map(p => stripPlus(String(p.prefix)));
+  const selectedDestName = selectedDest?.destination?.name ?? "";
 
   const selectedClientAccounts = useMemo(
     () => accounts.filter(a => selectedClients.includes(String(a.iAccount))),
     [accounts, selectedClients],
   );
 
-  const canAddToQueue = !!(resolvedDialPrefix && price && parseFloat(price) > 0);
+  const canAddToQueue = !!(selectedDestId && selectedPrefixes.length && price && parseFloat(price) > 0);
   const canSubmit = !!(selectedProduct && selectedClients.length > 0 && destQueue.length > 0 && !pushing);
 
+  // One commercial destination becomes one queue row PER PREFIX. This is the expansion the
+  // catalogue exists for: choosing PAKISTAN - MOBILE ZONG rates both 9231 and 9237, rather
+  // than whichever single code a dropdown happened to offer. The push endpoint already loops
+  // its destination list, so expanding here needs no server change.
   const handleAddToQueue = () => {
     if (!canAddToQueue) return;
-    const computedFull = trunkPrefix + resolvedDialPrefix;
-    if (destQueue.some(q => q.fullPrefix === computedFull)) {
-      toast({ title: "Duplicate prefix", description: `${computedFull} is already in the queue`, variant: "destructive" });
+    const fresh = selectedPrefixes.filter(p => !destQueue.some(q => q.fullPrefix === trunkPrefix + p));
+    if (!fresh.length) {
+      toast({ title: "Already queued", description: `${selectedDestName} is already in the queue`, variant: "destructive" });
       return;
     }
-    const countryName  = allDests.find(d => String(d.id) === notifCountry)?.name  ?? "";
-    const operatorName = allDests.find(d => String(d.id) === notifOperator)?.name ?? "";
-    const categoryName = allDests.find(d => String(d.id) === notifCategory)?.name ?? "";
-    const detailName   = allDests.find(d => String(d.id) === notifDetail)?.name   ?? "";
-    const destLabel = [countryName, operatorName, categoryName, detailName].filter(Boolean).join(" \u203a ");
-    setDestQueue(prev => [...prev, {
-      qid: `${Date.now()}-${Math.random()}`,
-      destLabel,
-      dialPrefix: resolvedDialPrefix,
-      fullPrefix: computedFull,
+    const skipped = selectedPrefixes.length - fresh.length;
+    setDestQueue(prev => [...prev, ...fresh.map((p, i) => ({
+      qid: `${Date.now()}-${i}-${p}`,
+      destLabel: selectedDestName,
+      dialPrefix: p,
+      fullPrefix: trunkPrefix + p,
       rate: price,
-    }]);
-    setNotifCountry(""); setNotifOperator(""); setNotifCategory(""); setNotifDetail(""); setPrice("");
+    }))]);
+    if (skipped) toast({ title: `${skipped} prefix(es) already queued \u2014 skipped` });
+    setPickCountry(""); setPickType(""); setPickOperatorId(""); setPrice("");
   };
 
   const handleSubmit = async () => {
@@ -2277,7 +2292,7 @@ function SendRateTab({
       // Auto-reset: return to clean state — results visible in Push History
       setDestQueue([]);
       setPushResults(null);
-      setNotifCountry(""); setNotifOperator(""); setNotifCategory(""); setNotifDetail(""); setPrice("");
+      setPickCountry(""); setPickType(""); setPickOperatorId(""); setPrice("");
     } catch (e: any) {
       toast({ title: "Push failed", description: e.message, variant: "destructive" });
     } finally {
@@ -2287,7 +2302,7 @@ function SendRateTab({
 
   const handleReset = () => {
     setSelectedProduct(""); setSelectedClients([]); setFormat("Default"); setRateType("Current");
-    setNotifCountry(""); setNotifOperator(""); setNotifCategory(""); setNotifDetail("");
+    setPickCountry(""); setPickType(""); setPickOperatorId("");
     setPrice(""); setDestQueue([]); setPushResults(null);
     onProductChange?.("");
   };
@@ -2470,73 +2485,71 @@ function SendRateTab({
           <div className="text-xs font-semibold text-foreground/70 mb-1 flex items-center gap-2">
             Add Destination
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1">
               <label className="text-[10px] text-muted-foreground font-medium">Country</label>
               <select
-                value={notifCountry}
-                onChange={e => { setNotifCountry(e.target.value); setNotifOperator(""); setNotifCategory(""); setNotifDetail(""); }}
+                value={pickCountry}
+                onChange={e => { setPickCountry(e.target.value); setPickType(""); setPickOperatorId(""); }}
                 className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background"
-                data-testid="notif-country"
+                data-testid="pick-country"
               >
                 <option value="">Choose a country</option>
-                {countries.map(d => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
+                {pickerCountries.map(c => <option key={c.country} value={c.country}>{c.country}</option>)}
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-[10px] text-muted-foreground font-medium">Operator Type</label>
+              <label className="text-[10px] text-muted-foreground font-medium">Type</label>
               <select
-                value={notifOperator}
-                onChange={e => { setNotifOperator(e.target.value); setNotifCategory(""); setNotifDetail(""); }}
-                disabled={!notifCountry || operators.length === 0}
+                value={pickType}
+                onChange={e => { setPickType(e.target.value); setPickOperatorId(""); }}
+                disabled={!pickCountryNode}
                 className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background disabled:opacity-50"
-                data-testid="notif-operator"
+                data-testid="pick-type"
               >
-                <option value="">Select network</option>
-                {operators.map(d => (
-                  <option key={d.id} value={String(d.id)}>
-                    {d.name}{d.dialPrefix ? ` (${stripPlus(d.dialPrefix)})` : ""}
-                  </option>
+                <option value="">Select type</option>
+                {(pickCountryNode?.types ?? []).map(t => <option key={t.type} value={t.type}>{t.type}</option>)}
+              </select>
+            </div>
+            {/* Operator exists only where the supplier sells operators. India stops at Type,
+                and the control is disabled rather than shown empty. */}
+            <div className="space-y-1">
+              <label className="text-[10px] text-muted-foreground font-medium">
+                Operator{pickTypeNode && !pickTypeNode.operators.length && <span className="opacity-60"> — none</span>}
+              </label>
+              <select
+                value={pickOperatorId}
+                onChange={e => setPickOperatorId(e.target.value)}
+                disabled={!pickTypeNode?.operators.length}
+                className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background disabled:opacity-50"
+                data-testid="pick-operator"
+              >
+                <option value="">{pickTypeNode?.destinationId ? `All ${pickType}` : "Select operator"}</option>
+                {(pickTypeNode?.operators ?? []).map(o => (
+                  <option key={o.id} value={String(o.id)}>{o.label}</option>
                 ))}
               </select>
             </div>
-            {categories.length > 0 && (
-              <div className="space-y-1">
-                <label className="text-[10px] text-muted-foreground font-medium">Network / Carrier</label>
-                <select
-                  value={notifCategory}
-                  onChange={e => { setNotifCategory(e.target.value); setNotifDetail(""); }}
-                  className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background"
-                  data-testid="notif-category"
-                >
-                  <option value="">Select operator</option>
-                  {breakoutOptions(
-                    categories,
-                    countries.find(c => String(c.id) === notifCountry)?.name ?? "",
-                  ).map(o => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
+          </div>
+
+          {/* Every prefix this destination expands to, before it is committed. The operator
+              never chooses one — that is what stops a `92300` reaching Sippy — but they see
+              exactly what will be pushed. */}
+          {selectedDestId && (
+            <div className="rounded border border-border/50 bg-background/60 px-3 py-2 text-[11px]">
+              <div className="font-medium">{selectedDestName}</div>
+              <div className="font-mono text-blue-400 mt-0.5 break-all">
+                {selectedPrefixes.length
+                  ? selectedPrefixes.map(p => trunkPrefix + p).join("  ")
+                  : "no prefixes — this destination cannot be pushed"}
               </div>
-            )}
-            {details.length > 0 && (
-              <div className="space-y-1">
-                <label className="text-[10px] text-muted-foreground font-medium">Detail</label>
-                <select
-                  value={notifDetail}
-                  onChange={e => setNotifDetail(e.target.value)}
-                  className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background"
-                  data-testid="notif-detail"
-                >
-                  <option value="">Select detail</option>
-                  {details.map(d => (
-                    <option key={d.id} value={String(d.id)}>
-                      {d.name}{d.dialPrefix ? ` (${stripPlus(d.dialPrefix)})` : ""}
-                    </option>
-                  ))}
-                </select>
+              <div className="text-muted-foreground/70 mt-0.5">
+                {selectedPrefixes.length} rate row{selectedPrefixes.length === 1 ? "" : "s"} will be queued
               </div>
-            )}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
               <label className="text-[10px] text-muted-foreground font-medium">Price (USD/min)</label>
               <input
@@ -2571,12 +2584,8 @@ function SendRateTab({
           </div>
 
           {/* Pre-Push Analysis */}
-          {selectedClients.length > 0 && resolvedDialPrefix && (() => {
-            const countryNode = allDests.find((d: DestNode) => String(d.id) === notifCountry);
-            const opNode = allDests.find((d: DestNode) =>
-              String(d.id) === (notifDetail || notifCategory || notifOperator)
-            );
-            const destLabel = [countryNode?.name, opNode?.name].filter(Boolean).join(' — ');
+          {selectedClients.length > 0 && selectedDestId && selectedPrefixes.length > 0 && (() => {
+            const destLabel = selectedDestName;
             const clientNames = selectedClients
               .map(id => accounts.find((a: any) => String(a.id) === id))
               .filter(Boolean)
@@ -2593,7 +2602,9 @@ function SendRateTab({
                 </div>
                 <div className="px-3 py-2 flex flex-col gap-2">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-blue-400 font-semibold">{resolvedDialPrefix}</span>
+                    <span className="font-mono text-blue-400 font-semibold break-all">
+                      {selectedPrefixes.map(p => trunkPrefix + p).join("  ")}
+                    </span>
                     {destLabel && <span className="text-foreground/70">{destLabel}</span>}
                     {price && (
                       <span className="ml-auto font-semibold text-green-400">${price}/min</span>
@@ -2617,14 +2628,16 @@ function SendRateTab({
 
           {/* Prefix preview + Add button */}
           <div className="flex items-center justify-between gap-3 pt-1">
-            {resolvedDialPrefix ? (
+            {selectedDestId && selectedPrefixes.length ? (
               <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
-                <span>Prefix:</span>
-                <span className="font-mono text-blue-400 font-semibold">{resolvedDialPrefix}</span>
+                <span>{selectedPrefixes.length === 1 ? "Prefix:" : `${selectedPrefixes.length} prefixes:`}</span>
+                <span className="font-mono text-blue-400 font-semibold break-all">
+                  {selectedPrefixes.map(p => trunkPrefix + p).join("  ")}
+                </span>
               </div>
             ) : (
               <div className="text-xs text-muted-foreground/50 italic">
-                Select country → network to resolve Sippy prefix
+                Select country → type → operator to resolve the destination
               </div>
             )}
             <button
