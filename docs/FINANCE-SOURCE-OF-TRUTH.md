@@ -202,7 +202,51 @@ as *certified*, however green the dashboards look.
 
 ---
 
-## 9. Provenance
+## 9. The Observability Rule
+
+Owner-set, 2026-08-28. A companion to §6: the Source of Truth rule governs where
+a number comes from; this one governs whether anyone can tell when it is wrong.
+
+> **A financial process must never communicate health through silence or
+> plausible defaults. Every automated process must make success, failure and
+> uncertainty explicitly observable.**
+
+This rule was not written from theory. Five independent defects found in a
+single week shared one shape — none of them crashed, and every one produced a
+believable result:
+
+| Area | Looked healthy | Reality |
+|---|---|---|
+| CDR ingestion | `done, errors 0` | repository stored nothing for four days |
+| Error reporting | `getCustomerCDRs HTTP 401` | the real `getAccountCDRs` timeout was overwritten |
+| Scheduler | no log output | the collector had never executed |
+| Analytics P&L | `revenue = 0` | zeros were structural, never measured |
+| DMR | no drift detected | platform and reference were the same data |
+
+A crash is easy to find. A plausible answer is not — which is precisely why
+these survived, some of them for months.
+
+**In practice:**
+
+- A collector does not go quiet; it reports its state and what it intends to do
+  next (`observe-only · not due: every day since … collected`).
+- A reconciliation states whether its reference is independent, and refuses to
+  imply agreement when it compared a thing against itself (`no_reference`).
+- A report does not display `$0.00` unless zero was measured.
+- A cap that truncates says so; it never lets `created: 1000` read as a count.
+
+**Every figure carries its epistemic status**, not just its value:
+
+`measured` · `derived` · `estimated` · `reference unavailable` · `not yet collected`
+
+That vocabulary already exists in this codebase — `policy-conformance.ts`
+defines `Provenance = 'measured' | 'derived' | 'declared'`, and the completeness
+verdict already emits `no_reference`. **Reuse it. Do not invent a second
+vocabulary**, for the same reason §6 forbids a fourth pipeline.
+
+---
+
+## 10. Provenance
 
 Audit performed 2026-08-28 by direct code trace: service exports, route
 registrations, cache writers and readers, and the consumer map from
