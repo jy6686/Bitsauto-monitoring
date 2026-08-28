@@ -1,6 +1,17 @@
 # Commercial Catalogue — architecture
 
-**Status: proposed, 2026-08-28.** Blueprint for migration 510 and the module cutover. Written
+> **WITHDRAWN 2026-08-28, same day, unbuilt.** The owner's decision is that the agreed
+> 500-503 design stands and the platform displays exactly what the approved supplier catalogue
+> contains. This document proposed a second restructure — a persistent commercial layer, a link
+> table, and a business naming layer — on top of a design that was already agreed and already
+> working. That was design churn, not a response to a proven defect, and re-opening a settled
+> architecture has a real cost in a project this size.
+>
+> Kept as the record of what was considered and rejected, so it is not proposed a third time.
+> **Nothing here is to be built.** The rule going forward: no architecture change without a
+> proven defect.
+
+**Status: WITHDRAWN. Originally proposed 2026-08-28.** Blueprint for migration 510 and the module cutover. Written
 before the restructure because validating it now is cheaper than discovering a flaw after Rate
 Manager, Product Rates and Notifications have been rewritten against it.
 

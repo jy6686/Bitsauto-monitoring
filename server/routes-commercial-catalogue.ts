@@ -90,9 +90,7 @@ export function registerCommercialCatalogueRoutes(app: Express) {
 
       const r = await db.execute(sql`
         WITH agg AS (
-          SELECT d.id, d.name, d.commercial_name,
-                 COALESCE(d.commercial_name, d.name) AS display_name,
-                 d.approval_status, d.approved_by, d.approved_at,
+          SELECT d.id, d.name, d.approval_status, d.approved_by, d.approved_at,
                  count(p.id)                                                   AS prefix_count,
                  (array_agg(p.prefix ORDER BY p.prefix))[1:4]                  AS prefix_preview,
                  max(p.supplier_rate)                                          AS supplier_rate,
@@ -111,8 +109,7 @@ export function registerCommercialCatalogueRoutes(app: Express) {
                    NOT EXISTS (
                      SELECT 1 FROM unnest(string_to_array(lower(${q}), ' ')) AS t(tok)
                       WHERE tok <> ''
-                        AND lower(d.name || ' ' || coalesce(d.commercial_name, ''))
-                            NOT LIKE '%' || tok || '%')
+                        AND lower(d.name) NOT LIKE '%' || tok || '%')
                    OR EXISTS (
                      SELECT 1 FROM commercial_destination_prefixes px
                       WHERE px.destination_id = d.id AND px.prefix LIKE ${q + '%'})))
@@ -184,35 +181,72 @@ export function registerCommercialCatalogueRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // ── PATCH /api/commercial/destinations/:id/name — the BUSINESS name ──────────────────
-  // Sets commercial_name only. `name` is the supplier's and the database refuses it, so there
-  // is no path here that could rewrite supplier data even by mistake. null/empty clears the
-  // rename and the destination falls back to displaying the supplier name.
-  app.patch('/api/commercial/destinations/:id/name',
-    (req: any, res, next) => requireRole(WRITE, req, res, next), async (req: any, res) => {
+  // ── GET /api/commercial/picker — the hierarchy every commercial module navigates ─────
+  // Country -> Type -> Operator (only where one exists) -> Destination, DERIVED here and
+  // stored nowhere. The catalogue holds a flat supplier name and no country, type, operator
+  // or parent_id column, deliberately: those are not in the supplier file, and persisting an
+  // inference would make a guess indistinguishable from supplied fact the moment it is wrong.
+  //
+  // Deriving it per request instead means a corrected rule takes effect immediately and no
+  // migration is needed to change how the tree is drawn. The cost is this function, run over
+  // ~1,344 rows.
+  //
+  // Splitting on " - " is a literal separator rather than a guess: 1,327 of 1,344 names carry
+  // it. The 17 that do not — CANADA, INMARSAT, SATELLITE 5, WAKE ISLAND, UNITED NATIONS OCHA —
+  // are placed under "Global Services" rather than given an invented country.
+  //
+  // Reads v_catalogue_sellable: approved destinations in the ACTIVE version, nothing else.
+  // Approving a destination therefore makes it appear here with no sync step and no copy.
+  app.get('/api/commercial/picker',
+    (req: any, res, next) => requireRole(READ, req, res, next), async (_req, res) => {
     try {
-      const id = Number(req.params.id);
-      if (!Number.isFinite(id)) return res.status(400).json({ error: 'id must be numeric' });
-      const raw = req.body?.commercialName;
-      const commercialName = raw === null || raw === undefined || String(raw).trim() === ''
-        ? null : String(raw).trim();
-      if (commercialName && commercialName.length > 200)
-        return res.status(400).json({ error: 'commercial name is limited to 200 characters' });
-
       const r = await db.execute(sql`
-        UPDATE commercial_destinations
-           SET commercial_name = ${commercialName}, renamed_by = ${commercialName ? actor(req) : null}
-         WHERE id = ${id}
-         RETURNING id, name, commercial_name, renamed_by, renamed_at`);
-      const row = rows(r)[0];
-      if (!row) return res.status(404).json({ error: 'destination not found' });
-      res.json({ ok: true, destination: row });
-    } catch (e: any) {
-      // The partial unique index is the guard; translate it into something an operator can act on.
-      if (String(e.message).includes('cd_commercial_name_unique'))
-        return res.status(409).json({ error: 'another destination in this version already uses that commercial name — one commercial name means one identity' });
-      res.status(500).json({ error: e.message });
-    }
+        SELECT s.id, s.name, count(p.id) AS prefix_count
+          FROM v_catalogue_sellable s
+          LEFT JOIN commercial_destination_prefixes p ON p.destination_id = s.id
+         GROUP BY s.id, s.name
+         ORDER BY s.name`);
+
+      // The vocabulary is a constant, not a table. It decides only how the tree is DRAWN;
+      // getting an entry wrong misfiles a row in a dropdown, it does not change what is sold.
+      const TYPES = new Set(['MOBILE','FIXED','SATELLITE','PREMIUM','SPECIAL','TOLL','PAGING',
+                             'VOIP','SHARED','PERSONAL','AUDIOTEXT','ROAMING','SERVICES']);
+      type Leaf = { id: number; name: string; label: string; prefixCount: number };
+      const countries = new Map<string, Map<string, { self: Leaf | null; operators: Leaf[] }>>();
+
+      for (const row of rows(r)) {
+        const name = String(row.name);
+        const prefixCount = Number(row.prefix_count);
+        const [head, ...tail] = name.split(' - ');
+        const country   = tail.length ? head.trim() : 'Global Services';
+        const remainder = (tail.length ? tail.join(' - ') : name).trim();
+        const words     = remainder.split(/\s+/).filter(Boolean);
+        const hasType   = words.length > 0 && TYPES.has(words[0].toUpperCase());
+        const type      = hasType ? words[0] : 'Other';
+        const operator  = (hasType ? words.slice(1) : words).join(' ');
+
+        if (!countries.has(country)) countries.set(country, new Map());
+        const types = countries.get(country)!;
+        if (!types.has(type)) types.set(type, { self: null, operators: [] });
+        const node = types.get(type)!;
+        const leaf: Leaf = { id: row.id, name, label: operator || type, prefixCount };
+        // No operator token means the destination IS the type node — PAKISTAN - MOBILE, or
+        // INDIA - MOBILE, which has no operator level because the supplier does not sell one.
+        if (operator) node.operators.push(leaf); else node.self = leaf;
+      }
+
+      res.json({
+        countries: [...countries.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([country, types]) => ({
+          country,
+          types: [...types.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([type, node]) => ({
+            type,
+            destinationId: node.self?.id ?? null,          // selectable at the type level, when it exists
+            prefixCount:   node.self?.prefixCount ?? 0,
+            operators:     node.operators.sort((a, b) => a.label.localeCompare(b.label)),
+          })),
+        })),
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── POST /api/commercial/catalogues/:versionId/approvals/bulk ────────────────────────
