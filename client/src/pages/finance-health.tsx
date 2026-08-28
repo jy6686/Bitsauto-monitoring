@@ -14,6 +14,7 @@ import {
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { CdrImportMonitor } from "@/components/finance/cdr-import-monitor";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtAge(ts: string | null | undefined): string {
@@ -431,6 +432,12 @@ export default function FinanceHealthPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── CDR Import (ingestion is upstream of every stage below) ──────
+          Replaces operating the importer through browser DevTools: job
+          progress, scheduler mode and repository completeness were all
+          reachable by endpoint but only readable by pasting fetch() calls. */}
+      <CdrImportMonitor />
 
       {/* ── Invoice Pipeline (billing workflow, every stage clickable) ── */}
       {invPipe && (() => {

@@ -32739,6 +32739,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     };
   };
   const _seedJobs = new Map<string, _SeedJobState>();
+  /** Live state of the forward-capture scheduler, published at
+   *  GET /api/finance/forward-capture. */
+  const _forwardCapture: {
+    mode: 'armed' | 'observe_only' | 'unregistered';
+    lastTickAt: string | null;
+    lastDecision: any;
+    checkIntervalMs: number;
+  } = { mode: 'unregistered', lastTickAt: null, lastDecision: null, checkIntervalMs: 0 };
   const _seedJobId    = () => `sj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const _cleanSeedJobs = () => {
     const cut = Date.now() - 600_000;
@@ -38717,6 +38725,11 @@ ${footer}
     // no chance to separate "did the deployment work" from "is unattended
     // collection stable". Loud on both branches so it can never be silently off.
     const forwardCaptureArmed = String(process.env.FORWARD_CAPTURE ?? '').toLowerCase() === 'on';
+    // Published to the UI. A scheduler whose only witness is a log line is a
+    // black box to whoever is operating the platform, and reading logs to learn
+    // whether tonight's capture will happen is not an operating model.
+    _forwardCapture.mode            = forwardCaptureArmed ? 'armed' : 'observe_only';
+    _forwardCapture.checkIntervalMs = 10 * 60_000;
     let nightlyBusy = false;
     let lastNightlySaid = '';
     let ticksSinceSaid  = 0;
@@ -38750,6 +38763,7 @@ ${footer}
           date: seedJobs.periodStart, status: seedJobs.status, startedAt: seedJobs.startedAt,
         }).from(seedJobs).where(sql`job_id LIKE 'recon-%' AND started_at > now() - interval '30 days'`);
 
+        _forwardCapture.lastTickAt = new Date().toISOString();
         const decision = decideNightlyIngest({
           nowIso: new Date().toISOString(),
           attempts: rows.map((r: any) => ({
@@ -38758,6 +38772,7 @@ ${footer}
           })),
         });
 
+        _forwardCapture.lastDecision = decision;
         if (!decision.due) {
           say(`not due: ${decision.reason}`);
           return;
@@ -38797,6 +38812,26 @@ ${footer}
         : 'OBSERVE-ONLY: it will report what it would collect and fetch nothing (FORWARD_CAPTURE=on to arm).'),
     );
   }
+
+  // GET /api/finance/forward-capture — what the nightly collector is doing.
+  //
+  // Exists so nobody has to read a deployment log to answer "is capture on, is
+  // it alive, and what does it think it owes tonight". Cheap and read-only.
+  app.get('/api/finance/forward-capture', (_req: any, res: any) => {
+    const last = _forwardCapture.lastTickAt ? Date.parse(_forwardCapture.lastTickAt) : null;
+    res.json({
+      ...(_forwardCapture as any),
+      // A scheduler that has not ticked within two intervals is not merely
+      // quiet — it has stopped, and silence must not read as health.
+      alive: last != null && Date.now() - last < _forwardCapture.checkIntervalMs * 2,
+      nextTickEstimate: last != null
+        ? new Date(last + _forwardCapture.checkIntervalMs).toISOString()
+        : null,
+      armHint: _forwardCapture.mode === 'armed'
+        ? 'Collecting automatically.'
+        : 'Observing only — set FORWARD_CAPTURE=on and republish to arm.',
+    });
+  });
 
   // POST /api/finance/reconcile-now — run the nightly reconciliation on demand,
   // for a single date or the default of yesterday. Same path as the timer, so
