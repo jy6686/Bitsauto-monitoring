@@ -92,6 +92,7 @@ import ProductsPage from "@/pages/products";
 import ProductRegistryPage from "@/pages/product-registry";
 import DealsPage from "@/pages/deals";
 import DestinationCatalogPage from "@/pages/destination-catalog";
+import CommercialCataloguePage from "@/pages/commercial-catalogue";
 import ClientRateReportPage from "@/pages/client-rate-report";
 import TariffProfilesPage from "@/pages/tariff-profiles";
 import NotFound from "@/pages/not-found";
@@ -595,6 +596,9 @@ function Router() {
       </Route>
       <Route path="/destination-catalog">
         {() => <DestinationCatalogPage />}
+      </Route>
+      <Route path="/commercial-catalogue">
+        {() => <ProtectedRoute component={CommercialCataloguePage} requiredRoles={['admin','management','destination_manager']} />}
       </Route>
       <Route path="/product-registry">
         {() => <ProtectedRoute component={ProductRegistryPage} requiredRoles={['admin','management']} />}
