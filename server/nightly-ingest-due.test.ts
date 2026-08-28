@@ -171,6 +171,92 @@ describe('attempts, not optimism, decide when to stop', () => {
   });
 });
 
+describe('an abandoned day must never go unmentioned', () => {
+  const at = (date: string, iso: string) => ({ date, status: 'error', startedAtIso: iso });
+
+  /**
+   * The gap the owner identified for an unattended weekend. A day that
+   * exhausted its attempts used to disappear from the decision entirely once a
+   * LATER day became owed — the scheduler would report "2026-08-29 owed" and
+   * say nothing about having given up on 08-28.
+   */
+  it('reports an abandoned day even while a later day is owed', () => {
+    const d = decideNightlyIngest({
+      nowIso: '2026-08-30T09:00:00Z',
+      attempts: [
+        ...allCollected('2026-08-27', 5),
+        at('2026-08-28', '2026-08-29T01:00:00Z'),
+        at('2026-08-28', '2026-08-29T03:00:00Z'),
+        at('2026-08-28', '2026-08-29T05:00:00Z'),
+      ],
+      maxAttemptsPerDate: 3,
+    });
+    expect(d.due).toBe(true);
+    expect(d.targetDate).toBe('2026-08-29');       // moves on, as it must
+    expect(d.exhaustedDates).toContain('2026-08-28'); // but SAYS what it left behind
+  });
+
+  it('names the abandoned days when nothing at all is collectable', () => {
+    const d = decideNightlyIngest({
+      nowIso: '2026-08-29T09:00:00Z',
+      attempts: [
+        ...allCollected('2026-08-27', 5),
+        at('2026-08-28', '2026-08-29T01:00:00Z'),
+        at('2026-08-28', '2026-08-29T03:00:00Z'),
+        at('2026-08-28', '2026-08-29T05:00:00Z'),
+      ],
+      maxAttemptsPerDate: 3,
+    });
+    expect(d.due).toBe(false);
+    expect(d.reason).toMatch(/2026-08-28/);
+  });
+
+  it('carries exhaustedDates on every decision shape, never undefined', () => {
+    expect(decideNightlyIngest({ nowIso: 'nonsense', attempts: [] }).exhaustedDates).toEqual([]);
+    expect(decideNightlyIngest({ nowIso: '2026-08-28T02:00:00Z', attempts: [] }).exhaustedDates).toEqual([]);
+  });
+});
+
+describe('retry pacing — an attempt budget must span hours, not minutes', () => {
+  /**
+   * Ticks are ten minutes apart. Without pacing, a Friday-night failure could
+   * burn all three attempts in half an hour and leave the day abandoned for the
+   * whole weekend with nobody watching.
+   */
+  it('waits before retrying a day that just failed', () => {
+    const d = decideNightlyIngest({
+      nowIso: '2026-08-28T02:10:00Z',
+      attempts: [...allCollected('2026-08-26', 6),
+                 { date: '2026-08-27', status: 'error', startedAtIso: '2026-08-28T02:00:00Z' }],
+    });
+    expect(d.due).toBe(false);
+    expect(d.targetDate).toBe('2026-08-27');   // still owed
+    expect(d.reason).toMatch(/next retry in/);
+  });
+
+  it('retries once the gap has passed', () => {
+    const d = decideNightlyIngest({
+      nowIso: '2026-08-28T03:30:00Z',
+      attempts: [...allCollected('2026-08-26', 6),
+                 { date: '2026-08-27', status: 'error', startedAtIso: '2026-08-28T02:00:00Z' }],
+    });
+    expect(d.due).toBe(true);
+    expect(d.targetDate).toBe('2026-08-27');
+  });
+
+  /** Cooling down must not skip ahead — that would abandon oldest-first order. */
+  it('waits on the oldest owed day rather than collecting a newer one', () => {
+    const d = decideNightlyIngest({
+      nowIso: '2026-08-30T09:10:00Z',
+      attempts: [...allCollected('2026-08-27', 5),
+                 { date: '2026-08-28', status: 'error', startedAtIso: '2026-08-30T09:00:00Z' }],
+    });
+    expect(d.due).toBe(false);
+    expect(d.targetDate).toBe('2026-08-28');
+    expect(d.backlog).toBe(2);
+  });
+});
+
 describe('degenerate input', () => {
   it('refuses to guess from an unparseable clock', () => {
     const d = decideNightlyIngest({ nowIso: 'not-a-date', attempts: [] });

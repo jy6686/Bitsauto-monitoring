@@ -49,6 +49,14 @@ export interface NightlyDecision {
   reason:     string;
   /** How many days inside the lookback are still owed, including the target. */
   backlog:    number;
+  /**
+   * Days ABANDONED after exhausting their attempts. Always reported, never only
+   * when nothing else is owed: once a later day became due, an abandoned day
+   * used to vanish from the decision entirely — the scheduler would say
+   * "2026-08-29 owed" and never mention that 08-28 had been given up on. A gap
+   * nobody is told about is the failure mode this whole design exists to avoid.
+   */
+  exhaustedDates: string[];
 }
 
 export const DEFAULT_EARLIEST_HOUR_UTC = 1;
@@ -57,6 +65,14 @@ export const DEFAULT_MAX_ATTEMPTS      = 3;
 /** A 'running' row older than this is treated as a dead attempt, not as work
  *  in progress. Generous: a real day's collection is minutes, not hours. */
 export const DEFAULT_STALE_RUNNING_MS  = 90 * 60 * 1000;
+/**
+ * Minimum gap between attempts on the SAME day. Ticks are ten minutes apart, so
+ * without this a day could burn all three attempts in half an hour on a Friday
+ * night and stay abandoned the entire weekend. Pacing makes the attempt budget
+ * span hours, which is long enough for a transient switch-side condition to
+ * clear.
+ */
+export const DEFAULT_MIN_RETRY_GAP_MS  = 60 * 60 * 1000;
 
 const dayKey = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -68,15 +84,17 @@ export function decideNightlyIngest(opts: {
   lookbackDays?:       number;
   maxAttemptsPerDate?: number;
   staleRunningMs?:     number;
+  minRetryGapMs?:      number;
 }): NightlyDecision {
   const nowMs = Date.parse(opts.nowIso);
   if (!Number.isFinite(nowMs)) {
-    return { due: false, targetDate: null, reason: 'unparseable clock', backlog: 0 };
+    return { due: false, targetDate: null, reason: 'unparseable clock', backlog: 0, exhaustedDates: [] };
   }
   const earliestHour = opts.earliestHourUtc    ?? DEFAULT_EARLIEST_HOUR_UTC;
   const lookback     = Math.max(1, opts.lookbackDays ?? DEFAULT_LOOKBACK_DAYS);
   const maxAttempts  = Math.max(1, opts.maxAttemptsPerDate ?? DEFAULT_MAX_ATTEMPTS);
   const staleMs      = opts.staleRunningMs ?? DEFAULT_STALE_RUNNING_MS;
+  const retryGapMs   = opts.minRetryGapMs ?? DEFAULT_MIN_RETRY_GAP_MS;
 
   /** In flight only while it is plausibly still alive. */
   const isLiveRun = (t: ReconAttempt): boolean => {
@@ -109,41 +127,57 @@ export function decideNightlyIngest(opts: {
   // Oldest first, so a backlog drains in order rather than repeatedly
   // re-collecting the newest day while older gaps stay open.
   const owed: string[] = [];
-  let exhausted = 0;
+  const exhaustedDates: string[] = [];
   for (let back = lookback; back >= 1; back--) {
     const date = dayKey(todayMs - back * DAY_MS);
     if (date < collectingSince) continue;
     const tries = byDate.get(date) ?? [];
     if (tries.some(t => t.status === 'done'))    continue;   // collected
     if (tries.some(isLiveRun)) continue;                     // in flight
-    if (tries.length >= maxAttempts) { exhausted++; continue; }
+    if (tries.length >= maxAttempts) { exhaustedDates.push(date); continue; }
     owed.push(date);
   }
 
   if (owed.length === 0) {
     return {
-      due: false, targetDate: null, backlog: 0,
-      reason: exhausted > 0
-        ? `nothing collectable — ${exhausted} day(s) gave up after ${maxAttempts} attempts`
+      due: false, targetDate: null, backlog: 0, exhaustedDates,
+      reason: exhaustedDates.length > 0
+        ? `nothing collectable — gave up on ${exhaustedDates.join(', ')} after ${maxAttempts} attempts`
         : `every day since ${collectingSince} through ${yesterday} collected`,
     };
   }
 
   const target = owed[0];
 
+  // Cooling down: the oldest owed day was tried very recently. Report NOT DUE
+  // rather than skipping ahead to a newer day — skipping would abandon the
+  // ordering that makes a backlog drain, and hammering would spend the attempt
+  // budget in minutes.
+  const lastAttemptMs = (byDate.get(target) ?? [])
+    .map(t => (t.startedAtIso ? Date.parse(t.startedAtIso) : NaN))
+    .filter(Number.isFinite)
+    .reduce((a, b) => Math.max(a, b), -Infinity);
+  if (Number.isFinite(lastAttemptMs) && nowMs - lastAttemptMs < retryGapMs) {
+    const mins = Math.ceil((retryGapMs - (nowMs - lastAttemptMs)) / 60000);
+    return {
+      due: false, targetDate: target, backlog: owed.length, exhaustedDates,
+      reason: `${target} failed recently — next retry in ~${mins} min`,
+    };
+  }
+
   // Yesterday is closed at 00:00 UTC, but the switch is still settling its own
   // records then. Older days carry no such doubt, so the delay applies only to
   // the newest day — a backlog is never held back by it.
   if (target === yesterday && new Date(nowMs).getUTCHours() < earliestHour) {
     return {
-      due: false, targetDate: target, backlog: owed.length,
+      due: false, targetDate: target, backlog: owed.length, exhaustedDates,
       reason: `${target} is owed but the switch is still settling — collecting after ` +
               `${String(earliestHour).padStart(2, '0')}:00 UTC`,
     };
   }
 
   return {
-    due: true, targetDate: target, backlog: owed.length,
+    due: true, targetDate: target, backlog: owed.length, exhaustedDates,
     reason: owed.length > 1
       ? `${target} owed (oldest of ${owed.length} day(s) missing through ${yesterday})`
       : `${target} owed`,

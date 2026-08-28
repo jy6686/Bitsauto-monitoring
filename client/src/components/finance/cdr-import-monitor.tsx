@@ -170,6 +170,18 @@ export function CdrImportMonitor() {
                     : <>Nothing owed — {cap.lastDecision.reason}</>}
                 </div>
               )}
+              {/* A day the scheduler stopped retrying is a HOLE in the billing
+                  week. It must be impossible to miss, including when a later
+                  day is collecting normally and everything else looks green. */}
+              {cap.lastDecision?.exhaustedDates?.length > 0 && (
+                <div className="flex items-start gap-1 rounded bg-destructive/10 p-2 text-destructive">
+                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span>
+                    Gave up on {cap.lastDecision.exhaustedDates.join(", ")} — these days are
+                    NOT collected. Re-run manually with a 10-minute slice override.
+                  </span>
+                </div>
+              )}
               <div>{cap.armHint}</div>
             </div>
           )}
