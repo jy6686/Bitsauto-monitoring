@@ -25,6 +25,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { ProductMappingTab } from "@/features/product-mapping/ProductMappingTab";
+import { CommercialCatalogTab } from "@/features/commercial-catalogue/CommercialCatalogTab";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface Dest {
@@ -2338,7 +2339,10 @@ export default function DestinationCatalogPage() {
           </div>
         ) : (
           <>
-            {activeTab === "catalog"   && <CatalogTab flatNodes={flatNodes} />}
+            {/* The commercial hierarchy replaces the legacy prefix list. CatalogTab still
+                exists and still reads global_destinations; it is not deleted here because
+                the legacy model is retired by migration 560, not by a UI swap. */}
+            {activeTab === "catalog"   && <CommercialCatalogTab />}
             {activeTab === "vendor"    && <div className="h-full overflow-y-auto"><VendorSheetUploader /></div>}
             {activeTab === "approvals" && <div className="h-full overflow-y-auto"><ApprovalsTab flatNodes={flatNodes} /></div>}
             {activeTab === "gds"       && <div className="h-full overflow-y-auto"><GdsRatesTab /></div>}
