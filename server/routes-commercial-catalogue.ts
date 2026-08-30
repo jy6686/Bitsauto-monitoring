@@ -229,6 +229,32 @@ export function registerCommercialCatalogueRoutes(app: Express) {
         SELECT count(*)::int AS n FROM commercial_destinations d
          WHERE NOT EXISTS (SELECT 1 FROM commercial_destination_prefixes p WHERE p.destination_id = d.id)`))[0];
 
+      // Schema version: the highest migration this database has actually applied. A
+      // deployment can be on the right build and still be behind on schema if a migration
+      // halted, and that combination is invisible from the build stamp alone.
+      const schema = rows(await db.execute(sql`
+        SELECT max(filename) AS latest, count(*)::int AS applied FROM schema_migrations`))[0];
+
+      // Build stamp. Imported, never require()d — this module is ESM in dev and CJS when
+      // bundled. Failure to read it must not fail the diagnostic that exists to be readable
+      // when other things are broken.
+      let build: Record<string, any> = { commit: 'unknown' };
+      try {
+        const { getBuildInfo } = await import('./build-info');
+        const b = getBuildInfo();
+        build = { commit: b.gitCommit, buildTime: b.buildTime, version: b.version, source: b.source };
+      } catch { /* leave the default */ }
+
+      // Sippy, because "can we sell it" and "can we push it" are different questions and an
+      // incident asks both.
+      let sippy: Record<string, any> = { connected: false };
+      try {
+        const { getActiveSession } = await import('./sippy');
+        const sess: any = getActiveSession();
+        sippy = sess ? { connected: true, portalUrl: sess.portalUrl, username: sess.username ?? null }
+                     : { connected: false };
+      } catch (e: any) { sippy = { connected: false, error: e.message }; }
+
       const ready = Number(cat?.sellable ?? 0) > 0;
       res.json({
         ready,
@@ -239,8 +265,15 @@ export function registerCommercialCatalogueRoutes(app: Express) {
             : !cat?.active_version
               ? 'catalogue imported but NO ACTIVE VERSION — call activate_catalogue_version()'
               : 'active version has NO APPROVED destinations — approve before anything is sellable',
-        database: { name: db_?.database, host: db_?.host ?? 'local socket' },
+        build,
+        database: {
+          name: db_?.database,
+          host: db_?.host ?? 'local socket',
+          schemaVersion: schema?.latest ?? null,
+          migrationsApplied: schema?.applied ?? 0,
+        },
         catalogue: { ...cat, destinations_without_prefix: orphan?.n ?? 0 },
+        sippy,
       });
     } catch (e: any) {
       // A missing table means the migrations have not run here — worth saying so plainly
