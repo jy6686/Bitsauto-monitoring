@@ -46,6 +46,70 @@ Every one of the five is visible in the summary header on `/schema-migrations`.
 | Failed = 1 | A migration errored. Its own `BEGIN`/`COMMIT` rolled it back; everything after it was skipped. | Fix the file, redeploy. The runner resumes from that file. |
 | Modified > 0 | Someone changed an already-applied migration. | Compare both checksums against git. A legitimate edit belongs in a **new** migration; never edit an applied one. |
 
+## Commercial readiness — separate from the five above
+
+**Added 2026-08-30, after a deployment passed every check above and was unusable for pricing
+for several hours.**
+
+The five criteria establish that the *schema* is current. They say nothing about whether the
+platform can sell anything, and on 2026-08-30 that gap cost an afternoon: build `91f8878f`
+deployed cleanly, connected to its database on every boot, reported `migrations: ok` — and
+Send Rate was unusable, because the commercial catalogue had been imported into the workspace
+database and never into production's.
+
+Infrastructure readiness and commercial readiness are different claims. A deployment can
+satisfy the first completely while failing the second.
+
+- [ ] Build deployed — `/api/commercial/health` → `build.commit` matches what you shipped
+- [ ] Database is the intended one — `database.name` and `database.host`
+- [ ] Migrations current — `checks.migrations_current`
+- [ ] Supplier catalogue imported — `checks.catalogue_imported`
+- [ ] A version is active — `checks.catalogue_active`
+- [ ] Destinations approved — `checks.destinations_approved`
+- [ ] Sellable count is what you expect — `catalogue.sellable`
+- [ ] `/api/commercial/ready` → **200**
+- [ ] Send Rate verified against a real destination
+
+`/api/commercial/health` answers the first seven in one authenticated request, and its
+`verdict` names which condition applies rather than leaving four indistinguishable causes to
+be guessed between: tables absent, nothing imported, no active version, nothing approved. Each
+has a different fix and three of them are not code.
+
+### The environments are not the same database
+
+Measured 2026-08-30 from each side's own boot log:
+
+```
+workspace    postgresql://…@helium/heliumdb
+production   postgresql://…@ep-late-heart-akz7shar.c-3.us-west-2.aws.neon.tech/neondb
+```
+
+Different servers, not different branches. **A catalogue imported in one does not exist in the
+other**, and neither do approvals or activation — `catalogue_versions` has no cross-database
+meaning. Each environment needs its own import, approve and activate. Compare `file_sha256` in
+`catalogue_import_batches` between them afterwards to prove both were built from the same
+workbook.
+
+The corollary that cost the most time: **a `psql` result means nothing until you know which
+database answered.** Pair every query with `current_database()`. And note that
+`VAR=x psql "$VAR"` expands the *old* value — the parent shell resolves arguments before
+applying the prefix — so it silently queries the wrong database and reports a plausible number.
+
+### Deploying new code before the data exists
+
+Publishing the commercial-catalogue build into an environment whose catalogue is empty
+**replaces a working picker with an empty one**. The old code cannot see these tables, so it
+keeps working; the new code queries them and finds nothing. If the import cannot follow
+immediately, roll the deployment back rather than leaving Send Rate unusable — nothing already
+imported is at risk either way.
+
+### `/api/commercial/ready` cannot gate a Replit deployment from outside
+
+Replit deployments sit behind `__replshield`, which `307`-redirects unauthenticated requests.
+`scripts/verify-deployment.mjs` reports that redirect as its own outcome rather than scoring it
+"not ready" — *could not ask* and *the answer is no* are different facts. Run the gate from
+inside the container against `http://localhost:5000`, or anywhere the shield is off.
+
 ## Evidence to archive — first deployment with the new runner
 
 Capture all four and keep them. They are the known-good reference a future deployment gets compared against.
