@@ -45,6 +45,24 @@ const actor = (req: any) =>
 
 export function registerCommercialCatalogueRoutes(app: Express) {
 
+  // Announce the catalogue state next to [db] connected, so a deployment log says which
+  // database it reached AND whether that database can sell anything. Non-blocking and
+  // non-fatal: a boot must never fail because a diagnostic could not be printed.
+  (async () => {
+    try {
+      const r = rows(await db.execute(sql`
+        SELECT current_database() AS db,
+               (SELECT count(*) FROM catalogue_versions)                    AS versions,
+               (SELECT label FROM catalogue_versions WHERE status='active') AS active,
+               (SELECT count(*) FROM v_catalogue_sellable)                  AS sellable`))[0];
+      console.log(`[catalogue] ${r.db}: ${r.versions} version(s), active=${r.active ?? 'none'}, sellable=${r.sellable}`
+        + (Number(r.sellable) ? '' : '  <- commercial pickers will be EMPTY'));
+    } catch (e: any) {
+      console.warn(`[catalogue] state unavailable: ${e.message}`);
+    }
+  })();
+
+
   // ── GET /api/commercial/catalogues — the version dashboard ──────────────────────────
   // Counts come from the tables, never from a stored total: a cached count is a second
   // source of truth that can disagree with the rows it describes.
@@ -179,6 +197,63 @@ export function registerCommercialCatalogueRoutes(app: Express) {
                       WHERE destination_id = ${id} ORDER BY changed_at DESC LIMIT 1)`);
       res.json({ ok: true, destination: row });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── GET /api/commercial/health — which database, and what is in it ──────────────────
+  // Built after an afternoon spent establishing, indirectly, that a deployment was connected
+  // to a different database than the shell being used to inspect it. Every individual fact was
+  // available; none of them were in one place, so the question "is this environment the one I
+  // think it is, with the data I think it has" took hours and a browser session to answer.
+  //
+  // One request now answers it. Database identity and catalogue state together, because
+  // either alone is what made this ambiguous: the right database with no data and the wrong
+  // database with data both present as an empty picker.
+  app.get('/api/commercial/health',
+    (req: any, res, next) => requireRole(READ, req, res, next), async (_req, res) => {
+    try {
+      const db_ = rows(await db.execute(sql`
+        SELECT current_database() AS database, inet_server_addr()::text AS host, version() AS server`))[0];
+      const cat = rows(await db.execute(sql`
+        SELECT count(*)::int                                                   AS versions,
+               (SELECT label FROM catalogue_versions WHERE status='active')    AS active_version,
+               (SELECT count(*)::int FROM commercial_destinations)             AS destinations,
+               (SELECT count(*)::int FROM commercial_destination_prefixes)     AS prefixes,
+               (SELECT count(*)::int FROM commercial_destinations
+                 WHERE approval_status='approved')                             AS approved,
+               (SELECT count(*)::int FROM v_catalogue_sellable)                AS sellable,
+               (SELECT file_sha256 FROM catalogue_import_batches ORDER BY id DESC LIMIT 1) AS last_import_sha256
+          FROM catalogue_versions`))[0];
+      // A destination with no prefix cannot be pushed; a prefix with no destination cannot
+      // exist (NOT NULL FK). Only the first is worth reporting, and only if non-zero.
+      const orphan = rows(await db.execute(sql`
+        SELECT count(*)::int AS n FROM commercial_destinations d
+         WHERE NOT EXISTS (SELECT 1 FROM commercial_destination_prefixes p WHERE p.destination_id = d.id)`))[0];
+
+      const ready = Number(cat?.sellable ?? 0) > 0;
+      res.json({
+        ready,
+        verdict: ready
+          ? `${cat.sellable} destination(s) sellable from "${cat.active_version}"`
+          : cat?.versions === 0
+            ? 'NO CATALOGUE IMPORTED into this database — run scripts/import-supplier-catalogue.ts against it'
+            : !cat?.active_version
+              ? 'catalogue imported but NO ACTIVE VERSION — call activate_catalogue_version()'
+              : 'active version has NO APPROVED destinations — approve before anything is sellable',
+        database: { name: db_?.database, host: db_?.host ?? 'local socket' },
+        catalogue: { ...cat, destinations_without_prefix: orphan?.n ?? 0 },
+      });
+    } catch (e: any) {
+      // A missing table means the migrations have not run here — worth saying so plainly
+      // rather than returning a 500 that reads as a code fault.
+      const missing = /relation .* does not exist/.test(e.message);
+      res.status(missing ? 200 : 500).json({
+        ready: false,
+        verdict: missing
+          ? 'commercial catalogue TABLES ABSENT — migrations 500-503 have not run on this database'
+          : e.message,
+        error: e.message,
+      });
+    }
   });
 
   // ── GET /api/commercial/picker — the hierarchy every commercial module navigates ─────
