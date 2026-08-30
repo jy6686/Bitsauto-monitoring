@@ -40906,6 +40906,9 @@ ${footer}
           accountName: string; prefix: string; rate: number;
           success: boolean; message: string; method?: string;
           uploadToken?: string; uploadStatus?: string; verificationResult?: string;
+          /** Wall-clock for this one Sippy operation. Knowing WHERE a push stopped is not
+           *  the same as knowing why it was slow, and a five-minute batch needs both. */
+          ms?: number;
         }[] = [];
 
         // ── The job row is created BEFORE the first Sippy call, not after the last ───────
@@ -40958,6 +40961,7 @@ ${footer}
 
         for (const dest of destList) {
           for (const accountName of accountNames) {
+            const startedAt = Date.now();
             try {
               const r = await sippy.pushRateToSippy(
                 {
@@ -40973,9 +40977,13 @@ ${footer}
                 portalUrl,
                 adminCreds,
               );
-              results.push({ accountName, prefix: dest.fullPrefix, rate: dest.rate, ...r });
+              const ms = Date.now() - startedAt;
+              console.log(`[push-batch] ${dest.fullPrefix} → ${accountName}: ${r.success ? 'ok' : 'FAILED'} in ${(ms / 1000).toFixed(1)}s (${r.method ?? 'no method'}) ${r.success ? '' : r.message}`);
+              results.push({ accountName, prefix: dest.fullPrefix, rate: dest.rate, ...r, ms });
             } catch (e: any) {
-              results.push({ accountName, prefix: dest.fullPrefix, rate: dest.rate, success: false, message: e.message });
+              const ms = Date.now() - startedAt;
+              console.log(`[push-batch] ${dest.fullPrefix} → ${accountName}: THREW in ${(ms / 1000).toFixed(1)}s — ${e.message}`);
+              results.push({ accountName, prefix: dest.fullPrefix, rate: dest.rate, success: false, message: e.message, ms });
             }
           }
 
@@ -40987,7 +40995,7 @@ ${footer}
             await db.update(ratePushJobs).set({
               pushedClients: results.filter(r => r.success).length,
               failedClients: results.filter(r => !r.success).length,
-              notes: `In progress: ${results.length}/${totalOps} op(s) — last ${dest.fullPrefix} @ ${new Date().toISOString()}`,
+              notes: `In progress: ${results.length}/${totalOps} op(s) — last ${dest.fullPrefix} took ${((results[results.length - 1]?.ms ?? 0) / 1000).toFixed(1)}s`,
             }).where(eq(ratePushJobs.jobId, jobId));
           } catch { /* best-effort: never fail a push because a progress update did */ }
         }
@@ -41010,7 +41018,9 @@ ${footer}
             uploadToken:        firstR?.uploadToken ?? null,
             uploadStatus:       firstR?.uploadStatus ?? null,
             verificationResult: firstR?.verificationResult ?? null,
-            notes:              `Batch: ${prefixSummary} — ok=${ok}/${total} method=${methods.join(',') || 'n/a'}`,
+            // Per-operation timings survive into the record, so "why was it slow" is
+            // answerable from the row rather than only from logs that may have rotated.
+            notes:              `Batch: ${prefixSummary} — ok=${ok}/${total} method=${methods.join(',') || 'n/a'} | timings ${results.map(r => `${r.prefix}:${((r.ms ?? 0) / 1000).toFixed(1)}s`).join(' ')}`.substring(0, 2000),
             completedAt:        new Date(),
           }).where(eq(ratePushJobs.jobId, jobId));
         } catch (e: any) { console.error('[rate_push_jobs] push-batch finalise failed:', e?.message || e); }
