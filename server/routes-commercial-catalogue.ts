@@ -24,6 +24,7 @@
 import type { Express } from 'express';
 import { db } from './db';
 import { sql } from 'drizzle-orm';
+import { buildHierarchy, type HierarchyRow } from './services/commercial/hierarchy';
 
 async function requireRole(roles: string[], req: any, res: any, next: any) {
   const userId = req.user?.claims?.sub;
@@ -370,18 +371,8 @@ export function registerCommercialCatalogueRoutes(app: Express) {
   });
 
   // ── GET /api/commercial/picker — the hierarchy every commercial module navigates ─────
-  // Country -> Type -> Operator (only where one exists) -> Destination, DERIVED here and
-  // stored nowhere. The catalogue holds a flat supplier name and no country, type, operator
-  // or parent_id column, deliberately: those are not in the supplier file, and persisting an
-  // inference would make a guess indistinguishable from supplied fact the moment it is wrong.
-  //
-  // Deriving it per request instead means a corrected rule takes effect immediately and no
-  // migration is needed to change how the tree is drawn. The cost is this function, run over
-  // ~1,344 rows.
-  //
-  // Splitting on " - " is a literal separator rather than a guess: 1,327 of 1,344 names carry
-  // it. The 17 that do not — CANADA, INMARSAT, SATELLITE 5, WAKE ISLAND, UNITED NATIONS OCHA —
-  // are placed under "Global Services" rather than given an invented country.
+  // Country -> Type -> Operator, DERIVED by buildHierarchy() and stored nowhere. See
+  // services/commercial/hierarchy.ts for why the tree is not a set of columns.
   //
   // Reads v_catalogue_sellable: approved destinations in the ACTIVE version, nothing else.
   // Approving a destination therefore makes it appear here with no sync step and no copy.
@@ -395,44 +386,64 @@ export function registerCommercialCatalogueRoutes(app: Express) {
          GROUP BY s.id, s.name
          ORDER BY s.name`);
 
-      // The vocabulary is a constant, not a table. It decides only how the tree is DRAWN;
-      // getting an entry wrong misfiles a row in a dropdown, it does not change what is sold.
-      const TYPES = new Set(['MOBILE','FIXED','SATELLITE','PREMIUM','SPECIAL','TOLL','PAGING',
-                             'VOIP','SHARED','PERSONAL','AUDIOTEXT','ROAMING','SERVICES']);
-      type Leaf = { id: number; name: string; label: string; prefixCount: number };
-      const countries = new Map<string, Map<string, { self: Leaf | null; operators: Leaf[] }>>();
+      res.json({
+        countries: buildHierarchy(rows(r).map((row: any) => ({
+          id: row.id, name: String(row.name), prefixCount: Number(row.prefix_count),
+        }))),
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
 
-      for (const row of rows(r)) {
-        const name = String(row.name);
-        const prefixCount = Number(row.prefix_count);
-        const [head, ...tail] = name.split(' - ');
-        const country   = tail.length ? head.trim() : 'Global Services';
-        const remainder = (tail.length ? tail.join(' - ') : name).trim();
-        const words     = remainder.split(/\s+/).filter(Boolean);
-        const hasType   = words.length > 0 && TYPES.has(words[0].toUpperCase());
-        const type      = hasType ? words[0] : 'Other';
-        const operator  = (hasType ? words.slice(1) : words).join(' ');
-
-        if (!countries.has(country)) countries.set(country, new Map());
-        const types = countries.get(country)!;
-        if (!types.has(type)) types.set(type, { self: null, operators: [] });
-        const node = types.get(type)!;
-        const leaf: Leaf = { id: row.id, name, label: operator || type, prefixCount };
-        // No operator token means the destination IS the type node — PAKISTAN - MOBILE, or
-        // INDIA - MOBILE, which has no operator level because the supplier does not sell one.
-        if (operator) node.operators.push(leaf); else node.self = leaf;
+  // ── GET /api/commercial/catalogues/:versionId/tree — the same tree, everything in it ──
+  // The picker shows what is SELLABLE. This shows what EXISTS, approval state included,
+  // because the catalogue page is where approving happens and an unapproved destination has
+  // to be visible to be approved.
+  //
+  // Same buildHierarchy(), deliberately. Two derivations would let the screen you approve on
+  // and the screen you sell from disagree about what a destination is.
+  //
+  // Prefixes are counted, never listed. They are transport detail; the operational screens
+  // show what is sold, and a caller that genuinely needs the digits asks for one destination
+  // by id.
+  app.get('/api/commercial/catalogues/:versionId/tree',
+    (req: any, res, next) => requireRole(READ, req, res, next), async (req, res) => {
+    try {
+      const versionId = Number(req.params.versionId);
+      if (!Number.isInteger(versionId)) {
+        return res.status(400).json({ error: 'versionId must be an integer' });
       }
+      const r = await db.execute(sql`
+        SELECT d.id, d.name, d.approval_status, count(p.id) AS prefix_count
+          FROM commercial_destinations d
+          LEFT JOIN commercial_destination_prefixes p ON p.destination_id = d.id
+         WHERE d.version_id = ${versionId}
+         GROUP BY d.id, d.name, d.approval_status
+         ORDER BY d.name`);
+
+      const input: HierarchyRow[] = rows(r).map((row: any) => ({
+        id: row.id, name: String(row.name),
+        prefixCount: Number(row.prefix_count),
+        approvalStatus: String(row.approval_status),
+      }));
+
+      // Counted from the same rows the tree is built from, so the totals cannot drift from
+      // what is on screen.
+      const counts = input.reduce<Record<string, number>>((a, d) => {
+        const k = d.approvalStatus ?? 'unknown';
+        a[k] = (a[k] ?? 0) + 1;
+        return a;
+      }, {});
 
       res.json({
-        countries: [...countries.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([country, types]) => ({
-          country,
-          types: [...types.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([type, node]) => ({
-            type,
-            destinationId: node.self?.id ?? null,          // selectable at the type level, when it exists
-            prefixCount:   node.self?.prefixCount ?? 0,
-            operators:     node.operators.sort((a, b) => a.label.localeCompare(b.label)),
-          })),
-        })),
+        versionId,
+        totals: {
+          destinations: input.length,
+          prefixes:     input.reduce((a, d) => a + d.prefixCount, 0),
+          approved:     counts['approved']   ?? 0,
+          unapproved:   counts['unapproved'] ?? 0,
+          blocked:      counts['blocked']    ?? 0,
+        },
+        countries: buildHierarchy(input),
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
