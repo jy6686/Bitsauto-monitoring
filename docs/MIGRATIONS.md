@@ -47,6 +47,58 @@ A fresh database in this platform is built from the Drizzle schema plus `runSafe
 
 `BASELINE_THROUGH` moves only as a deliberate re-baselining — never to make a failing migration go away.
 
+## The second mechanism: drizzle-kit
+
+The rule at the top of this document — schema reaches a database one way — describes what
+*this repository* does. It is not what the **deployment platform** does, and the difference
+has already tried to delete production columns.
+
+`drizzle.config.ts` sets `out: "./migrations"`, so drizzle-kit keeps its own state in the
+same directory as the numbered files:
+
+```
+migrations/
+  084_rate_push_job_progress.sql   ← ours; applied at startup by runFileMigrations()
+  meta/0000_snapshot.json          ← drizzle-kit's; the schema it believes exists
+  meta/_journal.json
+```
+
+Publishing runs drizzle-kit, which compares `shared/schema.ts` against that snapshot and
+generates DDL. **The snapshot is tracked in git and is not updated by our migrations.** So a
+column added by a numbered file, and declared in `shared/schema.ts`, is invisible to the
+snapshot — and the generated migration offered to `DROP` all six columns migration 084
+creates, on a table holding 29 rows.
+
+The blast radius is bounded by what drizzle knows. `catalogue_versions`,
+`commercial_destinations` and `commercial_destination_prefixes` exist only in migrations
+500–503 and are absent from `shared/schema.ts`, so drizzle does not manage them and left them
+untouched. `rate_push_jobs` was exposed precisely *because* it is half-managed: declared in
+the Drizzle schema **and** altered by a numbered file.
+
+### The rule this creates
+
+When a numbered migration changes a table that also appears in `shared/schema.ts`, three
+things must be updated together:
+
+| | What |
+|---|---|
+| `migrations/NNN_*.sql` | applies the DDL |
+| `shared/schema.ts` | so application code can read and write the column |
+| `migrations/meta/0000_snapshot.json` | so drizzle-kit does not propose undoing it |
+
+Miss the third and the next publish offers to drop the column. Approving that is worse than
+it looks: `runFileMigrations()` records a filename and **never re-runs it**, so once the
+ledger says 084 is applied, a later drop is not repaired at the next boot. The database ends
+up missing columns its own ledger claims were created.
+
+Do not run `drizzle-kit generate` to fix the snapshot — it emits a `.sql` beside our files.
+A four-digit name like `0001_foo.sql` does not match `MIGRATION_FILE` (`^(\d{3})_`), so our
+runner **silently skips it** while the platform may still apply it. Edit the snapshot's
+`columns` block by hand to mirror what the numbered file did.
+
+A table that is fully outside `shared/schema.ts` avoids all of this, which is why the
+commercial catalogue is reached through raw SQL.
+
 ## Reserved number ranges
 
 `MIGRATION_FILE` is `/^(\d{3})_[A-Za-z0-9_.-]+\.sql$/` and the runner sorts **lexically** on
