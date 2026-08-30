@@ -31,7 +31,13 @@ const CASES = [
   ['92300',       'longest_match', 'PAKISTAN - MOBILE MOBILINK',   'THE defect prefix: finer than the catalogue sells, inside Mobilink'],
   ['9233',        'exact',         'PAKISTAN - MOBILE UFONE',      'operator-level'],
   ['91',          'exact',         'INDIA - FIXED',                'a country with no operator tier still resolves'],
-  ['1',           'unknown',       null,                           'a bare trunk digit is not a destination'],
+  // `1` deliberately absent: the supplier sells North America as 2,294 area-code breakouts
+  // (1684, 1264, 1867…) and never as a bare `1`, so it has no commercial destination — but
+  // whether it comes back `unknown` or `legacy_only` depends on what the LEGACY catalogue
+  // holds, which differs per database. An assertion whose answer changes with the environment
+  // tests the environment, not the code.
+  ['11684',       'exact',         'AMERICAN SAMOA - FIXED',       'NANP with a First Class trunk: as-given fails, trunk-stripped resolves'],
+  ['1684',        'exact',         'AMERICAN SAMOA - FIXED',       'the same NANP prefix raw — `1` is a country code as well as a trunk digit'],
 
   // Overlap. The catalogue holds 923 AND 9231; a query for 9231 must not settle for 923,
   // and one for 923 must not be dragged down to an operator it does not name.
@@ -54,7 +60,8 @@ for (const [query, wantMatch, wantDest, why] of CASES) {
   try { r = await resolvePrefix(query); } catch (e) { err = e.message; }
   const ok = !err && r.match === wantMatch && (wantDest === null || r.destination === wantDest);
   results.push({ query, ok, why,
-    got: err ? `ERROR ${err}` : `${r.match} → ${r.destination ?? '—'}${r.trunkStripped ? ` (trunk ${r.trunkDigit})` : ''}`,
+    got: err ? `ERROR ${err}`
+             : `${r.match} → ${r.destination ?? r.legacyName ?? '—'}${r.trunkStripped ? ` (trunk ${r.trunkDigit})` : ''}`,
     want: `${wantMatch} → ${wantDest ?? '—'}` });
 }
 
@@ -86,6 +93,18 @@ try {
 } catch (e) {
   results.push({ query: '881 (legacy)', why: 'legacy table unavailable on this database',
     ok: false, got: `ERROR ${e.message}`, want: 'legacy_only' });
+}
+
+// legacy_only must never be returned without naming the destination it found. "It exists in
+// the old catalogue" is only useful with "and it is called this" — otherwise it is `unknown`
+// wearing a more confident label.
+{
+  const leg = results.find(x => x.query === '881 (legacy)');
+  if (leg?.ok) {
+    const r881 = await resolvePrefix('881');
+    results.push({ query: 'legacy_only names it', why: 'a legacy match without a name is just unknown',
+      ok: !!r881.legacyName, got: r881.legacyName ?? '(no name)', want: 'a legacy destination name' });
+  }
 }
 
 for (const r of results) {
