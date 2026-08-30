@@ -41061,6 +41061,7 @@ ${footer}
         // Effective time per prefix, because "what did we actually commit to, and when" is
         // the question a rate dispute asks, and the answer has to survive on the record.
         const prefixSummary = destList.map(d => `${d.fullPrefix}@${d.rate}${d.effectiveFrom ? ` from ${d.effectiveFrom}` : ' immediate'}`).join(', ');
+        const uniqueRates = Array.from(new Set(destList.map(d => String(d.rate))));
         const requestMs = Date.now() - requestStart;
 
         // Finalise the row created before the loop. An UPDATE, not an INSERT: the record has
@@ -41070,7 +41071,15 @@ ${footer}
             pushedClients:      ok,
             failedClients:      total - ok,
             status:             ok === total ? 'completed' : ok > 0 ? 'partial' : 'failed',
-            newRate:            destList.length === 1 ? String(destList[0].rate) : prefixSummary.substring(0, 255),
+            // `new_rate` is varchar(32) and holds a RATE. It was being handed a 255-char
+            // batch summary, so Postgres rejected the whole UPDATE and the catch below
+            // swallowed it — leaving a finished push sitting at `processing` with every
+            // field this statement writes still null. One column's width silently converted
+            // a completed job into a permanently in-progress one.
+            //
+            // A batch with one rate reports that rate. A batch with several has no single
+            // rate to report, and null says so; the per-prefix figures are in `notes`.
+            newRate:            uniqueRates.length === 1 ? uniqueRates[0].substring(0, 32) : null,
             pushMethod:         firstR?.method ?? null,
             uploadToken:        firstR?.uploadToken ?? null,
             uploadStatus:       firstR?.uploadStatus ?? null,
@@ -41088,7 +41097,24 @@ ${footer}
                                   : null,
             completedAt:        new Date(),
           }).where(eq(ratePushJobs.jobId, jobId));
-        } catch (e: any) { console.error('[rate_push_jobs] push-batch finalise failed:', e?.message || e); }
+        } catch (e: any) {
+          console.error('[rate_push_jobs] push-batch finalise failed:', e?.message || e);
+          // The rich update failed. Whatever the reason, the job is NOT still running, and a
+          // row that says it is will be believed — for an hour, by someone watching a push
+          // that finished in two minutes. Retry with the smallest statement that can tell the
+          // truth: terminal status, a completion time, and the error itself.
+          try {
+            await db.update(ratePushJobs).set({
+              status:       ok === total ? 'completed' : ok > 0 ? 'partial' : 'failed',
+              completedAt:  new Date(),
+              lastStep:     ok === total ? 'completed' : 'failed',
+              errorMessage: `finalise failed (${String(e?.message ?? e).substring(0, 300)}) — ${ok}/${total} operations succeeded`,
+            }).where(eq(ratePushJobs.jobId, jobId));
+            console.error('[rate_push_jobs] fell back to a minimal finalise; job is no longer marked processing');
+          } catch (e2: any) {
+            console.error('[rate_push_jobs] minimal finalise ALSO failed — job will read as processing:', e2?.message || e2);
+          }
+        }
 
         // Sippy time versus everything else. If these are close, the push IS the request and
         // a worker is the only way to shorten it; if they diverge, the overhead is ours.
