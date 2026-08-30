@@ -2940,7 +2940,14 @@ function JobsTab() {
                 j.totalClients > 0 ? `${j.pushedClients ?? 0}/${j.totalClients} client${j.totalClients > 1 ? 's' : ''}` : '—'
               );
               const moduleLabel = j.notificationType ? 'Notifications' : 'Send Rate';
-              const destCount = j.destinationCount ?? j.pushResults?.length ?? null;
+              // COMMERCIAL destinations, not prefixes. `destinationName` holds the names the
+              // operator queued; `fullPrefix` holds the transport codes they expand to, and
+              // counting those would report Zong as two. Neither `destinationCount` nor
+              // `pushResults` exists on a job row, which is why this column has only ever
+              // shown an em dash.
+              const destNames: string[] = String(j.destinationName ?? '')
+                .split(',').map((x: string) => x.trim()).filter(Boolean);
+              const destCount = destNames.length || null;
               return (
                 <tr
                   key={j.id}
@@ -2961,15 +2968,29 @@ function JobsTab() {
                   </td>
                   <td className="py-2 px-3 whitespace-nowrap text-[11px]">{j.productName ?? '—'}</td>
                   <td className="py-2 px-3 text-center whitespace-nowrap">
-                    <span className="font-mono tabular-nums text-[11px]">{destCount !== null ? destCount : '—'}</span>
+                    <span className="font-mono tabular-nums text-[11px]" title={destNames.join(', ')}>
+                      {destCount !== null ? destCount : '—'}
+                    </span>
                   </td>
                   <td className="py-2 px-3">
                     <span className={cn('text-[10px] font-medium capitalize border px-1.5 py-0.5 rounded', STATUS_BG[j.status] ?? 'text-muted-foreground')}>
                       {j.status}
                     </span>
+                    {/* Which phase, and which prefix — the difference between "it is working"
+                        and "it is stuck". Only while running: a finished job's step is its status. */}
+                    {j.status === 'processing' && j.lastStep && (
+                      <div className="text-[10px] text-muted-foreground mt-0.5 whitespace-nowrap">
+                        {j.lastStep}{j.lastPrefix ? ` · ${j.lastPrefix}` : ''}
+                      </div>
+                    )}
                   </td>
                   <td className="py-2 px-3 text-muted-foreground whitespace-nowrap text-[10px]">
-                    {j.completedAt ? new Date(j.completedAt).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : '—'}
+                    {/* createdAt, not completedAt. A running job has no completion time, so the
+                        column headed "Created" was blank on precisely the rows being watched.
+                        Time included: pushes are minutes-scale and a date alone says nothing. */}
+                    {j.createdAt
+                      ? new Date(j.createdAt).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
+                      : '—'}
                   </td>
                   <td className="py-2 px-3">
                     <button
