@@ -40841,7 +40841,16 @@ ${footer}
           accountNames: string[];
           accounts?: Array<{ username: string; iAccount?: number }>;
           trunkPrefix: string;
-          destinations?: Array<{ dialPrefix: string; rate: number }>;
+          // A destination is a COMMERCIAL identity that may carry several prefixes — Zong is
+          // one destination with two. `dialPrefixes` carries them together so the caller does
+          // not have to flatten them into separate destinations, which is what made one
+          // operator appear twice in the queue.
+          //
+          // `effectiveFrom` is per destination. A batch-level time cannot express "Mobilink
+          // now, Zong tomorrow at 01:40", and silently applied whichever value the picker
+          // happened to hold at submit time to every row — a different commercial commitment
+          // from the one on the rate sheet.
+          destinations?: Array<{ dialPrefix?: string; dialPrefixes?: string[]; rate: number; destinationName?: string; effectiveFrom?: string }>;
           dialPrefix?: string;
           rate?: number;
           effectiveFrom?: string;
@@ -40854,16 +40863,28 @@ ${footer}
         }
 
         const stripPlus = (s: string) => s.replace(/^\+/, '');
-        const destList: Array<{ fullPrefix: string; dialPrefix: string; rate: number }> =
+        // One Sippy operation per PREFIX, still — Sippy has no concept of a commercial
+        // destination. The difference is that the prefixes now arrive grouped, so the
+        // destination name and its effective time survive the expansion instead of being
+        // reconstructed from whichever row happened to be first.
+        const destList: Array<{ fullPrefix: string; dialPrefix: string; rate: number; destinationName: string | null; effectiveFrom?: string }> =
           Array.isArray(destinations) && destinations.length > 0
-            ? destinations.map((d: any) => ({
-                dialPrefix:      stripPlus(d.dialPrefix),
-                fullPrefix:      (trunkPrefix ?? '') + stripPlus(d.dialPrefix),
-                rate:            Number(d.rate),
-                destinationName: d.destinationName ?? null,
-              }))
+            ? destinations.flatMap((d: any) => {
+                const prefixes: string[] = Array.isArray(d.dialPrefixes) && d.dialPrefixes.length
+                  ? d.dialPrefixes
+                  : d.dialPrefix ? [d.dialPrefix] : [];
+                return prefixes.map((raw: string) => ({
+                  dialPrefix:      stripPlus(String(raw)),
+                  fullPrefix:      (trunkPrefix ?? '') + stripPlus(String(raw)),
+                  rate:            Number(d.rate),
+                  destinationName: d.destinationName ?? null,
+                  // Falls back to the batch value only when the caller sent none, which is
+                  // the legacy single-destination shape.
+                  effectiveFrom:   d.effectiveFrom || undefined,
+                }));
+              })
             : dialPrefix
-              ? [{ dialPrefix: stripPlus(dialPrefix), fullPrefix: (trunkPrefix ?? '') + stripPlus(dialPrefix), rate: Number(rate), destinationName: null }]
+              ? [{ dialPrefix: stripPlus(dialPrefix), fullPrefix: (trunkPrefix ?? '') + stripPlus(dialPrefix), rate: Number(rate), destinationName: null, effectiveFrom: undefined }]
               : [];
 
         if (destList.length === 0) {
@@ -40949,7 +40970,12 @@ ${footer}
             status:           'processing',
             switchName:       String(switchName).substring(0, 128),
             fullPrefix:       destList.map(d => d.fullPrefix).join(', ').substring(0, 255),
-            effectiveAt:      effectiveFrom ?? null,
+            // Null rather than a misleading single value when the batch carries more than one
+            // effective time. Stamping the first destination's time on the whole job is how a
+            // rate sheet and a switch end up disagreeing.
+            effectiveAt:      (new Set(destList.map(d => d.effectiveFrom || effectiveFrom || 'now'))).size === 1
+                                ? (destList[0].effectiveFrom || effectiveFrom || null)
+                                : null,
             createdBy:        (req as any).user?.claims?.sub ?? 'system',
             clientNames:      accountNames.join(', '),
             dialPrefix:       destList.map(d => d.dialPrefix).join(', ').substring(0, 128),
@@ -40987,7 +41013,9 @@ ${footer}
                   iTariff:     iTariffByAccountName.get(accountName),
                   prefix:      dest.fullPrefix,   // fullPrefix = trunkPrefix + dialPrefix (e.g. 19233 for First Class)
                   ratePerMin:  dest.rate,
-                  effectiveFrom: effectiveFrom || undefined,
+                  // The destination's OWN time. A batch-level value cannot express "Mobilink
+                  // now, Zong tomorrow at 01:40" and quietly gave every row the same one.
+                  effectiveFrom: dest.effectiveFrom || effectiveFrom || undefined,
                   effectiveTo:   effectiveTill || undefined,
                   format: format ?? 'full',
                 },
@@ -41030,7 +41058,9 @@ ${footer}
         const total = results.length;
         const firstR = results[0];
         const methods = Array.from(new Set(results.map(r => r.method).filter(Boolean)));
-        const prefixSummary = destList.map(d => `${d.fullPrefix}@${d.rate}`).join(', ');
+        // Effective time per prefix, because "what did we actually commit to, and when" is
+        // the question a rate dispute asks, and the answer has to survive on the record.
+        const prefixSummary = destList.map(d => `${d.fullPrefix}@${d.rate}${d.effectiveFrom ? ` from ${d.effectiveFrom}` : ' immediate'}`).join(', ');
         const requestMs = Date.now() - requestStart;
 
         // Finalise the row created before the loop. An UPDATE, not an INSERT: the record has

@@ -2115,9 +2115,16 @@ function AnalysisTab({
 type QueuedDest = {
   qid: string;
   destLabel: string;
-  dialPrefix: string;  // normalized (no leading +)
-  fullPrefix: string;  // trunkPrefix + dialPrefix
+  /** Every prefix this commercial destination maps to. Zong is ONE destination with two.
+   *  Queueing per prefix showed the same operator twice and made the dial code the row's
+   *  identity, which is why the codes could not be hidden. Backend data — never rendered. */
+  dialPrefixes: string[];
   rate: string;
+  /** Captured when this destination was queued. Reading the picker field at submit time
+   *  gave every destination whichever value was last typed, so "Mobilink now, Zong at
+   *  01:40" silently became one time for both — a rate sheet the switch disagrees with.
+   *  Empty means immediate. */
+  effectiveFrom: string;
 };
 
 /** Shape of /api/commercial/picker — Country › Type › Operator, derived server-side from the
@@ -2245,20 +2252,19 @@ function SendRateTab({
   // its destination list, so expanding here needs no server change.
   const handleAddToQueue = () => {
     if (!canAddToQueue) return;
-    const fresh = selectedPrefixes.filter(p => !destQueue.some(q => q.fullPrefix === trunkPrefix + p));
-    if (!fresh.length) {
+    // Identity is the destination, so a second attempt at the same operator is a duplicate
+    // even when its prefixes differ from what was queued last time.
+    if (destQueue.some(q => q.destLabel === selectedDestName)) {
       toast({ title: "Already queued", description: `${selectedDestName} is already in the queue`, variant: "destructive" });
       return;
     }
-    const skipped = selectedPrefixes.length - fresh.length;
-    setDestQueue(prev => [...prev, ...fresh.map((p, i) => ({
-      qid: `${Date.now()}-${i}-${p}`,
+    setDestQueue(prev => [...prev, {
+      qid: `${Date.now()}-${selectedDestId}`,
       destLabel: selectedDestName,
-      dialPrefix: p,
-      fullPrefix: trunkPrefix + p,
+      dialPrefixes: selectedPrefixes,
       rate: price,
-    }))]);
-    if (skipped) toast({ title: `${skipped} prefix(es) already queued \u2014 skipped` });
+      effectiveFrom: effectiveDate,
+    }]);
     setPickCountry(""); setPickType(""); setPickOperatorId(""); setPrice("");
   };
 
@@ -2272,7 +2278,13 @@ function SendRateTab({
         accountNames: selectedClientAccounts.map(a => a.username),
         accounts: selectedClientAccounts.map(a => ({ username: a.username, iAccount: a.iAccount })),
         trunkPrefix,
-        destinations: destQueue.map(q => ({ dialPrefix: q.dialPrefix, rate: parseFloat(q.rate), destinationName: q.destLabel })),
+        destinations: destQueue.map(q => ({
+          dialPrefixes: q.dialPrefixes,
+          rate: parseFloat(q.rate),
+          destinationName: q.destLabel,
+          effectiveFrom: q.effectiveFrom || undefined,
+        })),
+        // Kept only as the fallback for a destination queued with no time of its own.
         effectiveFrom: effectiveDate || undefined,
         format: fmtToSippy[format] ?? format.toLowerCase(),
         notificationType: format,
@@ -2429,8 +2441,8 @@ function SendRateTab({
                 <thead>
                   <tr className="border-b border-border/30 bg-muted/10">
                     <th className="text-left py-2 px-3 text-muted-foreground font-medium">Destination</th>
-                    <th className="text-left py-2 px-3 text-muted-foreground font-medium w-28">Dial Code</th>
                     <th className="text-left py-2 px-3 text-muted-foreground font-medium w-28">Rate ($/min)</th>
+                    <th className="text-left py-2 px-3 text-muted-foreground font-medium w-44">Effective</th>
                     <th className="py-2 px-3 w-8" />
                   </tr>
                 </thead>
@@ -2438,8 +2450,10 @@ function SendRateTab({
                   {destQueue.map(q => (
                     <tr key={q.qid} className="border-b border-border/20 hover:bg-muted/5">
                       <td className="py-2 px-3 text-foreground/80">{q.destLabel}</td>
-                      <td className="py-2 px-3 font-mono text-blue-400">{q.dialPrefix}</td>
                       <td className="py-2 px-3 font-mono text-green-400">{parseFloat(q.rate).toFixed(5)}</td>
+                      <td className="py-2 px-3 font-mono text-foreground/70">
+                        {q.effectiveFrom || <span className="text-amber-400/80 font-sans">Immediate</span>}
+                      </td>
                       <td className="py-2 px-3">
                         <button
                           onClick={() => setDestQueue(prev => prev.filter(x => x.qid !== q.qid))}
@@ -2465,7 +2479,7 @@ function SendRateTab({
           <div className="flex items-center justify-between">
             <div className="text-[10px] text-muted-foreground">
               {canSubmit
-                ? `Will push ${destQueue.length} destination${destQueue.length > 1 ? "s" : ""} to ${selectedClients.length} client${selectedClients.length > 1 ? "s" : ""} (${destQueue.length * selectedClients.length} total ops)`
+                ? `Will push ${destQueue.length} destination${destQueue.length > 1 ? "s" : ""} to ${selectedClients.length} client${selectedClients.length > 1 ? "s" : ""} (${destQueue.reduce((a, q) => a + q.dialPrefixes.length, 0) * selectedClients.length} total ops)`
                 : "Complete the checklist on the left, then add at least one destination"}
             </div>
             <button
@@ -2562,7 +2576,7 @@ function SendRateTab({
               <div className="font-medium">{selectedDestName}</div>
               <div className="font-mono text-blue-400 mt-0.5 break-all">
                 {selectedPrefixes.length
-                  ? selectedPrefixes.map(p => trunkPrefix + p).join("  ")
+                  ? selectedPrefixes.join("  ")
                   : "no prefixes — this destination cannot be pushed"}
               </div>
               <div className="text-muted-foreground/70 mt-0.5">
@@ -2625,7 +2639,7 @@ function SendRateTab({
                 <div className="px-3 py-2 flex flex-col gap-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono text-blue-400 font-semibold break-all">
-                      {selectedPrefixes.map(p => trunkPrefix + p).join("  ")}
+                      {selectedPrefixes.join("  ")}
                     </span>
                     {destLabel && <span className="text-foreground/70">{destLabel}</span>}
                     {price && (
@@ -2654,7 +2668,7 @@ function SendRateTab({
               <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
                 <span>{selectedPrefixes.length === 1 ? "Prefix:" : `${selectedPrefixes.length} prefixes:`}</span>
                 <span className="font-mono text-blue-400 font-semibold break-all">
-                  {selectedPrefixes.map(p => trunkPrefix + p).join("  ")}
+                  {selectedPrefixes.join("  ")}
                 </span>
               </div>
             ) : (
