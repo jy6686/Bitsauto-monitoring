@@ -199,6 +199,31 @@ export function registerCommercialCatalogueRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── GET /api/commercial/ready — the deployment gate ─────────────────────────────────
+  // UNAUTHENTICATED, and coarse for exactly that reason — the same trade /healthz already
+  // makes. A gate that requires a login session cannot be called by a deploy step or a
+  // monitor, which is precisely when it is wanted.
+  //
+  // So it returns one boolean and nothing else: no database name, no host, no counts, no
+  // version label. "Is the commercial catalogue usable" is safe to answer to anyone who can
+  // already reach the app; "which database and how many rows" is not, and lives behind auth
+  // on /api/commercial/health.
+  //
+  // This is the check that would have caught today: the deployment started cleanly, reported
+  // healthy, and had an unusable commercial subsystem. Starting successfully is not the same
+  // as being able to sell anything.
+  app.get('/api/commercial/ready', async (_req, res) => {
+    try {
+      const r = rows(await db.execute(sql`SELECT count(*)::int AS n FROM v_catalogue_sellable`))[0];
+      const ready = Number(r?.n ?? 0) > 0;
+      res.status(ready ? 200 : 503).json({ ready });
+    } catch {
+      // Missing tables, unreachable database, halted migrations — all "not ready", and the
+      // reason belongs on the authenticated endpoint rather than in a public response.
+      res.status(503).json({ ready: false });
+    }
+  });
+
   // ── GET /api/commercial/health — which database, and what is in it ──────────────────
   // Built after an afternoon spent establishing, indirectly, that a deployment was connected
   // to a different database than the shell being used to inspect it. Every individual fact was
