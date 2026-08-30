@@ -255,9 +255,38 @@ export function registerCommercialCatalogueRoutes(app: Express) {
                      : { connected: false };
       } catch (e: any) { sippy = { connected: false, error: e.message }; }
 
+      // Migration state from the runner's own last outcome, not inferred from the ledger:
+      // it knows whether a file FAILED and halted the rest, which the ledger cannot show
+      // because a halted migration leaves no row at all.
+      let migrationsCurrent = true;
+      let migrationNote: string | null = null;
+      try {
+        const { getMigrationStatus } = await import('./migrate');
+        const m: any = getMigrationStatus();
+        if (m) {
+          migrationsCurrent = !m.failed && (m.pending?.length ?? 0) === 0;
+          if (m.failed) migrationNote = `halted at ${m.failed.file}: ${m.failed.error}`;
+          else if (m.pending?.length) migrationNote = `${m.pending.length} not applied`;
+        }
+      } catch { /* a runner that cannot report is not a runner that failed */ }
+
       const ready = Number(cat?.sellable ?? 0) > 0;
+
+      // Booleans, so a deployment script or a monitor asserts rather than parses prose.
+      // `verdict` stays for humans; nothing automated should ever read it.
+      const checks = {
+        database_connected:    true,                                  // we answered, so it is
+        migrations_current:    migrationsCurrent,
+        catalogue_imported:    Number(cat?.versions ?? 0) > 0,
+        catalogue_active:      !!cat?.active_version,
+        destinations_approved: Number(cat?.approved ?? 0) > 0,
+        sellable_destinations: Number(cat?.sellable ?? 0) > 0,
+        sippy_connected:       !!sippy.connected,
+      };
+
       res.json({
         ready,
+        checks,
         verdict: ready
           ? `${cat.sellable} destination(s) sellable from "${cat.active_version}"`
           : cat?.versions === 0
@@ -274,6 +303,7 @@ export function registerCommercialCatalogueRoutes(app: Express) {
         },
         catalogue: { ...cat, destinations_without_prefix: orphan?.n ?? 0 },
         sippy,
+        ...(migrationNote ? { migrationNote } : {}),
       });
     } catch (e: any) {
       // A missing table means the migrations have not run here — worth saying so plainly
@@ -281,6 +311,17 @@ export function registerCommercialCatalogueRoutes(app: Express) {
       const missing = /relation .* does not exist/.test(e.message);
       res.status(missing ? 200 : 500).json({
         ready: false,
+        // Same keys as the success path. A monitor that asserts checks.catalogue_imported
+        // must not throw on the one response that would have told it something.
+        checks: {
+          database_connected:    !missing ? false : true,
+          migrations_current:    !missing,
+          catalogue_imported:    false,
+          catalogue_active:      false,
+          destinations_approved: false,
+          sellable_destinations: false,
+          sippy_connected:       false,
+        },
         verdict: missing
           ? 'commercial catalogue TABLES ABSENT — migrations 500-503 have not run on this database'
           : e.message,
