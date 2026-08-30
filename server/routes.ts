@@ -40903,6 +40903,54 @@ ${footer}
           uploadToken?: string; uploadStatus?: string; verificationResult?: string;
         }[] = [];
 
+        // ── The job row is created BEFORE the first Sippy call, not after the last ───────
+        // It used to be inserted once every push had finished, which had two consequences.
+        // Push History read "No rate push jobs yet" for the whole duration — minutes on a
+        // batch, because each prefix polls Sippy for up to 30s — so an operator watching it
+        // saw no evidence that anything was happening. And a request cut short by the
+        // platform left NO record at all, even where Sippy had already been written to.
+        //
+        // A record that only exists on success cannot describe a failure, which is exactly
+        // the state that made "did the push run?" unanswerable.
+        const jobId   = `job-${Date.now()}`;
+        const totalOps = destList.length * accountNames.length;
+        const destNames = destList.length === 1
+          ? (destList[0] as any).destinationName ?? null
+          : destList.map(d => (d as any).destinationName ?? d.dialPrefix).join(', ').substring(0, 255);
+        try {
+          await db.insert(ratePushJobs).values({
+            jobId,
+            productName:      req.body.productName ?? null,
+            trunkPrefix:      trunkPrefix ?? null,
+            format:           format ?? 'full',
+            rateType:         req.body.rateType ?? 'current',
+            // `totalClients` holds the OPERATION count, not the client count. pushed/failed
+            // have always counted operations — one per destination per client — so a
+            // 2-prefix push to 1 client stored 2 against a total of 1 and rendered as "2/1".
+            // The mismatch predates this change and was invisible only because the row was
+            // written once, at the end, already complete. Progress made it legible.
+            // The column name is now wrong for multi-destination pushes; the numbers agree,
+            // which is the more useful of the two to be right about.
+            totalClients:     totalOps,
+            pushedClients:    0,
+            failedClients:    0,
+            status:           'processing',
+            switchName:       String(switchName).substring(0, 128),
+            fullPrefix:       destList.map(d => d.fullPrefix).join(', ').substring(0, 255),
+            effectiveAt:      effectiveFrom ?? null,
+            createdBy:        (req as any).user?.claims?.sub ?? 'system',
+            clientNames:      accountNames.join(', '),
+            dialPrefix:       destList.map(d => d.dialPrefix).join(', ').substring(0, 128),
+            destinationName:  destNames || null,
+            notificationType: (req.body as any).notificationType ?? null,
+            notes:            `Started: ${destList.length} destination(s) × ${accountNames.length} client(s) = ${totalOps} op(s)`,
+          });
+        } catch (e: any) {
+          // Non-fatal: a push must not be refused because its bookkeeping failed. But say so
+          // loudly, because the rest of this route now assumes the row exists.
+          console.error('[rate_push_jobs] could not create job row — push continues unrecorded:', e?.message || e);
+        }
+
         for (const dest of destList) {
           for (const accountName of accountNames) {
             try {
@@ -40925,6 +40973,18 @@ ${footer}
               results.push({ accountName, prefix: dest.fullPrefix, rate: dest.rate, success: false, message: e.message });
             }
           }
+
+          // Progress after each destination. Without it a five-minute push is a single
+          // opaque wait; with it, Push History shows which prefix it is on and how far in —
+          // which is also the measurement that will say whether the time is spent in Sippy's
+          // upload polling, the verification read-back, or somewhere else entirely.
+          try {
+            await db.update(ratePushJobs).set({
+              pushedClients: results.filter(r => r.success).length,
+              failedClients: results.filter(r => !r.success).length,
+              notes: `In progress: ${results.length}/${totalOps} op(s) — last ${dest.fullPrefix} @ ${new Date().toISOString()}`,
+            }).where(eq(ratePushJobs.jobId, jobId));
+          } catch { /* best-effort: never fail a push because a progress update did */ }
         }
 
         const ok    = results.filter(r => r.success).length;
@@ -40933,34 +40993,22 @@ ${footer}
         const methods = Array.from(new Set(results.map(r => r.method).filter(Boolean)));
         const prefixSummary = destList.map(d => `${d.fullPrefix}@${d.rate}`).join(', ');
 
+        // Finalise the row created before the loop. An UPDATE, not an INSERT: the record has
+        // existed since the push began, and completing it must never create a second one.
         try {
-          await db.insert(ratePushJobs).values({
-            jobId:              `job-${Date.now()}`,
-            productName:        req.body.productName ?? null,
-            trunkPrefix:        trunkPrefix ?? null,
-            format:             format ?? 'full',
-            rateType:           req.body.rateType ?? 'current',
-            totalClients:       accountNames.length,
+          await db.update(ratePushJobs).set({
             pushedClients:      ok,
             failedClients:      total - ok,
             status:             ok === total ? 'completed' : ok > 0 ? 'partial' : 'failed',
-            switchName:         String(switchName).substring(0, 128),
-            fullPrefix:         destList.map(d => d.fullPrefix).join(', ').substring(0, 255),
             newRate:            destList.length === 1 ? String(destList[0].rate) : prefixSummary.substring(0, 255),
-            effectiveAt:        effectiveFrom ?? null,
             pushMethod:         firstR?.method ?? null,
             uploadToken:        firstR?.uploadToken ?? null,
             uploadStatus:       firstR?.uploadStatus ?? null,
             verificationResult: firstR?.verificationResult ?? null,
             notes:              `Batch: ${prefixSummary} — ok=${ok}/${total} method=${methods.join(',') || 'n/a'}`,
-            createdBy:          (req as any).user?.claims?.sub ?? 'system',
             completedAt:        new Date(),
-            clientNames:        accountNames.join(', '),
-            dialPrefix:         destList.map(d => d.dialPrefix).join(', ').substring(0, 128),
-            destinationName:    (destList.length === 1 ? (destList[0] as any).destinationName ?? null : destList.map(d => (d as any).destinationName ?? d.dialPrefix).join(', ').substring(0, 255)) || null,
-            notificationType:   (req.body as any).notificationType ?? null,
-          });
-        } catch (e: any) { console.error('[rate_push_jobs] push-batch insert failed:', e?.message || e); }
+          }).where(eq(ratePushJobs.jobId, jobId));
+        } catch (e: any) { console.error('[rate_push_jobs] push-batch finalise failed:', e?.message || e); }
 
         res.json({ results, ok, total });
       } catch (e: any) { res.status(500).json({ error: e.message }); }
