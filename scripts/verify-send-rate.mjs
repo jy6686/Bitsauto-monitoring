@@ -4,6 +4,7 @@
  *
  *   node scripts/verify-send-rate.mjs                 # inspects the most recent push
  *   node scripts/verify-send-rate.mjs --job job-1787…  # inspects one specific push
+ *   node scripts/verify-send-rate.mjs --readiness-only # skips the push evidence — for a gate
  *
  * Reads DATABASE_URL from the environment, which a Replit shell already has set.
  *
@@ -28,6 +29,10 @@
 import { connect, run } from './lib/verify.mjs';
 
 const jobArg = process.argv.includes('--job') ? process.argv[process.argv.indexOf('--job') + 1] : null;
+// A release gate asks "may this be deployed", not "has someone tried it". Whether a human has
+// performed a push is an acceptance criterion for the feature, not a precondition for shipping
+// code — and a gate that demands one would block every deployment onto a fresh database.
+const readinessOnly = process.argv.includes('--readiness-only');
 
 const db = await connect();
 const r = run(jobArg
@@ -64,6 +69,8 @@ try {
           'PAKISTAN - MOBILE ZONG should own 9231 and 9237');
 
   // ── Evidence: did a real push actually expand? ───────────────────────────────────
+  if (readinessOnly) { r.report(); await db.close(); r.exit(); }
+
   const job = jobArg
     ? await db.row(`SELECT job_id, destination_name, full_prefix, status, created_at
         FROM rate_push_jobs WHERE job_id = $1`, [jobArg])

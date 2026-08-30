@@ -31,6 +31,23 @@ DATABASE_URL='…' npx tsx scripts/verify-rate-analysis.mjs
                  node  scripts/verify-deployment.mjs http://localhost:5000
 ```
 
+`verify-all.mjs` runs the first three as a **release gate** and exits non-zero if any fails.
+Run it against the database a deployment is about to serve:
+
+```
+DATABASE_URL='<the target database>' node scripts/verify-all.mjs
+```
+
+It refuses the exact situation of 2026-08-30 — a clean build shipped onto a database with no
+catalogue, replacing a working picker with an empty one — and names the reason before anyone
+opens a browser. Verified both ways: exit 1 against an empty database, exit 0 against a working
+one.
+
+It deliberately does **not** require that a human has performed a push. That is an acceptance
+criterion for Send Rate, not a precondition for deploying code, and demanding it would block
+every release onto a fresh database. So the gate runs `verify-send-rate --readiness-only`, and
+the push evidence stays a manual step.
+
 They share `scripts/lib/verify.mjs` — the same report format, the same exit contract, and the
 database named before anything else. Extracted at the third consumer, not the first: two
 scripts sharing an abstraction is a guess about what they have in common, three is evidence.
