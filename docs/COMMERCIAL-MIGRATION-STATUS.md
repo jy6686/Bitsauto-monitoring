@@ -58,6 +58,32 @@ scripts sharing an abstraction is a guess about what they have in common, three 
 `verify-catalogue` runs first. A resolver answering "unknown" for everything against an empty
 database is not a resolver failure, and a script that reports it as one wastes the next hour.
 
+## The standard
+
+> **No feature is complete until it has a verifier, and no verifier is complete until it has
+> failed for a real reason at least once.**
+
+A verifier that has only ever passed is untested. It may assert nothing, assert the wrong
+thing, or be incapable of failing — and all three look identical to a green tick. Every
+verifier here became trustworthy at the moment it failed, and each failure was different from
+what it was written to catch:
+
+| Verifier | What it caught, unplanned |
+|---|---|
+| `verify-catalogue` | Its own bug — `SELECT count(*)` with no `FROM` reported "1 version" against an empty database |
+| `verify-send-rate` | Its own bug — `ORDER BY created_at DESC` alone is non-deterministic, so "the most recent push" was not one row |
+| `verify-rate-analysis` | The **test** was wrong, not the resolver: `1` asserted a property of a seeded fixture, not of the code |
+| `verify-commercial` (gate) | A `\| tail` was swallowing the exit code — a gate reporting success on failure |
+| the release gate itself | It would have refused the deployment that cost a day |
+
+Four of those five were defects in the verification, not in the thing verified. That is the
+expected ratio early on, and it is the argument for the standard: a verifier is a claim about
+the system, and an unfalsified claim is not evidence.
+
+The corollary for the remaining modules — Rate Analysis, Product Rates, Vendor Rates, Deals,
+Notifications — is that a script passing first time is not yet reassuring. Run it against a
+state you know is broken before trusting it against one you hope is not.
+
 ## What the scripts are for, and what they are not
 
 They assert **meaning**, not response shape — that `19231` reaches Zong, not that some JSON key
