@@ -199,6 +199,20 @@ export function registerCommercialCatalogueRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── GET /api/commercial/resolve?prefix=19231 — the reverse lookup ────────────────────
+  // Rate Analysis reads live Sippy rates and must answer "which destination is this prefix",
+  // which the picker cannot do — it answers the opposite question. Shared service, because
+  // Push History, vendor comparison and margin reports all need the same answer.
+  app.get('/api/commercial/resolve',
+    (req: any, res, next) => requireRole(READ, req, res, next), async (req: any, res) => {
+    try {
+      const prefix = String(req.query.prefix ?? '').trim();
+      if (!prefix) return res.status(400).json({ error: 'prefix is required' });
+      const { resolvePrefix } = await import('./services/commercial/prefix-resolver');
+      res.json(await resolvePrefix(prefix));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── GET /api/commercial/ready — the deployment gate ─────────────────────────────────
   // UNAUTHENTICATED, and coarse for exactly that reason — the same trade /healthz already
   // makes. A gate that requires a login session cannot be called by a deploy step or a
