@@ -2485,6 +2485,28 @@ function SendRateTab({
           <div className="text-xs font-semibold text-foreground/70 mb-1 flex items-center gap-2">
             Add Destination
           </div>
+
+          {/* An empty dropdown is not a message. This screen rendered zero countries across
+              several sessions and looked identical whether the catalogue was missing, the
+              version inactive, nothing approved, or the environment simply the wrong one —
+              four causes, one appearance, and no way to tell them apart without a shell.
+              So it says which, and where it is looking. */}
+          {!pickerCountries.length && (
+            <div className="rounded border border-amber-500/40 bg-amber-500/[0.07] px-3 py-2.5 text-[11px] space-y-1">
+              <div className="font-semibold text-amber-700 dark:text-amber-500">
+                No destinations available in this environment
+              </div>
+              <div className="text-muted-foreground">
+                The commercial catalogue for this database is empty, has no active version, or has
+                nothing approved. Rates cannot be sent until it does.
+              </div>
+              <div className="text-muted-foreground">
+                Open <span className="font-mono">/api/commercial/health</span> — it names which,
+                and which database answered.
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1">
               <label className="text-[10px] text-muted-foreground font-medium">Country</label>
