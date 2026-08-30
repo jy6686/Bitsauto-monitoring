@@ -2167,7 +2167,10 @@ function SendRateTab({
   // Prefixes are no longer selectable anywhere on this screen.
   const [pickCountry, setPickCountry] = useState<string>("");
   const [pickType, setPickType] = useState<string>("");
-  const [pickOperatorId, setPickOperatorId] = useState<string>("");
+  // Several destinations at once, because "same rate to Zong, Ufone and Telenor" is one
+  // commercial decision and was three passes through the picker.
+  const [pickOperatorIds, setPickOperatorIds] = useState<string[]>([]);
+  const [queueing, setQueueing] = useState(false);
   const [price, setPrice] = useState<string>("");
   // ── Effective from the PLATFORM clock, not the browser's ───────────────────
   // This used to read `new Date()` in the browser and round DOWN to the hour. In Karachi
@@ -2229,13 +2232,33 @@ function SendRateTab({
   // The destination is the operator where one is chosen, otherwise the type node itself.
   // INDIA - MOBILE has no operator tier because the supplier does not sell one, and the
   // selection simply ends there rather than facing an empty dropdown.
-  const selectedDestId = pickOperatorId
-    || (pickTypeNode?.destinationId ? String(pickTypeNode.destinationId) : "");
+  // Everything selectable under this type: the type node itself where the supplier sells it
+  // (PAKISTAN - MOBILE), then its operators. One uniform list, so selection is just a set of
+  // ids rather than an operator-or-else-the-type special case.
+  const pickable = useMemo(() => {
+    if (!pickTypeNode) return [] as { id: number; name: string; label: string; prefixCount: number }[];
+    const rows = [];
+    if (pickTypeNode.destinationId) {
+      rows.push({ id: pickTypeNode.destinationId, name: `${pickCountry} - ${pickType}`,
+                  label: `All ${pickType}`, prefixCount: pickTypeNode.prefixCount });
+    }
+    return rows.concat(pickTypeNode.operators);
+  }, [pickTypeNode, pickCountry, pickType]);
+
+  const selectedPickables = useMemo(
+    () => pickable.filter(x => pickOperatorIds.includes(String(x.id))),
+    [pickable, pickOperatorIds],
+  );
+
+  // Prefix digits for the single-selection case only. With several selected the preview
+  // shows names and counts; the digits are fetched once, on commit, for whatever is queued.
+  const soleDestId = selectedPickables.length === 1 ? String(selectedPickables[0].id) : "";
   const { data: selectedDest } = useQuery<{ destination: { name: string }; prefixes: { prefix: string }[] }>({
-    queryKey: [`/api/commercial/destinations/${selectedDestId}`],
-    enabled: !!selectedDestId,
+    queryKey: [`/api/commercial/destinations/${soleDestId}`],
+    enabled: !!soleDestId,
   });
   const selectedPrefixes = (selectedDest?.prefixes ?? []).map(p => stripPlus(String(p.prefix)));
+  const selectedDestId = soleDestId;
   const selectedDestName = selectedDest?.destination?.name ?? "";
 
   const selectedClientAccounts = useMemo(
@@ -2243,29 +2266,65 @@ function SendRateTab({
     [accounts, selectedClients],
   );
 
-  const canAddToQueue = !!(selectedDestId && selectedPrefixes.length && price && parseFloat(price) > 0);
+  const canAddToQueue = !!(selectedPickables.length && price && parseFloat(price) > 0 && !queueing);
   const canSubmit = !!(selectedProduct && selectedClients.length > 0 && destQueue.length > 0 && !pushing);
 
-  // One commercial destination becomes one queue row PER PREFIX. This is the expansion the
-  // catalogue exists for: choosing PAKISTAN - MOBILE ZONG rates both 9231 and 9237, rather
-  // than whichever single code a dropdown happened to offer. The push endpoint already loops
-  // its destination list, so expanding here needs no server change.
-  const handleAddToQueue = () => {
+  // One queue row per commercial DESTINATION, carrying its prefixes. Choosing
+  // PAKISTAN - MOBILE ZONG rates both 9231 and 9237 as a single line item; the expansion to
+  // individual Sippy operations happens server-side, where it belongs.
+  const handleAddToQueue = async () => {
     if (!canAddToQueue) return;
     // Identity is the destination, so a second attempt at the same operator is a duplicate
     // even when its prefixes differ from what was queued last time.
-    if (destQueue.some(q => q.destLabel === selectedDestName)) {
-      toast({ title: "Already queued", description: `${selectedDestName} is already in the queue`, variant: "destructive" });
+    const fresh = selectedPickables.filter(x => !destQueue.some(q => q.destLabel === x.name));
+    const dupes = selectedPickables.length - fresh.length;
+    if (!fresh.length) {
+      toast({ title: "Already queued", description: "Every selected destination is already in the queue", variant: "destructive" });
       return;
     }
-    setDestQueue(prev => [...prev, {
-      qid: `${Date.now()}-${selectedDestId}`,
-      destLabel: selectedDestName,
-      dialPrefixes: selectedPrefixes,
-      rate: price,
-      effectiveFrom: effectiveDate,
-    }]);
-    setPickCountry(""); setPickType(""); setPickOperatorId(""); setPrice("");
+
+    // Prefixes are fetched HERE rather than per selection, so ticking six operators costs
+    // one round of requests at commit instead of six as you click.
+    setQueueing(true);
+    try {
+      const withPrefixes = await Promise.all(fresh.map(async x => {
+        const r = await fetch(`/api/commercial/destinations/${x.id}`);
+        if (!r.ok) throw new Error(`${x.name}: ${r.status}`);
+        const d = await r.json();
+        return { x, prefixes: (d?.prefixes ?? []).map((p: any) => stripPlus(String(p.prefix))) };
+      }));
+
+      // A destination with no prefixes cannot be pushed. Queueing it would produce a row that
+      // silently expands to nothing, which reads as success.
+      const pushable = withPrefixes.filter(w => w.prefixes.length > 0);
+      const empty    = withPrefixes.length - pushable.length;
+
+      if (pushable.length) {
+        setDestQueue(prev => [...prev, ...pushable.map((w, i) => ({
+          qid: `${Date.now()}-${w.x.id}-${i}`,
+          destLabel: w.x.name,
+          dialPrefixes: w.prefixes,
+          rate: price,
+          effectiveFrom: effectiveDate,
+        }))]);
+      }
+
+      const notes = [
+        dupes ? `${dupes} already queued` : "",
+        empty ? `${empty} had no prefixes` : "",
+      ].filter(Boolean).join(" · ");
+      toast({
+        title: `${pushable.length} destination${pushable.length === 1 ? "" : "s"} queued`,
+        description: notes || undefined,
+        variant: pushable.length ? "default" : "destructive",
+      });
+    } catch (e: any) {
+      toast({ title: "Could not queue", description: e.message, variant: "destructive" });
+      return;
+    } finally {
+      setQueueing(false);
+    }
+    setPickCountry(""); setPickType(""); setPickOperatorIds([]); setPrice("");
   };
 
   const handleSubmit = async () => {
@@ -2304,7 +2363,7 @@ function SendRateTab({
       // Auto-reset: return to clean state — results visible in Push History
       setDestQueue([]);
       setPushResults(null);
-      setPickCountry(""); setPickType(""); setPickOperatorId(""); setPrice("");
+      setPickCountry(""); setPickType(""); setPickOperatorIds([]); setPrice("");
     } catch (e: any) {
       toast({ title: "Push failed", description: e.message, variant: "destructive" });
     } finally {
@@ -2314,7 +2373,7 @@ function SendRateTab({
 
   const handleReset = () => {
     setSelectedProduct(""); setSelectedClients([]); setFormat("Default"); setRateType("Current");
-    setPickCountry(""); setPickType(""); setPickOperatorId("");
+    setPickCountry(""); setPickType(""); setPickOperatorIds([]);
     setPrice(""); setDestQueue([]); setPushResults(null);
     onProductChange?.("");
   };
@@ -2526,7 +2585,7 @@ function SendRateTab({
               <label className="text-[10px] text-muted-foreground font-medium">Country</label>
               <select
                 value={pickCountry}
-                onChange={e => { setPickCountry(e.target.value); setPickType(""); setPickOperatorId(""); }}
+                onChange={e => { setPickCountry(e.target.value); setPickType(""); setPickOperatorIds([]); }}
                 className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background"
                 data-testid="pick-country"
               >
@@ -2538,7 +2597,7 @@ function SendRateTab({
               <label className="text-[10px] text-muted-foreground font-medium">Type</label>
               <select
                 value={pickType}
-                onChange={e => { setPickType(e.target.value); setPickOperatorId(""); }}
+                onChange={e => { setPickType(e.target.value); setPickOperatorIds([]); }}
                 disabled={!pickCountryNode}
                 className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background disabled:opacity-50"
                 data-testid="pick-type"
@@ -2553,24 +2612,70 @@ function SendRateTab({
               <label className="text-[10px] text-muted-foreground font-medium">
                 Operator{pickTypeNode && !pickTypeNode.operators.length && <span className="opacity-60"> — none</span>}
               </label>
-              <select
-                value={pickOperatorId}
-                onChange={e => setPickOperatorId(e.target.value)}
-                disabled={!pickTypeNode?.operators.length}
-                className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background disabled:opacity-50"
-                data-testid="pick-operator"
-              >
-                <option value="">{pickTypeNode?.destinationId ? `All ${pickType}` : "Select operator"}</option>
-                {(pickTypeNode?.operators ?? []).map(o => (
-                  <option key={o.id} value={String(o.id)}>{o.label}</option>
-                ))}
-              </select>
+              {!pickable.length ? (
+                <div className="w-full text-xs border border-border/60 rounded px-2 py-1.5 bg-background opacity-50">
+                  {pickTypeNode ? "none" : "Select country and type first"}
+                </div>
+              ) : (
+                <div className="border border-border/60 rounded bg-background max-h-40 overflow-y-auto" data-testid="pick-operator">
+                  {pickable.map(o => {
+                    const id = String(o.id);
+                    const on = pickOperatorIds.includes(id);
+                    return (
+                      <label
+                        key={o.id}
+                        className="flex items-center gap-2 px-2 py-1 text-xs hover:bg-muted/20 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() => setPickOperatorIds(prev =>
+                            on ? prev.filter(x => x !== id) : [...prev, id])}
+                          className="accent-primary"
+                        />
+                        <span className="flex-1 truncate">{o.label}</span>
+                        {/* Count, not digits — how much this expands to, without naming codes. */}
+                        <span className="text-[10px] text-muted-foreground tabular-nums">{o.prefixCount}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              {pickable.length > 1 && (
+                <button
+                  onClick={() => setPickOperatorIds(
+                    pickOperatorIds.length === pickable.length ? [] : pickable.map(o => String(o.id)))}
+                  className="text-[10px] text-blue-400 hover:text-blue-300"
+                >
+                  {pickOperatorIds.length === pickable.length ? "Clear all" : `Select all ${pickable.length}`}
+                </button>
+              )}
             </div>
           </div>
 
           {/* Every prefix this destination expands to, before it is committed. The operator
               never chooses one — that is what stops a `92300` reaching Sippy — but they see
               exactly what will be pushed. */}
+          {/* More than one selected: names and counts. The digits are not shown for a bulk
+              selection because nobody reads forty codes to confirm four operators, and they
+              are fetched on commit anyway. */}
+          {selectedPickables.length > 1 && (
+            <div className="rounded border border-border/50 bg-background/60 px-3 py-2 text-[11px]">
+              <div className="font-medium mb-1">
+                {selectedPickables.length} destinations selected
+                <span className="text-muted-foreground font-normal">
+                  {" "}· {selectedPickables.reduce((a, x) => a + x.prefixCount, 0)} prefixes will be pushed
+                </span>
+              </div>
+              {selectedPickables.map(x => (
+                <div key={x.id} className="text-muted-foreground truncate">{x.name}</div>
+              ))}
+              <div className="text-muted-foreground/70 mt-1">
+                One rate and one effective time applies to all of them.
+              </div>
+            </div>
+          )}
+
           {selectedDestId && (
             <div className="rounded border border-border/50 bg-background/60 px-3 py-2 text-[11px]">
               <div className="font-medium">{selectedDestName}</div>
