@@ -77,9 +77,20 @@ has a different fix and three of them are not code.
 
 ### An empty picker beside a populated catalogue page
 
-**Added 2026-08-30.** `/api/commercial/health` names four causes of an empty picker: tables
-absent, nothing imported, no active version, nothing approved. There is a fifth it cannot see,
-and it is the most confusing because the screen next door looks healthy.
+**Added 2026-08-30.** There are **four causes** of an empty picker and **five situations an
+operator meets**, because one cause presents two entirely different ways. Keeping those apart
+matters: looking for a fifth fix wastes the time the fifth situation already cost.
+
+| Root cause | What the operator sees |
+|---|---|
+| Migrations missing | Empty picker · health reports tables absent |
+| Catalogue never imported | Empty picker · health reports `versions: 0` |
+| ⤷ *the same cause, deceptive form* | **…beside a fully populated Destination Catalog** |
+| Imported but not activated | Empty picker · a version exists, none active |
+| Active but nothing approved | Empty picker · `sellable: 0` |
+
+The deceptive form is what cost an afternoon twice. `/api/commercial/health` diagnoses it
+correctly every time; what it cannot see is the healthy-looking screen next door.
 
 **Two destination models coexist in the same database.** The Destination Catalog page reads the
 legacy `destinations` table through `/api/product-registry/destinations`; Send Rate reads
