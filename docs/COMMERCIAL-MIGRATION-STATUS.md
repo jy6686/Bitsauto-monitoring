@@ -31,17 +31,20 @@ DATABASE_URL='…' npx tsx scripts/verify-rate-analysis.mjs
                  node  scripts/verify-deployment.mjs http://localhost:5000
 ```
 
-`verify-all.mjs` runs the first three as a **release gate** and exits non-zero if any fails.
+`verify-commercial.mjs` runs the first three as a **release gate** and exits non-zero if any fails.
 Run it against the database a deployment is about to serve:
 
 ```
-DATABASE_URL='<the target database>' node scripts/verify-all.mjs
+DATABASE_URL='<the target database>' node scripts/verify-commercial.mjs
 ```
 
 It refuses the exact situation of 2026-08-30 — a clean build shipped onto a database with no
 catalogue, replacing a working picker with an empty one — and names the reason before anyone
 opens a browser. Verified both ways: exit 1 against an empty database, exit 0 against a working
 one.
+
+Note the name: `scripts/verify-all.mjs` is a **different, pre-existing** script that verifies
+Sippy provisioning. The commercial gate is `verify-commercial.mjs`.
 
 It deliberately does **not** require that a human has performed a push. That is an acceptance
 criterion for Send Rate, not a precondition for deploying code, and demanding it would block
