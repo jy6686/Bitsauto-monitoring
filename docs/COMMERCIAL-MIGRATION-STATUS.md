@@ -14,7 +14,7 @@ for hours.
 | Approval + activation | `verify-catalogue.mjs` | ✅ | ✅ workspace |
 | Review console | — *(manual)* | ✅ | ⏳ |
 | Diagnostics + readiness | `verify-deployment.mjs` | ✅ | ✅ |
-| Send Rate on the catalogue | *needs a script* | ✅ | ⏳ real push |
+| Send Rate on the catalogue | `verify-send-rate.mjs` | ✅ | ⏳ **one real push, then re-run** |
 | **Reverse prefix resolver** | `verify-rate-analysis.mjs` | ✅ **20/20** | ⏳ live Sippy |
 | Rate Analysis UI | — | ❌ | ❌ |
 | Product Rates | — | ❌ | ❌ |
@@ -26,9 +26,14 @@ for hours.
 
 ```
 DATABASE_URL='…' node  scripts/verify-catalogue.mjs --expect-sellable 1344
+DATABASE_URL='…' node  scripts/verify-send-rate.mjs
 DATABASE_URL='…' npx tsx scripts/verify-rate-analysis.mjs
                  node  scripts/verify-deployment.mjs http://localhost:5000
 ```
+
+They share `scripts/lib/verify.mjs` — the same report format, the same exit contract, and the
+database named before anything else. Extracted at the third consumer, not the first: two
+scripts sharing an abstraction is a guess about what they have in common, three is evidence.
 
 `verify-catalogue` runs first. A resolver answering "unknown" for everything against an empty
 database is not a resolver failure, and a script that reports it as one wastes the next hour.
@@ -43,6 +48,23 @@ They do not replace using the thing. `verify-rate-analysis` passing means the re
 correct about the ten questions it was asked. Whether Rate Analysis is *usable* is a judgement
 only a person looking at the screen can make, which is why **Implemented** and **Complete** are
 separate columns and only the first can be automated.
+
+## What a script cannot prove about Send Rate
+
+Two links in `picker → selection → expansion → queue → request → rate_push_jobs → Sippy` are
+not script-verifiable, and pretending otherwise would be worse than leaving them out:
+
+- the **queue** lives in React state, reachable only from a browser;
+- the **Sippy write** changes a live switch, and a script that performs one to prove it works
+  has altered a customer's tariff to make a test pass.
+
+So `verify-send-rate.mjs` proves everything up to the request, then **inspects the most recent
+real push** to confirm the expansion survived into the database. Do one push by hand; the
+script tells you whether it landed. The parts a machine can check without consequences, and
+one deliberate human action it can then audit.
+
+It fails when the last push has fewer prefixes than the destination owns — the exact regression
+where expansion stops at the queue and only one of Zong's two prefixes reaches Sippy.
 
 ## Rate Analysis must show WHY, not just what
 
