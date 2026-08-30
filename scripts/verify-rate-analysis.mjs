@@ -32,6 +32,20 @@ const CASES = [
   ['9233',        'exact',         'PAKISTAN - MOBILE UFONE',      'operator-level'],
   ['91',          'exact',         'INDIA - FIXED',                'a country with no operator tier still resolves'],
   ['1',           'unknown',       null,                           'a bare trunk digit is not a destination'],
+
+  // Overlap. The catalogue holds 923 AND 9231; a query for 9231 must not settle for 923,
+  // and one for 923 must not be dragged down to an operator it does not name.
+  ['9231',        'exact',         'PAKISTAN - MOBILE ZONG',       'overlap: the longer prefix wins over its own parent'],
+  ['9239',        'longest_match', 'PAKISTAN - MOBILE',            'overlap: an unsold operator range falls back to the country level, not to nothing'],
+
+  // Input the resolver will be handed by a UI, a CSV, or a person. None of these may throw,
+  // and none may resolve to something — a malformed prefix is not a destination.
+  ['',            'unknown',       null,                           'empty input'],
+  ['abc',         'unknown',       null,                           'non-numeric'],
+  ['92-31',       'unknown',       null,                           'punctuation is not stripped and must not resolve'],
+  ['92 31',       'unknown',       null,                           'embedded space'],
+  ['  9231  ',    'exact',         'PAKISTAN - MOBILE ZONG',       'surrounding whitespace IS trimmed — a paste from a spreadsheet must work'],
+  ['+9231',       'exact',         'PAKISTAN - MOBILE ZONG',       'a leading + is E.164 notation, not a typo'],
 ];
 
 const results = [];
@@ -53,6 +67,26 @@ results.push({
   ok: fc.destinationId !== null && fc.destinationId === bc.destinationId,
   got: `FC→${fc.destinationId} BC→${bc.destinationId}`, want: 'same destination id',
 });
+
+// legacy_only, exercised for real rather than assumed reachable. It needs a prefix that no
+// commercial prefix matches — 881 on this catalogue — present in the LEGACY table. Without
+// this the code path ships untested, and it is the one an operator meets on the day a
+// supplier drops a destination.
+try {
+  const { db } = await import('../server/db.ts');
+  const { sql } = await import('drizzle-orm');
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS destinations (id SERIAL PRIMARY KEY, name TEXT, dial_prefix TEXT)`);
+  await db.execute(sql`INSERT INTO destinations (name, dial_prefix)
+    SELECT 'Retired Satellite Service', '881'
+     WHERE NOT EXISTS (SELECT 1 FROM destinations WHERE dial_prefix = '881')`);
+  const leg = await resolvePrefix('881');
+  results.push({ query: '881 (legacy)', why: 'in Sippy and the old catalogue, absent from the new one',
+    ok: leg.match === 'legacy_only' && leg.legacyName === 'Retired Satellite Service',
+    got: `${leg.match} → ${leg.legacyName ?? leg.destination ?? '—'}`, want: 'legacy_only → Retired Satellite Service' });
+} catch (e) {
+  results.push({ query: '881 (legacy)', why: 'legacy table unavailable on this database',
+    ok: false, got: `ERROR ${e.message}`, want: 'legacy_only' });
+}
 
 for (const r of results) {
   console.log(`  ${r.ok ? '✓' : '✗'} ${String(r.query).padEnd(18)} ${r.got.padEnd(46)} ${r.ok ? '' : `want: ${r.want}`}`);

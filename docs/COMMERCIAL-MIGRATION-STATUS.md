@@ -15,7 +15,7 @@ for hours.
 | Review console | — *(manual)* | ✅ | ⏳ |
 | Diagnostics + readiness | `verify-deployment.mjs` | ✅ | ✅ |
 | Send Rate on the catalogue | *needs a script* | ✅ | ⏳ real push |
-| **Reverse prefix resolver** | `verify-rate-analysis.mjs` | ✅ **11/11** | ⏳ live Sippy |
+| **Reverse prefix resolver** | `verify-rate-analysis.mjs` | ✅ **20/20** | ⏳ live Sippy |
 | Rate Analysis UI | — | ❌ | ❌ |
 | Product Rates | — | ❌ | ❌ |
 | Vendor Rates | — | ❌ | ❌ |
@@ -43,6 +43,24 @@ They do not replace using the thing. `verify-rate-analysis` passing means the re
 correct about the ten questions it was asked. Whether Rate Analysis is *usable* is a judgement
 only a person looking at the screen can make, which is why **Implemented** and **Complete** are
 separate columns and only the first can be automated.
+
+## Rate Analysis must show WHY, not just what
+
+A destination name alone is not troubleshootable. The resolver returns `match` and
+`matchedPrefix` precisely so the screen can say which:
+
+| Prefix | Resolution | Destination |
+|---|---|---|
+| `9231` | Exact | PAKISTAN - MOBILE ZONG |
+| `923123456` | Longest match (9231) | PAKISTAN - MOBILE ZONG |
+| `92300` | Longest match (9230) | PAKISTAN - MOBILE MOBILINK |
+| `881` | Legacy only | *(Sippy has it; the catalogue does not)* |
+| `88` | Unknown | — |
+
+`legacy_only` is kept as a diagnostic even though it is not the KPI. It is the honest answer
+when a supplier drops a destination, when a prefix was created by hand in Sippy, or when an old
+tariff outlives a catalogue cleanup — and an operator seeing it knows immediately that the rate
+exists in the switch and nowhere else.
 
 ## The migration KPI
 
