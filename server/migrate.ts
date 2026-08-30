@@ -44,7 +44,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 /**
  * Migrations numbered at or below this are treated as history: recorded as
@@ -59,6 +59,40 @@ export const RUNNER_VERSION = 1;
 
 /** Postgres advisory lock key — prevents two booting instances racing. */
 const LOCK_KEY = 4_073_800_047;
+
+/** How long to keep trying for the advisory lock before giving up and booting anyway. */
+const LOCK_WAIT_MS = 20_000;
+
+/**
+ * How long any ONE statement will wait for a table lock. An `ALTER TABLE ... ADD COLUMN`
+ * needs ACCESS EXCLUSIVE, so an unrelated session holding any lock on that table blocks it
+ * indefinitely — and blocks the boot behind it. Failing the migration is recoverable and
+ * visible on /schema-migrations; hanging the process is neither.
+ *
+ * This is a LOCK timeout, not a statement timeout: a migration that legitimately takes
+ * minutes to rewrite a large table is unaffected. Only waiting for someone else is capped.
+ */
+const LOCK_TIMEOUT = "15s";
+
+/**
+ * pg_try_advisory_lock in a bounded loop rather than pg_advisory_lock, which has no timeout
+ * parameter at all. Returns false if the lock could not be taken in time; the caller reports
+ * `incomplete` and lets the application start.
+ */
+async function acquireLock(client: PoolClient): Promise<boolean> {
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  let attempt = 0;
+  for (;;) {
+    const { rows } = await client.query<{ locked: boolean }>(
+      `SELECT pg_try_advisory_lock($1) AS locked`, [LOCK_KEY],
+    );
+    if (rows[0]?.locked) return true;
+    if (Date.now() >= deadline) return false;
+    attempt++;
+    if (attempt === 1) console.warn("[migrate] advisory lock busy — another instance is migrating; waiting…");
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
 
 const MIGRATION_FILE = /^(\d{3})_[A-Za-z0-9_.-]+\.sql$/;
 
@@ -312,6 +346,12 @@ export async function runFileMigrations(pool: Pool): Promise<MigrationOutcome> {
   const files = readdirSync(dir).filter((f) => MIGRATION_FILE.test(f)).sort();
   const client = await pool.connect();
 
+  // Applies to this session only, so it cannot affect application queries. An ALTER TABLE
+  // waiting on someone else's lock now FAILS the migration — visible, recoverable, reported
+  // on /schema-migrations — instead of stalling the boot before routes are registered.
+  await client.query(`SET lock_timeout = '${LOCK_TIMEOUT}'`).catch((e: any) =>
+    console.warn(`[migrate] could not set lock_timeout (${e?.message}); a blocked migration may stall the boot`));
+
   // Surface RAISE NOTICE. Migrations report what their backfills actually did through
   // NOTICE — which rows were adopted, which were skipped, which company needs a human.
   // node-postgres emits those as a client event and drops them if nobody listens, so
@@ -364,7 +404,27 @@ export async function runFileMigrations(pool: Pool): Promise<MigrationOutcome> {
 
     // Serialise across concurrently booting instances. Whoever loses the race waits,
     // then finds every migration already recorded and applies nothing.
-    await client.query(`SELECT pg_advisory_lock($1)`, [LOCK_KEY]);
+    //
+    // BOUNDED, because this call sits between the process starting and registerRoutes().
+    // pg_advisory_lock() waits forever by default, and "forever" here does not mean a slow
+    // migration — it means the application never finishes booting. Observed exactly that on
+    // a preview deployment: /healthz answered `status: ok, migrations: pending` for six
+    // minutes while every /api route returned "Cannot GET", because the boot never reached
+    // the line that registers them. A health probe reporting ok while the app has no routes
+    // is worse than a crash: nothing restarts it and nothing pages anyone.
+    //
+    // The runner already promises never to throw so the app starts anyway. An unbounded wait
+    // defeats that promise without breaking it — it does not throw, it simply never returns.
+    if (!(await acquireLock(client))) {
+      outcome.failed = {
+        file: "(lock)",
+        error: `Could not acquire the migration advisory lock within ${Math.round(LOCK_WAIT_MS / 1000)}s — another session is holding it. Nothing was applied.`,
+      };
+      console.error(`[migrate] LOCK BUSY — ${outcome.failed.error}`);
+      console.error("[migrate] Find the holder: SELECT pid, state, query, state_change FROM pg_stat_activity a JOIN pg_locks l ON l.pid = a.pid WHERE l.locktype = 'advisory' AND l.objid = " + String(LOCK_KEY) + ";");
+      lastOutcome = outcome;
+      return outcome;
+    }
 
     try {
       const { rows } = await client.query<{ filename: string; checksum: string | null }>(

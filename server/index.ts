@@ -300,8 +300,19 @@ app.use((req, res, next) => {
   ]);
   boot("6 runSafeMigrations() done");
   boot("6a runFileMigrations() starting");
-  await runFileMigrations(pool);
-  boot("6b runFileMigrations() done");
+  // Raced, exactly as runSafeMigrations() above is. That asymmetry was the bug: this line
+  // sits before registerRoutes(), so anything that made it hang took the whole application
+  // down while /healthz kept answering `status: ok`. Observed on a preview deployment —
+  // six minutes of uptime, every /api route returning "Cannot GET", nothing to restart it.
+  //
+  // The runner keeps going in the background if it overruns; it holds its own advisory lock,
+  // so a second instance cannot collide with it. Routes coming up beside a still-running
+  // migration is a worse-but-recoverable state. Routes never coming up is neither.
+  await Promise.race([
+    runFileMigrations(pool),
+    new Promise<void>(r => setTimeout(r, 120_000)),
+  ]);
+  boot("6b runFileMigrations() done (or still running in background)");
   await reportSchemaContract(pool);
   console.log("[db] connected:", (process.env.DATABASE_URL ?? "").replace(/:\/\/[^:]+:[^@]+@/, "://<user>:***@"));
   // Schema check is diagnostic-only — run async so it doesn't delay routes
