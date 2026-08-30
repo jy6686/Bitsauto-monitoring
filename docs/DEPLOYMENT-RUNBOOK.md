@@ -75,6 +75,50 @@ satisfy the first completely while failing the second.
 be guessed between: tables absent, nothing imported, no active version, nothing approved. Each
 has a different fix and three of them are not code.
 
+### An empty picker beside a populated catalogue page
+
+**Added 2026-08-30.** `/api/commercial/health` names four causes of an empty picker: tables
+absent, nothing imported, no active version, nothing approved. There is a fifth it cannot see,
+and it is the most confusing because the screen next door looks healthy.
+
+**Two destination models coexist in the same database.** The Destination Catalog page reads the
+legacy `destinations` table through `/api/product-registry/destinations`; Send Rate reads
+`commercial_destinations` through `/api/commercial/picker`. Measured on production, in one
+request, at one instant:
+
+```
+database                       neondb
+legacy destinations            153,233   (page shows 150,722 approved)
+commercial catalogue           0 versions, 0 destinations, 0 sellable
+picker countries               0
+```
+
+Every one of those is true together. A populated Destination Catalog is **not** evidence that
+the commercial catalogue exists, and will keep reading 153,233 until that page is itself
+migrated — the last module in the sequence, not the first.
+
+**The one-glance test is the hyphen.** Supplier names carry a separator; legacy names do not.
+
+```
+legacy       Afghanistan Mobile AWCC        Pakistan Mobile Mobilink
+commercial   AFGHANISTAN - MOBILE AWCC      PAKISTAN - MOBILE MOBILINK
+```
+
+Zero of the 153,233 legacy names contain `" - "`. The second tell is duplication: the legacy
+tree lists `9370`, `9371` and `93711` as three separate `Afghanistan Mobile AWCC` rows, where
+the commercial catalogue holds that identity **once** with three prefixes behind it. Seeing the
+repetition means you are looking at the old model, whatever the page is titled.
+
+### Diagnosing an empty picker, in order
+
+Establish each before assuming the next, because four of the five look identical on screen:
+
+1. `/api/commercial/health` — which database answered, and its verdict
+2. the naming heuristic on whatever screen looks populated — legacy or commercial?
+3. `/api/commercial/picker` — empty array, or data the UI is discarding?
+4. compare the database identity against the shell you have been querying
+5. only then suspect query filters
+
 ### The environments are not the same database
 
 Measured 2026-08-30 from each side's own boot log:
