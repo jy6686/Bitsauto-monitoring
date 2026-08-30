@@ -40821,6 +40821,11 @@ ${footer}
   app.post('/api/rate-manager/push-batch',
     (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
     async (req: any, res) => {
+      // Logged before anything can fail, so the deployment log distinguishes the one state
+      // the job row cannot: a request that never arrived. "No row" then means either the
+      // request did not reach this route, or the insert below failed — and only one of those
+      // leaves a line here.
+      console.log(`[push-batch] request received — ${(req.body?.accountNames ?? []).length} client(s), ${(req.body?.destinations ?? []).length} destination(s)`);
       try {
         const settings = await storage.getSettings();
         const {
