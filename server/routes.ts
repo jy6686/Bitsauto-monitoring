@@ -40825,6 +40825,10 @@ ${footer}
       // the job row cannot: a request that never arrived. "No row" then means either the
       // request did not reach this route, or the insert below failed — and only one of those
       // leaves a line here.
+      // Total request wall-clock, started at the earliest point the route controls. When a
+      // background worker replaces this, THIS is the number the worker has to beat, and it
+      // has to have been measured beforehand to be worth anything.
+      const requestStart = Date.now();
       console.log(`[push-batch] request received — ${(req.body?.accountNames ?? []).length} client(s), ${(req.body?.destinations ?? []).length} destination(s)`);
       try {
         const settings = await storage.getSettings();
@@ -40952,6 +40956,9 @@ ${footer}
             destinationName:  destNames || null,
             notificationType: (req.body as any).notificationType ?? null,
             notes:            `Started: ${destList.length} destination(s) × ${accountNames.length} client(s) = ${totalOps} op(s)`,
+            startedAt:        new Date(),
+            lastStep:         'queued',
+            lastStepAt:       new Date(),
           });
         } catch (e: any) {
           // Non-fatal: a push must not be refused because its bookkeeping failed. But say so
@@ -40962,6 +40969,17 @@ ${footer}
         for (const dest of destList) {
           for (const accountName of accountNames) {
             const startedAt = Date.now();
+
+            // Where we are, before the call rather than after it — an operation that never
+            // returns is precisely the one whose position needs to be on record.
+            const mark = (step: string, extra: Record<string, unknown> = {}) => {
+              db.update(ratePushJobs)
+                .set({ lastStep: step, lastStepAt: new Date(), lastClient: accountName.substring(0, 160), lastPrefix: dest.fullPrefix.substring(0, 32), ...extra })
+                .where(eq(ratePushJobs.jobId, jobId))
+                .catch(() => { /* position reporting must never fail a push */ });
+            };
+            mark('queued');
+
             try {
               const r = await sippy.pushRateToSippy(
                 {
@@ -40976,14 +40994,22 @@ ${footer}
                 { username, password },
                 portalUrl,
                 adminCreds,
+                // Real phase boundaries, reported from inside the Sippy client. The route
+                // cannot see them: from here the entire push is a single await.
+                (step, detail) => {
+                  console.log(`[push-batch] ${dest.fullPrefix} → ${accountName}: ${step}${detail ? ` (${detail})` : ''} @ ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+                  mark(step);
+                },
               );
               const ms = Date.now() - startedAt;
               console.log(`[push-batch] ${dest.fullPrefix} → ${accountName}: ${r.success ? 'ok' : 'FAILED'} in ${(ms / 1000).toFixed(1)}s (${r.method ?? 'no method'}) ${r.success ? '' : r.message}`);
               results.push({ accountName, prefix: dest.fullPrefix, rate: dest.rate, ...r, ms });
+              if (!r.success) mark('failed', { errorMessage: `${dest.fullPrefix} → ${accountName}: ${r.message}`.substring(0, 2000) });
             } catch (e: any) {
               const ms = Date.now() - startedAt;
               console.log(`[push-batch] ${dest.fullPrefix} → ${accountName}: THREW in ${(ms / 1000).toFixed(1)}s — ${e.message}`);
               results.push({ accountName, prefix: dest.fullPrefix, rate: dest.rate, success: false, message: e.message, ms });
+              mark('failed', { errorMessage: `${dest.fullPrefix} → ${accountName}: ${e.message}`.substring(0, 2000) });
             }
           }
 
@@ -41005,6 +41031,7 @@ ${footer}
         const firstR = results[0];
         const methods = Array.from(new Set(results.map(r => r.method).filter(Boolean)));
         const prefixSummary = destList.map(d => `${d.fullPrefix}@${d.rate}`).join(', ');
+        const requestMs = Date.now() - requestStart;
 
         // Finalise the row created before the loop. An UPDATE, not an INSERT: the record has
         // existed since the push began, and completing it must never create a second one.
@@ -41020,12 +41047,25 @@ ${footer}
             verificationResult: firstR?.verificationResult ?? null,
             // Per-operation timings survive into the record, so "why was it slow" is
             // answerable from the row rather than only from logs that may have rotated.
-            notes:              `Batch: ${prefixSummary} — ok=${ok}/${total} method=${methods.join(',') || 'n/a'} | timings ${results.map(r => `${r.prefix}:${((r.ms ?? 0) / 1000).toFixed(1)}s`).join(' ')}`.substring(0, 2000),
+            notes:              `Batch: ${prefixSummary} — ok=${ok}/${total} method=${methods.join(',') || 'n/a'} | timings ${results.map(r => `${r.prefix}:${((r.ms ?? 0) / 1000).toFixed(1)}s`).join(' ')} | request ${(requestMs / 1000).toFixed(1)}s`.substring(0, 2000),
+            // A terminal step, so the UI never renders a finished job as still working.
+            lastStep:           ok === total ? 'completed' : 'failed',
+            lastStepAt:         new Date(),
+            // The first failure, kept as a field rather than buried in prose. Null on a clean
+            // run, so a non-null error_message always means something actually went wrong.
+            errorMessage:       results.find(r => !r.success)
+                                  ? `${results.filter(r => !r.success).length}/${total} failed — first: ${results.find(r => !r.success)!.prefix} → ${results.find(r => !r.success)!.accountName}: ${results.find(r => !r.success)!.message}`.substring(0, 2000)
+                                  : null,
             completedAt:        new Date(),
           }).where(eq(ratePushJobs.jobId, jobId));
         } catch (e: any) { console.error('[rate_push_jobs] push-batch finalise failed:', e?.message || e); }
 
-        res.json({ results, ok, total });
+        // Sippy time versus everything else. If these are close, the push IS the request and
+        // a worker is the only way to shorten it; if they diverge, the overhead is ours.
+        const sippyMs = results.reduce((a, r) => a + (r.ms ?? 0), 0);
+        console.log(`[push-batch] done — ${ok}/${total} ok in ${(requestMs / 1000).toFixed(1)}s total (${(sippyMs / 1000).toFixed(1)}s in Sippy, ${((requestMs - sippyMs) / 1000).toFixed(1)}s elsewhere)`);
+
+        res.json({ results, ok, total, requestMs, sippyMs });
       } catch (e: any) { res.status(500).json({ error: e.message }); }
     },
   );

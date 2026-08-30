@@ -4512,6 +4512,16 @@ export const ratePushJobs = pgTable("rate_push_jobs", {
   createdBy:          varchar("created_by",         { length: 128 }),
   createdAt:          timestamp("created_at").defaultNow().notNull(),
   completedAt:        timestamp("completed_at"),
+  // ── Live position (migration 084) ──────────────────────────────────────────
+  // Where the push is RIGHT NOW. `notes` remains the human summary; nothing parses it.
+  startedAt:          timestamp("started_at"),
+  lastClient:         varchar("last_client",        { length: 160 }),
+  lastPrefix:         varchar("last_prefix",        { length: 32  }),
+  // queued|token|uploading|polling|verifying|fallback|completed|failed — emitted from
+  // inside the Sippy client at real phase boundaries, so it cannot claim a step it is not in.
+  lastStep:           varchar("last_step",          { length: 24  }),
+  lastStepAt:         timestamp("last_step_at"),
+  errorMessage:       text("error_message"),
   // ── Diagnostic fields (Phase A/C/E of Task #327) ───────────────────────────
   switchName:         varchar("switch_name",        { length: 128 }),
   iTariff:            integer("i_tariff"),

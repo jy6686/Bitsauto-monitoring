@@ -6821,7 +6821,7 @@ export async function pushRateToSippy(opts: {
   effectiveFrom?: string | Date;
   effectiveTo?: string | Date;
   format?: 'full' | 'partial' | 'default';
-}, credentials: { username: string; password: string }, targetUrl?: string, adminCreds?: RateAdminCreds): Promise<SippyPushResult> {
+}, credentials: { username: string; password: string }, targetUrl?: string, adminCreds?: RateAdminCreds, onProgress?: RatePushProgress): Promise<SippyPushResult> {
   const baseUrl = targetUrl ?? activeSession?.portalUrl;
   if (!baseUrl) return { success: false, message: 'Not connected to Sippy.' };
 
@@ -6871,6 +6871,7 @@ export async function pushRateToSippy(opts: {
       { prefix: opts.prefix, rate: opts.ratePerMin, effectiveFrom: toStr(opts.effectiveFrom), effectiveTill: toStr(opts.effectiveTo) },
       baseUrl,
       adminCreds,
+      onProgress,
     );
   }
 
@@ -9206,6 +9207,18 @@ export async function uploadRatesWorkbook(
     message: `Upload finished with status ${status} but only ${verified}/${sample.length} sampled rate(s) read back — the tariff does not hold what was sent` };
 }
 
+/**
+ * Where a single rate push currently is. Emitted from inside this module because the
+ * caller cannot see these boundaries — from `routes.ts` the whole push is one await, so
+ * a step written there could only ever say "pushing".
+ *
+ * `fallback` is the one that matters most: it means the upload path did not take, and
+ * the code is now guessing at write methods via system.listMethods. That is both the
+ * slow path and the one that leaves a tariff empty while still reporting progress.
+ */
+export type RatePushStep = 'token' | 'uploading' | 'polling' | 'verifying' | 'fallback';
+export type RatePushProgress = (step: RatePushStep, detail?: string) => void;
+
 export async function setSippyRateEntry(
   username: string,
   password: string,
@@ -9213,11 +9226,18 @@ export async function setSippyRateEntry(
   entry: { prefix: string; rate: number; effectiveFrom?: string; effectiveTill?: string; iRate?: number },
   portalUrl?: string,
   adminCreds?: RateAdminCreds,
+  onProgress?: RatePushProgress,
 ): Promise<{ success: boolean; message: string; method?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string }> {
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
   const lastErrors: string[] = [];
+
+  // A reporting callback must never be able to fail a push. If the caller's handler
+  // throws, that is the caller's problem and the rate still needs to go to Sippy.
+  const step = (s: RatePushStep, detail?: string) => {
+    try { onProgress?.(s, detail); } catch { /* reporting is not load-bearing */ }
+  };
 
   // ── Phase A: structured diagnostic logging ──────────────────────────────────
   console.log(`[RateManager] Push — tariff=${tariffId} prefix=${entry.prefix} rate=${entry.rate} effective=${entry.effectiveFrom ?? 'immediate'} till=${entry.effectiveTill ?? 'never'}`);
@@ -9238,6 +9258,7 @@ export async function setSippyRateEntry(
   // accepted. Without it some builds schedule processing far out and the status sits at
   // FILE_UPLOADED, which is why it was here originally.
   const processOn = sippyUploadTimestamp(10_000);
+    step('token');
     const tokenXml  = buildGetUploadTokenXml(
       await resolveUploadType(username, password, base, 'rates'),
       processOn, undefined, { i_tariff: Number(tariffId) });
@@ -9260,11 +9281,15 @@ export async function setSippyRateEntry(
         );
         console.log(`[RateManager] Upload XLSX: prefix=${entry.prefix} rate=${entry.rate} effective=${normDateLocal(entry.effectiveFrom) || 'immediate'} till=${normDateLocal(entry.effectiveTill) || 'never'} bytes=${xlsxBuffer.length}`);
 
+        step('uploading', `${xlsxBuffer.length} bytes`);
         const uploadResult = await uploadBinaryFile(uploadUrl, xlsxBuffer, 'rates.xlsx');
         console.log(`[RateManager] File upload: success=${uploadResult.success} body=${uploadResult.body.substring(0, 200)}`);
 
         if (uploadResult.success) {
           let finalStatus = 'FILE_UPLOADED';
+          // Up to 15 × 2s, and the sleep comes FIRST — so this loop costs 30s per prefix
+          // even when Sippy finished instantly. That is the floor under every batch.
+          step('polling');
           for (let poll = 1; poll <= 15; poll++) {
             await new Promise(res => setTimeout(res, 2000));
             try {
@@ -9283,6 +9308,7 @@ export async function setSippyRateEntry(
           }
 
           if (finalStatus === 'DONE') {
+            step('verifying');
             const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base);
             console.log(`[RateManager] Verification (upload_token): ${verifyResult.message}`);
             if (verifyResult.confirmed) {
@@ -9308,6 +9334,7 @@ export async function setSippyRateEntry(
           // this Sippy build — the import may have completed silently.  Verify before
           // falling through so a working upload doesn't get discarded.
           if (finalStatus === 'FILE_UPLOADED') {
+            step('verifying');
             const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base);
             console.log(`[RateManager] Verification after FILE_UPLOADED (upload_token): ${verifyResult.message}`);
             if (verifyResult.confirmed) {
@@ -9389,6 +9416,9 @@ export async function setSippyRateEntry(
   // ── Discover available methods via system.listMethods ───────────────────────
   // Filter for any write methods related to "rate" or "tariff" that we haven't tried.
   const discoveredRateMethods: string[] = [];
+  // Reaching here means the documented upload path did not take. Everything below is
+  // method-guessing, and it is worth knowing a push went this way even when it succeeds.
+  step('fallback', lastErrors[lastErrors.length - 1]);
   try {
     const lmResp = await sippyPost(apiUrl, xmlRpcCall('system.listMethods', {}), username, password, 6000);
     if (lmResp.statusCode === 200 && !lmResp.body.includes('<fault>')) {
