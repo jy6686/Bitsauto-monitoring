@@ -43,10 +43,14 @@ export function run(title) {
     results,
     report() {
       if (title) console.log(`${title}\n`);
-      for (const r of results) {
-        console.log(`  ${r.ok ? '✓' : '✗'} ${String(r.name).padEnd(44)} ${r.detail ?? ''}`);
-        if (!r.ok && r.why) console.log(`      ${r.why}`);
-      }
+      // Numbered, so a failure is locatable by position when someone reads it back over a
+      // phone or pastes three lines out of the middle.
+      const w = String(results.length).length;
+      results.forEach((r, i) => {
+        const n = `[${String(i + 1).padStart(w)}/${results.length}]`;
+        console.log(`  ${n} ${r.ok ? '✓' : '✗'} ${String(r.name).padEnd(44)} ${r.detail ?? ''}`);
+        if (!r.ok && r.why) console.log(`  ${' '.repeat(n.length)}     ${r.why}`);
+      });
       const bad = results.filter(r => !r.ok);
       console.log(bad.length
         ? `\n✗ ${bad.length} of ${results.length} check(s) failed.\n`

@@ -2,7 +2,10 @@
 /**
  * verify-send-rate.mjs — assert Send Rate can do what it claims, and did.
  *
- *   DATABASE_URL='…' node scripts/verify-send-rate.mjs
+ *   node scripts/verify-send-rate.mjs                 # inspects the most recent push
+ *   node scripts/verify-send-rate.mjs --job job-1787…  # inspects one specific push
+ *
+ * Reads DATABASE_URL from the environment, which a Replit shell already has set.
  *
  * ── What a script can and cannot prove here ───────────────────────────────────────────
  * The chain is: picker → selection → prefix expansion → queue → request → rate_push_jobs →
@@ -17,11 +20,19 @@
  * confirm the expansion survived into the database. Do one push by hand; this tells you
  * whether it landed correctly. That split is deliberate: the parts a machine can check
  * without consequences, and one deliberate human action it can then audit.
+ *
+ * --job pins the inspection to one push. Without it the newest is used, and on a shared system
+ * someone else's push can land between yours and this run — the verifier would then report on
+ * a job you never made, pass or fail, and either answer would be about the wrong thing.
  */
 import { connect, run } from './lib/verify.mjs';
 
+const jobArg = process.argv.includes('--job') ? process.argv[process.argv.indexOf('--job') + 1] : null;
+
 const db = await connect();
-const r = run('Send Rate — readiness, then evidence from the last real push');
+const r = run(jobArg
+  ? `Send Rate — readiness, then evidence from push ${jobArg}`
+  : 'Send Rate — readiness, then evidence from the most recent push');
 try {
   // ── Readiness: could a push be composed at all? ──────────────────────────────────
   const cat = await db.row(`SELECT
@@ -53,11 +64,20 @@ try {
           'PAKISTAN - MOBILE ZONG should own 9231 and 9237');
 
   // ── Evidence: did a real push actually expand? ───────────────────────────────────
-  const job = await db.row(`SELECT job_id, destination_name, full_prefix, status, created_at
-      FROM rate_push_jobs ORDER BY created_at DESC LIMIT 1`);
+  const job = jobArg
+    ? await db.row(`SELECT job_id, destination_name, full_prefix, status, created_at
+        FROM rate_push_jobs WHERE job_id = $1`, [jobArg])
+    // created_at DESC alone is non-deterministic: two pushes in the same second tie, and the
+    // database is free to return either. id breaks the tie, so "the most recent" means one
+    // specific row rather than whichever the planner reached first.
+    : await db.row(`SELECT job_id, destination_name, full_prefix, status, created_at
+        FROM rate_push_jobs ORDER BY created_at DESC, id DESC LIMIT 1`);
   if (!job.job_id) {
-    r.check('a real push has been made', false, 'rate_push_jobs is empty',
-            'do one push from Send Rate, then re-run — this is the half a script cannot perform for you');
+    r.check('a real push has been made', false,
+            jobArg ? `no job with id ${jobArg}` : 'rate_push_jobs is empty',
+            jobArg
+              ? 'check the id — Push History shows jobs from rate_notification_jobs too, keyed job_ref not job_id'
+              : 'do one push from Send Rate, then re-run — this is the half a script cannot perform for you');
   } else {
     const parts = String(job.full_prefix ?? '').split(',').map(s => s.trim()).filter(Boolean);
     r.check('last push recorded', true, `${job.job_id} · ${job.destination_name ?? '—'} · ${job.status}`);
