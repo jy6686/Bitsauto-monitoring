@@ -38867,6 +38867,33 @@ ${footer}
     );
   }
 
+  // GET /api/finance/pipeline-disposition?from=&to=
+  //
+  // Every customer, and where they stop. Owner requirement: a billing run must
+  // produce a disposition for every active customer rather than silently
+  // omitting the ones it could not process.
+  //
+  // Finding out why only asterisk was invoiced took a day of tracing across
+  // five surfaces, and the answer was one NULL column. Every stage in between
+  // had behaved correctly — none was lying, none was asked. This asks them all
+  // at once. `to` is EXCLUSIVE.
+  app.get('/api/finance/pipeline-disposition', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const from = String(req.query.from ?? ''), to = String(req.query.to ?? '');
+      const isDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
+      if (!isDate(from) || !isDate(to) || from >= to) {
+        return res.status(400).json({
+          error: 'from and to are required, YYYY-MM-DD, and `to` is EXCLUSIVE.',
+          example: '/api/finance/pipeline-disposition?from=2026-08-24&to=2026-08-31',
+        });
+      }
+      const { customerDispositions } = await import('./services/finance/pipeline-disposition.service');
+      res.json(await customerDispositions({ periodStart: from, periodEnd: to }));
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message ?? e) });
+    }
+  });
+
   // GET /api/finance/aggregation?from=YYYY-MM-DD&to=YYYY-MM-DD
   //
   // The PLATFORM side of certification, on its own, before any gating exists.
