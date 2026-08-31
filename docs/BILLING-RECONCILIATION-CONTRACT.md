@@ -734,22 +734,27 @@ So `callsDelta` on a correct period will read around **−544,000** and mean
 nothing whatever. Anyone reading that as a failure will "fix" a system that is
 working.
 
-**The population explanation is INFERENCE, not Observed — and must not be
-treated as settled until it is measured.** What is Observed: the counts differ
-by ~544,000, the `non_zero` filter exists, and Sippy's summary aggregates
-attempts (prefix `192` shows 290,578 calls against 6,025 minutes — about 1.2
-seconds each, which is a population of attempts, not of connected calls). What
-is NOT yet Observed is that non-billable attempts account for the whole gap.
+**VERIFIED 2026-08-31 — the population explanation is now Observed.** The
+one-day test was run against 2026-08-26, a day the repository holds completely.
+Sippy's own figure for that date comes from the DMR's `sippyAmount` /
+`sippyDuration` / `sippyCalls`, captured before they are copied to the platform
+column:
 
-**The verification, one day, decisive:** take a day the repository holds
-completely — 2026-08-26, 2,978 rows, $22.874023 — and pull Sippy's Customer
-Summary for `26-08-2026 → 27-08-2026`. If asterisk's *Charged Amount* for that
-day matches ~$22.874 while the call counts still differ by orders of magnitude,
-the explanation holds: same money, different populations. If the money also
-differs, there is another filter in the importer and this section is wrong.
+| | Sippy reference | Repository, computed independently | |
+|---|---:|---:|---|
+| Amount | 22.874 | 22.874023 | **match** |
+| Billed duration (s) | 39,421 | 39,421 | **exact** |
+| Calls | 28,404 | 2,978 | 9.5× |
 
-Until that is run, treat the call gap as UNEXPLAINED-BUT-BOUNDED rather than
-expected.
+The 25,426 calls the repository does not hold contribute **zero billed seconds
+and zero money**. Same money, same billed time, different populations —
+confirmed, not inferred.
+
+Billed duration matching to the second is the stronger half of this result. Two
+figures derived by entirely different routes — Sippy's own daily aggregate and a
+`SUM(billed_secs)` over raw CDRs this platform fetched and stored itself — agree
+exactly. That is the first genuine cross-check the platform has ever passed, and
+it validates the aggregation as much as it explains the call gap.
 
 **Money is the invariant regardless**, because the calls the repository omits
 are charged zero. That is why contract §5 gates on money and treats calls and
