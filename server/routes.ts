@@ -32747,7 +32747,12 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     lastTickAt: string | null;
     lastDecision: any;
     checkIntervalMs: number;
-  } = { mode: 'unregistered', lastTickAt: null, lastDecision: null, checkIntervalMs: 0 };
+    /** The RAW value the process read, quoted. Reporting the expectation
+     *  ("set FORWARD_CAPTURE=on") without reporting the observation is how nine
+     *  republishes produced the same result with nothing to diagnose from. */
+    envValueSeen: string;
+  } = { mode: 'unregistered', lastTickAt: null, lastDecision: null, checkIntervalMs: 0,
+        envValueSeen: '(scheduler not registered)' };
   const _seedJobId    = () => `sj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const _cleanSeedJobs = () => {
     const cut = Date.now() - 600_000;
@@ -38842,7 +38847,18 @@ ${footer}
     // Default OFF. A collector that starts fetching the moment it ships gives
     // no chance to separate "did the deployment work" from "is unattended
     // collection stable". Loud on both branches so it can never be silently off.
-    const forwardCaptureArmed = String(process.env.FORWARD_CAPTURE ?? '').toLowerCase() === 'on';
+    //
+    // ACCEPTS EVERY REASONABLE SPELLING, deliberately. The original check was
+    // === 'on', so FORWARD_CAPTURE=true, =1, =yes or =enabled all read as OFF —
+    // silently, and indistinguishably from the variable never being set at all.
+    // Nine republishes were spent on this remaining observe_only, and a person
+    // typing a boolean should not have to guess which word the code wants.
+    const forwardCaptureRaw = process.env.FORWARD_CAPTURE;
+    const forwardCaptureArmed = ['on', 'true', '1', 'yes', 'enabled', 'armed']
+      .includes(String(forwardCaptureRaw ?? '').trim().toLowerCase());
+    _forwardCapture.envValueSeen = forwardCaptureRaw === undefined
+      ? '(not set in this process)'
+      : JSON.stringify(forwardCaptureRaw);
     // Published to the UI. A scheduler whose only witness is a log line is a
     // black box to whoever is operating the platform, and reading logs to learn
     // whether tonight's capture will happen is not an operating model.
@@ -39121,7 +39137,16 @@ ${footer}
         : null,
       armHint: _forwardCapture.mode === 'armed'
         ? 'Collecting automatically.'
-        : 'Observing only — set FORWARD_CAPTURE=on and republish to arm.',
+        : _forwardCapture.envValueSeen.startsWith('(not set')
+          // The distinction that matters: the process cannot see the variable
+          // AT ALL, versus it sees a value it does not accept. Different causes,
+          // different fixes, and until now indistinguishable from outside.
+          ? 'Observing only — this PROCESS cannot see FORWARD_CAPTURE. On Replit, ' +
+            'deployment secrets are separate from workspace Secrets: set it under ' +
+            'Publishing → Deployment and republish. A workspace-only value never ' +
+            'reaches the deployed process.'
+          : `Observing only — FORWARD_CAPTURE is set to ${_forwardCapture.envValueSeen}, ` +
+            'which is not an accepted value. Use on / true / 1 / yes / enabled.',
     });
   });
 
