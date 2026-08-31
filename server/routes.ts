@@ -38928,6 +38928,20 @@ ${footer}
 
       const clients = assess(stats.clients ?? [], 'clients');
       const vendors = assess(stats.vendors ?? [], 'vendors');
+
+      // ?sample=1 returns the RAW cell markup the parser saw. When coverage is
+      // 0% the only useful question is "what does the link actually look like",
+      // and answering it by asking a human to open DevTools on a production
+      // portal is a slow round trip that this makes unnecessary.
+      const sample = String(req.query.sample ?? '') === '1'
+        ? {
+            note: 'Raw HTML of the first cell of each row, truncated to 300 chars. ' +
+                  'If no <a href=…> appears here, the page does not link account names at all ' +
+                  'and the reference must come from a page that does.',
+            clients: (stats.clients ?? []).slice(0, 3).map((r: any) => ({ name: r.name, html: r.nameCellHtml ?? null })),
+            vendors: (stats.vendors ?? []).slice(0, 3).map((r: any) => ({ name: r.name, html: r.nameCellHtml ?? null })),
+          }
+        : undefined;
       const ready   = clients.complete && clients.duplicateIds.length === 0;
 
       res.json({
@@ -38940,7 +38954,7 @@ ${footer}
             `(${clients.coveragePct}%). Certification must NOT fall back to names — an unidentified ` +
             'account is reported as unidentified. If coverage is 0%, the portal markup does not match ' +
             'the known href patterns and one sample of an account link is enough to add the right one.',
-        clients, vendors,
+        clients, vendors, sample,
         windowMinutes: minutes,
         fetchedAt: stats.fetchedAt,
       });

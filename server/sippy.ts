@@ -1333,6 +1333,13 @@ export interface SippyAccountStatRow {
    * rather than matching it by name.
    */
   iAccount?:    number;
+  /**
+   * Raw HTML of the cell the name came from, truncated. AUDITED per the
+   * Disposition Rule (§9b): kept because it is the only evidence of WHY an id
+   * was or was not found. Without it, "coverage 0%" is a dead end investigable
+   * only by a human opening DevTools against a production portal.
+   */
+  nameCellHtml?: string;
   totalCalls:   number;
   billableCalls:number;
   durationSec:  number;  // billed duration in seconds
@@ -1399,8 +1406,10 @@ function scrapeAsrAcdRows(html: string): {
     // it away one line before the name was kept, which is why the reference
     // could only ever be keyed by a display name. Read it before stripping.
     let rowAccountId: number | null = null;
+    let firstCellHtml: string | null = null;
     let td: RegExpExecArray | null;
     while ((td = tdRe.exec(rowHtml)) !== null) {
+      if (firstCellHtml === null) firstCellHtml = td[1].slice(0, 300);
       if (rowAccountId === null) rowAccountId = extractAccountId(td[1]);
       const cellText = td[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim();
       cells.push(cellText);
@@ -1423,6 +1432,7 @@ function scrapeAsrAcdRows(html: string): {
 
     const row: SippyAccountStatRow = { name, totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd, amount };
     if (rowAccountId !== null) row.iAccount = rowAccountId;
+    if (firstCellHtml) row.nameCellHtml = firstCellHtml;
 
     // Total rows go to their respective totals (handled separately)
     if (/^total for all/i.test(name)) {
