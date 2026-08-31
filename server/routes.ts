@@ -32760,9 +32760,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     armSource: string;
     /** Composed by server/forward-capture-arm.ts, which is unit-tested. */
     armHint: string;
+    /** Cumulative first-attempt flag-read failures. A retry that succeeds is
+     *  invisible in the state it produces, so count it: absorbing a cold start
+     *  is fine, absorbing a database that is failing all day is not. */
+    flagReadRetries: number;
   } = { mode: 'unregistered', lastTickAt: null, lastDecision: null, checkIntervalMs: 0,
         envValueSeen: '(scheduler not registered)', flagValueSeen: '(scheduler not registered)',
-        armSource: 'none', armHint: 'The forward-capture scheduler is not registered in this process.' };
+        armSource: 'none', armHint: 'The forward-capture scheduler is not registered in this process.',
+        flagReadRetries: 0 };
   const _seedJobId    = () => `sj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const _cleanSeedJobs = () => {
     const cut = Date.now() - 600_000;
@@ -38880,16 +38885,40 @@ ${footer}
     const readArmState = async () => {
       let flagEnabled: boolean | null = null;
       let flagError: string | null = null;
-      try {
-        const { platformFeatureFlags } = await import('@shared/schema');
-        const row = await db.select({ enabled: platformFeatureFlags.enabled })
-          .from(platformFeatureFlags)
-          .where(eq(platformFeatureFlags.key, 'forward_capture')).limit(1);
-        flagEnabled = row.length ? Boolean(row[0].enabled) : null;
-      } catch (e: any) {
-        // NOT "the flag is off". A read that failed is ignorance, and the state
-        // must say so rather than issue a verdict it has no evidence for.
-        flagError = String(e?.message ?? e).slice(0, 120);
+      /**
+       * TWO ATTEMPTS, because of what the first tick after shipping this
+       * measured: 19:03:41Z returned "Connection terminated due to connection
+       * timeout" while an HTTP read of the SAME table succeeded seconds later.
+       * The scheduler fires on an instance that has been idle, so its first
+       * query pays the pool/Neon cold start and is the one that dies; the
+       * seed_jobs query right behind it then runs on a warm connection. Adding
+       * this read put a brand-new query at the front of that queue.
+       *
+       * One retry, and only for the acquire-a-connection class of failure. It
+       * absorbs a cold start without hiding anything: a read that fails twice
+       * is still reported as unreadable, and every retry is counted and
+       * published, so a genuinely flaky database stays visible instead of
+       * being smoothed away.
+       */
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const { platformFeatureFlags } = await import('@shared/schema');
+          const row = await db.select({ enabled: platformFeatureFlags.enabled })
+            .from(platformFeatureFlags)
+            .where(eq(platformFeatureFlags.key, 'forward_capture')).limit(1);
+          flagEnabled = row.length ? Boolean(row[0].enabled) : null;
+          flagError = null;
+          break;
+        } catch (e: any) {
+          // NOT "the flag is off". A read that failed is ignorance, and the
+          // state must say so rather than issue a verdict it has no evidence for.
+          flagError = String(e?.message ?? e).slice(0, 120);
+          if (attempt === 1) {
+            _forwardCapture.flagReadRetries++;
+            console.log(`[recon-nightly] flag read failed (${flagError}) — retrying once on a warm pool`);
+            await new Promise(r => setTimeout(r, 1_500));
+          }
+        }
       }
       const state = resolveArmState({ envRaw: forwardCaptureRaw, flagEnabled, flagError });
       _forwardCapture.envValueSeen  = state.envValueSeen;

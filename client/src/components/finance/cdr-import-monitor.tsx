@@ -243,6 +243,30 @@ export function CdrImportMonitor() {
                   </span>
                 </div>
               )}
+              {/* SOURCE, stated rather than inferred. "Armed" alone does not
+                  say who armed it, and six months from now the difference
+                  between a flag someone set and an environment variable
+                  nobody remembers is the whole question. An unreadable flag
+                  is its own case and never prints as "off". */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-muted-foreground/70">Source</span>
+                <span className={
+                  cap.flagValueSeen?.startsWith("(could not read")
+                    ? "font-medium text-amber-600 dark:text-amber-400"
+                    : "font-medium text-foreground"
+                }>
+                  {cap.flagValueSeen?.startsWith("(could not read") ? "Database unreadable"
+                    : cap.armedBy === "flag" ? "Feature flag"
+                    : cap.armedBy === "env"  ? "Environment variable"
+                    : cap.armedBy === "both" ? "Feature flag + environment variable"
+                    : "Not armed by either source"}
+                </span>
+                {cap.flagReadRetries > 0 && (
+                  <span className="text-muted-foreground/70">
+                    · {cap.flagReadRetries} flag-read {cap.flagReadRetries === 1 ? "retry" : "retries"}
+                  </span>
+                )}
+              </div>
               <div>{cap.armHint}</div>
             </div>
           )}
