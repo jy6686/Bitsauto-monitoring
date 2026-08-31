@@ -32751,8 +32751,18 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
      *  ("set FORWARD_CAPTURE=on") without reporting the observation is how nine
      *  republishes produced the same result with nothing to diagnose from. */
     envValueSeen: string;
+    /** The platform_feature_flags row, re-read EVERY tick — that is what makes
+     *  arming possible without a republish. `false` and `unreadable` print
+     *  differently on purpose. */
+    flagValueSeen: string;
+    /** Which source armed it: flag | env | both | none. The operator's first
+     *  question when the mode is not what they expect. */
+    armSource: string;
+    /** Composed by server/forward-capture-arm.ts, which is unit-tested. */
+    armHint: string;
   } = { mode: 'unregistered', lastTickAt: null, lastDecision: null, checkIntervalMs: 0,
-        envValueSeen: '(scheduler not registered)' };
+        envValueSeen: '(scheduler not registered)', flagValueSeen: '(scheduler not registered)',
+        armSource: 'none', armHint: 'The forward-capture scheduler is not registered in this process.' };
   const _seedJobId    = () => `sj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const _cleanSeedJobs = () => {
     const cut = Date.now() - 600_000;
@@ -38853,16 +38863,46 @@ ${footer}
     // silently, and indistinguishably from the variable never being set at all.
     // Nine republishes were spent on this remaining observe_only, and a person
     // typing a boolean should not have to guess which word the code wants.
+    //
+    // AND IT IS NO LONGER ONLY AN ENV VAR. Measured 2026-08-31T18:29Z, after the
+    // tenth republish: envValueSeen = "(not set in this process)". On Replit a
+    // deployment's secrets are a separate store from workspace Secrets, so the
+    // value being edited never reached the deployed process — and an env var
+    // needs a republish to change, which is forbidden while a seed import runs.
+    // Arming now also reads the audited platform_feature_flags row
+    // `forward_capture`, re-read EVERY TICK, so an operator arms collection from
+    // the platform with no republish and a record of who did it. Either source
+    // arms; see server/forward-capture-arm.ts for why OR and not "flag wins".
     const forwardCaptureRaw = process.env.FORWARD_CAPTURE;
-    const forwardCaptureArmed = ['on', 'true', '1', 'yes', 'enabled', 'armed']
-      .includes(String(forwardCaptureRaw ?? '').trim().toLowerCase());
-    _forwardCapture.envValueSeen = forwardCaptureRaw === undefined
-      ? '(not set in this process)'
-      : JSON.stringify(forwardCaptureRaw);
+    const { resolveArmState } = await import('./forward-capture-arm');
+    /** Re-read per tick. The env half cannot change without a restart; the flag
+     *  half is the entire point, so it must never be cached. */
+    const readArmState = async () => {
+      let flagEnabled: boolean | null = null;
+      let flagError: string | null = null;
+      try {
+        const { platformFeatureFlags } = await import('@shared/schema');
+        const row = await db.select({ enabled: platformFeatureFlags.enabled })
+          .from(platformFeatureFlags)
+          .where(eq(platformFeatureFlags.key, 'forward_capture')).limit(1);
+        flagEnabled = row.length ? Boolean(row[0].enabled) : null;
+      } catch (e: any) {
+        // NOT "the flag is off". A read that failed is ignorance, and the state
+        // must say so rather than issue a verdict it has no evidence for.
+        flagError = String(e?.message ?? e).slice(0, 120);
+      }
+      const state = resolveArmState({ envRaw: forwardCaptureRaw, flagEnabled, flagError });
+      _forwardCapture.envValueSeen  = state.envValueSeen;
+      _forwardCapture.flagValueSeen = state.flagValueSeen;
+      _forwardCapture.armSource     = state.source;
+      _forwardCapture.armHint       = state.hint;
+      _forwardCapture.mode          = state.armed ? 'armed' : 'observe_only';
+      return state;
+    };
     // Published to the UI. A scheduler whose only witness is a log line is a
     // black box to whoever is operating the platform, and reading logs to learn
     // whether tonight's capture will happen is not an operating model.
-    _forwardCapture.mode            = forwardCaptureArmed ? 'armed' : 'observe_only';
+    const bootArm = await readArmState();
     _forwardCapture.checkIntervalMs = 10 * 60_000;
     let nightlyBusy = false;
     let lastNightlySaid = '';
@@ -38881,7 +38921,10 @@ ${footer}
     const say = (msg: string) => {
       ticksSinceSaid++;
       if (msg !== lastNightlySaid || ticksSinceSaid >= HEARTBEAT_TICKS) {
-        console.log(`[recon-nightly] ${forwardCaptureArmed ? 'ARMED' : 'observe-only'} · ${msg}`);
+        // Reads _forwardCapture.mode, not a boot-time constant: arming can now
+        // change under a running process, and a log line still claiming
+        // observe-only an hour after someone armed it would be a lie.
+        console.log(`[recon-nightly] ${_forwardCapture.mode === 'armed' ? 'ARMED' : 'observe-only'} · ${msg}`);
         lastNightlySaid = msg;
         ticksSinceSaid  = 0;
       }
@@ -38893,6 +38936,10 @@ ${footer}
       try {
         const { decideNightlyIngest } = await import('./nightly-ingest-due');
         const { seedJobs } = await import('@shared/schema');
+        // Arm state FIRST, and every tick. This is what lets an operator arm
+        // collection without a republish: flip the flag, and the next tick —
+        // at most ten minutes — acts on it.
+        const arm = await readArmState();
         const rows = await db.select({
           date: seedJobs.periodStart, status: seedJobs.status, startedAt: seedJobs.startedAt,
         }).from(seedJobs).where(sql`job_id LIKE 'recon-%' AND started_at > now() - interval '30 days'`);
@@ -38920,14 +38967,15 @@ ${footer}
         // accounts could take the platform down every night. Observing proves
         // the decision logic in production at zero cost; arming is a separate,
         // deliberate act once execution has somewhere safe to run.
-        if (!forwardCaptureArmed) {
+        if (!arm.armed) {
           // Also repeat-suppressed: an owed day stays owed while observing, so
           // an unsuppressed line here would repeat every ten minutes forever.
-          say(`WOULD collect ${decision.targetDate} (${decision.reason}) — nothing fetched. ` +
-              'Set FORWARD_CAPTURE=on to arm.');
+          // Carries the HINT, not the instruction — the instruction is what was
+          // repeated ten times without ever reporting what the process saw.
+          say(`WOULD collect ${decision.targetDate} (${decision.reason}) — nothing fetched. ${arm.hint}`);
           return;
         }
-        console.log(`[recon-nightly] ARMED · due: ${decision.reason}`);
+        console.log(`[recon-nightly] ARMED by ${arm.source} · due: ${decision.reason}`);
         lastNightlySaid = ''; ticksSinceSaid = 0;
         await _runNightlyReconciliation(decision.targetDate!);
       } catch (e: any) {
@@ -38941,10 +38989,13 @@ ${footer}
     console.log(
       `[recon-nightly] catch-up scheduler registered — checks every ${NIGHTLY_CHECK_MS / 60000} min, ` +
       'decides the oldest owed day (never today) from seed_jobs — ' +
-      (forwardCaptureArmed
-        ? 'ARMED: it will collect.'
-        : 'OBSERVE-ONLY: it will report what it would collect and fetch nothing (FORWARD_CAPTURE=on to arm).'),
+      (bootArm.armed
+        ? `ARMED by ${bootArm.source}: it will collect.`
+        : 'OBSERVE-ONLY: it will report what it would collect and fetch nothing.') +
+      ` · flag=${_forwardCapture.flagValueSeen} env=${_forwardCapture.envValueSeen}`,
     );
+    // Boot state is a snapshot, not a verdict: the flag is re-read every tick,
+    // so this line describes the first ten minutes and nothing beyond them.
   }
 
   // GET /api/finance/pipeline-disposition?from=&to=
@@ -39135,18 +39186,13 @@ ${footer}
       nextTickEstimate: last != null
         ? new Date(last + _forwardCapture.checkIntervalMs).toISOString()
         : null,
-      armHint: _forwardCapture.mode === 'armed'
-        ? 'Collecting automatically.'
-        : _forwardCapture.envValueSeen.startsWith('(not set')
-          // The distinction that matters: the process cannot see the variable
-          // AT ALL, versus it sees a value it does not accept. Different causes,
-          // different fixes, and until now indistinguishable from outside.
-          ? 'Observing only — this PROCESS cannot see FORWARD_CAPTURE. On Replit, ' +
-            'deployment secrets are separate from workspace Secrets: set it under ' +
-            'Publishing → Deployment and republish. A workspace-only value never ' +
-            'reaches the deployed process.'
-          : `Observing only — FORWARD_CAPTURE is set to ${_forwardCapture.envValueSeen}, ` +
-            'which is not an accepted value. Use on / true / 1 / yes / enabled.',
+      // armHint comes from _forwardCapture, composed by forward-capture-arm.ts
+      // and covered by its tests. It used to be rebuilt here from envValueSeen,
+      // which meant the sentence an operator reads was the one piece of this
+      // diagnosis nothing tested — and it could not see the flag at all.
+      armedBy: _forwardCapture.armSource,
+      armVia: 'PATCH /api/platform/flags/forward_capture {"enabled":true,"reason":"…"} ' +
+              '— admin or super_admin, audited, effective within one tick, no republish.',
     });
   });
 

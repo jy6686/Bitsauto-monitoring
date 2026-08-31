@@ -15,12 +15,15 @@
  * Polling is adaptive: fast while a job is running, slow when nothing is, so an
  * idle tab does not hammer an instance that has already shown it dislikes load.
  */
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Database, Radio, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { Database, Radio, AlertTriangle, CheckCircle2, Loader2, Power } from "lucide-react";
 
 const ACTIVE_POLL_MS = 4_000;
 const IDLE_POLL_MS   = 30_000;
@@ -125,6 +128,64 @@ export function CdrImportMonitor() {
 
   const cap = capture.data;
 
+  /**
+   * Arming, from the platform.
+   *
+   * It used to live only in process.env.FORWARD_CAPTURE. Ten republishes were
+   * spent trying to set it and every one came back observe_only — on Replit a
+   * deployment's secrets are a separate store from the workspace Secrets that
+   * were being edited, so the deployed process never saw the value. Migration
+   * 085 moved the switch to the audited platform_feature_flags row, re-read
+   * every tick, and this is the button for it: no republish, no console, and
+   * the change is recorded against whoever clicked it.
+   */
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [pendingArm, setPendingArm] = useState(false);
+  const armed = cap?.mode === "armed";
+  // The env var can arm a process the flag cannot disarm. That is legitimate —
+  // it needs deployment access — but it must never be a surprise, so the button
+  // says so instead of pretending it is in control.
+  const envOverrides = cap?.armedBy === "env" || cap?.armedBy === "both";
+
+  const armMutation = useMutation({
+    mutationFn: async (enabled: boolean) => {
+      const res = await apiRequest("PATCH", "/api/platform/flags/forward_capture", {
+        enabled,
+        reason: enabled
+          ? "Armed from the Finance Operations Center — unattended CDR collection ON."
+          : "Disarmed from the Finance Operations Center — collection returns to observe-only.",
+      });
+      return res.json();
+    },
+    onSuccess: (_d, enabled) => {
+      toast({
+        title: enabled ? "Forward capture armed" : "Forward capture disarmed",
+        // Honest about the delay rather than implying an instant effect: the
+        // scheduler reads the flag on its own tick, up to ten minutes away.
+        description: enabled
+          ? "The collector picks this up on its next tick — within 10 minutes it starts fetching the oldest owed day."
+          : "The collector returns to observe-only on its next tick.",
+      });
+      setPendingArm(false);
+      qc.invalidateQueries({ queryKey: ["/api/finance/forward-capture"] });
+    },
+    onError: (e: any) => {
+      setPendingArm(false);
+      toast({
+        variant: "destructive",
+        title: "Could not change the flag",
+        // 404 means migration 085 has not run on this deployment — a specific
+        // cause with a specific fix, worth saying rather than "request failed".
+        description: e?.status === 404
+          ? "No forward_capture flag row — migration 085 has not run on this deployment yet."
+          : e?.status === 403
+            ? "This action needs an admin or super_admin role."
+            : String(e?.message ?? e),
+      });
+    },
+  });
+
   return (
     <Card data-testid="card-cdr-import-monitor">
       <CardHeader className="pb-3">
@@ -183,6 +244,61 @@ export function CdrImportMonitor() {
                 </div>
               )}
               <div>{cap.armHint}</div>
+            </div>
+          )}
+
+          {/* ── Arm / disarm ──────────────────────────────────────────────
+              Arming turns on unattended writes to the CDR repository, so it
+              confirms once. Disarming is immediate — a stop must never be
+              harder than a start. */}
+          {cap && cap.mode !== "unregistered" && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t pt-3">
+              {armed ? (
+                <>
+                  <Button
+                    size="sm" variant="outline"
+                    disabled={armMutation.isPending || envOverrides}
+                    onClick={() => armMutation.mutate(false)}
+                    data-testid="button-disarm-forward-capture"
+                  >
+                    {armMutation.isPending
+                      ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      : <Power className="mr-1.5 h-3.5 w-3.5" />}
+                    Disarm
+                  </Button>
+                  {envOverrides && (
+                    <span className="text-xs text-amber-600 dark:text-amber-400">
+                      Armed by the deployment environment — the flag cannot disarm it.
+                    </span>
+                  )}
+                </>
+              ) : pendingArm ? (
+                <>
+                  <span className="text-xs text-muted-foreground">
+                    Start collecting {cap.lastDecision?.targetDate ?? "the oldest owed day"} and
+                    everything owed after it?
+                  </span>
+                  <Button
+                    size="sm" disabled={armMutation.isPending}
+                    onClick={() => armMutation.mutate(true)}
+                    data-testid="button-confirm-arm-forward-capture"
+                  >
+                    {armMutation.isPending && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                    Yes, arm it
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setPendingArm(false)}>
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  size="sm" onClick={() => setPendingArm(true)}
+                  data-testid="button-arm-forward-capture"
+                >
+                  <Power className="mr-1.5 h-3.5 w-3.5" />
+                  Arm collection
+                </Button>
+              )}
             </div>
           )}
         </div>
