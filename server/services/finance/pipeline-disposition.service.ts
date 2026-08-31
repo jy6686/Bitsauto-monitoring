@@ -20,12 +20,20 @@
 import { db } from '../../db';
 import { sql } from 'drizzle-orm';
 
-/** Ordered by how early the customer stops. */
+/**
+ * Ordered by how early the customer stops, along the pipeline AS IT NOW IS.
+ *
+ * The earlier ladder placed `no_tariff` before `not_collected`, which was
+ * correct only while the tariff gated collection. Since 3879d3a1 it does not:
+ * an account with no local tariff mirror is COLLECTED and simply not rated. A
+ * report that still describes the old order would tell an operator a customer
+ * stopped at the tariff when its evidence is sitting in the repository.
+ */
 export type DispositionStage =
-  | 'no_sippy_account'   // never linked to a switch account
-  | 'no_tariff'          // linked, but the collector requires a tariff to price
-  | 'not_collected'      // collectible, yet no CDRs landed for this period
-  | 'collected';         // data is present and downstream can proceed
+  | 'no_sippy_account'   // never linked to a switch account — nothing is possible
+  | 'not_collected'      // linked, but no CDRs landed for this period
+  | 'not_rateable'       // COLLECTED, but no local tariff mirror to reproduce the rating
+  | 'collected';         // collected and rateable — downstream can proceed
 
 export interface CustomerDisposition {
   companyId:   number;
@@ -34,7 +42,10 @@ export interface CustomerDisposition {
   iTariff:     string | null;
   billingCycle: string | null;
   stage:       DispositionStage;
-  collectible: boolean;
+  /** Separate booleans, because they are separate facts. A single stage cannot
+   *  say "evidence gathered but not priced", which is now a normal state. */
+  collected:   boolean;
+  rateable:    boolean;
   calls:       number;
   amount:      number;
   invoices:    number;
@@ -93,25 +104,31 @@ export async function customerDispositions(opts: {
     // The order matters: report the FIRST gate a customer fails, not the last.
     // "not collected" on an account that has no tariff sends an operator to
     // look at the importer, when the fix is one column in this very row.
+    const collected = calls > 0;
+    const rateable  = iTariff != null;
+
     let stage: DispositionStage;
     let reason: string;
     if (iAccount == null) {
       stage = 'no_sippy_account';
-      reason = 'Not linked to a Sippy account. Nothing can be collected or invoiced for this company.';
-    } else if (iTariff == null) {
-      stage = 'no_tariff';
+      reason = 'Not linked to a Sippy account. Nothing can be collected or invoiced for this company' +
+               (iTariff ? ` — note it DOES carry tariff ${iTariff}, so the link is the only thing missing.` : '.');
+    } else if (!collected) {
+      stage = 'not_collected';
+      reason = `Account ${iAccount} has no CDRs in the repository for this period. Either it genuinely ` +
+               'had no traffic, or collection has not run for these days — the two are different and ' +
+               'the seed-job ledger distinguishes them.' +
+               (rateable ? '' : ' (It also has no local tariff mirror, but that no longer prevents collection.)');
+    } else if (!rateable) {
+      stage = 'not_rateable';
       // NOT "this customer has no tariff" — Sippy rates their calls perfectly
       // well. What is missing is BitsAuto's local MIRROR of the mapping, which
-      // is needed to REPRODUCE the rating, not to collect or to bill.
-      reason = `Sippy prices this account's calls; BitsAuto has no local mirror of the tariff for ` +
-               `account ${iAccount}. CDRs are still collected — the evidence is gathered — but they ` +
-               'cannot be rated, certified or invoiced until the mapping is filled. ' +
+      // is needed to REPRODUCE the rating, not to collect and not to bill.
+      reason = `${calls.toLocaleString()} CDR(s) collected — the evidence is safe. Sippy prices this ` +
+               `account's calls, but BitsAuto has no local mirror of the tariff for account ${iAccount}, ` +
+               'so they cannot be rated, certified or invoiced yet. Fill the mapping and re-run the ' +
+               'period to rate what is already stored — nothing needs re-fetching. ' +
                'POST /api/sippy/commercial-mappings/preview reads it from Sippy.';
-    } else if (calls === 0) {
-      stage = 'not_collected';
-      reason = `Collectible (account ${iAccount}, tariff ${iTariff}) but no CDRs are in the repository ` +
-               'for this period. Either the account genuinely had no traffic, or the import has not run ' +
-               'for these days — the two are different and the seed-job ledger distinguishes them.';
     } else {
       stage = 'collected';
       reason = '';
@@ -120,7 +137,7 @@ export async function customerDispositions(opts: {
     return {
       companyId: Number(r.id), name: String(r.name),
       iAccount, iTariff, billingCycle: r.client_billing_cycle ?? null,
-      stage, collectible: iAccount != null && iTariff != null,
+      stage, collected, rateable,
       calls, amount: Math.round(amount * 1e6) / 1e6, invoices: n(r.invoices),
       reason,
     };
@@ -129,8 +146,8 @@ export async function customerDispositions(opts: {
   const summary = {
     total: customers.length,
     no_sippy_account: customers.filter(c => c.stage === 'no_sippy_account').length,
-    no_tariff:        customers.filter(c => c.stage === 'no_tariff').length,
     not_collected:    customers.filter(c => c.stage === 'not_collected').length,
+    not_rateable:     customers.filter(c => c.stage === 'not_rateable').length,
     collected:        customers.filter(c => c.stage === 'collected').length,
     invoiced:         customers.filter(c => c.invoices > 0).length,
   };
