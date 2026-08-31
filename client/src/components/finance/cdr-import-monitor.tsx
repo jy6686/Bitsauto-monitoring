@@ -385,10 +385,26 @@ export function CdrImportMonitor() {
           )}
         </div>
 
-        {/* ── Active imports ──────────────────────────────────────────────── */}
+        {/* ── Active imports ──────────────────────────────────────────────────
+            "No import running" is only true when the COLLECTOR is also idle.
+            A run does more than fetch: after an account's CDRs land it rates
+            and snapshots them, and that stage writes no seed_jobs row. On
+            2026-08-29 account 315 that took eight minutes — 1,033 CDRs — during
+            which this card said nothing was running while the process was fully
+            occupied. It read as a stall twice before anyone checked.
+
+            This panel knows about seed_jobs only, so work outside that table is
+            silence, and silence reads as failure. The collector's own state
+            says otherwise, so ask it. */}
         {running.length === 0 && (
           <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-            No import running.
+            {cap?.collecting
+              ? <span className="flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Between accounts — rating and snapshotting the batch just fetched.
+                  No CDRs are being downloaded right now.
+                </span>
+              : "No import running."}
           </div>
         )}
 
