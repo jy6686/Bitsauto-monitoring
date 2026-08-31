@@ -310,9 +310,18 @@ Every parsed field carries an explicit disposition:
 
 - **Persisted** — stored for later use
 - **Consumed** — used immediately in a calculation, and the result is stored
+- **Audited** — retained as evidence even though nothing computes with it
 - **Discarded** — deliberately, *with the reason written down*
 
-A field that is none of the three is a defect, whether or not anything has
+**Audited is not a synonym for Consumed**, and the distinction is why the
+account id was lost. A field can be genuinely unused today and still be the
+thing a future control needs to identify a party, reproduce a figure, or prove
+what the switch said at the time. `scrapeAsrAcdRows` consumed the name and
+discarded everything else, which was correct for the DMR and catastrophic for a
+reconciliation that did not yet exist. Evidence is retained because it is
+evidence, not because a caller has been written for it.
+
+A field that is none of the four is a defect, whether or not anything has
 noticed yet. The review question is not "does this work?" but **"where does this
 value end up, and if nowhere, why?"**
 
