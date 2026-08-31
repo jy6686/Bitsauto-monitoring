@@ -33570,7 +33570,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     /** Accept a period with exceptions. Requires a reason and an operator. */
     override?: { reason: string; by: string };
   }): Promise<{
-    ok: boolean; stage?: 'duplicate' | 'seed' | 'freeze' | 'certify' | 'generate'; error?: string;
+    ok: boolean; stage?: 'duplicate' | 'seed' | 'freeze' | 'coverage' | 'certify' | 'generate'; error?: string;
     seed?: { fetched: number; created: number; skipped: number; message?: string };
     certification?: { state: string; reasons: string[]; runId?: number };
     totalsCheck?: { ok: boolean; invoiceTotal: number; certifiedTotal: number };
@@ -33623,6 +33623,59 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         return {
           ok: false, stage: 'freeze', seed,
           error: `Billing period ${opts.periodStart}–${opts.periodEnd} has not closed as of ${asOf}. It closes at 00:00 GMT the day after ${opts.periodEnd}; invoicing before then bills a period still receiving calls.`,
+        };
+      }
+    }
+
+    // Stage 2b — COVERAGE. Does the period actually have its days?
+    //
+    // Production 2026-08-31: invoice C-2608-0009 billed 2026-08-24 → 2026-08-30
+    // from FOUR days of CDRs. 08-28/29/30 were never collected, and every gate
+    // above passed while being entirely correct — freeze asks whether the
+    // period ENDED, and certification, in its own words a few lines up,
+    // "certifies by the absence of discrepancies among the calls it HAS". A day
+    // that was never fetched produces no discrepancy because it produces
+    // nothing. The period was closed, certified, and three-sevenths empty.
+    //
+    // Runs BEFORE certification: certifying a period known to be missing days
+    // spends the work and then reports the wrong reason for the refusal.
+    //
+    // An empty day is NOT an uncollected day — a customer with no traffic on a
+    // Sunday is a legitimate zero, and refusing to invoice them would be its
+    // own defect. seed_jobs is the discriminator: absence of DATA is not
+    // evidence, absence of COLLECTION is.
+    if (opts.iAccount) {
+      try {
+        const { assessPeriodCoverage } = await import('./period-coverage');
+        const [rowDays, runs] = await Promise.all([
+          db.execute(sql`
+            SELECT DISTINCT to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS d
+              FROM raw_sippy_cdrs
+             WHERE i_account = ${Number(opts.iAccount)}
+               AND started_at >= ${`${opts.periodStart}T00:00:00Z`}::timestamptz
+               AND started_at <  (${`${opts.periodEnd}T00:00:00Z`}::timestamptz + interval '1 day')`),
+          db.execute(sql`
+            SELECT period_start, period_end FROM seed_jobs
+             WHERE i_account = ${Number(opts.iAccount)} AND status = 'done'`),
+        ]);
+        const cov = assessPeriodCoverage({
+          periodStart: opts.periodStart,
+          periodEnd:   opts.periodEnd,
+          daysWithRows: (((rowDays as any).rows ?? []) as any[]).map(r => String(r.d)),
+          collectedRanges: (((runs as any).rows ?? []) as any[]).map(r => ({
+            periodStart: String(r.period_start ?? ''), periodEnd: String(r.period_end ?? ''),
+          })),
+        });
+        if (!cov.covered) {
+          return { ok: false, stage: 'coverage', seed, error: cov.reason };
+        }
+      } catch (e: any) {
+        // A coverage check that cannot run must not silently wave the invoice
+        // through — that is the failure mode this gate exists to close.
+        return {
+          ok: false, stage: 'coverage', seed,
+          error: `Period coverage could not be verified (${e?.message ?? e}). ` +
+                 'Refusing to invoice a period whose completeness is unknown.',
         };
       }
     }
