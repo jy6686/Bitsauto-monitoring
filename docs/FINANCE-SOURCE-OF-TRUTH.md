@@ -173,8 +173,49 @@ assumption.
 
 ## 8. Priority order
 
-Owner-set, 2026-08-28 (supersedes an earlier draft that placed the
-Reconciliation Gate third):
+**REVISED BY THE OWNER 2026-08-31 — the Reconciliation Gate moves to FIRST.**
+This reverses the 08-28 ordering below, and it was reversed by production
+evidence, which is the only thing permitted to reopen a frozen decision.
+
+**The evidence.** Sippy's Customer Summary for 2026-08-24 → 2026-08-30 — the
+first independent reference this platform has ever been given — against what
+was actually invoiced:
+
+| Customer | Sippy charged | Invoiced | Gap |
+|---|---:|---:|---:|
+| asterisk | 366.6442 | 167.5063 | −199.14 |
+| internal-ptcl | 295.9650 | — | −295.97 |
+| internal-eritrea | 20.7842 | — | −20.78 |
+| PUSHTOTALK | 0.0000 | — | 0 |
+| Route-Inspector | 0.0000 | — | 0 |
+| **Total** | **683.3934** | **167.5063** | **−515.89** |
+
+**75% of the week was never invoiced, and every internal check passed** —
+period closed, certified, snapshotted, DMR reporting zero discrepancies. They
+all passed because each compares BitsAuto against BitsAuto, and $295.97 of
+internal-ptcl produced no discrepancy anywhere for the simple reason that it
+produced nothing at all. **An absence cannot create a discrepancy in a
+comparison that only walks what it has.**
+
+Nothing else in this list would have caught it. The coverage gate (§2b of the
+billing chain) would have refused the incomplete week, but not the missing
+customer. Owner's instruction, verbatim: *"before generating invoice we will
+compare BitsAuto record with Sippy summary — without comparison no invoice
+would be generated."*
+
+**Revised order:**
+
+1. **Billing Reconciliation Gate** — MANDATORY and BLOCKING before any invoice
+   leaves Draft. `server/billing-reconciliation.ts` (the comparison core) is
+   built and tested against the week above; the reference provider and the
+   chain wiring remain.
+2. `rateCall` parity
+3. Repository Quality metrics (§7)
+4. Persist vendor CDRs (§2)
+5. Repository-backed P&L
+6. Consolidation
+
+**Superseded 2026-08-28 order, kept for the record:**
 
 1. **`rateCall` parity** — remove the 60× divergence; certification cannot pass
    while it stands
