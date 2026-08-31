@@ -38904,13 +38904,30 @@ ${footer}
       const { identityCoverage } = await import('./sippy-account-id');
       const assess = (rows: any[], label: string) => {
         const cov = identityCoverage(rows);
-        const missing = rows.filter(r => !(typeof r.iAccount === 'number' && r.iAccount > 0))
-                            .map(r => r.name);
+        // Same rule identityCoverage uses, or the two disagree: an ACCOUNT id
+        // (client side) or a COMPLETE vendor+connection pair (vendor side).
+        // Production 2026-08-31 shipped these out of step and the vendor block
+        // reported "20 identified" beside 21 names listed as missing — a
+        // self-contradicting report is worse than no report, because a reader
+        // has no way to tell which half is wrong.
+        const isIdentified = (r: any) =>
+          (typeof r.iAccount === 'number' && r.iAccount > 0) ||
+          (typeof r.iVendor === 'number' && r.iVendor > 0 &&
+           typeof r.iConnection === 'number' && r.iConnection > 0);
+        const missing = rows.filter(r => !isIdentified(r)).map(r => r.name);
         // Two different pathologies, deliberately counted apart: a duplicated
         // ID means the extractor bound two rows to one account; a duplicated
         // NAME is the collision that made ids necessary in the first place.
-        const idSeen = new Map<number, number>();
-        for (const r of rows) if (typeof r.iAccount === 'number') idSeen.set(r.iAccount, (idSeen.get(r.iAccount) ?? 0) + 1);
+        // Keyed by the row's actual identity — an account id, or the vendor pair.
+        // Two rows sharing a pair would merge one connection's money into
+        // another, which is the whole reason the pair exists.
+        const idSeen = new Map<string, number>();
+        for (const r of rows) {
+          const key = typeof r.iAccount === 'number' && r.iAccount > 0 ? `acct:${r.iAccount}`
+            : (typeof r.iVendor === 'number' && typeof r.iConnection === 'number')
+              ? `vend:${r.iVendor}/${r.iConnection}` : null;
+          if (key) idSeen.set(key, (idSeen.get(key) ?? 0) + 1);
+        }
         const nameSeen = new Map<string, number>();
         for (const r of rows) {
           const k = String(r.name ?? '').trim().toLowerCase();
@@ -38921,7 +38938,7 @@ ${footer}
           fetched: cov.total, identified: cov.identified,
           coveragePct: cov.pct, complete: cov.complete,
           missingIds: missing,
-          duplicateIds:   [...idSeen].filter(([, n]) => n > 1).map(([id, n]) => ({ iAccount: id, rows: n })),
+          duplicateIds:   [...idSeen].filter(([, n]) => n > 1).map(([id, n]) => ({ identity: id, rows: n })),
           duplicateNames: [...nameSeen].filter(([, n]) => n > 1).map(([name, n]) => ({ name, rows: n })),
         };
       };
