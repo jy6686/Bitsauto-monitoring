@@ -553,6 +553,74 @@ in a different place this month. They are not hypothetical.
 
 ---
 
+## 15. AMENDMENT 2026-08-31 — reconciliation is a PLATFORM control, not an invoice check
+
+Owner-set, on production evidence. This amends §9.1 (surfaces) and elevates the
+scope of the whole document.
+
+**The governing rule.** No financial report, dashboard, invoice, customer
+statement, vendor statement or profit-and-loss figure may be treated as FINAL
+unless reconciliation against the switch has passed for the entire billing
+period.
+
+### 15.1 Why it moved
+
+Invoice C-2608-0009 billed $167.5063 of a $683.3934 week. Every internal check
+passed — period closed, certified, snapshotted, DMR reporting zero
+discrepancies — because each compares BitsAuto against BitsAuto. `internal-ptcl`
+was 43% of that week and produced no discrepancy anywhere, because it produced
+nothing at all.
+
+**Certification must therefore run over EVERY SIPPY ACCOUNT, not over the
+accounts someone selected for invoicing.** A customer missing from the platform
+is invisible to any check that iterates the platform's own records — which is
+every check that existed before this one. That is the requirement this amendment
+exists to state.
+
+### 15.2 BLOCKED versus WARNING — the distinction is load-bearing
+
+A gate that darkens the whole platform on failure will be overridden, and an
+overridden gate is not a gate. So the consequence differs by what the surface
+*does*, not by how important it looks:
+
+**BLOCKED — anything that leaves the building or asserts finality:**
+invoice number · invoice PDF · customer statement · vendor statement · automatic
+email · approval · forecast published as fact.
+
+**WARNING, labelled provisional — anything an operator needs in order to FIX
+the failure:** P&L · margin · revenue dashboards · AI alerts · operational
+reports.
+
+Blocking the diagnostic surfaces removes exactly the visibility required to
+clear the failure, and turns a billing problem into an outage. Provisional
+figures with an honest label are more useful than no figures.
+
+### 15.3 Reconciliation does NOT wait for `rateCall`
+
+Worth stating because the sequencing looks otherwise. The two measure different
+things on different axes:
+
+| Control | Question | Column |
+|---|---|---|
+| Reconciliation | did we BILL what the switch billed? | `actual_cost` vs Sippy charged |
+| Rating verification | can we REPRODUCE the switch's arithmetic? | reproduced cost vs `actual_cost` |
+
+Sippy's *Charged Amount* and the invoice's *Billed Amount* are the same basis —
+both are the switch's own figure. The 60× rating defect lives entirely in the
+reproduction, which reconciliation never reads.
+
+**So the money control can be enforced immediately.** It does not depend on
+`rateCall`, and `rateCall` does not depend on it.
+
+### 15.4 Rollout still applies
+
+§11's three phases are not waived by this amendment. Report-only first, so the
+gate's own failure modes surface against real periods before it can refuse a
+legitimate invoice; then soft; then hard. A control that has never been observed
+being right is not yet a control.
+
+---
+
 ## 14. Provenance
 
 Owner decisions, 2026-08-26, in sequence: reconciliation as a mandatory pre-invoice gate ·
