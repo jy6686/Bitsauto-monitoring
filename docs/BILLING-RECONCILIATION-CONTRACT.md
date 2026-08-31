@@ -684,6 +684,38 @@ proceeds untouched. And it makes certification *historically* readable — the
 same account can be certified for one week and failed for the next, which a
 single flag cannot express at all.
 
+### 15.3d Every certification result is persisted as evidence
+
+Owner-set 2026-08-31. A verdict that can only be reproduced by recomputing it is
+not an audit trail. Six months from now, *"why was C-2608-0009 blocked?"* must
+be answerable from a row, not from a re-run against data that has since changed.
+
+`finance_certifications`, keyed as §15.3c: `i_account`, `period_start`,
+`period_end`, `reference_revenue`, `platform_revenue`, `difference`, `status`,
+`reason`, `certified_at`, `algorithm_version`.
+
+**`algorithm_version` is the field most likely to be dropped as ceremony, and it
+is the one that makes the rest trustworthy.** A verdict is only meaningful
+alongside the rules that produced it. When the tolerance changes, or tier 2
+identity replaces tier 1, or a defect in the comparison is fixed, every historic
+row silently acquires a new meaning unless it records which version judged it.
+Without the version, a re-run that disagrees with the stored verdict is
+unexplainable — you cannot tell whether the data changed or the rules did.
+
+Two consequences that follow from treating these rows as evidence:
+
+- They are **written for every outcome**, not only failures. A PASS is the
+  evidence that the invoice was allowed to leave, and it is the row someone will
+  want when a customer disputes a bill that was correctly certified.
+- They are **append-only**. A re-certification writes a new row; it never
+  overwrites the earlier verdict. The history of a period's certification is
+  itself financial evidence — a period that failed twice and then passed is not
+  the same thing as a period that passed.
+
+This is the §9b **Audited** disposition applied to the engine's own output: the
+verdict is retained because it may become evidence, not because something
+computes with it.
+
 ### 15.4 Rollout still applies
 
 §11's three phases are not waived by this amendment. Report-only first, so the
