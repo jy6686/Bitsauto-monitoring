@@ -218,9 +218,16 @@ export function CdrImportMonitor() {
             <div className="mt-2 space-y-1 text-xs text-muted-foreground">
               {/* A scheduler that stopped must not look like one that is idle. */}
               {cap.mode !== "unregistered" && !cap.alive && (
-                <div className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                  <AlertTriangle className="h-3 w-3" />
-                  No tick in over {Math.round((cap.checkIntervalMs * 2) / 60000)} minutes — the scheduler may have stopped.
+                <div className="flex items-start gap-1 text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                  {/* "No tick" and "every tick is dying" are different faults
+                      with different fixes, and they used to print the same. */}
+                  <span>
+                    {cap.lastTickError
+                      ? <>Ticks are failing ({cap.tickErrors} so far, latest {cap.lastTickErrorAt?.slice(11, 19)} UTC):{" "}
+                        <span className="font-medium">{cap.lastTickError}</span></>
+                      : <>No completed tick in over {Math.round((cap.checkIntervalMs * 2) / 60000)} minutes — the scheduler may have stopped.</>}
+                  </span>
                 </div>
               )}
               {cap.lastDecision && (

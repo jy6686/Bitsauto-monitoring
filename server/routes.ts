@@ -32764,10 +32764,16 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
      *  invisible in the state it produces, so count it: absorbing a cold start
      *  is fine, absorbing a database that is failing all day is not. */
     flagReadRetries: number;
+    /** A tick that THREW leaves lastTickAt untouched, so `alive:false` reads
+     *  identically whether the process just booted or every tick is dying.
+     *  Those need different responses, so the failure is published too. */
+    lastTickError:   string | null;
+    lastTickErrorAt: string | null;
+    tickErrors:      number;
   } = { mode: 'unregistered', lastTickAt: null, lastDecision: null, checkIntervalMs: 0,
         envValueSeen: '(scheduler not registered)', flagValueSeen: '(scheduler not registered)',
         armSource: 'none', armHint: 'The forward-capture scheduler is not registered in this process.',
-        flagReadRetries: 0 };
+        flagReadRetries: 0, lastTickError: null, lastTickErrorAt: null, tickErrors: 0 };
   const _seedJobId    = () => `sj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const _cleanSeedJobs = () => {
     const cut = Date.now() - 600_000;
@@ -38886,21 +38892,35 @@ ${footer}
       let flagEnabled: boolean | null = null;
       let flagError: string | null = null;
       /**
-       * TWO ATTEMPTS, because of what the first tick after shipping this
-       * measured: 19:03:41Z returned "Connection terminated due to connection
-       * timeout" while an HTTP read of the SAME table succeeded seconds later.
-       * The scheduler fires on an instance that has been idle, so its first
-       * query pays the pool/Neon cold start and is the one that dies; the
-       * seed_jobs query right behind it then runs on a warm connection. Adding
-       * this read put a brand-new query at the front of that queue.
+       * THREE ATTEMPTS, 2s then 5s apart, and the reason is a measured number
+       * in server/db.ts: connectionTimeoutMillis is 3000. Three seconds is the
+       * right budget for an HTTP handler — the comment there says it plainly,
+       * fail fast so hangup storms cannot starve auth — but it is not enough
+       * to open a fresh TCP+TLS session to Neon from a cold instance.
        *
-       * One retry, and only for the acquire-a-connection class of failure. It
-       * absorbs a cold start without hiding anything: a read that fails twice
-       * is still reported as unreadable, and every retry is counted and
-       * published, so a genuinely flaky database stays visible instead of
-       * being smoothed away.
+       * What that produced, measured across two boots: at 19:03:41Z the flag
+       * read returned "Connection terminated due to connection timeout" while
+       * the seed_jobs query immediately behind it succeeded, and an HTTP read
+       * of the SAME table succeeded seconds later. Then on the next boot both
+       * attempts failed (flagReadRetries 2, lastTickAt null) — 1.5s was still
+       * inside the cold window, and boot has migrations competing for the pool.
+       * The scheduler always runs on an instance that has been idle, so its
+       * first query is always the one that pays. Adding this read put a
+       * brand-new query at the front of that queue and made it the victim.
+       *
+       * The fix is NOT to raise connectionTimeoutMillis. That is one shared
+       * pool behind every request path on the platform, and widening it to
+       * suit one background reader trades auth resilience for a convenience
+       * this loop can buy locally. A background tick can afford to wait; an
+       * HTTP handler cannot. So the tolerance goes here.
+       *
+       * Nothing is hidden: a read that fails all three times is still reported
+       * unreadable, every retry increments the published flagReadRetries, and
+       * the log line carries the pool counters so a saturated pool
+       * (waiting > 0) is distinguishable from a cold one (total 0).
        */
-      for (let attempt = 1; attempt <= 2; attempt++) {
+      const RETRY_BACKOFF_MS = [2_000, 5_000];
+      for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           const { platformFeatureFlags } = await import('@shared/schema');
           const row = await db.select({ enabled: platformFeatureFlags.enabled })
@@ -38913,11 +38933,15 @@ ${footer}
           // NOT "the flag is off". A read that failed is ignorance, and the
           // state must say so rather than issue a verdict it has no evidence for.
           flagError = String(e?.message ?? e).slice(0, 120);
-          if (attempt === 1) {
-            _forwardCapture.flagReadRetries++;
-            console.log(`[recon-nightly] flag read failed (${flagError}) — retrying once on a warm pool`);
-            await new Promise(r => setTimeout(r, 1_500));
-          }
+          const backoff = RETRY_BACKOFF_MS[attempt - 1];
+          if (backoff === undefined) break;
+          _forwardCapture.flagReadRetries++;
+          const { pool } = await import('./db');
+          console.log(
+            `[recon-nightly] flag read attempt ${attempt}/3 failed (${flagError}) · ` +
+            `pool total=${pool.totalCount} idle=${pool.idleCount} waiting=${pool.waitingCount} · ` +
+            `retrying in ${backoff / 1000}s`);
+          await new Promise(r => setTimeout(r, backoff));
         }
       }
       const state = resolveArmState({ envRaw: forwardCaptureRaw, flagEnabled, flagError });
@@ -39008,6 +39032,13 @@ ${footer}
         lastNightlySaid = ''; ticksSinceSaid = 0;
         await _runNightlyReconciliation(decision.targetDate!);
       } catch (e: any) {
+        // Published, not just logged. A tick that throws never reaches the
+        // lastTickAt assignment, so without this the endpoint shows
+        // alive:false with no cause — indistinguishable from a fresh boot,
+        // which is the state that cost an hour to tell apart.
+        _forwardCapture.lastTickError   = String(e?.message ?? e).slice(0, 200);
+        _forwardCapture.lastTickErrorAt = new Date().toISOString();
+        _forwardCapture.tickErrors++;
         console.error('[recon-nightly] scheduler tick error:', e?.message ?? e);
       } finally {
         nightlyBusy = false;
