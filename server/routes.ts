@@ -38867,6 +38867,88 @@ ${footer}
     );
   }
 
+  // GET /api/finance/certification/identity — can we identify the parties at all?
+  //
+  // The gate on everything downstream. Owner rule 2026-08-31: the Sippy account
+  // id is the canonical financial identity and display names never key a
+  // reconciliation, because production holds `Internal-ptcl` (76) and
+  // `internal-ptcl` (588) — different customers differing only in case.
+  //
+  // extractAccountId reads the id out of the portal's account LINK, which the
+  // scraper used to destroy by stripping tags before reading the cell. Whether
+  // those four href patterns match the real markup is not something that can be
+  // reasoned about — it has to be measured. This measures it.
+  //
+  // Read-only, on demand, writes nothing.
+  app.get('/api/finance/certification/identity', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const settings = await storage.getSettings();
+      const minutes  = Math.min(Math.max(Number(req.query.minutes ?? 1440) || 1440, 60), 10080);
+      const stats = await sippy.getSippyPerAccountStats(
+        settings?.portalUsername ?? '', settings?.portalPassword ?? '', minutes,
+        settings?.apiAdminUsername ?? '', settings?.apiAdminPassword ?? '',
+        undefined, undefined, undefined, undefined,
+        (settings as any)?.adminWebPassword ?? undefined,
+      );
+
+      if (!stats.ok) {
+        // Cannot see the switch — not "identity is bad". Different facts.
+        return res.json({
+          status: 'REFERENCE_UNAVAILABLE',
+          reason: `Sippy per-account stats unavailable: ${stats.error ?? 'no data'}. ` +
+                  'Identity cannot be assessed without the reference.',
+          fetchedAt: stats.fetchedAt,
+        });
+      }
+
+      const { identityCoverage } = await import('./sippy-account-id');
+      const assess = (rows: any[], label: string) => {
+        const cov = identityCoverage(rows);
+        const missing = rows.filter(r => !(typeof r.iAccount === 'number' && r.iAccount > 0))
+                            .map(r => r.name);
+        // Two different pathologies, deliberately counted apart: a duplicated
+        // ID means the extractor bound two rows to one account; a duplicated
+        // NAME is the collision that made ids necessary in the first place.
+        const idSeen = new Map<number, number>();
+        for (const r of rows) if (typeof r.iAccount === 'number') idSeen.set(r.iAccount, (idSeen.get(r.iAccount) ?? 0) + 1);
+        const nameSeen = new Map<string, number>();
+        for (const r of rows) {
+          const k = String(r.name ?? '').trim().toLowerCase();
+          nameSeen.set(k, (nameSeen.get(k) ?? 0) + 1);
+        }
+        return {
+          side: label,
+          fetched: cov.total, identified: cov.identified,
+          coveragePct: cov.pct, complete: cov.complete,
+          missingIds: missing,
+          duplicateIds:   [...idSeen].filter(([, n]) => n > 1).map(([id, n]) => ({ iAccount: id, rows: n })),
+          duplicateNames: [...nameSeen].filter(([, n]) => n > 1).map(([name, n]) => ({ name, rows: n })),
+        };
+      };
+
+      const clients = assess(stats.clients ?? [], 'clients');
+      const vendors = assess(stats.vendors ?? [], 'vendors');
+      const ready   = clients.complete && clients.duplicateIds.length === 0;
+
+      res.json({
+        // The verdict an operator needs: may reconciliation key on ids yet?
+        status: ready ? 'IDENTITY_OK' : 'IDENTITY_INCOMPLETE',
+        reason: ready
+          ? 'Every account carries a stable Sippy id. Reconciliation may key on iAccount and ' +
+            'name-based matching can leave the financial path.'
+          : `${clients.identified}/${clients.fetched} client account(s) carry a stable id ` +
+            `(${clients.coveragePct}%). Certification must NOT fall back to names — an unidentified ` +
+            'account is reported as unidentified. If coverage is 0%, the portal markup does not match ' +
+            'the known href patterns and one sample of an account link is enough to add the right one.',
+        clients, vendors,
+        windowMinutes: minutes,
+        fetchedAt: stats.fetchedAt,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message ?? e) });
+    }
+  });
+
   // GET /api/finance/forward-capture — what the nightly collector is doing.
   //
   // Exists so nobody has to read a deployment log to answer "is capture on, is

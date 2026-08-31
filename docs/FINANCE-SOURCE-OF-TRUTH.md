@@ -287,6 +287,43 @@ vocabulary**, for the same reason §6 forbids a fourth pipeline.
 
 ---
 
+## 9b. The Disposition Rule
+
+Owner-set 2026-08-31, and earned: **three separate cases were found in three
+days where valuable data was fetched from Sippy and then discarded before
+anything could use it.**
+
+| What was fetched | What happened to it | Cost |
+|---|---|---|
+| Vendor CDRs, every 10 min | into a `Map`, evicted at 48h, never persisted | P&L has no vendor side |
+| Per-account reference, daily | copied into BOTH DMR columns | "zero discrepancies" for months |
+| Account ids, in every portal row | destroyed by a tag-strip one line before the name was kept | reconciliation could only match on names |
+
+None was a bug in the ordinary sense. Each was working code that obtained
+correct data and dropped it, and in every case the loss was invisible because
+what remained still looked like an answer.
+
+> **No identifier or financial reference retrieved from Sippy may be discarded
+> before it reaches the repository or an auditable intermediate model.**
+
+Every parsed field carries an explicit disposition:
+
+- **Persisted** — stored for later use
+- **Consumed** — used immediately in a calculation, and the result is stored
+- **Discarded** — deliberately, *with the reason written down*
+
+A field that is none of the three is a defect, whether or not anything has
+noticed yet. The review question is not "does this work?" but **"where does this
+value end up, and if nowhere, why?"**
+
+The corollary, which is what makes it enforceable: a scraper or parser must not
+narrow its output to what today's caller happens to need. `scrapeAsrAcdRows`
+returned a name because the DMR only wanted a name — and that decision, made
+long before reconciliation existed, is what made reconciliation impossible to
+key correctly.
+
+---
+
 ## 10. Provenance
 
 Audit performed 2026-08-28 by direct code trace: service exports, route
