@@ -657,6 +657,33 @@ switch's and would let the platform certify against itself while appearing to
 have a reference. Unavailable means `REFERENCE_UNAVAILABLE` — an outcome the
 comparison core already returns and which is explicitly not PASS.
 
+### 15.3c Certification is per (account, period) — never one platform flag
+
+Owner-set 2026-08-31. The certification state is keyed
+`(iAccount, periodStart, periodEnd)`, not a single platform-wide boolean.
+
+| Account | Period | Status |
+|---|---|---|
+| 315 | 2026-08-24 → 08-30 | PASS |
+| 588 | 2026-08-24 → 08-30 | FAIL |
+| 77  | 2026-08-24 → 08-30 | PASS |
+
+So the platform reports **"22 of 25 accounts certified for the week"** rather
+than `NOT CERTIFIED`. The first is actionable; the second sends someone hunting.
+
+**This is also what keeps the gate from becoming an outage** — the same
+reasoning as the BLOCKED/WARNING split in §15.2. A platform-wide flag would
+block all twenty-five invoices because one account failed, twenty-two customers
+would be billed late for a fault that had nothing to do with them, and the
+pressure to override would arrive immediately. A gate that is routinely
+overridden has stopped being a gate.
+
+Per-account state also gives investigation and retry their natural grain: one
+account is re-collected, re-certified and released while the rest of the week
+proceeds untouched. And it makes certification *historically* readable — the
+same account can be certified for one week and failed for the next, which a
+single flag cannot express at all.
+
 ### 15.4 Rollout still applies
 
 §11's three phases are not waived by this amendment. Report-only first, so the
