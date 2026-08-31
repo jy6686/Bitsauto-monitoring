@@ -100,9 +100,13 @@ export async function customerDispositions(opts: {
       reason = 'Not linked to a Sippy account. Nothing can be collected or invoiced for this company.';
     } else if (iTariff == null) {
       stage = 'no_tariff';
-      reason = `Sippy account ${iAccount} has no tariff mapping, so the collector excludes it before ` +
-               'any CDRs are fetched (routes.ts _accountsForCollection). Link a tariff — the mapping ' +
-               'sync at POST /api/sippy/commercial-mappings/preview reads it from Sippy.';
+      // NOT "this customer has no tariff" — Sippy rates their calls perfectly
+      // well. What is missing is BitsAuto's local MIRROR of the mapping, which
+      // is needed to REPRODUCE the rating, not to collect or to bill.
+      reason = `Sippy prices this account's calls; BitsAuto has no local mirror of the tariff for ` +
+               `account ${iAccount}. CDRs are still collected — the evidence is gathered — but they ` +
+               'cannot be rated, certified or invoiced until the mapping is filled. ' +
+               'POST /api/sippy/commercial-mappings/preview reads it from Sippy.';
     } else if (calls === 0) {
       stage = 'not_collected';
       reason = `Collectible (account ${iAccount}, tariff ${iTariff}) but no CDRs are in the repository ` +

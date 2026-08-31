@@ -32821,7 +32821,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // billing CDRs — portal/RTST1 scrape data never enters the billing store.
   // Idempotent: dedup by cdr-id means re-running never duplicates snapshots.
   async function _seedRatingSnapshotsSync(
-    opts: { iAccount: number | string; iTariff: string; periodStart: string; periodEnd?: string | null;
+    opts: { iAccount: number | string;
+            /**
+             * BitsAuto's MIRROR of the Sippy tariff, not the tariff itself.
+             * Sippy rates the calls regardless — internal-ptcl's CDRs are
+             * priced at 0.0275/min on the switch while this column is null.
+             * Absent here means we cannot REPRODUCE the rating, never that the
+             * calls are unrated or uncollectable.
+             */
+            iTariff?: string | null; periodStart: string; periodEnd?: string | null;
             /** Per-run slice width. A heavy day needs narrower windows than a quiet
              *  one, and the operator must be able to narrow them WITHOUT an env
              *  change — on this host an env change restarts the process, which
@@ -33093,7 +33101,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
               cdrCallId:   c.callId ? String(c.callId) : null,
               iAccount:    num(c.iAccount) ?? Number(iAccount),
               iCustomer:   num(c.iCustomer),
-              iTariff:     String(iTariff),
+              iTariff:     iTariff ? String(iTariff) : null,
               clientName:  c.clientName ?? null,
               caller:      c.caller ?? null,
               callee:      c.callee ?? null,
@@ -33248,6 +33256,36 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         }
 
         rawCdrs = [...byICdr.values(), ...noICdr];
+
+        // ── The collection / rating seam ─────────────────────────────────────
+        // Fetching a CDR needs an ACCOUNT id. Rating one needs a tariff. Those
+        // are different jobs and only the second may be gated on a tariff.
+        //
+        // Production 2026-08-31: 23 of 25 accounts had a null sippy_i_tariff,
+        // so the collector never asked Sippy for their CDRs at all — including
+        // internal-ptcl, whose calls Sippy had itself rated at 0.0275/min and
+        // charged $284.42 for. A missing local MIRROR of a mapping prevented
+        // evidence from being gathered, and CDRs uncollected before the
+        // switch's retention closes are gone for good. Evidence gathering must
+        // never depend on commercial configuration.
+        if (!iTariff) {
+          const msg = `Collected ${fetchedTotal} CDR(s) (${storedTotal} newly stored) into the repository. ` +
+            'NOT rated: this account has no local tariff mapping, so reproduction, certification and ' +
+            'snapshots are skipped. The calls are priced on the switch and the evidence is now stored — ' +
+            'map the tariff and re-run to rate them.';
+          await progress({ status: 'done', finishedAt: new Date(), fetchedTotal, storedTotal,
+            currentSlice: null });
+          job.status = 'done';
+          job.fetched = fetchedTotal;
+          job.repositoryStored = storedTotal;
+          job.total = rawCdrs.length;
+          job.created = 0;
+          job.skipped = 0;
+          job.phase = msg;
+          console.log(`[seed-job:${jobId}] ${msg}`);
+          return { fetched: fetchedTotal, created: 0, skipped: 0, message: msg };
+        }
+
 
         // Nothing to verify. Two different facts land here and each gets its
         // own message: every slice answered clean-empty (a genuinely empty
@@ -38676,8 +38714,25 @@ ${footer}
    * still generated traffic, and that traffic still has to be collected and
    * certified. Whether to bill it is a later, separate decision.
    */
+  /**
+   * Every account whose CDRs should be COLLECTED — which is every account we
+   * have an id for. A tariff is NOT required here.
+   *
+   * It used to be, and that was an architectural defect the owner caught on
+   * 2026-08-31 by asking the right question: if these accounts have no tariff,
+   * how is their traffic terminating and how is Sippy producing rated CDRs for
+   * them? It is, because `companies.sippy_i_tariff` is BitsAuto's MIRROR of the
+   * mapping, not the tariff Sippy rates with. internal-ptcl's calls are priced
+   * at 0.0275/min on the switch and charged $284.42 while that column is null.
+   *
+   * The consequence of the old gate: 23 of 25 accounts were never asked for at
+   * all, so no evidence was collected for them — and CDRs not collected before
+   * the switch's retention window closes cannot be recovered. Gathering
+   * evidence must not depend on commercial configuration. Rating still does,
+   * and the seeder now stops at that seam per account.
+   */
   async function _accountsForCollection(): Promise<{
-    ready: Array<{ name: string; iAccount: number; iTariff: string }>;
+    ready: Array<{ name: string; iAccount: number; iTariff: string | null }>;
     noTariff: string[];
   }> {
     const r = await db.execute(sql`
@@ -38685,14 +38740,18 @@ ${footer}
         FROM companies
        WHERE sippy_i_account IS NOT NULL
        ORDER BY name`);
-    const ready: Array<{ name: string; iAccount: number; iTariff: string }> = [];
+    const ready: Array<{ name: string; iAccount: number; iTariff: string | null }> = [];
     const noTariff: string[] = [];
     for (const c of (((r as any).rows ?? []) as any[])) {
-      // A tariff is required to price a call. Without one the account is named
-      // rather than skipped in silence — that gap is a data problem someone
-      // can fix, and it stays invisible if the loop just passes over it.
-      if (c.sippy_i_tariff == null || String(c.sippy_i_tariff) === '') { noTariff.push(String(c.name)); continue; }
-      ready.push({ name: String(c.name), iAccount: Number(c.sippy_i_account), iTariff: String(c.sippy_i_tariff) });
+      const hasTariff = c.sippy_i_tariff != null && String(c.sippy_i_tariff) !== '';
+      // Still NAMED, because it remains a real gap: these accounts will be
+      // collected but not rated, certified or invoiced until the mapping is
+      // filled. Reported rather than silently skipped — and no longer excluded.
+      if (!hasTariff) noTariff.push(String(c.name));
+      ready.push({
+        name: String(c.name), iAccount: Number(c.sippy_i_account),
+        iTariff: hasTariff ? String(c.sippy_i_tariff) : null,
+      });
     }
     return { ready, noTariff };
   }
@@ -38702,10 +38761,13 @@ ${footer}
     try {
       const { ready, noTariff } = await _accountsForCollection();
       if (noTariff.length > 0) {
-        console.warn(`[recon-nightly] ${noTariff.length} account(s) have no tariff and cannot be priced: ${noTariff.join(', ')}`);
+        console.warn(
+          `[recon-nightly] ${noTariff.length} account(s) have no local tariff mapping and will be ` +
+          `COLLECTED but not rated: ${noTariff.join(', ')}. Their calls are priced on the switch; ` +
+          'map the tariff to rate, certify and invoice them.');
       }
       if (ready.length === 0) {
-        console.log('[recon-nightly] no company has both a Sippy account and a tariff — nothing to collect');
+        console.log('[recon-nightly] no company has a Sippy account — nothing to collect');
         return;
       }
 
@@ -38717,7 +38779,9 @@ ${footer}
       // yesterday keeps the on-demand path unchanged.
       const date = targetDate ?? day.toISOString().slice(0, 10);
 
-      console.log(`[recon-nightly] collecting ${date} for ${ready.length} account(s) with traffic capability`);
+      console.log(
+        `[recon-nightly] collecting ${date} for ${ready.length} account(s) ` +
+        `(${ready.length - noTariff.length} rateable, ${noTariff.length} collect-only)`);
       let ok = 0, failed = 0, totalExcluded = 0, totalCreated = 0;
 
       // Sequential: the switch is a shared production dependency and this runs
