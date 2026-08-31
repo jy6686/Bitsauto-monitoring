@@ -780,7 +780,12 @@ export default function InvoicesPage() {
     total:      invoices.length,
     draft:      invoices.filter(i => i.status === "draft").length,
     approved:   invoices.filter(i => i.status === "approved").length,
-    totalValue: invoices.reduce((s, i) => s + (i.totalReproduced ?? 0), 0),
+    // BILLED, not reproduced. This card summed totalReproduced — the rating
+    // engine's figure, currently 60x the switch's — so the headline on the
+    // Finance page read $10,083.47 for a set of invoices actually worth about
+    // $168. totalActual is Σ actual_cost: what the customer is charged, and the
+    // only figure on this page that is money.
+    totalValue: invoices.reduce((s, i) => s + (i.totalActual ?? 0), 0),
   };
 
   const canGenerate = !generateMutation.isPending && !!form.iAccount && !!form.iTariff && !!form.periodStart && !!form.periodEnd;
@@ -863,7 +868,7 @@ export default function InvoicesPage() {
           { label: "Total Invoices", value: stats.total,    icon: <Hash className="h-4 w-4 text-blue-400" /> },
           { label: "Draft",          value: stats.draft,    icon: <FileText className="h-4 w-4 text-slate-400" /> },
           { label: "Approved",       value: stats.approved, icon: <CheckCircle className="h-4 w-4 text-emerald-400" /> },
-          { label: "Total Value",    value: `$${stats.totalValue.toFixed(2)}`, icon: <DollarSign className="h-4 w-4 text-slate-400" /> },
+          { label: "Total Billed",   value: `$${stats.totalValue.toFixed(2)}`, icon: <DollarSign className="h-4 w-4 text-slate-400" /> },
         ].map(s => (
           <Card key={s.label}>
             <CardContent className="pt-4">
