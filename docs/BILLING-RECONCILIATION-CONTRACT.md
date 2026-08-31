@@ -716,6 +716,41 @@ This is the §9b **Audited** disposition applied to the engine's own output: the
 verdict is retained because it may become evidence, not because something
 computes with it.
 
+### 15.3e Call counts are NOT comparable — only money is
+
+**Observed 2026-08-31.** Sippy's Customer Summary for 2026-08-24 → 08-30 reports
+asterisk at **564,861 calls / $366.6442**. The repository holds **20,454 calls**
+for four of those days. The gap is not the missing days — four sevenths of the
+week would be roughly 320,000.
+
+The two sides count different populations, deliberately:
+
+| | population |
+|---|---|
+| Sippy summary | EVERY call — answered, unanswered, and 22,221 `external_translation_error` attempts at $0 |
+| Repository | `type: non_zero` — billable calls only (BILLING-POLICY §7.4) |
+
+So `callsDelta` on a correct period will read around **−544,000** and mean
+nothing whatever. Anyone reading that as a failure will "fix" a system that is
+working.
+
+**Money remains comparable**, because the calls the repository omits are charged
+zero. That is why contract §5 gates on money and treats calls and minutes as
+informational — a decision made before this evidence existed, and this is the
+evidence for it.
+
+**The one caveat, and it is real:** a zero-duration call can still carry a
+CONNECT FEE, which `non_zero` would never fetch. Such a call charges money the
+repository has no record of. It would show up exactly where it should — as a
+money difference the gate refuses — so the control catches it; but the cause
+would be an ingestion filter, not a rating error, and an investigator should
+know to look there. BILLING-POLICY §7.4 records the same caveat from the
+capture side.
+
+**Consequence for the UI:** never place the reference's call count beside the
+repository's as though they measure the same thing. Either label the populations
+or omit the column.
+
 ### 15.4 Rollout still applies
 
 §11's three phases are not waived by this amendment. Report-only first, so the
