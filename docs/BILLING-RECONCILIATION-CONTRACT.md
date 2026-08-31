@@ -612,6 +612,51 @@ reproduction, which reconciliation never reads.
 **So the money control can be enforced immediately.** It does not depend on
 `rateCall`, and `rateCall` does not depend on it.
 
+### 15.3b The reference provider already exists — and is discarded
+
+**Observed 2026-08-31, `sippy-dmr.service.ts`.** The DMR already fetches the
+switch's own per-account figures every day via `getSippyPerAccountStats` —
+name, duration, amount, calls, ASR, ACD, for clients *and* vendors. That is the
+independent reference this contract has been waiting for.
+
+It is then thrown away, in three lines that say so:
+
+```js
+// Platform side: for initial build, use billableCalls-weighted estimate
+// (In future: pull from CDR aggregation or tariff snapshot reproduction)
+const platDur = sipDur;   // start with same — drift is detected via amount
+const platAmt = sipAmt;   // will diverge when tariff snapshot comparison is wired
+```
+
+The platform side is a placeholder copying the reference. That is the whole
+mechanism behind "DMR reports zero discrepancies" — not a bug in the
+comparison, but a comparison that was never finished, running in production for
+months while reporting clean.
+
+**Consequence for build order.** Account-level reconciliation needs NO new Sippy
+integration. The fetch runs daily already; what is missing is a platform figure
+to compare it against and the refusal to proceed when they differ. And
+account-level alone would have caught **every dollar** of this week's $515.89 —
+`internal-ptcl` absent entirely, `internal-eritrea` absent entirely, `asterisk`
+short by $199.14.
+
+Two tiers, therefore:
+
+| Tier | Identity | Reference source | Catches |
+|---|---|---|---|
+| 1 · account | (customer, currency) | `getSippyPerAccountStats` — **already running** | missing customers, period totals |
+| 2 · line | (customer, prefix, rate, currency) — contract §4 | Customer Summary report | rate and prefix-level drift |
+
+Tier 1 first. It is nearly free and it is the tier that would have prevented
+what happened.
+
+**One hazard to close while wiring it.** When Sippy's stats are unavailable the
+DMR falls back to the local CDR cache and continues (line ~203). That fallback
+must NEVER feed the reference side: it substitutes our own data for the
+switch's and would let the platform certify against itself while appearing to
+have a reference. Unavailable means `REFERENCE_UNAVAILABLE` — an outcome the
+comparison core already returns and which is explicitly not PASS.
+
 ### 15.4 Rollout still applies
 
 §11's three phases are not waived by this amendment. Report-only first, so the
