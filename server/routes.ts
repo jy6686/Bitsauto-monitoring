@@ -38867,6 +38867,40 @@ ${footer}
     );
   }
 
+  // GET /api/finance/aggregation?from=YYYY-MM-DD&to=YYYY-MM-DD
+  //
+  // The PLATFORM side of certification, on its own, before any gating exists.
+  // Owner's instruction: validate the aggregation independently against the
+  // Sippy Customer Summary for the same period, and only then wire it into a
+  // control. A comparison built on an unverified aggregate would attribute its
+  // own arithmetic errors to the switch.
+  //
+  // `to` is EXCLUSIVE, matching /api/finance/cdr-repository/completeness and
+  // BILLING-POLICY §1.1. So the week 24-30 Aug is from=2026-08-24&to=2026-08-31.
+  app.get('/api/finance/aggregation', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const from = String(req.query.from ?? '');
+      const to   = String(req.query.to   ?? '');
+      const isDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
+      if (!isDate(from) || !isDate(to)) {
+        return res.status(400).json({
+          error: 'from and to are required, YYYY-MM-DD. `to` is EXCLUSIVE.',
+          example: '/api/finance/aggregation?from=2026-08-24&to=2026-08-31  (the week 24–30 Aug)',
+        });
+      }
+      if (from >= to) return res.status(400).json({ error: '`to` is exclusive and must be after `from`.' });
+
+      const { aggregateRepositoryByAccount } = await import('./services/finance/repository-aggregation.service');
+      const agg = await aggregateRepositoryByAccount({
+        periodStart: from, periodEnd: to,
+        iAccount: req.query.iAccount ? Number(req.query.iAccount) : null,
+      });
+      res.json(agg);
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message ?? e) });
+    }
+  });
+
   // GET /api/finance/certification/identity — can we identify the parties at all?
   //
   // The gate on everything downstream. Owner rule 2026-08-31: the Sippy account
