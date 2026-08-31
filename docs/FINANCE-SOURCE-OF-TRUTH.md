@@ -333,6 +333,44 @@ key correctly.
 
 ---
 
+## 9c. Every feature ships with a production acceptance criterion
+
+Owner-set 2026-08-31, and the whole week is the argument for it.
+
+> A unit test proves the code does what it was written to do. Only production
+> proves it does what was needed. Every feature declares, before it ships, one
+> observable production outcome that would demonstrate it working — and that
+> outcome is checked.
+
+**The evidence.** This repository's suite was green throughout. 492 tests
+passing, and simultaneously in production:
+
+- the importer had never collected 23 of 25 customers
+- the DMR could not disagree with the switch, and had not for months
+- the analytics P&L reported revenue of exactly zero
+- the forward-capture scheduler had never once fired
+- an invoice billed four days as a seven-day week
+
+Not one of those was a failing test. Every component did what it was written to
+do; the system did not do what was needed. Tests answer "is this correct?" and
+cannot answer "is this happening?".
+
+**In practice, the criterion is a measurement, not a promise:**
+
+| feature | acceptance criterion |
+|---|---|
+| forward capture | every configured Sippy account appears in `raw_sippy_cdrs` |
+| certification | the weekly Customer Summary reconciles before an invoice exists |
+| invoice scheduler | a daily-billed customer is invoiced with no human action |
+| P&L | totals reconcile to certified repository figures |
+
+The criterion must be a **thing observed in production**, expressible as a
+number or a row someone can go and look at. "It is deployed" is not one.
+"Coverage reads 100%" is. The distinction is the difference between the four
+green weeks that preceded this one and the four measured facts that ended it.
+
+---
+
 ## 10. Provenance
 
 Audit performed 2026-08-28 by direct code trace: service exports, route
