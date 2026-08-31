@@ -62,10 +62,19 @@ export interface ArmInputs {
   /** Set when the flag could not be read at all (DB down, table missing).
    *  Distinct from "the row says false": one is a fact, one is ignorance. */
   flagError?: string | null;
+  /** Set at boot, before any tick has read the flag. A THIRD state, distinct
+   *  from both "off" and "unreadable": nothing has been asked yet. Measured
+   *  2026-08-31 — the boot read failed every attempt while the tick read
+   *  60s later succeeded first try, because boot contends with migrations
+   *  and the schema check for one 25-connection pool. Reporting that as
+   *  "Database unreadable" made a settled platform look broken for a minute
+   *  after every republish, and sent two people hunting a database fault
+   *  that did not exist. */
+  flagPending?: boolean;
 }
 
 export function resolveArmState(inputs: ArmInputs): ArmState {
-  const { envRaw, flagEnabled, flagError } = inputs;
+  const { envRaw, flagEnabled, flagError, flagPending } = inputs;
 
   const envArmed  = isTruthyEnv(envRaw);
   const envSet    = envRaw !== undefined && envRaw !== null;
@@ -75,11 +84,13 @@ export function resolveArmState(inputs: ArmInputs): ArmState {
     ? '(not set in this process)'
     : JSON.stringify(envRaw);
 
-  const flagValueSeen = flagError
-    ? `(could not read: ${flagError})`
-    : flagEnabled == null
-      ? '(no flag row — migration 085 registers it)'
-      : String(flagEnabled);
+  const flagValueSeen = flagPending
+    ? '(not read yet — the first scheduler tick reads it)'
+    : flagError
+      ? `(could not read: ${flagError})`
+      : flagEnabled == null
+        ? '(no flag row — migration 085 registers it)'
+        : String(flagEnabled);
 
   const armed  = flagArmed || envArmed;
   const source: ArmSource = flagArmed && envArmed ? 'both'
@@ -88,13 +99,14 @@ export function resolveArmState(inputs: ArmInputs): ArmState {
     : 'none';
 
   return { armed, source, envValueSeen, flagValueSeen, hint: hintFor({
-    armed, source, envSet, envArmed, flagEnabled, flagError, envValueSeen,
+    armed, source, envSet, envArmed, flagEnabled, flagError, flagPending, envValueSeen,
   }) };
 }
 
 function hintFor(s: {
   armed: boolean; source: ArmSource; envSet: boolean; envArmed: boolean;
-  flagEnabled?: boolean | null; flagError?: string | null; envValueSeen: string;
+  flagEnabled?: boolean | null; flagError?: string | null; flagPending?: boolean;
+  envValueSeen: string;
 }): string {
   if (s.armed) {
     // The disagreement case is the one worth spelling out: an operator who
@@ -123,6 +135,13 @@ function hintFor(s: {
   const flagFix = 'Arm it WITHOUT a republish: PATCH /api/platform/flags/forward_capture ' +
                   '{"enabled":true,"reason":"…"} as admin. Takes effect within one tick (10 min).';
 
+  if (s.flagPending) {
+    return 'Starting up — the flag has not been read yet. The first scheduler tick reads it about ' +
+           'a minute after boot and this will then say whether it is on or off. ' +
+           (s.envSet && !s.envArmed
+             ? `(FORWARD_CAPTURE is ${s.envValueSeen}, which is not an accepted value.)`
+             : '');
+  }
   if (s.flagError) {
     return `Observing only, and the forward_capture flag could NOT be read (${s.flagError}) — so ` +
            'this says nothing about whether it is set. Fix the read first; a flag that cannot be ' +

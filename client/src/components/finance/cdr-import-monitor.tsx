@@ -260,9 +260,12 @@ export function CdrImportMonitor() {
                 <span className={
                   cap.flagValueSeen?.startsWith("(could not read")
                     ? "font-medium text-amber-600 dark:text-amber-400"
-                    : "font-medium text-foreground"
+                    : cap.flagValueSeen?.startsWith("(not read yet")
+                      ? "font-medium text-muted-foreground"
+                      : "font-medium text-foreground"
                 }>
                   {cap.flagValueSeen?.startsWith("(could not read") ? "Database unreadable"
+                    : cap.flagValueSeen?.startsWith("(not read yet") ? "Reading on first tick…"
                     : cap.armedBy === "flag" ? "Feature flag"
                     : cap.armedBy === "env"  ? "Environment variable"
                     : cap.armedBy === "both" ? "Feature flag + environment variable"

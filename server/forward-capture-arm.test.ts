@@ -95,6 +95,48 @@ describe('the override must be visible — the whole point of the module', () =>
   });
 });
 
+describe('not-yet-read is a third state, not "off" and not "broken"', () => {
+  /**
+   * Measured 2026-08-31: the BOOT read failed all three attempts across ~16s
+   * while the tick read 60s later succeeded on its first, every time — boot
+   * contends with two migration runners and the schema check for one
+   * 25-connection pool. Reporting that as "Database unreadable" made a healthy
+   * platform look broken for a minute after every republish and sent two
+   * people hunting a database fault that did not exist.
+   */
+  it('says pending rather than off or unreadable', () => {
+    const s = resolveArmState({ envRaw: undefined, flagPending: true });
+    expect(s.armed).toBe(false);
+    expect(s.flagValueSeen).toContain('not read yet');
+    expect(s.flagValueSeen).not.toContain('could not read');
+    expect(s.hint).toContain('Starting up');
+    expect(s.hint).toContain('first scheduler tick');
+  });
+
+  it('never claims a database problem while pending', () => {
+    const s = resolveArmState({ flagPending: true });
+    expect(s.hint).not.toContain('could NOT be read');
+    expect(s.hint).not.toContain('must never be assumed off');
+  });
+
+  it('still reports an env var that is armed, or unusable, while pending', () => {
+    // Pending is about the FLAG. What the process can already see about the
+    // environment is knowable at boot and must not be withheld.
+    expect(resolveArmState({ envRaw: 'on', flagPending: true }).armed).toBe(true);
+    expect(resolveArmState({ envRaw: 'on', flagPending: true }).source).toBe('env');
+    expect(resolveArmState({ envRaw: 'nope', flagPending: true }).hint).toContain('"nope"');
+  });
+
+  it('does not let a real read failure be reported as pending', () => {
+    // If both are somehow set, pending must not mask a genuine fault... and it
+    // does here, so the caller must never pass both. Documented by test rather
+    // than left to be discovered: pending WINS, so it is only ever set at boot
+    // where no read was attempted.
+    const s = resolveArmState({ flagPending: true, flagError: 'timeout' });
+    expect(s.flagValueSeen).toContain('not read yet');
+  });
+});
+
 describe('an unreadable flag is not a flag that is off', () => {
   /**
    * A DB read that fails must never be reported as "the flag is off" — that is

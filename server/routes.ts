@@ -38955,7 +38955,24 @@ ${footer}
     // Published to the UI. A scheduler whose only witness is a log line is a
     // black box to whoever is operating the platform, and reading logs to learn
     // whether tonight's capture will happen is not an operating model.
-    const bootArm = await readArmState();
+    //
+    // NO DATABASE READ AT BOOT. Measured 2026-08-31: the boot read failed all
+    // three attempts across ~16s while the tick read 60s later succeeded on
+    // its first, every time. Boot contends with runSafeMigrations,
+    // runFileMigrations and the schema check for one 25-connection pool; a tick
+    // runs on a settled instance. Retrying harder was the wrong fix — the right
+    // one is not to ask during the one minute when the answer is unobtainable
+    // and nothing depends on it, since the first tick re-reads anyway.
+    //
+    // It publishes PENDING rather than a guess. "Off" would be a verdict it has
+    // no evidence for and "unreadable" reads as a database fault, which is what
+    // sent us hunting one that did not exist.
+    const bootArm = resolveArmState({ envRaw: forwardCaptureRaw, flagPending: true });
+    _forwardCapture.envValueSeen  = bootArm.envValueSeen;
+    _forwardCapture.flagValueSeen = bootArm.flagValueSeen;
+    _forwardCapture.armSource     = bootArm.source;
+    _forwardCapture.armHint       = bootArm.hint;
+    _forwardCapture.mode          = bootArm.armed ? 'armed' : 'observe_only';
     _forwardCapture.checkIntervalMs = 10 * 60_000;
     let nightlyBusy = false;
     let lastNightlySaid = '';
