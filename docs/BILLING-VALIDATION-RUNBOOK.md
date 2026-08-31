@@ -267,6 +267,53 @@ one-day one, so a defect is found the next morning instead of the next month.
 Use an account that is already fully mapped — a failure anywhere else would only
 re-prove a known gap.
 
+### Phase 3 validates the SAFEGUARDS too, in both directions
+
+Owner-set. The six metrics above ask *can the pipeline produce the right
+result?* They do not ask *can the platform tell right from wrong?* — which is a
+separate question with separate evidence, because the gates added this week have
+never fired against real data.
+
+A safeguard passes through four stages, and only the last is trust:
+
+| | |
+|---|---|
+| **Designed** | the safeguard exists in code |
+| **Tested** | tests exercise it |
+| **Observed** | it activates in production |
+| **Trusted** | it activates CORRECTLY, repeatedly |
+
+Where they stand as of 2026-08-31:
+
+| Safeguard | Tested | Observed | Trusted |
+|---|---|---|---|
+| Identity coverage (`IDENTITY_INCOMPLETE` → `IDENTITY_OK`) | ✅ | ✅ | building |
+| Pipeline disposition | ✅ | ✅ | building |
+| Coverage gate (stage 2b) | ✅ | ✕ | — |
+| Per-account certification | ✅ | ✕ | — |
+| `REFERENCE_UNAVAILABLE` | ✅ | ✕ | — |
+| Single-flight (409) | ✅ | ✕ | — |
+
+**A gate that has never refused anything is not known to refuse correctly. It is
+known to compile.**
+
+**Both behaviours are required, and they are different evidence:**
+
+- the coverage gate **refusing** an incomplete week proves it can protect the platform
+- the coverage gate **allowing** a complete week proves it does not obstruct correct business
+
+Either alone is worthless. A gate that refuses everything is indistinguishable
+from a broken pipeline; a gate that allows everything is the DMR.
+
+**False refusals are not the safe direction.** In a financial system an
+incorrect refusal is as damaging as an incorrect approval: it delays legitimate
+billing, and — the part that actually kills the control — it teaches operators
+to bypass it. A gate overridden by habit has stopped being a gate, which is the
+same reasoning as the BLOCKED/WARNING split in the reconciliation contract
+§15.2. So Phase 3 is not about seeing red. It is about every gate's decisions
+matching production reality, in both directions, over repeated unattended
+cycles.
+
 ### Why these are the criteria
 
 Every failure this platform produced in the week of 2026-08-24 passed its own
