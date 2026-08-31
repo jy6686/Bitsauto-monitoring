@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractAccountId, identityCoverage } from './sippy-account-id';
+import { extractAccountId, extractVendorIdentity, identityCoverage } from './sippy-account-id';
 
 describe('extractAccountId — the id the scraper was deleting', () => {
   it('reads i_account from an account link', () => {
@@ -29,6 +29,55 @@ describe('extractAccountId — the id the scraper was deleting', () => {
     expect(a).toBe(76);
     expect(b).toBe(588);
     expect(a).not.toBe(b);
+  });
+});
+
+describe('the REAL production markup, measured 2026-08-31', () => {
+  /**
+   * Verbatim from GET …/certification/identity?sample=1 against production.
+   * Four guessed patterns returned 0% coverage; the parameter is `account`.
+   */
+  it('reads the client account link the portal actually renders', () => {
+    expect(extractAccountId('<a href="accounts.php?action=edit&account=588">Acct. internal-ptcl</a>')).toBe(588);
+    expect(extractAccountId('<a href="accounts.php?action=edit&account=315">Acct. asterisk</a>')).toBe(315);
+  });
+
+  it('does not mistake i_account for account, or the reverse', () => {
+    // Distinct parameters; both must work, neither may match the other's form.
+    expect(extractAccountId('<a href="?i_account=315">x</a>')).toBe(315);
+    expect(extractAccountId('<a href="?account=315">x</a>')).toBe(315);
+  });
+
+  it('takes nothing from a vendor cell as an account id', () => {
+    // A vendor row must never be mistaken for a client account.
+    const vendor = '<a href="vendors.php?action=edit&i_vendor=13">asterisk(in)</a>/' +
+                   '<a href="connections.php?i_connection=10&action=edit&i_vendor=13">asterisk(PTCL)(2060)</a>';
+    expect(extractAccountId(vendor)).toBeNull();
+  });
+});
+
+describe('extractVendorIdentity — a vendor is a PAIR', () => {
+  const VENDOR = '\n   <a href="vendors.php?action=edit&i_vendor=13">asterisk(in)</a>/' +
+                 '<a href="connections.php?i_connection=10&action=edit&i_vendor=13" >asterisk(PTCL)(2060)</a>   ';
+
+  it('reads both halves from the real markup', () => {
+    expect(extractVendorIdentity(VENDOR)).toEqual({ iVendor: 13, iConnection: 10 });
+  });
+
+  it('distinguishes two connections under ONE vendor', () => {
+    // asterisk(in) carries i_connection 10 and 16 in the same report. Keying on
+    // i_vendor alone would merge their money — the name-collision defect, one
+    // level down.
+    const other = '<a href="vendors.php?action=edit&i_vendor=13">asterisk(in)</a>/' +
+                  '<a href="connections.php?i_connection=16&action=edit&i_vendor=13">asterisk-in</a>';
+    expect(extractVendorIdentity(VENDOR).iConnection).toBe(10);
+    expect(extractVendorIdentity(other).iConnection).toBe(16);
+    expect(extractVendorIdentity(other).iVendor).toBe(13);
+  });
+
+  it('returns nulls rather than half an identity', () => {
+    expect(extractVendorIdentity('System Vendor/System Connection')).toEqual({ iVendor: null, iConnection: null });
+    expect(extractVendorIdentity(null)).toEqual({ iVendor: null, iConnection: null });
   });
 });
 
@@ -84,6 +133,16 @@ describe('identityCoverage — announce when the identity source disappears', ()
     expect(c.identified).toBe(1);
     expect(c.pct).toBe(33.3);
     expect(c.complete).toBe(false);
+  });
+
+  it('counts a complete vendor pair as identified', () => {
+    expect(identityCoverage([{ iVendor: 13, iConnection: 10 }]).identified).toBe(1);
+  });
+
+  it('does not count HALF a vendor pair', () => {
+    // i_vendor alone merges every connection under that vendor.
+    expect(identityCoverage([{ iVendor: 13 }]).identified).toBe(0);
+    expect(identityCoverage([{ iConnection: 10 }]).identified).toBe(0);
   });
 
   it('treats zero and negative ids as unidentified', () => {

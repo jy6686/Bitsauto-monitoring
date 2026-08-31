@@ -1340,6 +1340,11 @@ export interface SippyAccountStatRow {
    * only by a human opening DevTools against a production portal.
    */
   nameCellHtml?: string;
+  /** Vendor-side identity. A vendor row is keyed by the PAIR: one vendor
+   *  carries many connections and the money is per connection, so i_vendor
+   *  alone would merge them. */
+  iVendor?:     number;
+  iConnection?: number;
   totalCalls:   number;
   billableCalls:number;
   durationSec:  number;  // billed duration in seconds
@@ -1365,7 +1370,7 @@ const EMPTY_ROW: SippyAccountStatRow = {
   name: '', totalCalls: 0, billableCalls: 0, durationSec: 0, acdSec: 0, asr: 0, avgPdd: 0, amount: 0,
 };
 
-import { extractAccountId } from './sippy-account-id';
+import { extractAccountId, extractVendorIdentity } from './sippy-account-id';
 
 function scrapeAsrAcdRows(html: string): {
   origRows: SippyAccountStatRow[];
@@ -1432,7 +1437,16 @@ function scrapeAsrAcdRows(html: string): {
 
     const row: SippyAccountStatRow = { name, totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd, amount };
     if (rowAccountId !== null) row.iAccount = rowAccountId;
-    if (firstCellHtml) row.nameCellHtml = firstCellHtml;
+    if (firstCellHtml) {
+      row.nameCellHtml = firstCellHtml;
+      // Termination rows are vendor/connection pairs, not accounts. Read the
+      // pair rather than leaving the whole vendor side unidentified.
+      if (section === 'term') {
+        const v = extractVendorIdentity(firstCellHtml);
+        if (v.iVendor !== null)     row.iVendor = v.iVendor;
+        if (v.iConnection !== null) row.iConnection = v.iConnection;
+      }
+    }
 
     // Total rows go to their respective totals (handled separately)
     if (/^total for all/i.test(name)) {
