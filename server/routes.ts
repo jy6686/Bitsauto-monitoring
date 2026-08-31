@@ -32626,10 +32626,48 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const n = Math.min(Math.max(Number(req.query.limit ?? 5) || 5, 1), 50);
       const rows = await db.select().from(seedJobs)
         .orderBy(sql`started_at DESC`).limit(n);
+
+      // CUSTOMER NAME, resolved here rather than in each consumer. "account 58"
+      // is an internal identifier; everywhere else in Finance an operator reads
+      // internal-eritrea. Owner request 2026-08-31, and the panel was the only
+      // Finance surface still showing the raw id.
+      //
+      // Resolved from companies.sippy_i_account, the same mapping billing uses,
+      // so a name here and a name on an invoice cannot disagree.
+      //
+      // AMBIGUITY IS REPORTED, NOT HIDDEN. Account 76 is held by BOTH
+      // `Internal-ptcl` (id 2) and `ptcl` (id 32) — a known production hazard.
+      // Picking one silently would put a name on a collection run that might
+      // belong to the other customer, so a shared account returns every claimant
+      // and the UI says so. An id that matches nothing stays an id.
+      const nameByAccount = new Map<number, string[]>();
+      const ids = [...new Set(rows.map((r: any) => r.iAccount).filter((v: any) => v != null))];
+      if (ids.length) {
+        const co: any = await db.execute(sql`
+          SELECT sippy_i_account AS acct, name
+            FROM companies
+           WHERE sippy_i_account = ANY(${sql.raw(`ARRAY[${ids.map(Number).join(',')}]::int[]`)})
+           ORDER BY name
+        `);
+        for (const c of (co.rows ?? [])) {
+          const k = Number(c.acct);
+          nameByAccount.set(k, [...(nameByAccount.get(k) ?? []), String(c.name)]);
+        }
+      }
+      const jobs = rows.map((r: any) => {
+        const claimants = r.iAccount == null ? [] : (nameByAccount.get(Number(r.iAccount)) ?? []);
+        return {
+          ...r,
+          customerName: claimants.length === 1 ? claimants[0] : null,
+          /** >1 means the account is shared — the name is NOT safe to display alone. */
+          customerClaimants: claimants,
+        };
+      });
+
       // Name the database that answered. The whole point of this endpoint is
       // that the reader can trust WHICH database the rows came from.
       const { databaseFingerprint } = await import('./environment-fingerprint');
-      res.json({ database: await databaseFingerprint(), count: rows.length, jobs: rows });
+      res.json({ database: await databaseFingerprint(), count: jobs.length, jobs });
     } catch (e: any) {
       res.status(500).json({ error: String(e?.message ?? e) });
     }
@@ -32770,10 +32808,23 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     lastTickError:   string | null;
     lastTickErrorAt: string | null;
     tickErrors:      number;
+    /** Set while a collection is actually running. MEASURED 2026-08-31: the
+     *  19:40 tick spent 23 minutes inside _runNightlyReconciliation (account
+     *  315 alone took 16m06s for 515 CDRs), and every tick during that window
+     *  hit the re-entry guard and returned BEFORE the lastTickAt assignment —
+     *  so the liveness clock froze and the panel announced "the scheduler may
+     *  have stopped" while it was doing the most work it has ever done.
+     *  Busy is not dead, and the two must never print the same. */
+    collectingSince: string | null;
+    collectingDate:  string | null;
+    /** Ticks the guard turned away. Expected during a long import; a number
+     *  that keeps climbing with collectingSince unchanged means genuinely stuck. */
+    ticksSkippedBusy: number;
   } = { mode: 'unregistered', lastTickAt: null, lastDecision: null, checkIntervalMs: 0,
         envValueSeen: '(scheduler not registered)', flagValueSeen: '(scheduler not registered)',
         armSource: 'none', armHint: 'The forward-capture scheduler is not registered in this process.',
-        flagReadRetries: 0, lastTickError: null, lastTickErrorAt: null, tickErrors: 0 };
+        flagReadRetries: 0, lastTickError: null, lastTickErrorAt: null, tickErrors: 0,
+        collectingSince: null, collectingDate: null, ticksSkippedBusy: 0 };
   const _seedJobId    = () => `sj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const _cleanSeedJobs = () => {
     const cut = Date.now() - 600_000;
@@ -39001,7 +39052,12 @@ ${footer}
     };
 
     const nightlyTick = async () => {
-      if (nightlyBusy) return;
+      if (nightlyBusy) {
+        // Counted and published. Silently returning here is what made a
+        // 23-minute collection look like a dead scheduler.
+        _forwardCapture.ticksSkippedBusy++;
+        return;
+      }
       nightlyBusy = true;
       try {
         const { decideNightlyIngest } = await import('./nightly-ingest-due');
@@ -39047,7 +39103,17 @@ ${footer}
         }
         console.log(`[recon-nightly] ARMED by ${arm.source} · due: ${decision.reason}`);
         lastNightlySaid = ''; ticksSinceSaid = 0;
-        await _runNightlyReconciliation(decision.targetDate!);
+        // Publish that a collection is IN PROGRESS for the whole of its run.
+        // This is the only thing distinguishing "busy for 23 minutes" from
+        // "stopped 23 minutes ago", and they were indistinguishable until now.
+        _forwardCapture.collectingSince = new Date().toISOString();
+        _forwardCapture.collectingDate  = decision.targetDate!;
+        try {
+          await _runNightlyReconciliation(decision.targetDate!);
+        } finally {
+          _forwardCapture.collectingSince = null;
+          _forwardCapture.collectingDate  = null;
+        }
       } catch (e: any) {
         // Published, not just logged. A tick that throws never reaches the
         // lastTickAt assignment, so without this the endpoint shows
@@ -39259,7 +39325,14 @@ ${footer}
       ...(_forwardCapture as any),
       // A scheduler that has not ticked within two intervals is not merely
       // quiet — it has stopped, and silence must not read as health.
-      alive: last != null && Date.now() - last < _forwardCapture.checkIntervalMs * 2,
+      //
+      // UNLESS IT IS COLLECTING. A tick that is still inside a 23-minute import
+      // cannot update its own clock, and reporting that as "may have stopped"
+      // raises an alarm at the exact moment the thing is working. Busy counts
+      // as alive; the operator sees WHICH day is being collected instead.
+      alive: _forwardCapture.collectingSince != null ||
+             (last != null && Date.now() - last < _forwardCapture.checkIntervalMs * 2),
+      collecting: _forwardCapture.collectingSince != null,
       nextTickEstimate: last != null
         ? new Date(last + _forwardCapture.checkIntervalMs).toISOString()
         : null,

@@ -45,9 +45,38 @@ interface SeedJobRow {
   startedAt: string;
   updatedAt: string;
   finishedAt: string | null;
+  /** Resolved server-side from companies.sippy_i_account. Null when the id
+   *  matches nothing, or when it is SHARED — see customerClaimants. */
+  customerName?: string | null;
+  customerClaimants?: string[];
 }
 
 const num = (n: number | null | undefined) => (n == null ? "—" : n.toLocaleString());
+
+/**
+ * Who is being collected — the operator's question, in their words.
+ *
+ * "account 58" is an internal identifier and this panel was the last Finance
+ * surface still leading with one. The id is kept as a subtitle because it is
+ * what the job row, the log line and Sippy all use when something goes wrong.
+ *
+ * A SHARED account is named as shared rather than resolved to a guess: account
+ * 76 belongs to both `Internal-ptcl` and `ptcl` in production, and printing
+ * either one would attribute a collection run to a customer it may not concern.
+ */
+function customerLabel(j: SeedJobRow): { title: string; subtitle: string; ambiguous: boolean } {
+  const acct = j.iAccount == null ? "no account" : `Account #${j.iAccount}`;
+  const claimants = j.customerClaimants ?? [];
+  if (claimants.length > 1) {
+    return { title: claimants.join(" / "), subtitle: `${acct} — shared by ${claimants.length} companies`, ambiguous: true };
+  }
+  if (j.customerName) return { title: j.customerName, subtitle: acct, ambiguous: false };
+  return { title: acct, subtitle: "no company linked to this account", ambiguous: false };
+}
+
+/** A missing tariff mirror is a normal state since collection was decoupled
+ *  from it — but "tariff null" reads as a fault. Say what it means. */
+const tariffLabel = (t: string | null) => (t ? `tariff ${t}` : "no local tariff mapping");
 
 function elapsed(fromIso: string, toIso?: string | null): string {
   const a = Date.parse(fromIso);
@@ -117,7 +146,12 @@ export function CdrImportMonitor() {
   // Completeness for the day the active job is importing — the question an
   // operator actually has ("is this day whole yet"), answered without typing.
   const day = running[0]?.periodStart ?? recent[0]?.periodStart ?? null;
-  const acct = running[0]?.iAccount ?? recent[0]?.iAccount ?? null;
+  const acctJob = running[0] ?? recent[0] ?? null;
+  const acct = acctJob?.iAccount ?? null;
+  /** Same naming rule as the job rows — one resolver, so the header and the
+   *  row beneath it can never disagree about who this is. */
+  const acctLabel = acctJob ? customerLabel(acctJob).title +
+    (customerLabel(acctJob).ambiguous || !acctJob.customerName ? "" : ` · #${acct}`) : `account ${acct}`;
   const nextDay = day ? new Date(Date.parse(`${day}T00:00:00Z`) + 86400000).toISOString().slice(0, 10) : null;
 
   const completeness = useQuery<any>({
@@ -217,6 +251,20 @@ export function CdrImportMonitor() {
           {cap && (
             <div className="mt-2 space-y-1 text-xs text-muted-foreground">
               {/* A scheduler that stopped must not look like one that is idle. */}
+              {/* Working, and saying so. A collection holds the tick for as
+                  long as it runs — 23 minutes on 08-28 — and the clock cannot
+                  advance meanwhile. Announcing that as a possible stoppage
+                  raised an alarm at the exact moment it was working. */}
+              {cap.collecting && (
+                <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                  <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                  <span>
+                    Collecting <span className="font-medium">{cap.collectingDate}</span> — started{" "}
+                    {cap.collectingSince?.slice(11, 19)} UTC
+                    {cap.ticksSkippedBusy > 0 && ` · ${cap.ticksSkippedBusy} tick(s) deferred while busy`}
+                  </span>
+                </div>
+              )}
               {cap.mode !== "unregistered" && !cap.alive && (
                 <div className="flex items-start gap-1 text-amber-600 dark:text-amber-400">
                   <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
@@ -348,15 +396,27 @@ export function CdrImportMonitor() {
           const pct = job.totalSlices > 0
             ? Math.round((job.completedSlices / job.totalSlices) * 100) : 0;
           const remaining = eta(job);
+          const who = customerLabel(job);
           return (
             <div key={job.jobId} className="rounded-md border p-3 space-y-3" data-testid={`import-${job.jobId}`}>
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-medium">
-                  {job.periodStart}
-                  {job.periodEnd !== job.periodStart && ` → ${job.periodEnd}`}
-                  <span className="ml-2 text-xs font-normal text-muted-foreground">
-                    account {job.iAccount} · tariff {job.iTariff} · {job.sliceMinutes}-min slices
-                  </span>
+              <div className="flex items-start justify-between gap-2">
+                {/* Customer first, identifier underneath. An operator asks WHO
+                    is being collected; the id is what they need only once
+                    something has gone wrong. */}
+                <div>
+                  <div className="text-sm font-medium">
+                    {who.title}
+                    {who.ambiguous && (
+                      <span className="ml-1.5 text-xs font-normal text-amber-600 dark:text-amber-400">
+                        ambiguous
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {job.periodStart}
+                    {job.periodEnd !== job.periodStart && ` → ${job.periodEnd}`}
+                    {" · "}{who.subtitle} · {tariffLabel(job.iTariff)} · {job.sliceMinutes}-min slices
+                  </div>
                 </div>
                 <StatusBadge status={job.status} />
               </div>
@@ -391,7 +451,7 @@ export function CdrImportMonitor() {
             <div className="mb-2 text-sm font-medium">
               Repository · {day}
               <span className="ml-2 text-xs font-normal text-muted-foreground">
-                account {acct}
+                {acctLabel}
               </span>
             </div>
             <div className="grid grid-cols-3 gap-3">
@@ -417,15 +477,24 @@ export function CdrImportMonitor() {
           <div>
             <div className="mb-2 text-[11px] uppercase tracking-wide text-muted-foreground">Recent</div>
             <div className="space-y-1">
-              {recent.map(job => (
-                <div key={job.jobId} className="flex items-center justify-between gap-2 rounded border px-2 py-1.5 text-xs">
-                  <span className="font-medium tabular-nums">{job.periodStart}</span>
-                  <span className="text-muted-foreground tabular-nums">
-                    {job.completedSlices}/{job.totalSlices} · {num(job.storedTotal)} stored · {elapsed(job.startedAt, job.finishedAt)}
-                  </span>
-                  <StatusBadge status={job.status} />
-                </div>
-              ))}
+              {/* Every row said only the DATE, so a run over seven accounts on
+                  one day rendered as seven identical lines. The customer is
+                  what distinguishes them. */}
+              {recent.map(job => {
+                const who = customerLabel(job);
+                return (
+                  <div key={job.jobId} className="flex items-center justify-between gap-2 rounded border px-2 py-1.5 text-xs">
+                    <span className="min-w-0 truncate">
+                      <span className="font-medium">{who.title}</span>
+                      <span className="ml-1.5 text-muted-foreground tabular-nums">{job.periodStart}</span>
+                    </span>
+                    <span className="shrink-0 text-muted-foreground tabular-nums">
+                      {job.completedSlices}/{job.totalSlices} · {num(job.storedTotal)} stored · {elapsed(job.startedAt, job.finishedAt)}
+                    </span>
+                    <StatusBadge status={job.status} />
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
