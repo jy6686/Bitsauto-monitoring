@@ -225,3 +225,51 @@ decision (the DMR gate) can be taken any time. E last, on a period the earlier p
 When all five hold for one complete period, the pipeline is operationally sound and financially
 auditable — and the build queue (Billing Reconciliation module, period lifecycle, invoice lock)
 reopens on top of validated ground.
+
+---
+
+## Phase 3 — Operational validation (owner-set 2026-08-31)
+
+Phase 1 (architecture) is complete. Phase 2 (independent validation) demonstrated
+the *methodology* — one account, one fully collected day, money and billed
+duration matching an external reference. Neither says the platform works every
+day, which is what Phase 3 is for.
+
+**Phase 3 ends when production repeatedly demonstrates all six.** Not once —
+repeatedly, because a pipeline that works on the day someone watches it is the
+failure mode this whole runbook exists to catch.
+
+| # | Subsystem | Acceptance metric — observable WITHOUT reading code |
+|---|---|---|
+| 1 | Forward capture | number of Sippy accounts collected today > 0 and equal to the number configured |
+| 2 | Repository | CDRs imported vs expected, per account, per day |
+| 3 | Certification | accounts PASS / FAIL / REFERENCE_UNAVAILABLE — counted, not summarised as one flag |
+| 4 | Aggregation | certified amount vs Sippy amount, per account |
+| 5 | Invoice | certified amount **equals** billed amount |
+| 6 | P&L | derived only from certified repository data |
+
+**The qualifying test for a metric on this list:** an operator can check it
+without reading source. "It is deployed" fails that test. "Coverage reads 100%"
+passes. "39,421 equals 39,421" passes.
+
+### The end-to-end acceptance run
+
+Component checks do not substitute for it. Configure one low-risk customer to
+DAILY billing and observe one complete cycle with **no manual step**:
+
+```
+traffic → forward capture → raw_sippy_cdrs → aggregation
+        → certification PASS → draft invoice → invoice register
+```
+
+Daily rather than weekly on purpose: it turns a seven-day feedback loop into a
+one-day one, so a defect is found the next morning instead of the next month.
+Use an account that is already fully mapped — a failure anywhere else would only
+re-prove a known gap.
+
+### Why these are the criteria
+
+Every failure this platform produced in the week of 2026-08-24 passed its own
+tests. §9c of FINANCE-SOURCE-OF-TRUTH records the list. Each metric above exists
+because one of them was invisible to everything except a number someone finally
+went and looked at.
