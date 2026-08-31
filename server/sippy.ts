@@ -1324,6 +1324,15 @@ function parseMMSS(s: string): number {
 
 export interface SippyAccountStatRow {
   name:         string;
+  /**
+   * THE canonical financial identity (owner rule, 2026-08-31). Names are for
+   * the UI and must never key a reconciliation: production holds
+   * `Internal-ptcl` (76) and `internal-ptcl` (588) — different customers
+   * differing only in case. Undefined when the portal cell carried no
+   * recognisable id; certification then reports the account as unidentified
+   * rather than matching it by name.
+   */
+  iAccount?:    number;
   totalCalls:   number;
   billableCalls:number;
   durationSec:  number;  // billed duration in seconds
@@ -1348,6 +1357,8 @@ export interface SippyPerAccountStats {
 const EMPTY_ROW: SippyAccountStatRow = {
   name: '', totalCalls: 0, billableCalls: 0, durationSec: 0, acdSec: 0, asr: 0, avgPdd: 0, amount: 0,
 };
+
+import { extractAccountId } from './sippy-account-id';
 
 function scrapeAsrAcdRows(html: string): {
   origRows: SippyAccountStatRow[];
@@ -1384,8 +1395,13 @@ function scrapeAsrAcdRows(html: string): {
     // Extract cells (td/th elements)
     const tdRe = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
     const cells: string[] = [];
+    // The account id lives in the name cell's LINK. Stripping tags first threw
+    // it away one line before the name was kept, which is why the reference
+    // could only ever be keyed by a display name. Read it before stripping.
+    let rowAccountId: number | null = null;
     let td: RegExpExecArray | null;
     while ((td = tdRe.exec(rowHtml)) !== null) {
+      if (rowAccountId === null) rowAccountId = extractAccountId(td[1]);
       const cellText = td[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim();
       cells.push(cellText);
     }
@@ -1406,6 +1422,7 @@ function scrapeAsrAcdRows(html: string): {
     if (!name && totalCalls === 0) continue;
 
     const row: SippyAccountStatRow = { name, totalCalls, billableCalls, durationSec, acdSec, asr, avgPdd, amount };
+    if (rowAccountId !== null) row.iAccount = rowAccountId;
 
     // Total rows go to their respective totals (handled separately)
     if (/^total for all/i.test(name)) {
