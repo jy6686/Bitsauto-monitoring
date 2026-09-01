@@ -40,6 +40,23 @@ export interface ReconAttempt {
    * again — a silent, permanent gap.
    */
   startedAtIso?: string;
+  /**
+   * True for the DAY-COMPLETION row (`recon-<date>`, no account suffix), which
+   * the collector writes only after visiting EVERY account with zero failures.
+   *
+   * Why per-account rows cannot prove a day (measured, night of 2026-08-31):
+   * the ledger is one row per account, and this module used to accept ANY done
+   * row as "date collected". The 08-30 run died silently after 7 of ~25
+   * accounts — no error row, no stale row, the process simply went away
+   * between accounts — and the 08-31 run died at account 5 leaving a stale
+   * 'running' row. Both days showed done rows, so both were declared
+   * collected. Both were missing the two accounts that carry the money (315,
+   * 588); 08-31 had ZERO repository rows while the panel read "Nothing owed".
+   * A partial day is invisible in its own surviving rows — completion must be
+   * asserted by the one writer that knows the account list, not inferred from
+   * whichever fragments a dying process left behind.
+   */
+  daySentinel?: boolean;
 }
 
 export interface NightlyDecision {
@@ -104,6 +121,15 @@ export function decideNightlyIngest(opts: {
     if (!Number.isFinite(started)) return true;
     return nowMs - started < staleMs;
   };
+  /** A 'running' row old enough that its process is certainly gone. Not merely
+   *  "not live": it is EVIDENCE the day's run died, and a day with a corpse in
+   *  its ledger must not be called collected by its other rows. */
+  const isDeadRun = (t: ReconAttempt): boolean => {
+    if (t.status !== 'running') return false;
+    const started = t.startedAtIso ? Date.parse(t.startedAtIso) : NaN;
+    if (!Number.isFinite(started)) return false;
+    return nowMs - started >= staleMs;
+  };
 
   // Yesterday UTC — the last day that is CLOSED. Collecting today would read a
   // day still in progress and record it as complete.
@@ -132,9 +158,24 @@ export function decideNightlyIngest(opts: {
     const date = dayKey(todayMs - back * DAY_MS);
     if (date < collectingSince) continue;
     const tries = byDate.get(date) ?? [];
-    if (tries.some(t => t.status === 'done'))    continue;   // collected
     if (tries.some(isLiveRun)) continue;                     // in flight
-    if (tries.length >= maxAttempts) { exhaustedDates.push(date); continue; }
+    // COLLECTED means the day-completion sentinel, nothing weaker. The old
+    // rule — any done row — declared 08-30 and 08-31 collected after their
+    // runs died at account 7 and account 5 respectively, leaving the money
+    // accounts uncollected and the panel reading "Nothing owed". Per-account
+    // done rows prove those accounts ran, never that the day finished. A
+    // sentinel-less day with done rows re-runs in full; the CDR-id dedup
+    // makes that a re-fetch, not a re-store, so the safe direction is cheap.
+    // (Also the reason a deploy of this rule re-collects recent days once:
+    // they have no sentinel yet. That is the repair, not a malfunction.)
+    if (tries.some(t => t.daySentinel === true && t.status === 'done')) continue;
+    // Attempts = evidence of FAILURE (error rows + dead runs), not row count.
+    // The old `tries.length >= maxAttempts` counted every per-account row, so
+    // a day that crashed after two clean accounts read as "3 attempts" and
+    // was abandoned on its first failure — exhaustion fired hardest at the
+    // days that most needed retrying.
+    const failedAttempts = tries.filter(t => t.status === 'error' || isDeadRun(t)).length;
+    if (failedAttempts >= maxAttempts) { exhaustedDates.push(date); continue; }
     owed.push(date);
   }
 

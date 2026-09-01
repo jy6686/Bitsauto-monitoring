@@ -38896,6 +38896,41 @@ ${footer}
         `${failed} failed, ${totalExcluded} with exclusions, ${noTariff.length} skipped for no tariff, ` +
         `${Math.round((Date.now() - startedAt) / 1000)}s`,
       );
+
+      // DAY-COMPLETION SENTINEL — the only thing that marks a date collected.
+      //
+      // Written here and nowhere else, because this loop is the one writer
+      // that knows the full account list. Per-account rows cannot prove a day:
+      // the 08-30 run died silently after 7 of ~25 accounts (no error row —
+      // the process simply went away between accounts) and 08-31 died at
+      // account 5, yet both days read as "collected" from their surviving done
+      // rows while the money accounts (315, 588) were never fetched.
+      //
+      // Only a CLEAN day seals: reaching this line means every account was
+      // VISITED, and failed === 0 means every one succeeded. A visited day
+      // with failures stays unsealed so the scheduler re-runs it whole — the
+      // CDR-id dedup turns the repeat into a re-fetch, not a re-store.
+      if (failed === 0) {
+        const { seedJobs } = await import('@shared/schema');
+        const sentinelNow = new Date();
+        await db.insert(seedJobs).values({
+          jobId: `recon-${date}`, iAccount: null, iTariff: null,
+          periodStart: date, periodEnd: date,
+          sliceMinutes: 0, totalSlices: ready.length, completedSlices: ready.length,
+          status: 'done', fetchedTotal: totalCreated, storedTotal: totalCreated,
+          startedAt: new Date(startedAt), updatedAt: sentinelNow, finishedAt: sentinelNow,
+        }).onConflictDoUpdate({
+          target: seedJobs.jobId,
+          set: { status: 'done', totalSlices: ready.length, completedSlices: ready.length,
+                 fetchedTotal: totalCreated, storedTotal: totalCreated,
+                 updatedAt: sentinelNow, finishedAt: sentinelNow, lastError: null },
+        });
+        console.log(`[recon-nightly] ${date} SEALED — all ${ready.length} account(s) clean`);
+      } else {
+        console.warn(
+          `[recon-nightly] ${date} NOT sealed — ${failed} account(s) failed; ` +
+          'the day stays owed and will re-run in full');
+      }
     } catch (e: any) {
       console.error('[recon-nightly] runner error:', e.message);
     }
@@ -39066,7 +39101,25 @@ ${footer}
         // collection without a republish: flip the flag, and the next tick —
         // at most ten minutes — acts on it.
         const arm = await readArmState();
+
+        // REAP CORPSES before deciding. A run killed mid-day (autoscale
+        // recycle, republish) leaves its row 'running' forever; the panel then
+        // renders a job "Running · 41.5h left" seven hours after its process
+        // died — measured 2026-09-01, recon-2026-08-31-4. One live process
+        // exists, so any running row older than the stale window is certainly
+        // dead. Marked error, not deleted: it is a failed attempt and the
+        // decision counts it as one.
+        const reaped: any = await db.execute(sql`
+          UPDATE seed_jobs
+             SET status = 'error', finished_at = now(), updated_at = now(),
+                 last_error = 'Run died mid-day (process restarted or recycled). The scheduler retries the whole day; already-stored CDRs dedup.'
+           WHERE status = 'running' AND started_at < now() - interval '90 minutes'`);
+        if (Number(reaped?.rowCount ?? 0) > 0) {
+          console.warn(`[recon-nightly] reaped ${reaped.rowCount} dead running job(s)`);
+        }
+
         const rows = await db.select({
+          jobId: seedJobs.jobId,
           date: seedJobs.periodStart, status: seedJobs.status, startedAt: seedJobs.startedAt,
         }).from(seedJobs).where(sql`job_id LIKE 'recon-%' AND started_at > now() - interval '30 days'`);
 
@@ -39076,6 +39129,9 @@ ${footer}
           attempts: rows.map((r: any) => ({
             date: String(r.date), status: String(r.status),
             startedAtIso: r.startedAt ? new Date(r.startedAt).toISOString() : undefined,
+            // The day-completion row is exactly `recon-<date>` — no account
+            // suffix. Only it can mark a date collected; see nightly-ingest-due.
+            daySentinel: String(r.jobId) === `recon-${String(r.date)}`,
           })),
         });
 

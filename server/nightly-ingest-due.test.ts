@@ -1,15 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import { decideNightlyIngest, type ReconAttempt } from './nightly-ingest-due';
 
+/** A per-ACCOUNT completion — proves that account ran, and nothing more. */
 const done    = (date: string): ReconAttempt => ({ date, status: 'done' });
 const errored = (date: string): ReconAttempt => ({ date, status: 'error' });
 const running = (date: string): ReconAttempt => ({ date, status: 'running' });
+/** The DAY-COMPLETION sentinel — the only row that marks a date collected.
+ *  Written by the collector after visiting every account with zero failures. */
+const sealed  = (date: string): ReconAttempt => ({ date, status: 'done', daySentinel: true });
 
-/** Every day of the lookback collected, so nothing is owed. */
+/** Every day of the lookback SEALED, so nothing is owed. */
 const allCollected = (through: string, days: number): ReconAttempt[] => {
   const end = Date.parse(`${through}T00:00:00Z`);
   return Array.from({ length: days }, (_, i) =>
-    done(new Date(end - i * 86400000).toISOString().slice(0, 10)));
+    sealed(new Date(end - i * 86400000).toISOString().slice(0, 10)));
 };
 
 describe('decideNightlyIngest — the day is owed until the ledger says otherwise', () => {
@@ -58,7 +62,7 @@ describe('the defect this replaces: a process that missed midnight', () => {
     // Down for three days: 25, 26, 27 all missing.
     const d = decideNightlyIngest({
       nowIso: '2026-08-28T09:00:00Z',
-      attempts: [done('2026-08-24'), done('2026-08-23'), done('2026-08-22'), done('2026-08-21')],
+      attempts: [sealed('2026-08-24'), sealed('2026-08-23'), sealed('2026-08-22'), sealed('2026-08-21')],
     });
     expect(d.due).toBe(true);
     expect(d.targetDate).toBe('2026-08-25'); // oldest owed, not yesterday
@@ -69,7 +73,7 @@ describe('the defect this replaces: a process that missed midnight', () => {
   it('collects an older owed day even before the settling hour', () => {
     const d = decideNightlyIngest({
       nowIso: '2026-08-28T00:05:00Z',
-      attempts: [done('2026-08-24'), done('2026-08-27')], // 25 and 26 missing
+      attempts: [sealed('2026-08-24'), sealed('2026-08-27')], // 25 and 26 missing
     });
     expect(d.due).toBe(true);
     expect(d.targetDate).toBe('2026-08-25');
@@ -91,7 +95,7 @@ describe('the defect this replaces: a process that missed midnight', () => {
   it('never collects a day that closed before forward capture started', () => {
     const d = decideNightlyIngest({
       nowIso: '2026-08-28T09:00:00Z',
-      attempts: [done('2026-08-26')], // capture began on the 26th
+      attempts: [sealed('2026-08-26')], // capture began on the 26th
     });
     expect(d.targetDate).toBe('2026-08-27');
     expect(d.backlog).toBe(1);
@@ -99,7 +103,7 @@ describe('the defect this replaces: a process that missed midnight', () => {
 });
 
 describe('attempts, not optimism, decide when to stop', () => {
-  it('does not re-collect a day already marked done', () => {
+  it('does not re-collect a day already sealed', () => {
     const d = decideNightlyIngest({
       nowIso: '2026-08-28T02:00:00Z',
       attempts: [...allCollected('2026-08-27', 7)],
@@ -168,6 +172,80 @@ describe('attempts, not optimism, decide when to stop', () => {
     expect(d.due).toBe(false);
     // and it SAYS so — a day silently abandoned is a gap nobody knows about
     expect(d.reason).toMatch(/gave up/);
+  });
+});
+
+describe('a partial day is not a collected day — the nights of 2026-08-30/31', () => {
+  /**
+   * Both incidents, verbatim from production. The ledger is one row per
+   * account, and the old rule accepted ANY done row as "date collected".
+   *
+   * Night 1 (08-30): the run died silently after 7 of ~25 accounts — no error
+   * row, no stale row, the process went away between accounts. Night 2
+   * (08-31): the run died at account 5, leaving a stale 'running' row. Both
+   * days showed done rows; both were declared collected; both were missing
+   * the two accounts that carry the money. 08-31 had ZERO repository rows
+   * while the panel read "Nothing owed — every day collected".
+   */
+  it('re-owes the 08-30 shape: done rows, no sentinel, no corpse', () => {
+    const d = decideNightlyIngest({
+      nowIso: '2026-09-01T09:00:00Z',
+      attempts: [
+        ...allCollected('2026-08-29', 5),
+        // 7 accounts finished cleanly, then the process vanished mid-day.
+        done('2026-08-30'), done('2026-08-30'), done('2026-08-30'),
+        done('2026-08-30'), done('2026-08-30'), done('2026-08-30'), done('2026-08-30'),
+      ],
+    });
+    expect(d.due).toBe(true);
+    expect(d.targetDate).toBe('2026-08-30');
+  });
+
+  it('re-owes the 08-31 shape: done rows plus a dead running row', () => {
+    const d = decideNightlyIngest({
+      nowIso: '2026-09-01T09:00:00Z',
+      attempts: [
+        ...allCollected('2026-08-30', 6),
+        done('2026-08-31'), done('2026-08-31'), done('2026-08-31'), done('2026-08-31'),
+        { date: '2026-08-31', status: 'running', startedAtIso: '2026-09-01T01:52:18Z' },
+      ],
+    });
+    expect(d.due).toBe(true);
+    expect(d.targetDate).toBe('2026-08-31');
+  });
+
+  it('a sealed day with a leftover corpse stays collected', () => {
+    // The retry that sealed the day overwrites the per-account rows it re-runs,
+    // but a corpse for an account no longer in the list could survive. The
+    // sentinel is the assertion of completeness; the corpse is history.
+    const d = decideNightlyIngest({
+      nowIso: '2026-09-01T09:00:00Z',
+      attempts: [
+        ...allCollected('2026-08-31', 7),
+        { date: '2026-08-31', status: 'running', startedAtIso: '2026-08-31T01:00:00Z' },
+      ],
+    });
+    // The precedence matters: if the corpse outranked the seal, a complete
+    // day would re-run forever. The seal wins.
+    expect(d.due).toBe(false);
+    expect(d.backlog).toBe(0);
+  });
+
+  it('per-account done rows never count toward exhaustion', () => {
+    // Old rule: tries.length >= 3, so two clean accounts plus one corpse read
+    // as "3 attempts" and the day was abandoned on its FIRST failure —
+    // exhaustion fired hardest at the days that most needed retrying.
+    const d = decideNightlyIngest({
+      nowIso: '2026-09-01T09:00:00Z',
+      attempts: [
+        ...allCollected('2026-08-30', 6),
+        done('2026-08-31'), done('2026-08-31'), done('2026-08-31'), done('2026-08-31'),
+        { date: '2026-08-31', status: 'running', startedAtIso: '2026-09-01T01:52:18Z' },
+      ],
+      maxAttemptsPerDate: 3,
+    });
+    expect(d.exhaustedDates).not.toContain('2026-08-31');
+    expect(d.due).toBe(true);
   });
 });
 

@@ -497,6 +497,25 @@ export function CdrImportMonitor() {
                   one day rendered as seven identical lines. The customer is
                   what distinguishes them. */}
               {recent.map(job => {
+                // The day-completion sentinel (`recon-<date>`, no account) is
+                // the row that PROVES a day finished — the per-account rows
+                // cannot: two nights died between accounts and their surviving
+                // rows read as a complete day. Render it as the seal it is,
+                // not as a nameless account.
+                if (job.iAccount == null && /^recon-\d{4}-\d{2}-\d{2}$/.test(job.jobId)) {
+                  return (
+                    <div key={job.jobId} className="flex items-center justify-between gap-2 rounded border border-emerald-200 bg-emerald-50/50 px-2 py-1.5 text-xs dark:border-emerald-900 dark:bg-emerald-950/30">
+                      <span className="min-w-0 truncate">
+                        <span className="font-medium text-emerald-700 dark:text-emerald-400">Day sealed</span>
+                        <span className="ml-1.5 text-muted-foreground tabular-nums">{job.periodStart}</span>
+                      </span>
+                      <span className="shrink-0 text-muted-foreground tabular-nums">
+                        all {job.totalSlices} account(s) clean · {num(job.storedTotal)} new call(s)
+                      </span>
+                      <StatusBadge status={job.status} />
+                    </div>
+                  );
+                }
                 const who = customerLabel(job);
                 return (
                   <div key={job.jobId} className="flex items-center justify-between gap-2 rounded border px-2 py-1.5 text-xs">
