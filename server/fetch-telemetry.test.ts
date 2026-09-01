@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { summariseDisposition, suspiciousSlices, summariseFetch, type SliceTelemetry } from './fetch-telemetry';
+import { summariseDisposition, suspiciousSlices, summariseFetch, contradictions, type SliceTelemetry } from './fetch-telemetry';
 
 const PAGE = 1000;
 
 const slice = (over: Partial<SliceTelemetry> = {}): SliceTelemetry => ({
-  label: '00:00–00:30Z', pages: [{ offset: 0, rows: 10, ok: true }], end: 'end_of_data',
+  label: '00:00–00:30Z', pages: [{ offset: 0, rows: 10, ok: true }], end: 'SHORT_PAGE',
   received: 10, kept: 10, inserted: 10, duplicate: 0, invalid: 0, ...over,
 });
 
@@ -101,7 +101,7 @@ describe('suspiciousSlices — a full last page means the loop quit early', () =
     const s = slice({
       label: '13:00–13:30Z',
       pages: [{ offset: 0, rows: PAGE, ok: true }, { offset: PAGE, rows: PAGE, ok: true }],
-      end: 'end_of_data', received: 2000, kept: 2000, inserted: 2000,
+      end: 'SHORT_PAGE', received: 2000, kept: 2000, inserted: 2000,
     });
     expect(suspiciousSlices([s], PAGE)).toEqual(['13:00–13:30Z']);
   });
@@ -118,7 +118,7 @@ describe('suspiciousSlices — a full last page means the loop quit early', () =
     // An error is already surfaced as an error; calling it "suspicious" too
     // would inflate the count that is supposed to mean something specific.
     const s = slice({
-      pages: [{ offset: 0, rows: 0, ok: false }], end: 'error',
+      pages: [{ offset: 0, rows: 0, ok: false }], end: 'ERROR',
       received: 0, kept: 0, inserted: 0,
     });
     expect(suspiciousSlices([s], PAGE)).toEqual([]);
@@ -143,14 +143,14 @@ describe('suspiciousSlices — a full last page means the loop quit early', () =
 describe('end-state breakdown', () => {
   it('counts each terminating condition', () => {
     const s = summariseFetch({ pageSize: PAGE, slices: [
-      slice({ end: 'end_of_data' }),
-      slice({ end: 'error', pages: [{ offset: 0, rows: 0, ok: false }] }),
-      slice({ end: 'page_limit' }),
-      slice({ end: 'page_limit' }),
+      slice({ end: 'SHORT_PAGE' }),
+      slice({ end: 'ERROR', pages: [{ offset: 0, rows: 0, ok: false }] }),
+      slice({ end: 'PAGE_LIMIT' }),
+      slice({ end: 'PAGE_LIMIT' }),
     ] });
-    expect(s.endBreakdown.end_of_data).toBe(1);
-    expect(s.endBreakdown.error).toBe(1);
-    expect(s.endBreakdown.page_limit).toBe(2);
+    expect(s.endBreakdown.SHORT_PAGE).toBe(1);
+    expect(s.endBreakdown.ERROR).toBe(1);
+    expect(s.endBreakdown.PAGE_LIMIT).toBe(2);
     expect(s.verdict).toContain('page ceiling');
     expect(s.verdict).toContain('FETCH ERROR');
   });
@@ -198,5 +198,94 @@ describe('empty input', () => {
     expect(s.slices).toBe(0);
     expect(s.disposition.balances).toBe(true);
     expect(s.disposition.received).toBe(0);
+  });
+});
+
+describe('contradictions — the instrument checking itself', () => {
+  /**
+   * Telemetry is about to be the only evidence for changing the fetch. An
+   * instrument that cannot detect its own inconsistency will supply a
+   * confident wrong answer, and we would act on it.
+   */
+  it('catches SHORT_PAGE recorded against a full last page', () => {
+    const c = contradictions([slice({
+      label: '13:00–13:30Z', end: 'SHORT_PAGE',
+      pages: [{ offset: 0, rows: PAGE, ok: true }],
+      received: PAGE, kept: PAGE, inserted: PAGE,
+    })], PAGE);
+    expect(c).toHaveLength(1);
+    expect(c[0].detail).toContain('a full page is not short');
+    expect(c[0].detail).toContain('neither is trustworthy');
+  });
+
+  it('catches SHORT_PAGE recorded against a FAILED last page', () => {
+    // The exact rule cdr-fetch-page.ts exists to enforce, checked from the
+    // other direction: an error is never end-of-data.
+    const c = contradictions([slice({
+      end: 'SHORT_PAGE', pages: [{ offset: 0, rows: 0, ok: false }],
+      received: 0, kept: 0, inserted: 0,
+    })], PAGE);
+    expect(c[0].detail).toContain('An error is never end-of-data');
+  });
+
+  it('catches EMPTY_PAGE recorded against a non-empty page', () => {
+    const c = contradictions([slice({
+      end: 'EMPTY_PAGE', pages: [{ offset: 0, rows: 7, ok: true }],
+      received: 7, kept: 7, inserted: 7,
+    })], PAGE);
+    expect(c[0].detail).toContain('returned 7 rows');
+  });
+
+  it('catches ERROR recorded against a successful last page', () => {
+    const c = contradictions([slice({ end: 'ERROR' })], PAGE);
+    expect(c[0].detail).toContain('the last page succeeded');
+  });
+
+  it('treats UNKNOWN as always a defect', () => {
+    const c = contradictions([slice({ end: 'UNKNOWN' })], PAGE);
+    expect(c[0].detail).toContain('a normal exit has a name');
+  });
+
+  it('catches rows received with no pages recorded', () => {
+    const c = contradictions([slice({ pages: [], received: 40, kept: 40, inserted: 40 })], PAGE);
+    expect(c[0].detail).toContain('40 rows received but no pages recorded');
+  });
+
+  /**
+   * PAGE_LIMIT stopping on a full page is NOT a contradiction — that is
+   * precisely what hitting a ceiling looks like. It is still suspicious (rows
+   * remain), and the two lists say different things about the same slice:
+   * one about data loss, one about instrument integrity.
+   */
+  it('does NOT flag PAGE_LIMIT stopping on a full page', () => {
+    const s = slice({
+      label: '09:00–09:30Z', end: 'PAGE_LIMIT',
+      pages: [{ offset: 0, rows: PAGE, ok: true }],
+      received: PAGE, kept: PAGE, inserted: PAGE,
+    });
+    expect(contradictions([s], PAGE)).toEqual([]);
+    expect(suspiciousSlices([s], PAGE)).toEqual(['09:00–09:30Z']);
+  });
+
+  it('does not flag a consistent slice', () => {
+    expect(contradictions([slice()], PAGE)).toEqual([]);
+  });
+
+  it('leads the verdict, ahead of anything derived from the numbers', () => {
+    const s = summariseFetch({ pageSize: PAGE, slices: [slice({
+      end: 'SHORT_PAGE', pages: [{ offset: 0, rows: PAGE, ok: true }],
+      received: PAGE, kept: PAGE, inserted: PAGE,
+    })] });
+    expect(s.verdict.startsWith('INSTRUMENT CONTRADICTS ITSELF')).toBe(true);
+    expect(s.contradictions).toHaveLength(1);
+  });
+
+  it('flags an EMPTY_PAGE ending as a possible silent auth failure', () => {
+    const s = summariseFetch({ pageSize: PAGE, slices: [slice({
+      end: 'EMPTY_PAGE', pages: [{ offset: 0, rows: 0, ok: true }],
+      received: 0, kept: 0, inserted: 0,
+    })] });
+    expect(s.verdict).toContain('silent auth failure');
+    expect(s.contradictions).toEqual([]);
   });
 });

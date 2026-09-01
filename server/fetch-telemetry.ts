@@ -34,15 +34,33 @@
  * identity is pinned by tests rather than by a database.
  */
 
+/**
+ * WHY the loop stopped — recorded, never inferred.
+ *
+ * "Rows are missing" and "the fetch stopped for reason R" are different facts,
+ * and only the second one is actionable. Every exit is named, including the
+ * ones that should be impossible, because an exit nobody can name is the exit
+ * a bug leaves behind.
+ */
 export type SliceEnd =
-  /** A successful page came back shorter than the page size. */
-  | 'end_of_data'
-  /** The loop stopped because a fetch failed. Says nothing about the data. */
-  | 'error'
+  /** A successful page came back SHORT — the only legitimate end-of-data. */
+  | 'SHORT_PAGE'
+  /** A successful page came back with ZERO rows. Distinct from SHORT_PAGE on
+   *  purpose: an empty first page is what a silent auth failure looks like
+   *  when the transport reports success, and calling that "end of data" is the
+   *  precise mistake cdr-fetch-page.ts exists to prevent. */
+  | 'EMPTY_PAGE'
+  /** The fetch failed. Says nothing whatever about the data. */
+  | 'ERROR'
   /** The loop hit its own page ceiling — rows almost certainly remain. */
-  | 'page_limit'
+  | 'PAGE_LIMIT'
+  /** Stopped from outside: shutdown, disarm, operator abort. */
+  | 'MANUAL_CANCEL'
   /** Still running. */
-  | 'incomplete';
+  | 'INCOMPLETE'
+  /** The loop exited and nothing recorded why. Always a defect in the
+   *  instrument or the loop; never a normal outcome. */
+  | 'UNKNOWN';
 
 export interface PageRecord {
   /** 0-based offset this page was requested at. */
@@ -85,10 +103,13 @@ export interface DispositionSummary {
 export interface FetchTelemetrySummary {
   slices:      number;
   pages:       number;
+  pageSize:    number;
   disposition: DispositionSummary;
   /** Slices whose last page was full — the loop stopped with more available. */
   suspiciousSlices: string[];
   endBreakdown: Record<SliceEnd, number>;
+  /** Recorded reason vs recorded pages disagreeing. Non-empty ⇒ distrust all. */
+  contradictions: Contradiction[];
   /** Plain language, and it names the suspect rather than the symptom. */
   verdict: string;
 }
@@ -131,6 +152,59 @@ export function suspiciousSlices(slices: SliceTelemetry[], pageSize: number): st
   }).map(s => s.label);
 }
 
+export interface Contradiction {
+  slice:  string;
+  end:    SliceEnd;
+  detail: string;
+}
+
+/**
+ * THE INSTRUMENT CHECKING ITSELF.
+ *
+ * Some (termination reason, last page size) pairs cannot both be true. A slice
+ * that says SHORT_PAGE while its last page was full is not reporting a fetch
+ * problem — it is reporting that the recorded reason and the recorded pages
+ * disagree, which means one of them is wrong and neither can be trusted.
+ *
+ * This matters more than it looks. Telemetry is about to be the only evidence
+ * for a decision to change the fetch, and an instrument that cannot detect its
+ * own inconsistency will happily supply a confident wrong answer. Better to
+ * find out from the instrument than from the invoice.
+ */
+export function contradictions(slices: SliceTelemetry[], pageSize: number): Contradiction[] {
+  const out: Contradiction[] = [];
+  for (const s of slices) {
+    const last = s.pages.length ? s.pages[s.pages.length - 1] : null;
+
+    if (s.end === 'SHORT_PAGE' && last && last.ok && last.rows >= pageSize) {
+      out.push({ slice: s.label, end: s.end,
+        detail: `recorded SHORT_PAGE but the last page returned ${last.rows} of ${pageSize} — a full ` +
+                'page is not short. The termination reason and the page log disagree; neither is trustworthy.' });
+    }
+    if (s.end === 'EMPTY_PAGE' && last && last.rows > 0) {
+      out.push({ slice: s.label, end: s.end,
+        detail: `recorded EMPTY_PAGE but the last page returned ${last.rows} rows.` });
+    }
+    if (s.end === 'SHORT_PAGE' && last && !last.ok) {
+      out.push({ slice: s.label, end: s.end,
+        detail: 'recorded SHORT_PAGE but the last page FAILED. An error is never end-of-data.' });
+    }
+    if (s.end === 'ERROR' && last && last.ok) {
+      out.push({ slice: s.label, end: s.end,
+        detail: 'recorded ERROR but the last page succeeded.' });
+    }
+    if (s.end === 'UNKNOWN') {
+      out.push({ slice: s.label, end: s.end,
+        detail: 'the loop exited without recording why. Always a defect — a normal exit has a name.' });
+    }
+    if (s.pages.length === 0 && s.received > 0) {
+      out.push({ slice: s.label, end: s.end,
+        detail: `${s.received} rows received but no pages recorded.` });
+    }
+  }
+  return out;
+}
+
 export function summariseFetch(opts: {
   slices:   SliceTelemetry[];
   pageSize: number;
@@ -138,16 +212,36 @@ export function summariseFetch(opts: {
   const { slices, pageSize } = opts;
   const disposition = summariseDisposition(slices);
   const suspicious  = suspiciousSlices(slices, pageSize);
+  const contras     = contradictions(slices, pageSize);
 
-  const endBreakdown: Record<SliceEnd, number> =
-    { end_of_data: 0, error: 0, page_limit: 0, incomplete: 0 };
+  const endBreakdown: Record<SliceEnd, number> = {
+    SHORT_PAGE: 0, EMPTY_PAGE: 0, ERROR: 0, PAGE_LIMIT: 0,
+    MANUAL_CANCEL: 0, INCOMPLETE: 0, UNKNOWN: 0,
+  };
   for (const s of slices) endBreakdown[s.end]++;
 
   const parts: string[] = [];
+  // Order is deliberate: anything that invalidates the numbers comes before
+  // anything derived FROM the numbers.
   if (!disposition.balances) {
     parts.push(
       `COUNTERS DO NOT BALANCE: ${disposition.unaccounted} row(s) received but in no bucket. ` +
       'Fix the accounting before drawing any conclusion from the figures below.');
+  }
+  if (contras.length) {
+    parts.push(
+      `INSTRUMENT CONTRADICTS ITSELF in ${contras.length} slice(s) — ${contras[0].slice}: ` +
+      `${contras[0].detail} Telemetry is the only evidence for changing the fetch, so a ` +
+      'self-inconsistent instrument must be fixed before it is believed.');
+  }
+  if (endBreakdown.EMPTY_PAGE > 0) {
+    parts.push(
+      `${endBreakdown.EMPTY_PAGE} slice(s) ended on an EMPTY page. A successful call returning zero ` +
+      'rows is what a silent auth failure looks like — confirm the window truly had no traffic ' +
+      'before accepting it as end-of-data.');
+  }
+  if (endBreakdown.MANUAL_CANCEL > 0) {
+    parts.push(`${endBreakdown.MANUAL_CANCEL} slice(s) were cancelled — the period is incomplete by construction.`);
   }
   if (suspicious.length) {
     parts.push(
@@ -155,11 +249,11 @@ export function summariseFetch(opts: {
       `loop exited: ${suspicious.slice(0, 5).join(', ')}${suspicious.length > 5 ? ', …' : ''}. ` +
       'Pagination is losing data, not the store.');
   }
-  if (endBreakdown.page_limit > 0) {
-    parts.push(`${endBreakdown.page_limit} slice(s) hit the page ceiling — rows remain unfetched.`);
+  if (endBreakdown.PAGE_LIMIT > 0) {
+    parts.push(`${endBreakdown.PAGE_LIMIT} slice(s) hit the page ceiling — rows remain unfetched.`);
   }
-  if (endBreakdown.error > 0) {
-    parts.push(`${endBreakdown.error} slice(s) ended on a FETCH ERROR — incomplete, not empty.`);
+  if (endBreakdown.ERROR > 0) {
+    parts.push(`${endBreakdown.ERROR} slice(s) ended on a FETCH ERROR — incomplete, not empty.`);
   }
   if (disposition.invalid > 0) {
     parts.push(
@@ -177,9 +271,11 @@ export function summariseFetch(opts: {
   return {
     slices: slices.length,
     pages:  sum(slices.map(s => s.pages.length)),
+    pageSize,
     disposition,
     suspiciousSlices: suspicious,
     endBreakdown,
+    contradictions: contras,
     verdict: parts.join(' '),
   };
 }
