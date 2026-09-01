@@ -8887,18 +8887,32 @@ async function verifySippyRate(
   base: string,
 ): Promise<{ confirmed: boolean; foundRate?: number; message: string }> {
   try {
+    // Name the tariff on both sides of the read. A push verifies against whatever tariff it
+    // resolved, so it can confirm itself correctly while the tariff someone is watching stays
+    // empty — and "verified" alone gives no way to tell those apart.
+    console.log(`[verify] tariff=${tariffId} prefix=${prefix} expected=${expectedRate} — reading back`);
     await new Promise(r => setTimeout(r, 1500));
     const result = await getSippyRateList(username, password, tariffId, base);
-    if (result.error) return { confirmed: false, message: result.error };
+    if (result.error) {
+      console.log(`[verify] tariff=${tariffId} prefix=${prefix} → read FAILED: ${result.error}`);
+      return { confirmed: false, message: result.error };
+    }
+    // How many rates the tariff holds distinguishes "this prefix is missing" from "this
+    // tariff is empty", which point at completely different causes.
     const match = result.rates.find(r => r.prefix === prefix);
-    if (!match) return { confirmed: false, message: `prefix ${prefix} not found in tariff after push` };
+    if (!match) {
+      const msg = `prefix ${prefix} not found in tariff ${tariffId} after push (tariff holds ${result.rates.length} rate(s))`;
+      console.log(`[verify] ${msg}`);
+      return { confirmed: false, message: msg };
+    }
     const ok = Math.abs(match.rate - expectedRate) < 0.000001;
+    console.log(`[verify] tariff=${tariffId} prefix=${prefix} → confirmed=${ok} found=${match.rate} expected=${expectedRate} (tariff holds ${result.rates.length} rate(s))`);
     return {
       confirmed: ok,
       foundRate: match.rate,
       message: ok
-        ? `✓ prefix=${prefix} rate=${match.rate} (expected=${expectedRate})`
-        : `✗ prefix=${prefix} found=${match.rate} expected=${expectedRate}`,
+        ? `✓ tariff=${tariffId} prefix=${prefix} rate=${match.rate} (expected=${expectedRate})`
+        : `✗ tariff=${tariffId} prefix=${prefix} found=${match.rate} expected=${expectedRate}`,
     };
   } catch (e: any) {
     return { confirmed: false, message: `verification error: ${e.message}` };
@@ -9349,7 +9363,7 @@ export async function setSippyRateEntry(
           }
 
           if (finalStatus === 'DONE') {
-            step('verifying');
+            step('verifying', `tariff ${tariffId}`);
             const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base);
             console.log(`[RateManager] Verification (upload_token): ${verifyResult.message}`);
             if (verifyResult.confirmed) {
@@ -9375,7 +9389,7 @@ export async function setSippyRateEntry(
           // this Sippy build — the import may have completed silently.  Verify before
           // falling through so a working upload doesn't get discarded.
           if (finalStatus === 'FILE_UPLOADED') {
-            step('verifying');
+            step('verifying', `tariff ${tariffId}`);
             const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base);
             console.log(`[RateManager] Verification after FILE_UPLOADED (upload_token): ${verifyResult.message}`);
             if (verifyResult.confirmed) {

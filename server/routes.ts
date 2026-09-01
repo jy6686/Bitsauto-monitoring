@@ -41566,12 +41566,26 @@ ${footer}
 
             // Where we are, before the call rather than after it — an operation that never
             // returns is precisely the one whose position needs to be on record.
+            // The tariff this operation targets, recorded on the row BEFORE the upload runs.
+            // It used to be written only by the finalising UPDATE, so when that statement
+            // failed the job could not say which tariff it had aimed at — and the answer had
+            // to be reconstructed from deployment logs that may already have rotated.
+            // Verification reads back from whatever this resolves to, so a push can verify
+            // itself successfully against a tariff nobody was looking at.
+            const resolvedTariff = iTariffByAccountName.get(accountName);
             const mark = (step: string, extra: Record<string, unknown> = {}) => {
               db.update(ratePushJobs)
-                .set({ lastStep: step, lastStepAt: new Date(), lastClient: accountName.substring(0, 160), lastPrefix: dest.fullPrefix.substring(0, 32), ...extra })
+                .set({
+                  lastStep: step, lastStepAt: new Date(),
+                  lastClient: accountName.substring(0, 160),
+                  lastPrefix: dest.fullPrefix.substring(0, 32),
+                  ...(resolvedTariff ? { iTariff: Number(resolvedTariff) } : {}),
+                  ...extra,
+                })
                 .where(eq(ratePushJobs.jobId, jobId))
                 .catch(() => { /* position reporting must never fail a push */ });
             };
+            console.log(`[push-batch] ${dest.fullPrefix} → ${accountName}: targeting i_tariff=${resolvedTariff ?? 'UNRESOLVED (server will look it up)'}`);
             mark('queued');
 
             try {
