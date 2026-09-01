@@ -39360,6 +39360,33 @@ ${footer}
     }
   });
 
+  // GET /api/finance/reconciliation — the gate's verdict, at full width.
+  //
+  // Same modules as the blocking gate in _runBillingChain, so the explanation
+  // can never contradict the refusal. Shows per-day reference coverage, then
+  // every account's reference vs platform figures and the difference — because
+  // a bare FAIL sends an operator to assemble those by hand, which on
+  // 2026-08-31 cost a day of tracing to reach one NULL column.
+  app.get('/api/finance/reconciliation', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const from = String(req.query.from ?? '');
+      const to   = String(req.query.to   ?? '');
+      const isDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
+      if (!isDate(from) || !isDate(to)) {
+        return res.status(400).json({
+          error: 'from and to are required, YYYY-MM-DD. `to` is EXCLUSIVE.',
+          example: '/api/finance/reconciliation?from=2026-08-24&to=2026-08-31  (the week 24–30 Aug)',
+        });
+      }
+      if (from >= to) return res.status(400).json({ error: '`to` is exclusive and must be after `from`.' });
+
+      const { reconciliationReport } = await import('./services/finance/reconciliation-report.service');
+      res.json(await reconciliationReport({ periodStart: from, periodEnd: to }));
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message ?? e) });
+    }
+  });
+
   // GET /api/finance/certification/identity — can we identify the parties at all?
   //
   // The gate on everything downstream. Owner rule 2026-08-31: the Sippy account
