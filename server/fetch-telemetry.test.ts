@@ -5,6 +5,11 @@ const PAGE = 1000;
 
 const slice = (over: Partial<SliceTelemetry> = {}): SliceTelemetry => ({
   label: '00:00–00:30Z', pages: [{ offset: 0, rows: 10, ok: true }], end: 'SHORT_PAGE',
+  // A terminal stop must record what it compared, so the default fixture does
+  // too — tests that exercise the missing-decision case override it explicitly.
+  // nextPageAttempted is deliberately left undefined here: those checks fire
+  // only on an explicit true/false, so an unset field stays silent.
+  decision: { inputs: { pageSize: 1000, rowsReturned: 10 }, comparison: '10 < 1000' },
   received: 10, kept: 10, inserted: 10, duplicate: 0, invalid: 0, ...over,
 });
 
@@ -287,5 +292,96 @@ describe('contradictions — the instrument checking itself', () => {
     })] });
     expect(s.verdict).toContain('silent auth failure');
     expect(s.contradictions).toEqual([]);
+  });
+});
+
+describe('the decision behind the reason', () => {
+  const withDecision = (over: Partial<SliceTelemetry> = {}) => slice({
+    decision: { inputs: { pageSize: PAGE, rowsReturned: 137 }, comparison: '137 < 1000' },
+    nextPageAttempted: false, ...over,
+  });
+
+  it('accepts a stop that records what it compared', () => {
+    expect(contradictions([withDecision()], PAGE)).toEqual([]);
+  });
+
+  /**
+   * A reason is a claim; the decision inputs are the evidence for it. A stop
+   * with no recorded inputs cannot be checked against the loop's behaviour,
+   * which is the entire purpose of this module.
+   */
+  it('flags a terminal stop that recorded no decision inputs', () => {
+    const c = contradictions([slice({ end: 'SHORT_PAGE', decision: undefined })], PAGE);
+    expect(c[0].detail).toContain('recorded no decision inputs');
+  });
+
+  it('does not demand a decision from a slice still running', () => {
+    expect(contradictions([slice({ end: 'INCOMPLETE', decision: undefined })], PAGE)).toEqual([]);
+  });
+
+  it('does not demand a decision from an externally cancelled slice', () => {
+    // MANUAL_CANCEL is decided outside the loop; there is no comparison to record.
+    expect(contradictions([slice({ end: 'MANUAL_CANCEL', decision: undefined })], PAGE)).toEqual([]);
+  });
+});
+
+describe('stopped asking vs asked and could not', () => {
+  /**
+   * These produce identical totals and need opposite fixes: one is a
+   * termination rule to correct, the other is a transport to repair.
+   */
+  it('reports a failed continuation as unreached, not refused', () => {
+    const s = summariseFetch({ pageSize: PAGE, slices: [slice({
+      end: 'ERROR', pages: [{ offset: 0, rows: PAGE, ok: false }],
+      decision: { inputs: { ok: false }, comparison: 'page.ok === false' },
+      nextPageAttempted: true, nextPageSucceeded: false,
+      received: 0, kept: 0, inserted: 0,
+    })] });
+    expect(s.verdict).toContain('TRIED to fetch another page and could not');
+    expect(s.verdict).toContain('only unreached');
+  });
+
+  it('points at the termination RULE when a self-stop sits on a full page', () => {
+    const s = summariseFetch({ pageSize: PAGE, slices: [slice({
+      label: '13:00–13:30Z', end: 'PAGE_LIMIT',
+      pages: [{ offset: 0, rows: PAGE, ok: true }],
+      decision: { inputs: { page: 100, configuredLimit: 100 }, comparison: '100 >= 100' },
+      nextPageAttempted: false,
+      received: PAGE, kept: PAGE, inserted: PAGE,
+    })] });
+    expect(s.verdict).toContain('stopped asking of their own accord');
+    expect(s.verdict).toContain('termination RULE is the suspect');
+  });
+
+  /**
+   * The strongest disproof the instrument can produce: the loop called it
+   * end-of-data, then a further page RETURNED. Not a hint — the rule was wrong.
+   */
+  it('catches end-of-data disproved by a successful next page', () => {
+    const c = contradictions([slice({
+      end: 'SHORT_PAGE',
+      decision: { inputs: { pageSize: PAGE, rowsReturned: 137 }, comparison: '137 < 1000' },
+      nextPageAttempted: true, nextPageSucceeded: true,
+    })], PAGE);
+    expect(c[0].detail).toContain('SUCCEEDED');
+    expect(c[0].detail).toContain('direct disproof');
+  });
+
+  it('catches ERROR with no request behind it', () => {
+    const c = contradictions([slice({
+      end: 'ERROR', pages: [{ offset: 0, rows: 0, ok: false }],
+      decision: { inputs: { ok: false }, comparison: 'page.ok === false' },
+      nextPageAttempted: false,
+      received: 0, kept: 0, inserted: 0,
+    })], PAGE);
+    expect(c.some(x => x.detail.includes('one must have been made'))).toBe(true);
+  });
+
+  it('catches a success recorded for a request never made', () => {
+    const c = contradictions([slice({
+      nextPageAttempted: false, nextPageSucceeded: true,
+      decision: { inputs: { pageSize: PAGE, rowsReturned: 10 }, comparison: '10 < 1000' },
+    })], PAGE);
+    expect(c.some(x => x.detail.includes('none was attempted'))).toBe(true);
   });
 });

@@ -71,10 +71,41 @@ export interface PageRecord {
   ms?:    number;
 }
 
+/**
+ * The decision the loop actually made, with the values it compared.
+ *
+ * A termination reason says WHICH branch was taken. This says WHY that branch
+ * was reachable — and the two can be checked against each other, which is the
+ * difference between believing the code and verifying it against production.
+ * "SHORT_PAGE" is a claim; "137 < 500 → stop" is the evidence for it.
+ */
+export interface TerminationDecision {
+  /** The values the loop compared, named as the code names them. */
+  inputs:     Record<string, number | string | boolean>;
+  /** The comparison in plain arithmetic, e.g. "137 < 500". */
+  comparison: string;
+}
+
 export interface SliceTelemetry {
   label:  string;
   pages:  PageRecord[];
   end:    SliceEnd;
+  /** What the loop compared to reach `end`. Optional so existing callers keep
+   *  working, but its ABSENCE is itself reported — an unexplained stop is the
+   *  thing this whole module exists to eliminate. */
+  decision?: TerminationDecision;
+  /**
+   * Did the loop ASK for another page after the last one recorded?
+   *
+   * This separates two states that produce identical totals and need opposite
+   * fixes: "we deliberately stopped asking" (attempted=false — a termination
+   * decision, possibly a wrong one) and "we asked and could not continue"
+   * (attempted=true, succeeded=false — a transport or switch problem). Without
+   * it, a premature stop and a failed continuation look the same from the
+   * outside, which is exactly where this investigation has been stuck.
+   */
+  nextPageAttempted?:  boolean;
+  nextPageSucceeded?:  boolean;
   /** Σ rows across pages — what the switch handed over. */
   received: number;
   /** Survived the client-name filter. received − kept = filtered out. */
@@ -201,6 +232,37 @@ export function contradictions(slices: SliceTelemetry[], pageSize: number): Cont
       out.push({ slice: s.label, end: s.end,
         detail: `${s.received} rows received but no pages recorded.` });
     }
+
+    // ── The decision, checked against the reason ───────────────────────────
+    //
+    // A stop with no recorded decision is not a contradiction in the strict
+    // sense — but it is an unexplained stop, and this module exists so that no
+    // stop is unexplained. Terminal reasons only: INCOMPLETE has not decided
+    // anything yet, and MANUAL_CANCEL is decided from outside the loop.
+    const TERMINAL: SliceEnd[] = ['SHORT_PAGE', 'EMPTY_PAGE', 'ERROR', 'PAGE_LIMIT'];
+    if (TERMINAL.includes(s.end) && !s.decision) {
+      out.push({ slice: s.label, end: s.end,
+        detail: `stopped with reason ${s.end} but recorded no decision inputs — the reason cannot ` +
+                'be verified against what the loop actually compared.' });
+    }
+
+    // ── Asked, or stopped asking? ─────────────────────────────────────────
+    if (s.end === 'ERROR' && s.nextPageAttempted === false) {
+      out.push({ slice: s.label, end: s.end,
+        detail: 'recorded ERROR but no next page was attempted — an error arrives from a request, ' +
+                'so one must have been made.' });
+    }
+    if (s.end === 'SHORT_PAGE' && s.nextPageAttempted === true && s.nextPageSucceeded === true) {
+      // The single most valuable disproof available: the loop declared
+      // end-of-data and a further page then RETURNED. End-of-data was wrong.
+      out.push({ slice: s.label, end: s.end,
+        detail: 'recorded SHORT_PAGE as end-of-data, but a further page was attempted AND SUCCEEDED. ' +
+                'The switch had more rows. This is direct disproof of the termination rule, not a hint.' });
+    }
+    if (s.nextPageSucceeded === true && s.nextPageAttempted === false) {
+      out.push({ slice: s.label, end: s.end,
+        detail: 'a next page is recorded as succeeding while none was attempted.' });
+    }
   }
   return out;
 }
@@ -242,6 +304,20 @@ export function summariseFetch(opts: {
   }
   if (endBreakdown.MANUAL_CANCEL > 0) {
     parts.push(`${endBreakdown.MANUAL_CANCEL} slice(s) were cancelled — the period is incomplete by construction.`);
+  }
+  // Deliberately stopped vs tried-and-failed. Identical totals, opposite fixes:
+  // one is a termination rule to correct, the other is a transport to repair.
+  const stoppedAsking = slices.filter(s => s.nextPageAttempted === false).length;
+  const failedToGo    = slices.filter(s => s.nextPageAttempted === true && s.nextPageSucceeded === false).length;
+  if (failedToGo > 0) {
+    parts.push(
+      `${failedToGo} slice(s) TRIED to fetch another page and could not — that is a transport or ` +
+      'switch failure, not a decision to stop, and the rows behind it were never refused, only unreached.');
+  }
+  if (stoppedAsking > 0 && suspicious.length > 0) {
+    parts.push(
+      `${stoppedAsking} slice(s) stopped asking of their own accord; ${suspicious.length} of the ` +
+      'recorded stops sit on a full page. Where those overlap, the termination RULE is the suspect.');
   }
   if (suspicious.length) {
     parts.push(
