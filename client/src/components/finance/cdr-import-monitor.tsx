@@ -103,6 +103,34 @@ function eta(job: SeedJobRow): string | null {
   return m < 1 ? "under a minute" : m < 60 ? `≈ ${m} min` : `≈ ${(m / 60).toFixed(1)} h`;
 }
 
+/**
+ * A running job writes a heartbeat (updatedAt) every slice — seconds apart, a
+ * minute or two at the very worst. A 'running' row whose heartbeat is minutes
+ * old is an ORPHAN: its writing process is gone, and this row is a corpse that
+ * will sit at "Running" until the scheduler's 90-minute stale takeover re-owns
+ * the day.
+ *
+ * Measured 2026-09-01 12:38:37: Autoscale recycled the instance mid-job and
+ * the panel kept showing a live countdown on a job whose writer had been dead
+ * for 30 minutes. The operator reported the system stuck; the system was not —
+ * but the panel gave them no way to know that. A countdown must never tick on
+ * behalf of a process that no longer exists.
+ *
+ * 5 minutes is deliberately far above the worst honest heartbeat gap and far
+ * below the 90-minute takeover, so it cannot misfire on a slow slice.
+ */
+const ORPHAN_AFTER_MS = 5 * 60_000;
+const STALE_TAKEOVER_MS = 90 * 60_000; // scheduler's DEFAULT_STALE_RUNNING_MS
+function orphanInfo(job: SeedJobRow): { since: string; takeoverAt: string } | null {
+  if (job.status !== "running") return null;
+  const beat = Date.parse(job.updatedAt);
+  if (!Number.isFinite(beat) || Date.now() - beat < ORPHAN_AFTER_MS) return null;
+  return {
+    since: new Date(beat).toISOString().slice(11, 19),
+    takeoverAt: new Date(beat + STALE_TAKEOVER_MS).toISOString().slice(11, 19),
+  };
+}
+
 function StatusBadge({ status }: { status: string }) {
   if (status === "running") {
     return <Badge className="bg-blue-500/15 text-blue-600 dark:text-blue-400 gap-1">
@@ -411,7 +439,8 @@ export function CdrImportMonitor() {
         {running.map(job => {
           const pct = job.totalSlices > 0
             ? Math.round((job.completedSlices / job.totalSlices) * 100) : 0;
-          const remaining = eta(job);
+          const orphan = orphanInfo(job);
+          const remaining = orphan ? null : eta(job);
           const who = customerLabel(job);
           return (
             <div key={job.jobId} className="rounded-md border p-3 space-y-3" data-testid={`import-${job.jobId}`}>
@@ -443,6 +472,17 @@ export function CdrImportMonitor() {
                   <span>{job.completedSlices} / {job.totalSlices} slices{job.currentSlice ? ` · ${job.currentSlice}` : ""}</span>
                   <span>{elapsed(job.startedAt)}{remaining ? ` · ${remaining} left` : ""}</span>
                 </div>
+                {orphan && (
+                  <div className="mt-1.5 flex items-start gap-1 text-xs text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                    <span>
+                      No heartbeat since <span className="font-medium">{orphan.since} UTC</span> — the process
+                      writing this job has likely died (a restart orphans the row). The scheduler takes the day
+                      back automatically at <span className="font-medium">{orphan.takeoverAt} UTC</span> and
+                      re-runs it whole; nothing already stored is lost.
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
