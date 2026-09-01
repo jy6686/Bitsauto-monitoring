@@ -32758,6 +32758,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
      *  fetched count is the signature of a storage fault, and it belongs in the
      *  same response an operator is already polling. */
     repositoryStored?: number;
+    /**
+     * Where the rows went, and why the page loop stopped — see
+     * server/fetch-telemetry.ts. Published rather than logged: reading a
+     * deployment log to find out why a billing period came back short is not
+     * an operating model, and it is the failure this week kept repeating.
+     */
+    fetchTelemetry?: import('./fetch-telemetry').FetchTelemetrySummary;
     /** What this job is importing. Recorded so a second request for the SAME
      *  account+tariff+period can be refused while this one is still running. */
     request?: { iAccount: number | string; iTariff: string | number; periodStart: string; periodEnd?: string | null };
@@ -33070,10 +33077,30 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         type WindowResult =
           | { ok: true; cdrs: Awaited<ReturnType<typeof sippy.getSippyCDRs>> }
           | { ok: false; failed: 'error' | 'never_ran'; msg: string };
+
+        // ── FETCH TELEMETRY (Phase C, 2026-09-01) ─────────────────────────
+        // Records only. Nothing here changes what is fetched or stored — the
+        // whole point is to measure the existing behaviour before altering it,
+        // because three re-passes of 08-28 produced 26%/34% while ONE pass of
+        // 08-30 produced 51%/47%. More attempts made it worse, so the loop is
+        // not converging on the data; it is sampling it, and nothing recorded
+        // why. See server/fetch-telemetry.ts.
+        const sliceTelemetry: import('./fetch-telemetry').SliceTelemetry[] = [];
+        let pageLog: import('./fetch-telemetry').PageRecord[] = [];
+        let endReason: import('./fetch-telemetry').SliceEnd = 'UNKNOWN';
+        let endDecision: import('./fetch-telemetry').TerminationDecision | undefined;
+        let nextAttempted = false;
+        let nextSucceeded = false;
+
         const fetchWindow = async (winStart: string, winEnd: string): Promise<WindowResult> => {
           const fetchErrors: string[] = [];
           let sawCleanEmpty = false;
           let rowsSeenBeforeError = 0;
+          // Per-window reset: telemetry describes ONE window, and carrying a
+          // previous window's pages into this one would be its own false
+          // evidence.
+          pageLog = []; endReason = 'UNKNOWN'; endDecision = undefined;
+          nextAttempted = false; nextSucceeded = false;
           if (xmlRpcCircuitGuard()) {
             return { ok: false, failed: 'never_ran',
               msg: 'CDR fetch DID NOT RUN — the XML-RPC circuit breaker is open. Reset via Settings → Sippy Connection → Reset Circuit Breaker. A fetch that never happened is not an empty period.' };
@@ -33095,10 +33122,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                 // a permanent 401 whose text then replaced the real getAccountCDRs
                 // error. Pinning makes a failed page report why the method we
                 // actually use failed, instead of a constant we cannot act on.
+                // A request is about to be made. If this is not the first page,
+                // it is by definition an attempt to CONTINUE — which is the
+                // fact that separates "we stopped asking" from "we asked and
+                // could not". Recorded before the call so a throw still leaves
+                // the attempt on the record.
+                if (offset > 0) { nextAttempted = true; nextSucceeded = false; }
+                const pageStartedMs = Date.now();
                 const page = await sippy.getSippyCDRsPage(username, password, XML_PAGE,
                   { iAccount: Number(iAccount), startDate: winStart, endDate: winEnd, offset,
                     type: cdrType, onlyMethod: pinnedMethod ?? undefined },
                   portalUrl);
+                pageLog.push({ offset, rows: page.ok ? page.cdrs.length : 0, ok: page.ok,
+                               ms: Date.now() - pageStartedMs });
+                if (offset > 0 && page.ok) nextSucceeded = true;
                 if (page.ok && pinnedMethod !== null && page.method !== pinnedMethod) {
                   console.warn(`[seed-job:${jobId}] XML-RPC(${username}) method switched ${pinnedMethod} → ${page.method} at offset=${offset} — aborting this credential (${pagesAccum.length} partial CDRs discarded; a different method is a different result set)`);
                   fetchErrors.push(`${username} @ offset ${offset}: method switched ${pinnedMethod} → ${page.method} mid-pagination`);
@@ -33112,6 +33149,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                     const why = page.ok ? 'unknown' : page.error;
                     console.warn(`[seed-job:${jobId}] XML-RPC(${username}) ERROR at offset=${offset}: ${why} — aborting this credential (${pagesAccum.length} partial CDRs discarded; an error is not end-of-data)`);
                     fetchErrors.push(`${username} @ offset ${offset}: ${why}`);
+                    endReason = 'ERROR';
+                    endDecision = { inputs: { offset, ok: false, error: String(why).slice(0, 120) },
+                                    comparison: 'page.ok === false → stop' };
                     credFailed = true;
                     break pageLoop;
                   }
@@ -33120,7 +33160,21 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                     const cdrs = page.ok ? page.cdrs : [];
                     if (page.ok && pinnedMethod === null) pinnedMethod = page.method;
                     if (cdrs.length > 0) pagesAccum.push(...cdrs);
-                    if (outcome === 'end_of_data') break pageLoop; // Sippy said so, in-band
+                    if (outcome === 'end_of_data') {
+                      // THE DECISION UNDER INVESTIGATION, recorded with the
+                      // values it compared. EMPTY_PAGE is kept distinct from
+                      // SHORT_PAGE: a successful call returning zero rows is
+                      // what a silent auth failure looks like, and calling that
+                      // end-of-data is the exact mistake cdr-fetch-page.ts
+                      // exists to prevent.
+                      endReason = cdrs.length === 0 ? 'EMPTY_PAGE' : 'SHORT_PAGE';
+                      endDecision = {
+                        inputs: { offset, rowsReturned: cdrs.length, pageSize: XML_PAGE,
+                                  pagesSoFar: pageLog.length, rowsSoFar: pagesAccum.length },
+                        comparison: `${cdrs.length} < ${XML_PAGE} → stop`,
+                      };
+                      break pageLoop; // Sippy said so, in-band
+                    }
                     offset += XML_PAGE;
                     if (pageDelayMs > 0) await sleep(pageDelayMs);
                   }
@@ -33285,9 +33339,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           const fetched = (win.cdrs as any[]).length;
           let rows = win.cdrs as any[];
           fetchedTotal += rows.length;
+          const receivedThisSlice = rows.length;
           if (targetAccountName && rows.length > 0) {
             rows = rows.filter((c: any) => !c.clientName || c.clientName === targetAccountName);
           }
+          const keptThisSlice = rows.length;
           let stored = 0;
           if (rows.length > 0) {
             stored = await storeSlice(rows);
@@ -33304,6 +33360,28 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
               }
             }
           }
+          // Per-slice telemetry roll-up. `invalid` is 0 by construction on
+          // this path: storeSlice returns 0 for a whole failed chunk and
+          // records lastError, so a real write failure appears as an error
+          // rather than a silent row loss — and production shows zero of them
+          // across 50 jobs. The bucket exists so that if that ever changes, it
+          // shows up as a loss instead of vanishing into the difference
+          // between received and inserted.
+          sliceTelemetry.push({
+            label: slice.label,
+            pages: pageLog.slice(),
+            end: endReason,
+            decision: endDecision,
+            nextPageAttempted: nextAttempted,
+            nextPageSucceeded: nextSucceeded,
+            received:  receivedThisSlice,
+            kept:      keptThisSlice,
+            inserted:  stored,
+            duplicate: Math.max(0, keptThisSlice - stored),
+            invalid:   0,
+            ms: Date.now() - sliceStartedMs,
+          });
+
           // One structured line per slice (owner spec): every number an
           // operator needs, on one grep-able line, ending in its verdict.
           // duplicates = rows the idempotent insert skipped as already stored.
@@ -33311,7 +33389,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           console.log(
             `[seed-job:${jobId}] slice ${slice.index}/${slices.length} (${slice.label}): ` +
             `fetched=${fetched} filtered=${rows.length} inserted=${stored} ` +
-            `duplicates=${Math.max(0, rows.length - stored)} duration=${secs}s SUCCESS`);
+            `duplicates=${Math.max(0, rows.length - stored)} duration=${secs}s ` +
+            // The three fields that say WHY the fetch stopped, on the line an
+            // operator already greps. `pages` and `lastPage` together are the
+            // full-final-page test: a stop recorded as SHORT_PAGE on a page of
+            // XML_PAGE rows is the loop contradicting itself.
+            `pages=${pageLog.length} lastPage=${pageLog.length ? pageLog[pageLog.length - 1].rows : '-'}/${XML_PAGE} ` +
+            `end=${endReason}${endDecision ? ` [${endDecision.comparison}]` : ''} ` +
+            `nextAttempted=${nextAttempted} SUCCESS`);
           job.fetched = fetchedTotal;
           await progress({
             completedSlices: slice.index,
@@ -33330,6 +33415,32 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           job.error  = msg;
           job.phase  = msg;
           return { fetched: fetchedTotal, created: 0, skipped: 0, message: msg, failed: true };
+        }
+
+        // ── FETCH VERDICT ────────────────────────────────────────────────────
+        // One summary per job, after every slice has reported. This is the line
+        // that answers the question three re-passes of 08-28 could not: whether
+        // the loop is losing rows (suspicious slices, contradictions) or whether
+        // it faithfully collected everything the switch offered and the switch
+        // offered less than it billed. Those need opposite fixes and, until
+        // now, produced identical totals.
+        try {
+          const { summariseFetch } = await import('./fetch-telemetry');
+          const fx = summariseFetch({ slices: sliceTelemetry, pageSize: XML_PAGE });
+          console.log(
+            `[seed-job:${jobId}] FETCH TELEMETRY slices=${fx.slices} pages=${fx.pages} ` +
+            `received=${fx.disposition.received} filtered=${fx.disposition.filtered} ` +
+            `inserted=${fx.disposition.inserted} duplicate=${fx.disposition.duplicate} ` +
+            `invalid=${fx.disposition.invalid} balances=${fx.disposition.balances} ` +
+            `ends=${JSON.stringify(fx.endBreakdown)} ` +
+            `suspicious=${fx.suspiciousSlices.length} contradictions=${fx.contradictions.length}`);
+          console.log(`[seed-job:${jobId}] FETCH VERDICT: ${fx.verdict}`);
+          // Published, not merely logged — reading the deployment log to learn
+          // why a billing period is short is not an operating model, and this
+          // whole week has been an argument against it.
+          job.fetchTelemetry = fx;
+        } catch (e: any) {
+          console.warn(`[seed-job:${jobId}] fetch telemetry summary failed (non-fatal): ${String(e?.message ?? e)}`);
         }
 
         rawCdrs = [...byICdr.values(), ...noICdr];
