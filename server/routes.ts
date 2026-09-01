@@ -33685,9 +33685,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     /** Accept a period with exceptions. Requires a reason and an operator. */
     override?: { reason: string; by: string };
   }): Promise<{
-    ok: boolean; stage?: 'duplicate' | 'seed' | 'freeze' | 'coverage' | 'certify' | 'generate'; error?: string;
+    ok: boolean; stage?: 'duplicate' | 'seed' | 'freeze' | 'coverage' | 'reconcile' | 'certify' | 'generate'; error?: string;
     seed?: { fetched: number; created: number; skipped: number; message?: string };
     certification?: { state: string; reasons: string[]; runId?: number };
+    /** Present when the reconciliation gate refused. The figures that refused
+     *  it, so the operator does not have to go and find them. */
+    reconciliation?: {
+      outcome: string; referenceTotal: number; platformTotal: number; delta: number;
+      source: string; referenceDays: string[];
+    };
     totalsCheck?: { ok: boolean; invoiceTotal: number; certifiedTotal: number };
     invoice?: { id: number; invoiceNumber: string; lineCount: number };
   }> {
@@ -33791,6 +33797,102 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           ok: false, stage: 'coverage', seed,
           error: `Period coverage could not be verified (${e?.message ?? e}). ` +
                  'Refusing to invoice a period whose completeness is unknown.',
+        };
+      }
+    }
+
+    // Stage 2c — RECONCILE against the switch's own figures.
+    //
+    // Every gate above this line compares BitsAuto against BitsAuto. Freeze
+    // asks whether the period ended. Coverage asks whether its days were
+    // collected. Certification asks whether the calls we HAVE agree with the
+    // tariff. None of them can see a call that was never fetched, because an
+    // absence produces no discrepancy in a comparison that only walks what it
+    // has. This stage is the first that consults something produced OUTSIDE
+    // this platform.
+    //
+    // MEASURED 2026-09-01, after the collector ran five days unattended and
+    // sealed every one of them without a single error:
+    //
+    //   week 2026-08-24 → 08-30   platform  $331.78
+    //                             Sippy DMR $683.39     48.5%
+    //   2026-08-31 asterisk       platform   $5.5890
+    //                             Sippy DMR $50.6793    11%
+    //
+    // Invoicing that week would have under-billed by $351.61 with every
+    // internal gate green. The fetch defect that caused it is real and still
+    // open — but a shortfall that is VISIBLE and blocking is an operational
+    // event, while the same shortfall passing silently is lost revenue nobody
+    // learns about. This gate does not fix the fetch; it stops the fetch's
+    // failures from reaching a customer.
+    //
+    // Scoped to the customer being invoiced. Another customer missing from the
+    // platform is a real problem, but it is the disposition report's problem —
+    // blocking THIS invoice for it would refuse work that is correct.
+    if (opts.iAccount) {
+      try {
+        const { dmrReferenceFor } = await import('./services/finance/dmr-reference.service');
+        const { reconcileAccounts }            = await import('./account-reconciliation');
+        const { aggregateRepositoryByAccount } = await import('./services/finance/repository-aggregation.service');
+
+        const ref = await dmrReferenceFor({ periodStart: opts.periodStart, periodEnd: opts.periodEnd });
+
+        // No reference, or a reference missing days, is NOT a pass —
+        // BILLING-RECONCILIATION-CONTRACT §7. A partial reference understates
+        // the total it is compared against, which biases the verdict toward
+        // approval; that is the one direction a billing gate must never lean.
+        if (!ref.accounts) {
+          return { ok: false, stage: 'reconcile', seed, error: ref.refusal };
+        }
+
+        const agg = await aggregateRepositoryByAccount({
+          periodStart: opts.periodStart, periodEnd: opts.periodEnd, iAccount: opts.iAccount,
+        });
+        const mine = agg.accounts.find(a => a.iAccount === Number(opts.iAccount));
+
+        const norm = (s: string) => s.trim().toLowerCase();
+        const refRow = ref.accounts.find(a => norm(a.name) === norm(opts.customerName));
+
+        const recon = reconcileAccounts({
+          // An empty array, NOT null: null means "the reference could not be
+          // read", which is a different verdict entirely. The reference WAS
+          // read and simply has no row for this customer — which, on a period
+          // whose coverage is verified complete, means the switch billed them
+          // nothing.
+          reference: refRow ? [refRow] : [],
+          platform: [{
+            name:    opts.customerName,
+            calls:   mine?.calls ?? 0,
+            minutes: Math.round(((mine?.billedSec ?? 0) / 60) * 1e6) / 1e6,
+            amount:  mine?.amount ?? 0,
+          }],
+          periodLabel: `${opts.periodStart} → ${opts.periodEnd}`,
+        });
+
+        if (recon.outcome !== 'PASS') {
+          const worst = recon.failing[0];
+          return {
+            ok: false, stage: 'reconcile', seed,
+            error: `${recon.reason} ` +
+                   (worst ? `${worst.customer}: platform $${(worst.platform?.amount ?? 0).toFixed(4)} vs ` +
+                            `switch $${(worst.reference?.amount ?? 0).toFixed(4)} ` +
+                            `(delta $${worst.amountDelta.toFixed(4)}). ${worst.reason} ` : '') +
+                   'The invoice was NOT generated. Reference: Sippy DMR, ' +
+                   `days ${ref.daysFound.join(', ')}.`,
+            reconciliation: {
+              outcome: recon.outcome, referenceTotal: recon.summary.referenceTotal,
+              platformTotal: recon.summary.platformTotal, delta: recon.summary.delta,
+              source: ref.source, referenceDays: ref.daysFound,
+            },
+          };
+        }
+      } catch (e: any) {
+        // Same rule as coverage: a gate that cannot run must not wave the
+        // invoice through. Silence here is exactly the failure being closed.
+        return {
+          ok: false, stage: 'reconcile', seed,
+          error: `Reconciliation against the switch could not run (${e?.message ?? e}). ` +
+                 'Refusing to invoice a period that has not been checked against an independent reference.',
         };
       }
     }
