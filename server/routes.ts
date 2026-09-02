@@ -39537,6 +39537,48 @@ ${footer}
     }
   });
 
+  // GET /api/finance/billing-readiness — who would be silently skipped tonight?
+  //
+  // Derived from the COMPANY MASTER, not from invoice_schedules. Production
+  // holds two schedule rows keyed to tariffs 2 and 7 while asterisk is tariff
+  // 32 and internal-ptcl has none at all — so the accounts carrying the revenue
+  // have nothing that would ever start an invoice, and nothing said so. At 500
+  // customers a second table that must be kept in step with the customer master
+  // is a table that WILL fall out of step, and every customer it omits is
+  // unbilled revenue nobody is looking for.
+  //
+  // `blockedWithTraffic` is the number that must reach zero before go-live.
+  app.get('/api/finance/billing-readiness', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const asOf = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.asOf ?? ''))
+        ? String(req.query.asOf) : new Date().toISOString().slice(0, 10);
+      // Traffic over the trailing week: enough to tell a live customer from a
+      // dormant test row without making the query a table scan.
+      const since = new Date(Date.parse(`${asOf}T00:00:00Z`) - 7 * 86400000).toISOString();
+      const rows: any = await db.execute(sql`
+        SELECT c.id, c.name, c.sippy_i_account, c.sippy_i_tariff,
+               c.client_billing_cycle, c.invoice_email,
+               EXISTS (SELECT 1 FROM raw_sippy_cdrs r
+                        WHERE r.i_account = c.sippy_i_account
+                          AND r.started_at >= ${since}::timestamptz) AS has_traffic
+          FROM companies c ORDER BY c.name`);
+      const { assessBillingReadiness } = await import('./billing-readiness');
+      res.json(assessBillingReadiness({
+        asOf,
+        companies: (((rows as any).rows ?? []) as any[]).map(r => ({
+          id: Number(r.id), name: String(r.name),
+          iAccount: r.sippy_i_account == null ? null : Number(r.sippy_i_account),
+          iTariff:  r.sippy_i_tariff == null ? null : String(r.sippy_i_tariff),
+          billingCycle: r.client_billing_cycle ?? null,
+          invoiceEmail: r.invoice_email ?? null,
+          hasTraffic: r.has_traffic === true,
+        })),
+      }));
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message ?? e) });
+    }
+  });
+
   // GET /api/finance/reconciliation/daily — the recovery work list.
   //
   // Owner's strategy 2026-09-01: compare every (day, account) cell against the
