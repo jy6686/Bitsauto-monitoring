@@ -10524,6 +10524,43 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/commercial/sippy-destination-capability — READ ONLY.
+  //
+  // Step one of catalogue↔Sippy reconciliation, and deliberately only step one. Before
+  // proposing to compare 19,160 catalogue prefixes against Sippy's destination dictionary,
+  // establish whether this Sippy build can be asked for that dictionary at all. The client
+  // has no such function today: the DestinationSet family is routing, not the prefix→country
+  // table that resolved 19230 to "PAKISTAN / Mobile".
+  //
+  // Writes nothing, to Sippy or to us. system.listMethods is introspection.
+  app.get('/api/commercial/sippy-destination-capability',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (_req: any, res) => {
+    try {
+      const settings = await storage.getSettings();
+      const { username, password } = sippyXmlCreds(settings);
+      const portalUrl = sippyPortalUrl(settings);
+      const r = await sippy.listSippyMethods(username, password, portalUrl);
+      if (!r.ok) return res.status(502).json({ error: r.error ?? 'listMethods failed', methods: [] });
+
+      // Read-style methods only. A write method that happens to mention destinations is not
+      // a way to ASK a question, and listing it here would invite someone to try it.
+      const readish = (n: string) => /^(get|list|find|search|query|show|describe)/i.test(n.split('.').pop() ?? n);
+      const candidates = r.methods.filter(n => /destination|prefix|country|dialcode|dial_code/i.test(n));
+
+      res.json({
+        totalMethods: r.methods.length,
+        destinationRelated: candidates,
+        readable: candidates.filter(readish),
+        // The verdict this endpoint exists to produce.
+        canEnumerateDictionary: candidates.filter(readish).length > 0,
+        note: candidates.filter(readish).length > 0
+          ? 'Sippy exposes at least one readable destination method — catalogue reconciliation is possible via API.'
+          : 'No readable destination method on this build. Reconciliation would need the portal UI or a supplied export, not XML-RPC.',
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   app.get('/api/sippy/accounts-by-product/:productId', async (req: any, res: any) => {
     try {
       const userId = req.user?.claims?.sub ?? req.user?.id;

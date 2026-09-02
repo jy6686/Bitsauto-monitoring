@@ -3103,6 +3103,42 @@ export async function testSippyConnectivity(
   }
 }
 
+/**
+ * Every XML-RPC method this Sippy build exposes. READ-ONLY — system.listMethods is
+ * introspection and changes nothing.
+ *
+ * Exists to answer a question the codebase currently cannot: does this switch offer any way
+ * to enumerate its DESTINATION DICTIONARY — the prefix→country/description table that
+ * resolved 19230 to "PAKISTAN / Mobile" on the tariff page? The DestinationSet functions in
+ * this file are routing constructs and are not that table.
+ *
+ * It matters because a rate CSV whose prefix Sippy cannot resolve is accepted and then
+ * silently dropped, which is how 19232 reported success into a tariff that never received
+ * it. Reconciling the catalogue against Sippy up front requires being able to ask; this
+ * establishes whether asking is possible at all.
+ */
+export async function listSippyMethods(
+  username: string,
+  password: string,
+  explicitPortalUrl?: string,
+): Promise<{ ok: boolean; methods: string[]; error?: string }> {
+  const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
+  if (!base) return { ok: false, methods: [], error: 'Not connected to Sippy.' };
+  try {
+    const resp = await sippyPost(`${base}/xmlapi/xmlapi`, xmlRpcCall('system.listMethods', {}), username, password, 8000);
+    if (resp.statusCode !== 200 || resp.body.includes('<fault>')) {
+      return { ok: false, methods: [], error: `HTTP ${resp.statusCode}${resp.body.includes('<fault>') ? ' (fault)' : ''}` };
+    }
+    const methods: string[] = [];
+    const re = /<string>([^<]+)<\/string>/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(resp.body)) !== null) methods.push(m[1].trim());
+    return { ok: true, methods: Array.from(new Set(methods)).sort() };
+  } catch (e: any) {
+    return { ok: false, methods: [], error: e.message };
+  }
+}
+
 // ── makeTestCall() — initiates a proactive route test call and measures metrics
 // Calls makeCall then polls listActiveCalls XML-RPC to detect connect/disconnect,
 // giving real ACD (duration) and PDD measurements for route quality monitoring.
