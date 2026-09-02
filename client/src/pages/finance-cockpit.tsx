@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { SnapshotSummary, MarginAlert, VendorDispute } from "@shared/finance-contracts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -229,10 +230,10 @@ export default function FinanceCockpitPage() {
 
   // ── Data fetches ─────────────────────────────────────────────────────────────
   const { data: invoiceData,   isLoading: invLoading }    = useQuery<any>({ queryKey: ["/api/invoices"] });
-  const { data: disputeData,   isLoading: dispLoading }   = useQuery<any>({ queryKey: ["/api/disputes"] });
-  const { data: snapshotSummary, isLoading: snapLoading } = useQuery<any>({ queryKey: ["/api/finance/snapshot/summary"] });
+  const { data: disputeData,   isLoading: dispLoading }   = useQuery<VendorDispute[]>({ queryKey: ["/api/disputes"] });
+  const { data: snapshotSummary, isLoading: snapLoading } = useQuery<SnapshotSummary>({ queryKey: ["/api/finance/snapshot/summary"] });
   const { data: reconcData,    isLoading: reconLoading }  = useQuery<any>({ queryKey: ["/api/client-reconciliation"] });
-  const { data: marginData,    isLoading: marginLoading } = useQuery<any>({ queryKey: ["/api/margin/alerts"] });
+  const { data: marginData,    isLoading: marginLoading } = useQuery<MarginAlert[]>({ queryKey: ["/api/margin/alerts"] });
   const { data: remindersData, isLoading: remLoading }    = useQuery<any>({ queryKey: ["/api/payment-reminders"] });
   const { data: creditData,    isLoading: ccLoading }     = useQuery<any>({ queryKey: ["/api/credit-control/events"] });
   const { data: pipeline }                                 = useQuery<any>({ queryKey: ["/api/finance/pipeline-health"] });
@@ -293,28 +294,32 @@ export default function FinanceCockpitPage() {
   // above, and the asList fix before it. A missing field does not throw in JS;
   // it renders as zero and looks like a business fact.
   const currentPeriodRevenue = snapSummary?.totalSell ?? 0;
-  const currentPeriodLabel   = snapSummary?.reportDate
-    ? new Date(snapSummary.reportDate).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+  // `latestDate`, not `reportDate` — the FIFTH field-name mismatch on this
+  // page, and the first one caught by the compiler rather than by an operator
+  // noticing a wrong number. It had been falling back to the literal string
+  // 'Current Period', so the card never showed which period it meant.
+  const currentPeriodLabel   = snapSummary?.latestDate
+    ? new Date(snapSummary.latestDate).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
     : 'Current Period';
   const invoicesReady = invoices.filter((i: any) => ['draft','generated','review','approved'].includes(i.status)).length;
 
   // Margin Alerts: unacknowledged. The column is `acknowledged` /
   // `acknowledgedAt`; `resolvedAt` does not exist, so every alert counted as
   // active including ones an operator had already dealt with.
-  const activeMarginAlerts = marginAl.filter((a: any) => !a.acknowledgedAt && !a.acknowledged);
+  const activeMarginAlerts = (marginAl as MarginAlert[]).filter(a => !a.acknowledgedAt && !a.acknowledged);
   const marginAlertCount   = activeMarginAlerts.length;
   // The field is `amountUsd`.
   const marginImpact       = activeMarginAlerts.reduce(
-    (s: number, a: any) => s + Math.abs(a.amountUsd ?? 0), 0
+    (s: number, a) => s + Math.abs(a.amountUsd ?? 0), 0
   );
 
   // Open Disputes
   const openDisputeCount = disputes.filter((d: any) => ["open", "escalated"].includes(d.status)).length;
   // The field is `discrepancy` — the gap between our figure and the vendor's.
   // `amount` does not exist on a dispute row.
-  const disputedAmount   = disputes
-    .filter((d: any) => ["open", "escalated"].includes(d.status))
-    .reduce((s: number, d: any) => s + Math.abs(Number(d.discrepancy ?? 0)), 0);
+  const disputedAmount   = (disputes as VendorDispute[])
+    .filter(d => ["open", "escalated"].includes(d.status))
+    .reduce((s: number, d) => s + Math.abs(Number(d.discrepancy ?? 0)), 0);
 
   // Pending Reconciliations
   const pendingReconCount = reconRows.filter((r: any) =>
