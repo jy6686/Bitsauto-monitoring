@@ -250,3 +250,85 @@ describe('blockedBy — stage prerequisites', () => {
     }
   });
 });
+
+describe('capture, reconciliation, certification, invoice-drafts (added 2026-09-02)', () => {
+  /**
+   * The production run that added these stages. On 2026-09-02 at 02:13 the
+   * pipeline produced a snapshot, a margin figure and an assurance scan for
+   * 2026-09-01 while the repository held ZERO CDRs for that day — and every
+   * stage was RIGHT to report success, because none of them reads the
+   * repository. What was missing was not a dependency between those stages;
+   * it was the three stages below, which had no scheduled owner at all.
+   */
+  it('does not let a capture failure block the Sippy-derived stages', () => {
+    const failed: StageStatus[] = [{ stage: 'capture', status: 'failed' }];
+    for (const s of ['dmr', 'snapshot', 'margin', 'assurance', 'dmr-email'] as StageName[]) {
+      expect(blockedBy(s, failed)).toBeNull();
+    }
+  });
+
+  it('blocks reconciliation when capture failed', () => {
+    expect(blockedBy('reconciliation', [
+      { stage: 'capture', status: 'failed' }, { stage: 'dmr', status: 'success' },
+    ])).toBe('capture');
+  });
+
+  it('blocks reconciliation when the DMR failed', () => {
+    // Without the independent reference there is nothing to compare against,
+    // and comparing the platform to itself is the failure being removed.
+    expect(blockedBy('reconciliation', [
+      { stage: 'capture', status: 'success' }, { stage: 'dmr', status: 'failed' },
+    ])).toBe('dmr');
+  });
+
+  it('allows reconciliation only when BOTH sources are satisfied', () => {
+    expect(blockedBy('reconciliation', [
+      { stage: 'capture', status: 'success' }, { stage: 'dmr', status: 'success' },
+    ])).toBeNull();
+  });
+
+  it('treats a SKIPPED capture or dmr as satisfying reconciliation', () => {
+    // Skip means the work was unnecessary, not that it went wrong — the DMR
+    // stage skips when rows already exist, the commonest healthy path.
+    expect(blockedBy('reconciliation', [
+      { stage: 'capture', status: 'skipped' }, { stage: 'dmr', status: 'skipped' },
+    ])).toBeNull();
+  });
+
+  it('chains certification and invoice drafts behind reconciliation', () => {
+    expect(blockedBy('certification', [{ stage: 'reconciliation', status: 'failed' }]))
+      .toBe('reconciliation');
+    expect(blockedBy('invoice-drafts', [{ stage: 'certification', status: 'failed' }]))
+      .toBe('certification');
+  });
+
+  /**
+   * The star survives: advisory stages must never stop billing. That was
+   * already true of assurance, and matters more now that billing has real
+   * downstream stages there are to stop.
+   */
+  it('does not let snapshot, margin or assurance block anything billable', () => {
+    const failed: StageStatus[] = [
+      { stage: 'snapshot',  status: 'failed' },
+      { stage: 'margin',    status: 'failed' },
+      { stage: 'assurance', status: 'failed' },
+    ];
+    for (const s of ['reconciliation', 'certification', 'invoice-drafts', 'billing-cycles'] as StageName[]) {
+      expect(blockedBy(s, failed)).toBeNull();
+    }
+  });
+
+  it('declares no stage as its own prerequisite', () => {
+    for (const [stage, prereqs] of Object.entries(STAGE_PREREQUISITES)) {
+      expect(prereqs).not.toContain(stage as StageName);
+    }
+  });
+
+  it('keeps capture and dmr independent of each other', () => {
+    // Both read Sippy directly. sippy-dmr.service.ts:318 copies pnlRow values
+    // into BOTH sippy_* and platform_*, so the DMR does not read the
+    // repository and must not wait for the collector.
+    expect(STAGE_PREREQUISITES['capture']).toEqual([]);
+    expect(STAGE_PREREQUISITES['dmr']).toEqual([]);
+  });
+});

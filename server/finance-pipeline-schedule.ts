@@ -46,7 +46,8 @@ export const DEFAULT_STALE_RUNNING_MS = 30 * 60 * 1000;
 // ── Stage dependencies ────────────────────────────────────────────────────────
 
 export type StageName =
-  | 'dmr' | 'snapshot' | 'dmr-email' | 'margin' | 'assurance' | 'billing-cycles';
+  | 'capture' | 'dmr' | 'snapshot' | 'dmr-email' | 'margin' | 'assurance'
+  | 'reconciliation' | 'certification' | 'invoice-drafts' | 'billing-cycles';
 
 /**
  * What each stage needs to have SUCCEEDED before it can mean anything.
@@ -69,13 +70,58 @@ export type StageName =
  * (its own UI says "AI suggests, humans approve") and billing-cycle detection
  * reads none of its output. Stopping billing because an advisory scan errored
  * would be a worse failure than the scan itself.
+ *
+ * ── TWO SOURCES, NOT ONE (added 2026-09-02) ─────────────────────────────────
+ *
+ * `capture` and `dmr` BOTH read Sippy, independently, and neither reads the
+ * other. Verified rather than assumed, because the obvious guess is wrong:
+ * sippy-dmr.service.ts:318 assigns pnlRow.durationSec/revenue to
+ * platformDuration/platformAmount AND to sippyDuration/sippyAmount — the same
+ * values, twice. The DMR's "platform" columns are cached copies of Sippy's own
+ * figures, not measurements of this platform.
+ *
+ * Two consequences, and the second is the reason this graph changed:
+ *
+ *  1. Making `dmr` wait for `capture` would be an invented dependency of
+ *     exactly the kind this comment already warns about. It stays [].
+ *  2. The DMR can NEVER establish that the repository agrees with the switch,
+ *     because on that path it is comparing Sippy against Sippy. It reported
+ *     zero drift for 2026-09-01 while the repository held zero CDRs, and was
+ *     correct by its own logic. Any confidence drawn from "the DMR shows no
+ *     drift" was never evidence.
+ *
+ * So `reconciliation` is the first stage that joins the two worlds: the DMR's
+ * sippy_* columns as the independent reference, raw_sippy_cdrs as the
+ * platform's own evidence. It therefore needs BOTH capture and dmr, and it is
+ * the gate everything billable sits behind.
+ *
+ * Why snapshot/margin/assurance do NOT block billing: they are operational
+ * information derived from Sippy, useful whether or not collection ran.
+ * Stopping invoices because an advisory scan errored would be a worse failure
+ * than the scan itself — the same argument that already exempted assurance.
+ *
+ * Why capture does not block them either: they never read the repository, so a
+ * capture failure tells them nothing. On 2026-09-02 the 02:13 run produced a
+ * snapshot, a margin figure and an assurance scan for a day whose repository
+ * was empty, and every stage was right to succeed. What was missing was not a
+ * dependency between those stages — it was the three stages BELOW, which had
+ * no scheduled owner at all and have never run unattended.
  */
 export const STAGE_PREREQUISITES: Record<StageName, StageName[]> = {
+  'capture':        [],
   'dmr':            [],
   'snapshot':       ['dmr'],
   'dmr-email':      ['dmr'],
   'margin':         ['dmr'],
   'assurance':      ['dmr'],
+  // The seam. Needs the switch's reference AND the platform's evidence;
+  // without either, the comparison is a self-comparison or nothing at all.
+  'reconciliation': ['capture', 'dmr'],
+  // Certifying a period that failed reconciliation would certify it against
+  // itself — the failure this whole chain exists to remove.
+  'certification':  ['reconciliation'],
+  // And an invoice may only be drafted from a certified period.
+  'invoice-drafts': ['certification'],
   'billing-cycles': [],
 };
 
