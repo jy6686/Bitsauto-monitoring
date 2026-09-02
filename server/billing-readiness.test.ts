@@ -245,3 +245,55 @@ describe('"ready" must mean WILL be invoiced, not COULD be', () => {
     expect(ready + blocked + warning + notBillable).toBe(total);
   });
 });
+
+describe('the morning KPI — one count per fixable thing', () => {
+  it('counts each blocker independently, so progress is watchable', () => {
+    const r = assessBillingReadiness({
+      asOf: MONDAY,
+      companies: [
+        co({ id: 1, invoiceEmail: null }),                       // email only
+        co({ id: 2, invoiceEmail: null, iTariff: null }),        // email + tariff
+        co({ id: 3, hasSchedule: false }),                       // schedule only
+        co({ id: 4 }),                                           // ready
+      ],
+    });
+    expect(r.summary.byBlocker.no_email).toBe(2);
+    expect(r.summary.byBlocker.no_tariff).toBe(1);
+    expect(r.summary.byBlocker.no_schedule).toBe(1);
+    expect(r.summary.byBlocker.no_account).toBe(0);
+    expect(r.summary.ready).toBe(1);
+  });
+
+  /**
+   * A key that disappears when it reaches zero is the one an operator most
+   * wants to SEE reach zero. Every category is present even when empty.
+   */
+  it('reports zeroes rather than omitting solved categories', () => {
+    const r = assessBillingReadiness({ asOf: MONDAY, companies: [co()] });
+    expect(r.summary.byBlocker).toEqual({
+      no_account: 0, no_cycle: 0, no_tariff: 0, no_email: 0, no_schedule: 0,
+    });
+  });
+
+  it('does not count blockers for customers that are not billable', () => {
+    // An inactive customer's missing tariff is not work anyone should do, and
+    // counting it would inflate a KPI that is supposed to reach zero.
+    const r = assessBillingReadiness({
+      asOf: MONDAY,
+      companies: [co({ lifecycle: 'inactive', iTariff: null, invoiceEmail: null, hasSchedule: false })],
+    });
+    expect(r.summary.byBlocker.no_tariff).toBe(0);
+    expect(r.summary.byBlocker.no_schedule).toBe(0);
+  });
+
+  it('keeps codes and sentences in step', () => {
+    const r = assessBillingReadiness({
+      asOf: MONDAY,
+      companies: [co({ iAccount: null, iTariff: null, billingCycle: null,
+                       invoiceEmail: null, hasSchedule: false })],
+    });
+    expect(r.companies[0].blockerCodes).toHaveLength(r.companies[0].blockers.length);
+    expect(r.companies[0].blockerCodes).toEqual(
+      ['no_account', 'no_cycle', 'no_tariff', 'no_email', 'no_schedule']);
+  });
+});

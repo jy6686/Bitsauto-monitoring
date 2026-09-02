@@ -97,6 +97,17 @@ export type ReadinessStatus =
    *  customer's lifecycle is master data and this module only reports it. */
   | 'not_billable';
 
+/**
+ * Stable keys for the blocker histogram.
+ *
+ * The blocker TEXT is written for a person and will be reworded; counting it
+ * would make the morning KPI change silently whenever someone improves a
+ * sentence. The code is the thing that gets counted, the sentence is the thing
+ * that gets read, and they are allowed to evolve independently.
+ */
+export type BlockerCode =
+  | 'no_account' | 'no_cycle' | 'no_tariff' | 'no_email' | 'no_schedule';
+
 export interface CompanyReadiness {
   id:       number;
   name:     string;
@@ -109,6 +120,8 @@ export interface CompanyReadiness {
   /** Every missing prerequisite, not just the first. An operator fixing one
    *  field at a time across 500 customers needs the whole list per customer. */
   blockers: string[];
+  /** Same blockers, as stable keys — the histogram counts these. */
+  blockerCodes: BlockerCode[];
   hasTraffic: boolean;
   hasSchedule: boolean;
   scheduleNextRun: string | null;
@@ -122,6 +135,8 @@ export interface ReadinessReport {
   dueToday: CompanyReadiness[];
   summary: {
     total: number; ready: number; blocked: number; warning: number; notBillable: number;
+    /** One count per fixable thing — the morning KPI, watchable to zero. */
+    byBlocker: Record<BlockerCode, number>;
     dueToday: number;
     /** Straight from companies.status, so Finance and Rate Manager report the
      *  same customer the same way. */
@@ -142,20 +157,25 @@ export function assessBillingReadiness(opts: {
 }): ReadinessReport {
   const companies: CompanyReadiness[] = opts.companies.map(c => {
     const blockers: string[] = [];
+    const blockerCodes: BlockerCode[] = [];
 
     // Order matters: the FIRST blocker is the one to fix first, and an
     // account id is prerequisite to everything else.
     if (c.iAccount == null) {
       blockers.push('No Sippy account linked — nothing can be collected or invoiced.');
+      blockerCodes.push('no_account');
     }
     if (!c.billingCycle || !String(c.billingCycle).trim()) {
       blockers.push('No billing cycle set — the nightly run cannot know when this customer is due.');
+      blockerCodes.push('no_cycle');
     }
     if (!c.iTariff || !String(c.iTariff).trim()) {
       blockers.push('No local tariff mirror — calls collect but cannot be rated, certified or invoiced.');
+      blockerCodes.push('no_tariff');
     }
     if (!c.invoiceEmail || !String(c.invoiceEmail).trim()) {
       blockers.push('No billing email — an invoice could be generated but never delivered.');
+      blockerCodes.push('no_email');
     }
     // THE ONE THAT MAKES "READY" HONEST. invoice_schedules is the only thing
     // that starts an invoice; without a row this customer is invisible to the
@@ -163,6 +183,7 @@ export function assessBillingReadiness(opts: {
     if (!c.hasSchedule) {
       blockers.push('No active invoice schedule — nothing will ever trigger an invoice for this ' +
                     'customer, however complete its billing data is.');
+      blockerCodes.push('no_schedule');
     }
 
     // LIFECYCLE FIRST, and it is not this module's to decide. Only an ACTIVE
@@ -183,7 +204,7 @@ export function assessBillingReadiness(opts: {
     // A non-active customer's missing fields are not defects to fix — an
     // inactive customer legitimately has no tariff. Reporting them as blockers
     // would fill the work list with work nobody should do.
-    if (!isActive) blockers.length = 0;
+    if (!isActive) { blockers.length = 0; blockerCodes.length = 0; }
 
     const term = c.billingCycle ? normalizeTerm(c.billingCycle) : null;
     // Only a customer that could actually be invoiced has due periods. Listing
@@ -191,9 +212,16 @@ export function assessBillingReadiness(opts: {
     const duePeriods = status === 'ready' && term ? latestClosedPeriods(term, opts.asOf) : [];
 
     return { id: c.id, name: c.name, status, lifecycle: c.lifecycle ?? null,
-             term, duePeriods, blockers, hasTraffic: c.hasTraffic,
+             term, duePeriods, blockers, blockerCodes, hasTraffic: c.hasTraffic,
              hasSchedule: c.hasSchedule, scheduleNextRun: c.scheduleNextRun ?? null };
   });
+
+  // Zeroed explicitly so every category is present even at zero. A key that
+  // vanishes when it reaches 0 is the one an operator most wants to SEE hit 0.
+  const byBlocker: Record<BlockerCode, number> = {
+    no_account: 0, no_cycle: 0, no_tariff: 0, no_email: 0, no_schedule: 0,
+  };
+  for (const c of companies) for (const k of c.blockerCodes) byBlocker[k]++;
 
   const byTerm: Record<string, number> = {};
   const byLifecycle: Record<string, number> = {};
@@ -223,7 +251,7 @@ export function assessBillingReadiness(opts: {
       notBillable: companies.filter(c => c.status === 'not_billable').length,
       dueToday: dueToday.length,
       blockedWithTraffic: urgent.length,
-      byTerm, byLifecycle,
+      byBlocker, byTerm, byLifecycle,
     },
   };
 }
