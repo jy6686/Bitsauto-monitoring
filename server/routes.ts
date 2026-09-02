@@ -42362,7 +42362,29 @@ ${footer}
   app.get('/api/finance/health', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
     try {
       const now = Date.now();
-      const slaDefaults: Record<string, number> = { dmr: 15, snapshot: 30, margin: 30, cockpit: 30, invoice_queue: 5 };
+      // FRESHNESS SLA MUST MATCH THE ARTEFACT'S CADENCE. Corrected 2026-09-02.
+      //
+      // These were 15 / 30 / 30 minutes for artefacts that are produced ONCE
+      // PER DAY by the 02:00 pipeline. A daily report with a 15-minute
+      // freshness SLA is stale for 23h45m out of every 24 — it had essentially
+      // never been green and never could be, which is why Data Freshness sat
+      // at 70% and the DMR card showed red with a perfectly healthy DMR behind
+      // it. An indicator that cannot be satisfied is worse than no indicator:
+      // it is the reason nobody reads the warnings any more.
+      //
+      // The rule now is two intervals of whatever actually produces the thing,
+      // so a single missed run shows and normal operation does not:
+      //   dmr, margin      daily pipeline (02:00)      → 26h
+      //   snapshot         materialisation, every 30m  → 60m
+      //   cockpit          derived with the snapshot    → 60m
+      //   invoice_queue    30-min scheduler             → 60m
+      //
+      // If a daily artefact should be checked more tightly than this, the
+      // question to ask is "is there one for yesterday", not "was it written in
+      // the last N minutes" — a different check, not a smaller number.
+      const slaDefaults: Record<string, number> = {
+        dmr: 26 * 60, margin: 26 * 60, snapshot: 60, cockpit: 60, invoice_queue: 60,
+      };
 
       async function safeQuery(query: string): Promise<{ rows: any[]; missing: boolean }> {
         try {
