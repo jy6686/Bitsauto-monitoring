@@ -39,6 +39,20 @@ export interface AccountRun {
   finishedAt: string | null;
 }
 
+/** One row of the operator's table — every INTENDED account, not only the
+ *  ones that have started. A customer missing from the list entirely is the
+ *  thing an operator most needs to see and the thing a runs-only view cannot
+ *  show. */
+export interface AccountProgressRow {
+  iAccount:   number;
+  name:       string | null;
+  status:     'done' | 'running' | 'error' | 'pending';
+  fetched:    number;
+  stored:     number;
+  /** null while pending — never 0, which would read as "took no time". */
+  durationMs: number | null;
+}
+
 export interface CollectionProgress {
   /** Accounts the collector intends to walk for this day. */
   total:     number;
@@ -55,6 +69,8 @@ export interface CollectionProgress {
   /** Why the ETA is null, or how it was derived. Always populated. */
   etaBasis:  string;
   complete:  boolean;
+  /** Every intended account, done first, then running, then pending. */
+  accounts:  AccountProgressRow[];
 }
 
 const ms = (a: string, b: string | null, now: number) => {
@@ -65,9 +81,10 @@ const ms = (a: string, b: string | null, now: number) => {
 
 export function summariseCollection(opts: {
   runs:        AccountRun[];
-  /** How many accounts the collector will visit. From the same selection the
-   *  collector uses, never a count of rows already created. */
-  totalAccounts: number;
+  /** The accounts the collector INTENDS to visit, from its own selection.
+   *  Supplying the list rather than a count is what makes a pending row
+   *  possible: seed_jobs can only report what has already started. */
+  expected:    Array<{ iAccount: number; name?: string | null }>;
   startedAtIso:  string;
   nowIso:        string;
 }): CollectionProgress {
@@ -77,7 +94,7 @@ export function summariseCollection(opts: {
   const done    = runs.filter(r => r.status === 'done');
   const running = runs.filter(r => r.status === 'running');
   const failed  = runs.filter(r => r.status === 'error');
-  const total   = Math.max(opts.totalAccounts, done.length + running.length + failed.length);
+  const total   = Math.max(opts.expected.length, done.length + running.length + failed.length);
   const seen    = done.length + running.length + failed.length;
 
   const fetched = runs.reduce((s, r) => s + (r.fetched || 0), 0);
@@ -126,8 +143,36 @@ export function summariseCollection(opts: {
                `${Math.round(meanEmpty / 1000)}s); pending assumed to split the same way`;
   }
 
+  // The table: every intended account, plus any run for an account the
+  // selection no longer lists (a company unlinked mid-run still collected
+  // rows, and hiding that would lose money from the view).
+  const byAccount = new Map<number, AccountRun>();
+  for (const r of runs) byAccount.set(r.iAccount, r);
+  const listed = new Set(opts.expected.map(e => e.iAccount));
+  const nameOf = new Map(opts.expected.map(e => [e.iAccount, e.name ?? null]));
+  const RANK: Record<AccountProgressRow['status'], number> =
+    { error: 0, running: 1, done: 2, pending: 3 };
+  const accounts: AccountProgressRow[] = [
+    ...opts.expected.map(e => e.iAccount),
+    ...runs.map(r => r.iAccount).filter(i => !listed.has(i)),
+  ].map(iAccount => {
+    const r = byAccount.get(iAccount);
+    if (!r) return { iAccount, name: nameOf.get(iAccount) ?? null,
+                     status: 'pending' as const, fetched: 0, stored: 0, durationMs: null };
+    const status = r.status === 'done' ? 'done' as const
+                 : r.status === 'running' ? 'running' as const
+                 : r.status === 'error' ? 'error' as const
+                 : 'pending' as const;
+    return {
+      iAccount, name: nameOf.get(iAccount) ?? null, status,
+      fetched: r.fetched || 0, stored: r.stored || 0,
+      durationMs: status === 'pending' ? null : ms(r.startedAt, r.finishedAt, now),
+    };
+  }).sort((a, b) => RANK[a.status] - RANK[b.status] || b.fetched - a.fetched || a.iAccount - b.iAccount);
+
   return {
     total, completed: done.length, running: running.length, pending, failed: failed.length,
+    accounts,
     // Of ACCOUNTS. Time is not proportional to account count and the label
     // must not imply it is.
     pct: total > 0 ? Math.round((done.length / total) * 100) : 0,

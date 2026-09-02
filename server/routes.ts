@@ -39092,7 +39092,7 @@ ${footer}
               FROM seed_jobs
              WHERE period_start = ${date} AND job_id LIKE ${'recon-' + date + '-%'}`);
           _forwardCapture.progress = summariseCollection({
-            totalAccounts: ready.length,
+            expected: ready.map((x: any) => ({ iAccount: x.iAccount, name: x.name ?? null })),
             startedAtIso:  runStartedIso,
             nowIso:        new Date().toISOString(),
             runs: (((rows as any).rows ?? []) as any[]).map(r => ({

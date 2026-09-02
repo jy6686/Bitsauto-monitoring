@@ -323,6 +323,40 @@ export function CdrImportMonitor() {
                       No time estimate yet — {cap.progress.etaBasis}.
                     </div>
                   )}
+
+                  {/* Per-customer table. Only a few accounts ever carry
+                      traffic, so a scannable list answers the morning
+                      questions at once: which customer is running, which
+                      failed, which are still to come. Failures sort first. */}
+                  {Array.isArray(cap.progress.accounts) && cap.progress.accounts.length > 0 && (
+                    <div className="mt-2 max-h-56 overflow-y-auto rounded border bg-background">
+                      <table className="w-full text-[11px]">
+                        <tbody>
+                          {cap.progress.accounts.map((a: any) => (
+                            <tr key={a.iAccount} className="border-b last:border-0">
+                              <td className="px-2 py-1 w-4">
+                                {a.status === "done"    ? <span className="text-emerald-600 dark:text-emerald-400">✓</span>
+                                 : a.status === "running" ? <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+                                 : a.status === "error"   ? <span className="text-destructive">✖</span>
+                                 : <span className="text-muted-foreground/50">·</span>}
+                              </td>
+                              <td className="px-1 py-1 truncate">
+                                {a.name ?? <span className="text-muted-foreground">Account #{a.iAccount}</span>}
+                              </td>
+                              <td className="px-2 py-1 text-right tabular-nums text-muted-foreground">
+                                {a.status === "pending" ? "—" : num(a.fetched)}
+                              </td>
+                              <td className="px-2 py-1 text-right tabular-nums text-muted-foreground w-14">
+                                {a.durationMs == null ? "—"
+                                  : a.durationMs < 60000 ? `${Math.round(a.durationMs / 1000)}s`
+                                  : `${Math.round(a.durationMs / 60000)}m`}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
 
