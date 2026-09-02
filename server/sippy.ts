@@ -3125,7 +3125,12 @@ export async function listSippyMethods(
   const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
   if (!base) return { ok: false, methods: [], error: 'Not connected to Sippy.' };
   try {
-    const resp = await sippyPost(`${base}/xmlapi/xmlapi`, xmlRpcCall('system.listMethods', {}), username, password, 8000);
+    // ZERO params, hand-built. xmlRpcCall() always emits one <param> — an empty struct is
+    // still an argument — and Python's dispatcher answers that with
+    //   TypeError: system_listMethods() takes 1 positional argument but 2 were given
+    // which is what this probe found. The method is fine; the call was malformed.
+    const zeroParamCall = `<?xml version="1.0" encoding="UTF-8"?>\n<methodCall>\n  <methodName>system.listMethods</methodName>\n  <params></params>\n</methodCall>`;
+    const resp = await sippyPost(`${base}/xmlapi/xmlapi`, zeroParamCall, username, password, 8000);
     if (resp.statusCode !== 200 || resp.body.includes('<fault>')) {
       // "HTTP 200 (fault)" says a fault happened and nothing about which one, so it cannot
       // distinguish "introspection is disabled on this build" from "this account may not
