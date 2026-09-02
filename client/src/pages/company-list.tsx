@@ -34,7 +34,73 @@ const CONTRACT_COLOR: Record<string, string> = {
 const STATUS_COLOR: Record<string, string> = {
   active:   "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
   inactive: "bg-rose-500/10 text-rose-400 border-rose-500/20",
+  // dormant was missing, so it would have rendered unstyled — the map knew two of the three
+  // states the Rate Manager offers, which is what a column nobody writes looks like.
+  dormant:  "bg-amber-500/10 text-amber-400 border-amber-500/20",
 };
+
+const LIFECYCLE_HELP: Record<string, string> = {
+  active:   "Trading. Appears under Active in the Rate Manager.",
+  inactive: "Not trading. Hidden from the Rate Manager's Active list.",
+  dormant:  "Retained for history, not currently trading.",
+};
+
+/**
+ * The lifecycle control — the first thing that writes companies.status.
+ *
+ * The Rate Manager's Active/Inactive/Dormant toggle is a VIEW filter over the client list;
+ * it cannot set a customer's lifecycle because it is not looking at one customer. This is,
+ * which is why the control belongs on the customer rather than in a rate-sending sidebar.
+ *
+ * Changing it does not change invoicing. Invoice eligibility comes from financial_snapshot —
+ * certified billable traffic — so marking a customer dormant does not stop them being billed
+ * for traffic they actually carried.
+ */
+function LifecycleControl({ companyId, current }: { companyId: number; current: string }) {
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const mutate = useMutation({
+    mutationFn: async (status: string) => {
+      const r = await apiRequest("PATCH", `/api/companies/${companyId}/status`, { status });
+      return r.json();
+    },
+    onMutate: (status: string) => { setPending(status); setError(null); },
+    onSuccess: () => {
+      // The Rate Manager's client list carries the lifecycle it joined at fetch time, so it
+      // has to be refetched or its tabs keep showing the previous classification.
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      queryClient.invalidateQueries({ predicate: q => String(q.queryKey[0] ?? "").startsWith("/api/sippy/accounts-by-product") });
+    },
+    // Surfaced inline rather than as a toast: the control sits beside the value it failed to
+    // change, and a toast leaves the old value on screen looking like it was accepted.
+    onError: (e: any) => setError(e?.message ?? "could not change lifecycle"),
+    onSettled: () => setPending(null),
+  });
+
+  const value = pending ?? current;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2">
+        <span className="text-[10px] text-muted-foreground w-20">Lifecycle</span>
+        <Select value={value} onValueChange={v => { if (v !== current) mutate.mutate(v); }}>
+          <SelectTrigger className="h-7 text-xs w-40"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {["active", "inactive", "dormant"].map(o => (
+              <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {pending && <span className="text-[10px] text-muted-foreground">saving…</span>}
+      </div>
+      <div className="text-[10px] text-muted-foreground pl-[5.5rem]">
+        {error
+          ? <span className="text-red-400">{error}</span>
+          : LIFECYCLE_HELP[value] ?? ""}
+      </div>
+    </div>
+  );
+}
 
 const PRODUCT_COLOR: Record<string, string> = {
   "First Class":    "bg-amber-500/10 text-amber-400 border-amber-500/20",
@@ -108,6 +174,8 @@ function CompanyInfoDialog({ company, open, onClose }: {
         </DialogHeader>
 
         <div className="space-y-4 pt-1">
+          <LifecycleControl companyId={company.id} current={String(company.status ?? "active").toLowerCase()} />
+
           {/* Status badges */}
           <div className="flex flex-wrap gap-1.5">
             <Badge variant="outline" className={`text-[10px] ${STATUS_COLOR[company.status] ?? ""}`}>{company.status}</Badge>
