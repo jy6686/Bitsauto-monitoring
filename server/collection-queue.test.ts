@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  planCollectionQueue, DEFAULT_COST_MS, MAX_WORKERS, MIN_WORKERS,
+  planCollectionQueue, learnAccountCost, planFromHistory,
+  DEFAULT_COST_MS, MAX_WORKERS, MIN_WORKERS,
   type QueueAccount,
 } from './collection-queue';
 
@@ -184,5 +185,108 @@ describe('the basis is checkable', () => {
     expect(p.basis).toContain('2 heavy');
     expect(p.basis).toContain('5 worker(s)');
     expect(p.basis).toContain('no worker can hold two heavy accounts');
+  });
+});
+
+describe('learned costs — the planner must not carry today defect into tomorrow', () => {
+  /**
+   * MEDIAN, NOT MEAN. During the degradation windows on 2026-08-31 and 09-01,
+   * accounts that normally take ~60s took 260s and 403s. A mean drags every
+   * future estimate toward the worst night the platform has had; a median
+   * ignores it unless it becomes the norm.
+   */
+  it('ignores a degradation outlier that a mean would absorb', () => {
+    const l = learnAccountCost({
+      iAccount: 64,
+      runs: [{ durationMs: 60_000, fetched: 0 }, { durationMs: 62_000, fetched: 0 },
+             { durationMs: 403_000, fetched: 0 }],   // the 09-01 outlier
+    });
+    expect(l.costMs).toBe(62_000);                    // median, not the 175s mean
+    expect(l.weight).toBe('light');
+  });
+
+  /**
+   * Volume classifies, duration predicts. Classifying by duration would be
+   * circular — duration is the thing being estimated, and it depends on the
+   * platform's health as much as on the customer.
+   */
+  it('classifies by rows returned, never by how long the run took', () => {
+    const slowButEmpty = learnAccountCost({
+      iAccount: 75, runs: [{ durationMs: 260_000, fetched: 0 }],
+    });
+    expect(slowButEmpty.weight).toBe('light');
+
+    const fastButBusy = learnAccountCost({
+      iAccount: 315, runs: [{ durationMs: 30_000, fetched: 5_000 }],
+    });
+    expect(fastButBusy.weight).toBe('heavy');
+  });
+
+  it('marks an account with no history unknown rather than guessing', () => {
+    const l = learnAccountCost({ iAccount: 999, runs: [] });
+    expect(l.weight).toBe('unknown');
+    expect(l.costMs).toBeNull();
+    expect(l.basis).toContain('no completed run');
+  });
+
+  it('uses each account own cost instead of the class default', () => {
+    // 315 has learned 8 minutes. The class default is 20. If the planner still
+    // used the class constant the estimate would be 2.5x too high — which is
+    // exactly how a hardcoded figure outlives the defect that produced it.
+    const p = planFromHistory({
+      maxWorkers: 1,
+      history: [{ iAccount: 315, runs: [{ durationMs: 8 * 60_000, fetched: 9_000 }] }],
+    });
+    expect(p.estimateMs).toBe(8 * 60_000);
+    expect(p.basis).toContain('1 costed from their own history');
+  });
+
+  it('falls back to the class default only where nothing is known', () => {
+    const p = planFromHistory({
+      maxWorkers: 1,
+      history: [{ iAccount: 1, runs: [] }],
+    });
+    expect(p.estimateMs).toBe(DEFAULT_COST_MS.unknown);
+    expect(p.basis).toContain('1 from class defaults');
+  });
+
+  it('reports live capacity for the operations panel', () => {
+    const p = planFromHistory({
+      maxWorkers: 5,
+      nowIso: '2026-09-03T02:00:00.000Z',
+      history: [
+        { iAccount: 315, runs: [{ durationMs: 18 * 60_000, fetched: 9_000 }] },
+        { iAccount: 588, runs: [{ durationMs: 17 * 60_000, fetched: 8_000 }] },
+        ...Array.from({ length: 20 }, (_, k) => ({
+          iAccount: 100 + k, runs: [{ durationMs: 55_000, fetched: 0 }],
+        })),
+        { iAccount: 999, runs: [] },
+      ],
+    });
+    expect(p.capacity.workersConfigured).toBe(5);
+    expect(p.capacity.remainingHeavy).toBe(2);
+    expect(p.capacity.remainingLight).toBe(20);
+    expect(p.capacity.remainingUnknown).toBe(1);
+    expect(p.capacity.remaining).toBe(23);
+    // 18 minutes of heaviest work sets the floor, so the finish is after 02:18.
+    expect(Date.parse(p.capacity.finishEstimateIso!))
+      .toBeGreaterThanOrEqual(Date.parse('2026-09-03T02:18:00.000Z'));
+  });
+
+  it('offers no finish time without a start time', () => {
+    const p = planFromHistory({ history: [{ iAccount: 1, runs: [] }] });
+    expect(p.capacity.finishEstimateIso).toBeNull();
+  });
+
+  it('still resumes: a completed account leaves the queue and the estimate', () => {
+    const history = [
+      { iAccount: 315, runs: [{ durationMs: 18 * 60_000, fetched: 9_000 }] },
+      { iAccount: 588, runs: [{ durationMs: 17 * 60_000, fetched: 8_000 }] },
+    ];
+    const full = planFromHistory({ history, maxWorkers: 1 });
+    const part = planFromHistory({ history, maxWorkers: 1, completed: [315] });
+    expect(part.capacity.remaining).toBe(1);
+    expect(part.estimateMs).toBeLessThan(full.estimateMs);
+    expect(part.skipped).toEqual([315]);
   });
 });

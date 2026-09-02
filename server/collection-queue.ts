@@ -123,3 +123,138 @@ export function planCollectionQueue(opts: {
            '. Longest-first, pull queue — no worker can hold two heavy accounts while another idles.',
   };
 }
+
+// ── Learned weights ──────────────────────────────────────────────────────────
+/**
+ * Per-account cost from OBSERVED history, not from a class constant.
+ *
+ * Owner requirement 2026-09-02: do not lock the planner around today's
+ * 20-minute figure, because that is a symptom of the current fetch, not a
+ * property of the account. When streaming and the fetch fix land, a heavy
+ * account may cost eight minutes — and a planner carrying a hardcoded twenty
+ * would keep sizing the pool for a defect that no longer exists.
+ *
+ * MEDIAN, NOT MEAN, and the reason is in the measurements. During the
+ * degradation windows on 2026-08-31 and 09-01, accounts that normally take
+ * ~60s took 260s and 403s. Those are episodes of an unhealthy instance, not
+ * the cost of the work: a mean drags every estimate toward the worst night the
+ * platform has had, a median ignores it unless it becomes the norm. The same
+ * argument that kept a wrong ETA off the panel applies to a wrong estimate
+ * inside the planner.
+ */
+export interface AccountHistory {
+  iAccount: number;
+  name?:    string | null;
+  /** Completed runs, any order. Durations in ms. */
+  runs: Array<{ durationMs: number; fetched: number }>;
+  priority?: number;
+}
+
+const median = (ns: number[]): number => {
+  if (ns.length === 0) return 0;
+  const s = [...ns].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+};
+
+/**
+ * @param heavyIfFetchedOver rows above which an account counts as heavy. Not a
+ *        duration threshold on purpose: duration is what we are trying to
+ *        predict, and classifying by it would make the estimate circular.
+ */
+export function learnAccountCost(h: AccountHistory, opts?: {
+  heavyIfFetchedOver?: number;
+}): QueueAccount & { costMs: number | null; basis: string } {
+  const threshold = opts?.heavyIfFetchedOver ?? 100;
+  const done = h.runs.filter(r => Number.isFinite(r.durationMs) && r.durationMs > 0);
+
+  if (done.length === 0) {
+    return { iAccount: h.iAccount, name: h.name ?? null, weight: 'unknown',
+             priority: h.priority, costMs: null,
+             basis: 'no completed run on record — ordered between heavy and light' };
+  }
+
+  // Heavy is about VOLUME, which is a property of the customer. Duration is a
+  // property of the customer AND the platform's current health, so it predicts
+  // and must not classify.
+  const everBusy = done.some(r => r.fetched > threshold);
+  const cost = median(done.map(r => r.durationMs));
+
+  return {
+    iAccount: h.iAccount, name: h.name ?? null,
+    weight: everBusy ? 'heavy' : 'light',
+    priority: h.priority,
+    costMs: cost,
+    basis: `median of ${done.length} run(s): ${Math.round(cost / 1000)}s` +
+           (done.length > 2 ? ` (range ${Math.round(Math.min(...done.map(r => r.durationMs)) / 1000)}–` +
+                              `${Math.round(Math.max(...done.map(r => r.durationMs)) / 1000)}s)` : '') +
+           `; ${everBusy ? 'has returned CDRs' : 'has never returned CDRs'}`,
+  };
+}
+
+export interface LearnedPlan extends QueuePlan {
+  /** Live capacity view for the operations panel. */
+  capacity: {
+    workersConfigured: number;
+    remaining: number;
+    remainingHeavy: number;
+    remainingLight: number;
+    remainingUnknown: number;
+    /** null when no start time was supplied. */
+    finishEstimateIso: string | null;
+  };
+}
+
+/**
+ * The planner, using each account's own measured cost where one exists and the
+ * class default only where it does not.
+ */
+export function planFromHistory(opts: {
+  history:     AccountHistory[];
+  maxWorkers?: number;
+  completed?:  number[];
+  /** For the projected finish time. */
+  nowIso?:     string;
+  costMs?:     Partial<Record<Weight, number>>;
+}): LearnedPlan {
+  const learned = opts.history.map(h => learnAccountCost(h));
+  const perAccount = new Map(learned.map(l => [l.iAccount, l.costMs]));
+  const classCost = { ...DEFAULT_COST_MS, ...(opts.costMs ?? {}) };
+
+  const base = planCollectionQueue({
+    accounts: learned.map(({ costMs, basis, ...a }) => a),
+    maxWorkers: opts.maxWorkers, completed: opts.completed, costMs: opts.costMs,
+  });
+
+  // Re-simulate the pull queue with per-account costs. planCollectionQueue's
+  // own estimate uses class costs, which is right when nothing is known and
+  // needlessly coarse once something is.
+  const free = new Array(base.workers).fill(0);
+  for (const a of base.order) {
+    let earliest = 0;
+    for (let i = 1; i < base.workers; i++) if (free[i] < free[earliest]) earliest = i;
+    free[earliest] += perAccount.get(a.iAccount) ?? classCost[a.weight];
+  }
+  const estimateMs = base.order.length ? Math.max(...free) : 0;
+
+  const measured = base.order.filter(a => perAccount.get(a.iAccount) != null).length;
+  const startMs = opts.nowIso ? Date.parse(opts.nowIso) : NaN;
+
+  return {
+    ...base,
+    estimateMs,
+    basis: `${base.order.length} account(s) across ${base.workers} worker(s); ` +
+           `${measured} costed from their own history, ${base.order.length - measured} from class ` +
+           'defaults. Longest-first, pull queue.' +
+           (base.skipped.length ? ` ${base.skipped.length} already collected.` : ''),
+    capacity: {
+      workersConfigured: base.workers,
+      remaining:        base.order.length,
+      remainingHeavy:   base.order.filter(a => a.weight === 'heavy').length,
+      remainingLight:   base.order.filter(a => a.weight === 'light').length,
+      remainingUnknown: base.order.filter(a => a.weight === 'unknown').length,
+      finishEstimateIso: Number.isFinite(startMs)
+        ? new Date(startMs + estimateMs).toISOString() : null,
+    },
+  };
+}
