@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { assessBillingReadiness, type BillableCompany } from './billing-readiness';
 
 const co = (over: Partial<BillableCompany> = {}): BillableCompany => ({
-  id: 1, name: 'acme', iAccount: 315, iTariff: '32',
+  id: 1, name: 'acme', iAccount: 315, iTariff: '32', lifecycle: 'active',
   billingCycle: 'weekly', invoiceEmail: 'billing@acme.test', hasTraffic: true, ...over,
 });
 
@@ -51,34 +51,65 @@ describe('the production case: revenue customers with nothing to invoice them', 
   });
 });
 
-describe('dormant is not blocked', () => {
+describe('lifecycle belongs to the Rate Manager, not to Finance', () => {
   /**
-   * Production holds 24 companies with no Sippy account — "Test-307", "Japan",
-   * "75 rupees". Listing those beside a live customer missing a tariff buries
-   * the one that costs money.
+   * The correction made 2026-09-02. The first version DERIVED "dormant" from
+   * "no account and no traffic" — a second, Finance-local definition of a
+   * customer's lifecycle, which is exactly what lets two screens disagree
+   * about the same customer. companies.status is the authority.
    */
-  it('classifies a no-account, no-traffic row as dormant', () => {
+  it('reports a non-active customer as not_billable, whatever its fields', () => {
     const r = assessBillingReadiness({
       asOf: MONDAY,
-      companies: [co({ name: 'Test-307', iAccount: null, iTariff: null,
-                       billingCycle: null, invoiceEmail: null, hasTraffic: false })],
+      companies: [co({ name: 'Test-307', lifecycle: 'dormant', iAccount: null,
+                       iTariff: null, billingCycle: null, invoiceEmail: null, hasTraffic: false })],
     });
-    expect(r.companies[0].status).toBe('dormant');
+    expect(r.companies[0].status).toBe('not_billable');
+    expect(r.companies[0].lifecycle).toBe('dormant');
     expect(r.summary.blocked).toBe(0);
-    expect(r.summary.blockedWithTraffic).toBe(0);
+  });
+
+  it('raises no blockers for an inactive customer', () => {
+    // An inactive customer legitimately has no tariff. Listing that as work to
+    // do would fill the queue with work nobody should perform.
+    const r = assessBillingReadiness({
+      asOf: MONDAY,
+      companies: [co({ lifecycle: 'inactive', iTariff: null, invoiceEmail: null })],
+    });
+    expect(r.companies[0].blockers).toEqual([]);
+    expect(r.companies[0].status).toBe('not_billable');
   });
 
   /**
-   * The dangerous inverse: traffic on an account no company claims. That is
-   * money arriving with nobody to bill, and it must NOT be filed as dormant.
+   * The dangerous inverse: an ACTIVE customer with traffic and no account is
+   * money arriving with nobody to bill. Lifecycle does not excuse it.
    */
-  it('does not call an unlinked company with traffic dormant', () => {
+  it('still blocks an active company with traffic and no account', () => {
     const r = assessBillingReadiness({
       asOf: MONDAY,
-      companies: [co({ name: 'mystery', iAccount: null, hasTraffic: true })],
+      companies: [co({ name: 'mystery', lifecycle: 'active', iAccount: null, hasTraffic: true })],
     });
     expect(r.companies[0].status).toBe('blocked');
     expect(r.summary.blockedWithTraffic).toBe(1);
+  });
+
+  it('counts lifecycles verbatim so both modules report the same customer alike', () => {
+    const r = assessBillingReadiness({
+      asOf: MONDAY,
+      companies: [co({ id: 1, lifecycle: 'active' }), co({ id: 2, lifecycle: 'Inactive' }),
+                  co({ id: 3, lifecycle: 'dormant' }), co({ id: 4, lifecycle: null })],
+    });
+    expect(r.summary.byLifecycle.active).toBe(1);
+    expect(r.summary.byLifecycle.inactive).toBe(1);   // case-folded for counting
+    expect(r.summary.byLifecycle.dormant).toBe(1);
+    expect(r.summary.byLifecycle.unset).toBe(1);
+  });
+
+  it('treats a missing lifecycle as active rather than silently unbillable', () => {
+    // Failing OPEN here is deliberate: a null status must not quietly remove a
+    // customer from billing. It is reported as active and judged on its fields.
+    const r = assessBillingReadiness({ asOf: MONDAY, companies: [co({ lifecycle: null })] });
+    expect(r.companies[0].status).toBe('ready');
   });
 });
 
@@ -127,7 +158,7 @@ describe('the summary an operator reads at 08:00', () => {
     const r = assessBillingReadiness({
       asOf: MONDAY,
       companies: [co({ id: 1, billingCycle: 'weekly' }), co({ id: 2, billingCycle: 'weekly' }),
-                  co({ id: 3, billingCycle: null, hasTraffic: false, iAccount: null })],
+                  co({ id: 3, billingCycle: null, lifecycle: 'dormant' })],
     });
     expect(r.summary.byTerm.weekly).toBe(2);
     expect(r.summary.byTerm.unset).toBe(1);
@@ -138,10 +169,10 @@ describe('the summary an operator reads at 08:00', () => {
     const r = assessBillingReadiness({
       asOf: MONDAY,
       companies: [co({ id: 1 }), co({ id: 2, iTariff: null }),
-                  co({ id: 3, iAccount: null, hasTraffic: false })],
+                  co({ id: 3, lifecycle: 'dormant' })],
     });
-    const { total, ready, blocked, dormant } = r.summary;
-    expect(ready + blocked + dormant).toBe(total);
+    const { total, ready, blocked, notBillable } = r.summary;
+    expect(ready + blocked + notBillable).toBe(total);
   });
 
   it('handles an empty customer list without dividing by anything', () => {

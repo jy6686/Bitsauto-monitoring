@@ -39552,12 +39552,13 @@ ${footer}
     try {
       const asOf = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.asOf ?? ''))
         ? String(req.query.asOf) : new Date().toISOString().slice(0, 10);
-      // Traffic over the trailing week: enough to tell a live customer from a
-      // dormant test row without making the query a table scan.
+      // Traffic over the trailing week — used to RANK blocked customers by
+      // urgency. Classification is companies.status, which the Rate Manager
+      // owns; this module never invents a lifecycle of its own.
       const since = new Date(Date.parse(`${asOf}T00:00:00Z`) - 7 * 86400000).toISOString();
       const rows: any = await db.execute(sql`
         SELECT c.id, c.name, c.sippy_i_account, c.sippy_i_tariff,
-               c.client_billing_cycle, c.invoice_email,
+               c.client_billing_cycle, c.invoice_email, c.status AS lifecycle,
                EXISTS (SELECT 1 FROM raw_sippy_cdrs r
                         WHERE r.i_account = c.sippy_i_account
                           AND r.started_at >= ${since}::timestamptz) AS has_traffic
@@ -39571,6 +39572,8 @@ ${footer}
           iTariff:  r.sippy_i_tariff == null ? null : String(r.sippy_i_tariff),
           billingCycle: r.client_billing_cycle ?? null,
           invoiceEmail: r.invoice_email ?? null,
+          // companies.status — the Rate Manager's lifecycle, read not redefined.
+          lifecycle: r.lifecycle ?? null,
           hasTraffic: r.has_traffic === true,
         })),
       }));

@@ -15,6 +15,22 @@
  * revenue have nothing that would ever start an invoice for them, and nothing
  * anywhere says so.
  *
+ * LIFECYCLE IS THE RATE MANAGER'S, NOT FINANCE'S. Corrected 2026-09-02 after
+ * the owner pointed out that active / inactive / dormant already exist as
+ * customer master data in `companies.status`. The first version of this file
+ * DERIVED a "dormant" state from "no account and no traffic" — a second,
+ * Finance-local definition of a customer's lifecycle, which is precisely the
+ * duplication that lets two screens disagree about the same customer.
+ *
+ * The split is now clean, and it is the owner's:
+ *   Rate Manager owns WHAT the customer is       — active / inactive / dormant
+ *   Finance owns whether an ACTIVE one is billable TODAY — ready / blocked
+ *
+ * "Blocked" is therefore a runtime billing condition, never a persisted
+ * status. A customer stays Active in the Rate Manager while Finance reports it
+ * as blocked for a missing tariff, and fixing the tariff changes the billing
+ * verdict without touching master data.
+ *
  * DERIVED FROM THE COMPANY MASTER, NOT FROM A PARALLEL TABLE. Owner
  * requirement 2026-09-02, and it is the right call at 500 customers:
  * `companies.client_billing_cycle` already exists and is populated by the
@@ -44,25 +60,30 @@ export interface BillableCompany {
   billingCycle:  string | null;
   /** Where an invoice would be sent. */
   invoiceEmail:  string | null;
+  /** companies.status — the Rate Manager's master lifecycle. Read, never
+   *  redefined. Anything that is not active is out of scope for billing. */
+  lifecycle:     string | null;
   /** Whether the repository holds any traffic for this account in the window
-   *  being judged. A customer with no account AND no traffic is dormant, not
-   *  broken — and reporting the two identically is how a real gap gets lost
-   *  in a list of test rows. */
+   *  being judged. Used to RANK blocked customers by urgency, not to classify
+   *  them — classification belongs to the lifecycle above. */
   hasTraffic:    boolean;
 }
 
 export type ReadinessStatus =
-  /** Everything needed to invoice is present. */
+  /** Active, and everything needed to invoice is present. */
   | 'ready'
-  /** Would be billable but cannot be — the list that matters. */
+  /** Active but cannot be invoiced — the list that matters. */
   | 'blocked'
-  /** No account and no traffic. Test rows, prospects, closed customers. */
-  | 'dormant';
+  /** Not active in the Rate Manager. Finance expresses no opinion; the
+   *  customer's lifecycle is master data and this module only reports it. */
+  | 'not_billable';
 
 export interface CompanyReadiness {
   id:       number;
   name:     string;
   status:   ReadinessStatus;
+  /** companies.status verbatim — the Rate Manager's word, not a translation. */
+  lifecycle: string | null;
   term:     BillingTerm | null;
   /** Periods that have CLOSED and would be invoiced tonight. */
   duePeriods: BillingPeriod[];
@@ -79,8 +100,11 @@ export interface ReadinessReport {
   urgent:  CompanyReadiness[];
   dueToday: CompanyReadiness[];
   summary: {
-    total: number; ready: number; blocked: number; dormant: number;
+    total: number; ready: number; blocked: number; notBillable: number;
     dueToday: number;
+    /** Straight from companies.status, so Finance and Rate Manager report the
+     *  same customer the same way. */
+    byLifecycle: Record<string, number>;
     /** Blocked customers that have traffic. Zero is the only acceptable value. */
     blockedWithTraffic: number;
     byTerm: Record<string, number>;
@@ -113,25 +137,35 @@ export function assessBillingReadiness(opts: {
       blockers.push('No billing email — an invoice could be generated but never delivered.');
     }
 
-    // Dormant is NOT the same as blocked. A test row with no account and no
-    // traffic is not a problem to solve; listing it beside a live customer
-    // that is missing a tariff buries the one that costs money.
-    const dormant = c.iAccount == null && !c.hasTraffic;
+    // LIFECYCLE FIRST, and it is not this module's to decide. Only an ACTIVE
+    // customer gets a billing verdict; anything else is reported as the Rate
+    // Manager already classifies it. Deriving a Finance-local "dormant" here
+    // was the duplication this version removes.
+    const lifecycle = String(c.lifecycle ?? '').trim().toLowerCase();
+    const isActive = lifecycle === 'active' || lifecycle === '';
     const status: ReadinessStatus =
-      dormant ? 'dormant' : blockers.length > 0 ? 'blocked' : 'ready';
+      !isActive ? 'not_billable' : blockers.length > 0 ? 'blocked' : 'ready';
+    // A non-active customer's missing fields are not defects to fix — an
+    // inactive customer legitimately has no tariff. Reporting them as blockers
+    // would fill the work list with work nobody should do.
+    if (!isActive) blockers.length = 0;
 
     const term = c.billingCycle ? normalizeTerm(c.billingCycle) : null;
     // Only a customer that could actually be invoiced has due periods. Listing
     // periods for a blocked customer would imply work that cannot happen.
     const duePeriods = status === 'ready' && term ? latestClosedPeriods(term, opts.asOf) : [];
 
-    return { id: c.id, name: c.name, status, term, duePeriods, blockers, hasTraffic: c.hasTraffic };
+    return { id: c.id, name: c.name, status, lifecycle: c.lifecycle ?? null,
+             term, duePeriods, blockers, hasTraffic: c.hasTraffic };
   });
 
   const byTerm: Record<string, number> = {};
+  const byLifecycle: Record<string, number> = {};
   for (const c of companies) {
     const k = c.term ?? 'unset';
     byTerm[k] = (byTerm[k] ?? 0) + 1;
+    const l = (c.lifecycle ?? 'unset').trim().toLowerCase() || 'unset';
+    byLifecycle[l] = (byLifecycle[l] ?? 0) + 1;
   }
 
   // Traffic first, then name — the ranking an operator works down.
@@ -149,10 +183,10 @@ export function assessBillingReadiness(opts: {
       total: companies.length,
       ready:   companies.filter(c => c.status === 'ready').length,
       blocked: companies.filter(c => c.status === 'blocked').length,
-      dormant: companies.filter(c => c.status === 'dormant').length,
+      notBillable: companies.filter(c => c.status === 'not_billable').length,
       dueToday: dueToday.length,
       blockedWithTraffic: urgent.length,
-      byTerm,
+      byTerm, byLifecycle,
     },
   };
 }
