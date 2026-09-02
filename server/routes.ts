@@ -10541,7 +10541,18 @@ export async function registerRoutes(
       const { username, password } = sippyXmlCreds(settings);
       const portalUrl = sippyPortalUrl(settings);
       const r = await sippy.listSippyMethods(username, password, portalUrl);
-      if (!r.ok) return res.status(502).json({ error: r.error ?? 'listMethods failed', methods: [] });
+      if (!r.ok) {
+        // 502 with the fault intact. The verdict is deliberately absent rather than false:
+        // introspection failing is not evidence that no destination method exists.
+        return res.status(502).json({
+          error: r.error ?? 'listMethods failed',
+          fault: r.fault ?? null,
+          bodySample: r.bodySample ?? null,
+          methods: [],
+          canEnumerateDictionary: null,
+          note: 'system.listMethods did not return a method list. That is a fact about INTROSPECTION, not about whether Sippy holds a destination dictionary — read the fault before concluding either way.',
+        });
+      }
 
       // Read-style methods only. A write method that happens to mention destinations is not
       // a way to ASK a question, and listing it here would invite someone to try it.

@@ -3121,13 +3121,32 @@ export async function listSippyMethods(
   username: string,
   password: string,
   explicitPortalUrl?: string,
-): Promise<{ ok: boolean; methods: string[]; error?: string }> {
+): Promise<{ ok: boolean; methods: string[]; error?: string; fault?: { code: string; message: string }; bodySample?: string }> {
   const base = explicitPortalUrl ? sippyBase(explicitPortalUrl) : activeSession?.portalUrl;
   if (!base) return { ok: false, methods: [], error: 'Not connected to Sippy.' };
   try {
     const resp = await sippyPost(`${base}/xmlapi/xmlapi`, xmlRpcCall('system.listMethods', {}), username, password, 8000);
     if (resp.statusCode !== 200 || resp.body.includes('<fault>')) {
-      return { ok: false, methods: [], error: `HTTP ${resp.statusCode}${resp.body.includes('<fault>') ? ' (fault)' : ''}` };
+      // "HTTP 200 (fault)" says a fault happened and nothing about which one, so it cannot
+      // distinguish "introspection is disabled on this build" from "this account may not
+      // call it" from "the method does not exist" — three different conclusions about
+      // whether the catalogue can ever be reconciled against Sippy.
+      //
+      // Standard XML-RPC wraps faultCode/faultString in struct MEMBERS, not as direct tags,
+      // which is why reading them as tags returns empty. Same parse the rate path uses.
+      const faultBlock = extractTag(resp.body, 'fault') ?? '';
+      const members    = extractStructMembers(faultBlock || resp.body);
+      const code = members['faultCode'] ?? extractTag(resp.body, 'faultCode') ?? '';
+      const msg  = members['faultString'] ?? extractTag(resp.body, 'faultString') ?? '';
+      return {
+        ok: false,
+        methods: [],
+        error: `HTTP ${resp.statusCode}${resp.body.includes('<fault>') ? ' (fault)' : ''}${msg ? `: ${msg}` : ''}`,
+        fault: { code, message: msg },
+        // Kept when the fault could not be parsed — being unable to read the response is
+        // itself a finding, and guessing at it from an empty string is not.
+        bodySample: (code || msg) ? undefined : resp.body.substring(0, 400),
+      };
     }
     const methods: string[] = [];
     const re = /<string>([^<]+)<\/string>/g;
