@@ -39587,7 +39587,19 @@ ${footer}
                c.client_billing_cycle, c.invoice_email, c.status AS lifecycle,
                EXISTS (SELECT 1 FROM raw_sippy_cdrs r
                         WHERE r.i_account = c.sippy_i_account
-                          AND r.started_at >= ${since}::timestamptz) AS has_traffic
+                          AND r.started_at >= ${since}::timestamptz) AS has_traffic,
+               -- invoice_schedules is the ONLY thing that starts an invoice, so
+               -- "ready" is dishonest without it. Matched on company_id first
+               -- and account second: the two production rows carry NEITHER, and
+               -- a name match would be the weak identity this platform has
+               -- spent a week removing.
+               (SELECT s.next_run_at FROM invoice_schedules s
+                 WHERE s.active = TRUE
+                   AND (s.company_id = c.id OR s.i_account = c.sippy_i_account)
+                 ORDER BY s.next_run_at NULLS LAST LIMIT 1) AS schedule_next_run,
+               EXISTS (SELECT 1 FROM invoice_schedules s
+                        WHERE s.active = TRUE
+                          AND (s.company_id = c.id OR s.i_account = c.sippy_i_account)) AS has_schedule
           FROM companies c ORDER BY c.name`);
       const { assessBillingReadiness } = await import('./billing-readiness');
       res.json(assessBillingReadiness({
@@ -39601,6 +39613,8 @@ ${footer}
           // companies.status — the Rate Manager's lifecycle, read not redefined.
           lifecycle: r.lifecycle ?? null,
           hasTraffic: r.has_traffic === true,
+          hasSchedule: r.has_schedule === true,
+          scheduleNextRun: r.schedule_next_run ? new Date(r.schedule_next_run).toISOString() : null,
         })),
       }));
     } catch (e: any) {

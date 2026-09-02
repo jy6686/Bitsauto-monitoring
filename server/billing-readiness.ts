@@ -67,13 +67,32 @@ export interface BillableCompany {
    *  being judged. Used to RANK blocked customers by urgency, not to classify
    *  them — classification belongs to the lifecycle above. */
   hasTraffic:    boolean;
+  /**
+   * An ACTIVE invoice_schedules row exists for this company.
+   *
+   * The hole this closes: until 2026-09-02 this module checked whether a
+   * customer COULD be invoiced and reported "ready", while `invoice_schedules`
+   * is the only thing that ever STARTS an invoice. A customer with an account,
+   * a cycle, a tariff and an email and no schedule row is ready in every
+   * respect except the one that matters — and production holds exactly two
+   * schedule rows for 49 companies. "Ready" has to mean "will be invoiced
+   * when due", not "could be invoiced by hand".
+   */
+  hasSchedule:   boolean;
+  /** The schedule's next run, when it has one. A schedule that exists but has
+   *  never computed a next run will not fire — valid configuration, no effect. */
+  scheduleNextRun: string | null;
 }
 
 export type ReadinessStatus =
-  /** Active, and everything needed to invoice is present. */
+  /** Active, fully configured, AND scheduled — will invoice when due. */
   | 'ready'
   /** Active but cannot be invoiced — the list that matters. */
   | 'blocked'
+  /** Configured and scheduled, but the schedule has no next run computed, so
+   *  nothing will fire. Valid configuration with no effect — distinct from
+   *  blocked, because there is nothing missing to go and enter. */
+  | 'warning'
   /** Not active in the Rate Manager. Finance expresses no opinion; the
    *  customer's lifecycle is master data and this module only reports it. */
   | 'not_billable';
@@ -91,6 +110,8 @@ export interface CompanyReadiness {
    *  field at a time across 500 customers needs the whole list per customer. */
   blockers: string[];
   hasTraffic: boolean;
+  hasSchedule: boolean;
+  scheduleNextRun: string | null;
 }
 
 export interface ReadinessReport {
@@ -100,7 +121,7 @@ export interface ReadinessReport {
   urgent:  CompanyReadiness[];
   dueToday: CompanyReadiness[];
   summary: {
-    total: number; ready: number; blocked: number; notBillable: number;
+    total: number; ready: number; blocked: number; warning: number; notBillable: number;
     dueToday: number;
     /** Straight from companies.status, so Finance and Rate Manager report the
      *  same customer the same way. */
@@ -136,6 +157,13 @@ export function assessBillingReadiness(opts: {
     if (!c.invoiceEmail || !String(c.invoiceEmail).trim()) {
       blockers.push('No billing email — an invoice could be generated but never delivered.');
     }
+    // THE ONE THAT MAKES "READY" HONEST. invoice_schedules is the only thing
+    // that starts an invoice; without a row this customer is invisible to the
+    // engine no matter how complete its master data is.
+    if (!c.hasSchedule) {
+      blockers.push('No active invoice schedule — nothing will ever trigger an invoice for this ' +
+                    'customer, however complete its billing data is.');
+    }
 
     // LIFECYCLE FIRST, and it is not this module's to decide. Only an ACTIVE
     // customer gets a billing verdict; anything else is reported as the Rate
@@ -143,8 +171,15 @@ export function assessBillingReadiness(opts: {
     // was the duplication this version removes.
     const lifecycle = String(c.lifecycle ?? '').trim().toLowerCase();
     const isActive = lifecycle === 'active' || lifecycle === '';
+    // A schedule that exists but has never computed a next run is not a
+    // missing thing an operator can go and enter — it is a scheduler that has
+    // not yet acted. Separated so the work list stays actionable.
+    const noNextRun = c.hasSchedule && !c.scheduleNextRun;
     const status: ReadinessStatus =
-      !isActive ? 'not_billable' : blockers.length > 0 ? 'blocked' : 'ready';
+      !isActive ? 'not_billable'
+      : blockers.length > 0 ? 'blocked'
+      : noNextRun ? 'warning'
+      : 'ready';
     // A non-active customer's missing fields are not defects to fix — an
     // inactive customer legitimately has no tariff. Reporting them as blockers
     // would fill the work list with work nobody should do.
@@ -156,7 +191,8 @@ export function assessBillingReadiness(opts: {
     const duePeriods = status === 'ready' && term ? latestClosedPeriods(term, opts.asOf) : [];
 
     return { id: c.id, name: c.name, status, lifecycle: c.lifecycle ?? null,
-             term, duePeriods, blockers, hasTraffic: c.hasTraffic };
+             term, duePeriods, blockers, hasTraffic: c.hasTraffic,
+             hasSchedule: c.hasSchedule, scheduleNextRun: c.scheduleNextRun ?? null };
   });
 
   const byTerm: Record<string, number> = {};
@@ -183,6 +219,7 @@ export function assessBillingReadiness(opts: {
       total: companies.length,
       ready:   companies.filter(c => c.status === 'ready').length,
       blocked: companies.filter(c => c.status === 'blocked').length,
+      warning:     companies.filter(c => c.status === 'warning').length,
       notBillable: companies.filter(c => c.status === 'not_billable').length,
       dueToday: dueToday.length,
       blockedWithTraffic: urgent.length,

@@ -3,7 +3,8 @@ import { assessBillingReadiness, type BillableCompany } from './billing-readines
 
 const co = (over: Partial<BillableCompany> = {}): BillableCompany => ({
   id: 1, name: 'acme', iAccount: 315, iTariff: '32', lifecycle: 'active',
-  billingCycle: 'weekly', invoiceEmail: 'billing@acme.test', hasTraffic: true, ...over,
+  billingCycle: 'weekly', invoiceEmail: 'billing@acme.test', hasTraffic: true,
+  hasSchedule: true, scheduleNextRun: '2026-09-07T06:00:00.000Z', ...over,
 });
 
 /** Monday 2026-09-07 — the day the week 31 Aug–6 Sep is first closed. */
@@ -31,9 +32,10 @@ describe('the production case: revenue customers with nothing to invoice them', 
     // list per customer, not a queue of one-at-a-time discoveries.
     const r = assessBillingReadiness({
       asOf: MONDAY,
-      companies: [co({ iAccount: null, iTariff: null, billingCycle: null, invoiceEmail: null })],
+      companies: [co({ iAccount: null, iTariff: null, billingCycle: null,
+                       invoiceEmail: null, hasSchedule: false })],
     });
-    expect(r.companies[0].blockers).toHaveLength(4);
+    expect(r.companies[0].blockers).toHaveLength(5);
     expect(r.companies[0].blockers[0]).toContain('No Sippy account');
   });
 
@@ -180,5 +182,66 @@ describe('the summary an operator reads at 08:00', () => {
     expect(r.summary.total).toBe(0);
     expect(r.urgent).toEqual([]);
     expect(r.dueToday).toEqual([]);
+  });
+});
+
+describe('"ready" must mean WILL be invoiced, not COULD be', () => {
+  /**
+   * The hole this closes, and the production shape that proves it matters:
+   * invoice_schedules holds TWO rows for 49 companies, and it is the only
+   * thing that ever starts an invoice. Until now a customer with an account, a
+   * cycle, a tariff and an email reported "ready" while being invisible to the
+   * invoice engine — ready in every respect except the one that decides
+   * whether an invoice appears.
+   */
+  it('blocks a fully configured customer that has no schedule', () => {
+    const r = assessBillingReadiness({
+      asOf: MONDAY, companies: [co({ name: 'asterisk', hasSchedule: false, scheduleNextRun: null })],
+    });
+    expect(r.companies[0].status).toBe('blocked');
+    expect(r.companies[0].blockers[0]).toContain('nothing will ever trigger an invoice');
+    expect(r.summary.ready).toBe(0);
+  });
+
+  it('reports ready only when the schedule exists AND has a next run', () => {
+    const r = assessBillingReadiness({ asOf: MONDAY, companies: [co()] });
+    expect(r.companies[0].status).toBe('ready');
+    expect(r.companies[0].hasSchedule).toBe(true);
+  });
+
+  /**
+   * A schedule with no next run is not a missing thing an operator can enter —
+   * it is a scheduler that has not acted. Filing it under "blocked" would put
+   * an item on the work list with no work to do.
+   */
+  it('warns, not blocks, when a schedule exists but has never computed a next run', () => {
+    const r = assessBillingReadiness({
+      asOf: MONDAY, companies: [co({ hasSchedule: true, scheduleNextRun: null })],
+    });
+    expect(r.companies[0].status).toBe('warning');
+    expect(r.companies[0].blockers).toEqual([]);
+    expect(r.summary.warning).toBe(1);
+    expect(r.summary.blocked).toBe(0);
+  });
+
+  it('counts a missing schedule toward blockedWithTraffic', () => {
+    // Unbilled revenue is unbilled revenue whether the cause is a missing
+    // tariff or a missing schedule row.
+    const r = assessBillingReadiness({
+      asOf: MONDAY,
+      companies: [co({ name: 'asterisk', hasSchedule: false, hasTraffic: true })],
+    });
+    expect(r.summary.blockedWithTraffic).toBe(1);
+  });
+
+  it('still totals every company exactly once across four statuses', () => {
+    const r = assessBillingReadiness({
+      asOf: MONDAY,
+      companies: [co({ id: 1 }), co({ id: 2, iTariff: null }),
+                  co({ id: 3, hasSchedule: true, scheduleNextRun: null }),
+                  co({ id: 4, lifecycle: 'dormant' })],
+    });
+    const { total, ready, blocked, warning, notBillable } = r.summary;
+    expect(ready + blocked + warning + notBillable).toBe(total);
   });
 });
