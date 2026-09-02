@@ -160,11 +160,18 @@ export function CdrImportMonitor() {
       const rows: SeedJobRow[] = q?.state?.data?.jobs ?? [];
       return rows.some(j => j.status === "running") ? ACTIVE_POLL_MS : IDLE_POLL_MS;
     },
+    // A collection runs for hours and nobody watches it the whole time. If
+    // polling stops the moment the tab loses focus, the panel an operator
+    // comes back to is frozen at the last moment they looked — which is the
+    // one state this card must never present, since it is indistinguishable
+    // from a stalled collector.
+    refetchIntervalInBackground: true,
   });
 
   const capture = useQuery<any>({
     queryKey: ["/api/finance/forward-capture"],
     refetchInterval: IDLE_POLL_MS,
+    refetchIntervalInBackground: true,
   });
 
   const jobs    = jobsQ.data?.jobs ?? [];
@@ -186,6 +193,7 @@ export function CdrImportMonitor() {
     queryKey: [`/api/finance/cdr-repository/completeness?iAccount=${acct}&from=${day}&to=${nextDay}`],
     enabled: !!day && !!acct && !!nextDay,
     refetchInterval: running.length > 0 ? ACTIVE_POLL_MS * 2 : IDLE_POLL_MS,
+    refetchIntervalInBackground: true,
   });
 
   const cap = capture.data;

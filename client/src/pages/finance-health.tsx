@@ -225,6 +225,12 @@ export default function FinanceHealthPage() {
   const { data, isLoading, refetch, isFetching } = useQuery<any>({
     queryKey: ["/api/finance/health"],
     refetchInterval: 60_000,
+    // KEEP POLLING WHEN THE TAB IS NOT FOCUSED. React Query defaults this to
+    // false, which pauses the interval the moment the window loses focus — so
+    // a dashboard left open on a second monitor freezes at whatever it last
+    // fetched and gives no sign that it has. That is precisely how an
+    // operations screen is used: opened at 08:00 and glanced at all day.
+    refetchIntervalInBackground: true,
   });
 
   // Billing-workflow counts for the clickable invoice pipeline strip
@@ -232,6 +238,7 @@ export default function FinanceHealthPage() {
     queryKey: ["/api/finance/pipeline-health"],
     queryFn: () => apiRequest("GET", "/api/finance/pipeline-health").then(r => r.json()),
     refetchInterval: 60_000,
+    refetchIntervalInBackground: true,
   });
 
   const dmrMut = useMutation({
