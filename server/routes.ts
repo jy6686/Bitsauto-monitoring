@@ -39498,6 +39498,37 @@ ${footer}
     }
   });
 
+  // GET /api/finance/reconciliation/daily — the recovery work list.
+  //
+  // Owner's strategy 2026-09-01: compare every (day, account) cell against the
+  // switch, re-fetch ONLY the cells that disagree, reconcile again, stop when
+  // they match. A period total cannot say WHICH day and WHICH customer went
+  // wrong — $331.78 against $683.39 is equally consistent with one catastrophic
+  // day and seven mediocre ones, and those need different fixes.
+  //
+  // `actions` is the deliverable: the account-days worth re-fetching, worst
+  // money first. Over-collection and unreferenced rows are deliberately NOT
+  // actionable — fetching more cannot fix an excess.
+  app.get('/api/finance/reconciliation/daily', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const from = String(req.query.from ?? '');
+      const to   = String(req.query.to   ?? '');
+      const isDate = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d);
+      if (!isDate(from) || !isDate(to)) {
+        return res.status(400).json({
+          error: 'from and to are required, YYYY-MM-DD. `to` is EXCLUSIVE.',
+          example: '/api/finance/reconciliation/daily?from=2026-08-24&to=2026-08-31',
+        });
+      }
+      if (from >= to) return res.status(400).json({ error: '`to` is exclusive and must be after `from`.' });
+
+      const { dailyReconciliationReport } = await import('./services/finance/daily-reconciliation.service');
+      res.json(await dailyReconciliationReport({ periodStart: from, periodEnd: to }));
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message ?? e) });
+    }
+  });
+
   // GET /api/finance/certification/identity — can we identify the parties at all?
   //
   // The gate on everything downstream. Owner rule 2026-08-31: the Sippy account
