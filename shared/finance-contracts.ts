@@ -27,9 +27,24 @@
  * Verified 2026-09-02 against vo-ip-watcher--junaid70.replit.app.
  */
 
-/** GET /api/finance/snapshot/summary */
+/**
+ * GET /api/finance/snapshot/summary
+ *
+ * The PRODUCER declares this type too (sippy-snapshot.service.ts), so a
+ * renamed field now breaks the server build rather than silently rendering as
+ * zero on the client. That bidirectionality is the point: a contract written
+ * only by the reader records what the reader observed ONCE, and would not have
+ * noticed a rename at all.
+ *
+ * Connecting the two immediately corrected this file: written from a single
+ * live response, it declared `latestDate: string`, `lastRunId: number` and so
+ * on — but the producer returns NULL for every one of them when the snapshot
+ * table is empty. A contract from one observation describes one moment, not
+ * the range of moments the endpoint can produce.
+ */
 export interface SnapshotSummary {
-  latestDate:     string;
+  /** null when financial_snapshot has no rows at all. */
+  latestDate:     string | null;
   /** Revenue. NOT `totalRevenue`, NOT `revenue` — both were read for months. */
   totalSell:      number;
   totalBuy:       number;
@@ -39,9 +54,9 @@ export interface SnapshotSummary {
   totalCalls:     number;
   clientCount:    number;
   vendorCount:    number;
-  lastRunId:      number;
-  lastRunAt:      string;
-  lastRunStatus:  string;
+  lastRunId:      number | null;
+  lastRunAt:      string | null;
+  lastRunStatus:  string | null;
 }
 
 /** GET /api/margin/alerts — bare array. */

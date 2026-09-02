@@ -18,6 +18,7 @@
  */
 
 import { db } from '../../db';
+import type { SnapshotSummary } from '@shared/finance-contracts';
 import { sql } from 'drizzle-orm';
 import { storage } from '../../storage';
 
@@ -459,19 +460,16 @@ export async function querySnapshotTrend(
   }));
 }
 
-export async function querySnapshotSummary(date?: string): Promise<{
-  latestDate: string | null;
-  totalSell: number;
-  totalBuy: number;
-  totalMargin: number;
-  marginPercent: number;
-  totalCalls: number;
-  clientCount: number;
-  vendorCount: number;
-  lastRunId: number | null;
-  lastRunAt: string | null;
-  lastRunStatus: string | null;
-}> {
+/**
+ * The return type is the SHARED contract, not a local shape.
+ *
+ * Five field-name mismatches shipped on the Finance Cockpit reading this very
+ * response — totalRevenue for totalSell, reportDate for latestDate — each
+ * rendering as zero rather than throwing. Declaring the shared type here means
+ * renaming a field breaks THIS build, at the point of the rename, instead of
+ * becoming a wrong number on a dashboard weeks later.
+ */
+export async function querySnapshotSummary(date?: string): Promise<SnapshotSummary> {
   const dateFilter = date ? `AND report_date = '${date}'` : `AND report_date = (SELECT MAX(report_date) FROM financial_snapshot)`;
   const agg = await db.execute(sql.raw(
     `SELECT
