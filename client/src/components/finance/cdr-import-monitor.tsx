@@ -279,6 +279,53 @@ export function CdrImportMonitor() {
           {cap && (
             <div className="mt-2 space-y-1 text-xs text-muted-foreground">
               {/* A scheduler that stopped must not look like one that is idle. */}
+              {/* ── DAY PROGRESS ───────────────────────────────────────────
+                  Leads, because "asterisk is running" could equally be account
+                  7 of 25 or account 24 of 25, and the panel gave no way to
+                  tell. Owner request 2026-09-02.
+
+                  The ETA is shown only when the server offers one — it returns
+                  null rather than a number when the accounts finished so far
+                  cannot support an honest estimate, which is most of the early
+                  run. The reason is shown in its place, because "no estimate
+                  yet, and here is why" is information; a wrong number is not. */}
+              {cap.progress && (
+                <div className="rounded-md border bg-muted/30 p-2.5">
+                  <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                    <span className="text-xs font-medium">
+                      {cap.progress.completed} of {cap.progress.total} accounts
+                      <span className="ml-1.5 font-normal text-muted-foreground">
+                        {cap.progress.pct}%
+                      </span>
+                    </span>
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {elapsed(new Date(Date.now() - cap.progress.elapsedMs).toISOString())} elapsed
+                      {cap.progress.etaMs != null && cap.progress.etaMs > 0 &&
+                        ` · ~${Math.round(cap.progress.etaMs / 60000)}m left`}
+                    </span>
+                  </div>
+                  <Progress value={cap.progress.pct} className="h-1.5" />
+                  <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground tabular-nums">
+                    <span>✓ {cap.progress.completed} done</span>
+                    {cap.progress.running > 0 && <span>⟳ {cap.progress.running} running</span>}
+                    <span>· {cap.progress.pending} pending</span>
+                    {cap.progress.failed > 0 && (
+                      <span className="font-medium text-destructive">✖ {cap.progress.failed} failed</span>
+                    )}
+                    <span className="ml-auto">
+                      {num(cap.progress.cdrs.fetched)} fetched · {num(cap.progress.cdrs.stored)} stored
+                      {cap.progress.cdrs.duplicates > 0 &&
+                        ` · ${num(cap.progress.cdrs.duplicates)} already present`}
+                    </span>
+                  </div>
+                  {cap.progress.etaMs == null && cap.collecting && (
+                    <div className="mt-1 text-[11px] text-muted-foreground/80">
+                      No time estimate yet — {cap.progress.etaBasis}.
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Working, and saying so. A collection holds the tick for as
                   long as it runs — 23 minutes on 08-28 — and the clock cannot
                   advance meanwhile. Announcing that as a possible stoppage

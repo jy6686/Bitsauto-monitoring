@@ -32824,6 +32824,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
      *  Busy is not dead, and the two must never print the same. */
     collectingSince: string | null;
     collectingDate:  string | null;
+    /** X of N accounts, refreshed each account boundary. Null when idle. */
+    progress: import('./collection-progress').CollectionProgress | null;
     /** Ticks the guard turned away. Expected during a long import; a number
      *  that keeps climbing with collectingSince unchanged means genuinely stuck. */
     ticksSkippedBusy: number;
@@ -32831,7 +32833,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         envValueSeen: '(scheduler not registered)', flagValueSeen: '(scheduler not registered)',
         armSource: 'none', armHint: 'The forward-capture scheduler is not registered in this process.',
         flagReadRetries: 0, lastTickError: null, lastTickErrorAt: null, tickErrors: 0,
-        collectingSince: null, collectingDate: null, ticksSkippedBusy: 0 };
+        collectingSince: null, collectingDate: null, progress: null, ticksSkippedBusy: 0 };
   const _seedJobId    = () => `sj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const _cleanSeedJobs = () => {
     const cut = Date.now() - 600_000;
@@ -39076,6 +39078,38 @@ ${footer}
 
       // Sequential: the switch is a shared production dependency and this runs
       // unattended. Throughput does not matter at 00:00.
+      //
+      // Progress is published at each account boundary. This loop is the only
+      // place that knows the INTENDED account list, which is what makes
+      // "10 of 25" possible at all — seed_jobs can only ever report how many
+      // rows exist so far, never how many are still to come.
+      const runStartedIso = new Date(startedAt).toISOString();
+      const publishProgress = async () => {
+        try {
+          const { summariseCollection } = await import('./collection-progress');
+          const rows: any = await db.execute(sql`
+            SELECT i_account, status, fetched_total, stored_total, started_at, finished_at
+              FROM seed_jobs
+             WHERE period_start = ${date} AND job_id LIKE ${'recon-' + date + '-%'}`);
+          _forwardCapture.progress = summariseCollection({
+            totalAccounts: ready.length,
+            startedAtIso:  runStartedIso,
+            nowIso:        new Date().toISOString(),
+            runs: (((rows as any).rows ?? []) as any[]).map(r => ({
+              iAccount: Number(r.i_account), status: String(r.status),
+              fetched: Number(r.fetched_total ?? 0), stored: Number(r.stored_total ?? 0),
+              startedAt: new Date(r.started_at).toISOString(),
+              finishedAt: r.finished_at ? new Date(r.finished_at).toISOString() : null,
+            })),
+          });
+        } catch (e: any) {
+          // Progress is a convenience. It must never be able to stop a
+          // collection — the run is the thing that matters.
+          console.warn(`[recon-nightly] progress publish failed (non-fatal): ${String(e?.message ?? e)}`);
+        }
+      };
+      await publishProgress();
+
       for (const a of ready) {
         try {
           const r = await _seedRatingSnapshotsSync(
@@ -39102,6 +39136,7 @@ ${footer}
           failed++;
           console.error(`[recon-nightly] ${a.name}: failed — ${e.message}`);
         }
+        await publishProgress();
       }
 
       console.log(
@@ -39382,6 +39417,10 @@ ${footer}
         } finally {
           _forwardCapture.collectingSince = null;
           _forwardCapture.collectingDate  = null;
+          // The final progress reading is KEPT, not cleared: after a run ends,
+          // "25 of 25, 0 failed" is the answer to the morning's question. A
+          // panel that blanks the moment the work finishes tells an operator
+          // arriving at 08:00 nothing about what happened at 02:00.
         }
       } catch (e: any) {
         // Published, not just logged. A tick that throws never reaches the
@@ -39660,6 +39699,10 @@ ${footer}
       alive: _forwardCapture.collectingSince != null ||
              (last != null && Date.now() - last < _forwardCapture.checkIntervalMs * 2),
       collecting: _forwardCapture.collectingSince != null,
+      // Day-level progress — owner request 2026-09-02. The panel led with the
+      // CURRENT account, so "asterisk is running" could equally mean account 7
+      // of 25 or account 24 of 25, and an operator had no way to tell which.
+      progress: _forwardCapture.progress,
       nextTickEstimate: last != null
         ? new Date(last + _forwardCapture.checkIntervalMs).toISOString()
         : null,
