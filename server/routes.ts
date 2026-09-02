@@ -10467,6 +10467,63 @@ export async function registerRoutes(
   // GET /api/sippy/accounts-by-product/:productId
   // Returns ALL Sippy clients with their actual tariff names read from Sippy
   // Product selection controls which rate card to send — not which clients appear
+  /**
+   * companies.status keyed by Sippy account, for the accounts asked about.
+   *
+   * An account with no companies row is ABSENT from the map rather than defaulted here —
+   * "unknown" and "active" are different facts, and flattening them at this layer would stop
+   * the caller from ever telling them apart. The Rate Manager shows unmatched accounts under
+   * Active so nothing vanishes from a list it is already in; that is a display choice, made
+   * where it is visible, not a lookup result.
+   */
+  async function lifecycleByIAccount(iAccounts: number[]): Promise<Map<number, string>> {
+    const ids = Array.from(new Set(iAccounts.filter(n => Number.isFinite(n) && n > 0)));
+    if (!ids.length) return new Map();
+    try {
+      const r = await db.execute(sql`
+        SELECT sippy_i_account, status
+          FROM companies
+         WHERE sippy_i_account IS NOT NULL
+           AND sippy_i_account IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)})`);
+      return new Map((r.rows as any[]).map(row => [Number(row.sippy_i_account), String(row.status ?? '').toLowerCase()]));
+    } catch (e: any) {
+      // A lifecycle lookup failing must not empty the client dropdown. Unmatched reads as
+      // active downstream, so the list degrades to exactly its old behaviour.
+      console.warn('[accounts-by-product] lifecycle lookup failed; treating all as unclassified:', e?.message || e);
+      return new Map();
+    }
+  }
+
+  // PATCH /api/companies/:id/status — the Rate Manager's lifecycle control, persisted.
+  //
+  // Until now the Active/Inactive/Dormant toggle set React state and nothing else, so
+  // companies.status sat at its schema default for every row and billing-readiness could
+  // never report `not_billable`. This makes the Rate Manager the writer of that column.
+  //
+  // Deliberately does NOT touch invoicing. Invoice eligibility comes from financial_snapshot
+  // (certified billable traffic), and marking a customer dormant must not silently stop
+  // billing them for traffic they actually carried. Connecting those two is a business
+  // decision, not a side effect of a UI toggle.
+  app.patch('/api/companies/:id/status',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+    try {
+      const id = Number(req.params.id);
+      const status = String(req.body?.status ?? '').trim().toLowerCase();
+      if (!Number.isInteger(id)) return res.status(400).json({ error: 'id must be an integer' });
+      if (!['active', 'inactive', 'dormant'].includes(status)) {
+        return res.status(400).json({ error: 'status must be active | inactive | dormant' });
+      }
+      const updated = await db.update(companies)
+        .set({ status })
+        .where(eq(companies.id, id))
+        .returning({ id: companies.id, name: companies.name, status: companies.status });
+      if (!updated.length) return res.status(404).json({ error: `no company with id ${id}` });
+      console.log(`[company-status] #${id} "${updated[0].name}" → ${status} by ${(req as any).user?.claims?.sub ?? 'unknown'}`);
+      res.json({ company: updated[0] });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   app.get('/api/sippy/accounts-by-product/:productId', async (req: any, res: any) => {
     try {
       const userId = req.user?.claims?.sub ?? req.user?.id;
@@ -10488,6 +10545,7 @@ export async function registerRoutes(
             eq(customerProductAssignments.productId, productId),
             eq(customerProductAssignments.status, 'active')
           ));
+        const fallbackLifecycle = await lifecycleByIAccount(fallbackRows.map((a: any) => Number(a.iAccount)));
         const fallbackAccounts = fallbackRows
           .filter((a: any) => Number(a.iAccount) > 0)
           .map((a: any) => ({
@@ -10495,6 +10553,7 @@ export async function registerRoutes(
             username:   a.customerName ?? `Account ${a.iAccount}`,
             tariffName: null,
             balance:    null,
+            lifecycle:  fallbackLifecycle.get(Number(a.iAccount)) ?? null,
           }));
         return res.json({
           accounts:    fallbackAccounts,
@@ -10513,7 +10572,12 @@ export async function registerRoutes(
           eq(customerProductAssignments.productId, productId),
           eq(customerProductAssignments.status, 'active')
         ));
-      console.log(`[accounts-by-product] productId=${productId} db_assignments=${assignments.length} cache.size=${cache?.size ?? 0}`);
+      // The customer's LIFECYCLE, joined from companies.sippy_i_account. Distinct from
+      // customer_product_assignments.status just filtered above — that one says whether the
+      // product is assigned, this one says whether the customer is trading. Two different
+      // questions that both happen to be spelled "status".
+      const lifecycleMap = await lifecycleByIAccount(assignments.map((a: any) => Number(a.iAccount)));
+      console.log(`[accounts-by-product] productId=${productId} db_assignments=${assignments.length} cache.size=${cache?.size ?? 0} lifecycle_matched=${lifecycleMap.size}`);
       const accounts = assignments
         .filter((a: any) => Number(a.iAccount) > 0)
         .map((a: any) => {
@@ -10522,7 +10586,9 @@ export async function registerRoutes(
           // Cache (Sippy username/description) is a fallback only when DB name is blank.
           const username = a.customerName?.trim() || cache?.get(String(iAccount)) || `Account ${iAccount}`;
           const tariffName = _tariffProductCache?.labels?.get(iAccount) ?? null;
-          return { iAccount, username, tariffName, balance: null };
+          // null means "no companies row for this account" — NOT inactive. The caller treats
+          // unmatched as active so an assignment without a company row keeps showing up.
+          return { iAccount, username, tariffName, balance: null, lifecycle: lifecycleMap.get(iAccount) ?? null };
         })
         .sort((a: any, b: any) => a.username.localeCompare(b.username));
 

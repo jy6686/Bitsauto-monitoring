@@ -2158,6 +2158,32 @@ function SendRateTab({
   const [status, setStatus] = useState("Active");
   const [selectedProduct, setSelectedProduct] = useState<string>("");
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
+
+  // Active / Inactive / Dormant now filter the client list against companies.status, which
+  // the Rate Manager writes. Until this, the toggle set React state that nothing read.
+  //
+  // An account with NO companies row reads as null and is shown under Active. That is the
+  // load-bearing rule: the client list comes from customer_product_assignments, joined to
+  // companies on sippy_i_account, and an assignment whose account has no company row would
+  // otherwise vanish from every tab — visible today, gone after this change, with no way to
+  // select it. Unclassified is not the same as inactive, and only Active can afford to be
+  // the tab that shows things nobody has classified yet.
+  const clientsByLifecycle = useMemo(() => {
+    const of = (want: string) => accounts.filter((a: any) => {
+      const l = String(a.lifecycle ?? "").trim().toLowerCase();
+      return want === "active" ? (l === "active" || l === "") : l === want;
+    });
+    return { Active: of("active"), Inactive: of("inactive"), Dormant: of("dormant") };
+  }, [accounts]);
+
+  const visibleClients = clientsByLifecycle[status as keyof typeof clientsByLifecycle] ?? accounts;
+
+  // A selection made under one tab must not survive into another, or the push would go to a
+  // client the operator can no longer see.
+  useEffect(() => {
+    const allowed = new Set(visibleClients.map((a: any) => String(a.iAccount)));
+    setSelectedClients(prev => prev.filter(id => allowed.has(id)));
+  }, [status]); // eslint-disable-line react-hooks/exhaustive-deps
   const [format, setFormat] = useState("Default");
   const [rateType, setRateType] = useState("Current");
 
@@ -2417,11 +2443,18 @@ function SendRateTab({
 
         <SidebarSection title="Clients">
           <MultiSelect
-            options={accounts.map(a => ({ value: String(a.iAccount), label: a.username || `Account ${a.iAccount}` }))}
+            options={visibleClients.map((a: any) => ({ value: String(a.iAccount), label: a.username || `Account ${a.iAccount}` }))}
             value={selectedClients}
             onChange={setSelectedClients}
-            placeholder="Select clients"
+            placeholder={visibleClients.length ? "Select clients" : `No ${status.toLowerCase()} clients`}
           />
+          {/* Where the rest went. Without this an operator switching to Inactive sees an
+              empty list and cannot tell a filter from a fault. */}
+          <div className="text-[10px] text-muted-foreground mt-1">
+            {visibleClients.length} of {accounts.length} · {clientsByLifecycle.Active.length} active
+            {clientsByLifecycle.Inactive.length > 0 && ` · ${clientsByLifecycle.Inactive.length} inactive`}
+            {clientsByLifecycle.Dormant.length > 0 && ` · ${clientsByLifecycle.Dormant.length} dormant`}
+          </div>
         </SidebarSection>
 
         <SidebarSection title="Notification Type">
