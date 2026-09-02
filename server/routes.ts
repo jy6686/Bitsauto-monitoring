@@ -10559,15 +10559,27 @@ export async function registerRoutes(
       const readish = (n: string) => /^(get|list|find|search|query|show|describe)/i.test(n.split('.').pop() ?? n);
       const candidates = r.methods.filter(n => /destination|prefix|country|dialcode|dial_code/i.test(n));
 
+      // Whether the registry describes Sippy's API at all. This codebase calls getTariffsList,
+      // customer.getAccount, getUploadToken and listActiveCalls every day, so a list that
+      // contains none of them is not an inventory of what exists — it is Python's dispatcher
+      // reporting its own four built-ins. Concluding "no destination method" from that would
+      // be reading an empty filter over the wrong list.
+      const nonSystem = r.methods.filter(n => !n.startsWith('system.'));
+      const introspectionOnly = nonSystem.length === 0;
+
       res.json({
         totalMethods: r.methods.length,
+        methods: r.methods,              // only ever a handful; returned so nobody has to infer it
+        nonSystemMethods: nonSystem.length,
         destinationRelated: candidates,
         readable: candidates.filter(readish),
-        // The verdict this endpoint exists to produce.
-        canEnumerateDictionary: candidates.filter(readish).length > 0,
-        note: candidates.filter(readish).length > 0
-          ? 'Sippy exposes at least one readable destination method — catalogue reconciliation is possible via API.'
-          : 'No readable destination method on this build. Reconciliation would need the portal UI or a supplied export, not XML-RPC.',
+        canEnumerateDictionary:
+          introspectionOnly ? null : candidates.filter(readish).length > 0,
+        note: introspectionOnly
+          ? `system.listMethods answered, but returned only ${r.methods.length} method(s), all system.* — the dispatcher's own built-ins. This build does not register its API for introspection, so the list says nothing about whether a destination method exists. Verdict is UNKNOWN, not false.`
+          : candidates.filter(readish).length > 0
+            ? 'Sippy exposes at least one readable destination method — catalogue reconciliation is possible via API.'
+            : `Registry lists ${nonSystem.length} non-system method(s) and none relate to destinations. On this build, reconciliation would need the portal UI or a supplied export.`,
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
