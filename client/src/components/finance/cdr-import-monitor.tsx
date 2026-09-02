@@ -287,6 +287,33 @@ export function CdrImportMonitor() {
           {cap && (
             <div className="mt-2 space-y-1 text-xs text-muted-foreground">
               {/* A scheduler that stopped must not look like one that is idle. */}
+              {/* Deferred, and saying until when. A collection that is waiting
+                  for the off-peak window looks identical to a stalled one
+                  unless the panel says otherwise — and this week produced
+                  three false "the scheduler has stopped" reports from exactly
+                  that ambiguity. */}
+              {!cap.collecting && cap.nextWindowIso && (
+                <div className="flex items-start gap-1 text-muted-foreground">
+                  <Radio className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span>
+                    Deferred until the off-peak window opens at{" "}
+                    <span className="font-medium">{cap.nextWindowIso.slice(11, 16)} UTC</span>
+                    {" — "}{elapsed(new Date().toISOString(), cap.nextWindowIso)} away.
+                    Collecting now would load the switch during business hours.
+                  </span>
+                </div>
+              )}
+              {cap.recoveryMode && (
+                <div className="flex items-start gap-1 text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span>
+                    <span className="font-medium">Recovery mode is ON</span> — the off-peak window is
+                    overridden and collection may run at any hour, loading Sippy during business
+                    hours. Turn it off once the backlog is clear.
+                  </span>
+                </div>
+              )}
+
               {/* ── DAY PROGRESS ───────────────────────────────────────────
                   Leads, because "asterisk is running" could equally be account
                   7 of 25 or account 24 of 25, and the panel gave no way to

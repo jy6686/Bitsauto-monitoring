@@ -402,7 +402,7 @@ describe('the off-peak collection window (owner requirement 2026-09-02)', () => 
       nowIso: '2026-09-02T15:46:00Z', attempts: owedYesterday,
     });
     expect(d.due).toBe(false);
-    expect(d.reason).toContain('waiting for the 02:00–06:00 UTC collection window');
+    expect(d.reason).toContain('DEFERRED until the 02:00–06:00 UTC collection window');
     expect(d.reason).toContain('business hours');
     // Still NAMES what is owed — refusing to collect is not refusing to report.
     expect(d.targetDate).not.toBeNull();
@@ -475,5 +475,43 @@ describe('the off-peak collection window (owner requirement 2026-09-02)', () => 
     expect(d.due).toBe(false);
     expect(d.reason).toContain('collected');
     expect(d.reason).not.toContain('window');
+  });
+});
+
+describe('deferred work says WHEN, not just that it is waiting', () => {
+  /**
+   * "Nothing is happening" and "nothing is happening for another 12h 20m" are
+   * different messages, and only one of them stops an operator investigating a
+   * system that is working correctly. This week produced three false "the
+   * scheduler has stopped" reports from exactly that ambiguity.
+   */
+  it('names the next window opening and the wait', () => {
+    const d = decideNightlyIngest({
+      nowIso: '2026-09-02T13:40:00Z',
+      attempts: [{ date: '2026-08-30', status: 'done', daySentinel: true }],
+    });
+    expect(d.due).toBe(false);
+    expect(d.nextWindowIso).toBe('2026-09-03T02:00:00.000Z');   // tomorrow's opening
+    expect(d.reason).toContain('12h 20m away');
+    expect(d.reason).toContain('DEFERRED');
+    expect(d.reason).toContain('recovery mode');
+  });
+
+  it('points at today when the window has not opened yet', () => {
+    const d = decideNightlyIngest({
+      nowIso: '2026-09-02T00:30:00Z',
+      attempts: [{ date: '2026-08-30', status: 'done', daySentinel: true }],
+    });
+    expect(d.nextWindowIso).toBe('2026-09-02T02:00:00.000Z');
+    expect(d.reason).toContain('1h 30m away');
+  });
+
+  it('offers no window time when work is actually due', () => {
+    const d = decideNightlyIngest({
+      nowIso: '2026-09-02T02:30:00Z',
+      attempts: [{ date: '2026-08-30', status: 'done', daySentinel: true }],
+    });
+    expect(d.due).toBe(true);
+    expect(d.nextWindowIso).toBeUndefined();
   });
 });

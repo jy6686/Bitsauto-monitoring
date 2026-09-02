@@ -67,6 +67,13 @@ export interface NightlyDecision {
   /** How many days inside the lookback are still owed, including the target. */
   backlog:    number;
   /**
+   * When the next collection window opens, ISO. Present whenever work is
+   * deferred, so an operator sees a countdown instead of an unexplained pause
+   * — "nothing is happening" and "nothing is happening for another 12h 20m"
+   * are different messages, and only one of them stops someone investigating.
+   */
+  nextWindowIso?: string;
+  /**
    * Days ABANDONED after exhausting their attempts. Always reported, never only
    * when nothing else is owed: once a later day became due, an abandoned day
    * used to vanish from the decision entirely — the scheduler would say
@@ -261,11 +268,18 @@ export function decideNightlyIngest(opts: {
     : (hour >= winStart || hour < winEnd);   // a window that crosses midnight
   if (!opts.ignoreWindow && !inWindow) {
     const pad = (h: number) => String(h).padStart(2, '0');
+    // The next instant the window opens. Today's opening if it has not passed,
+    // otherwise tomorrow's.
+    const todayOpen = Date.parse(`${dayKey(nowMs)}T${pad(winStart)}:00:00Z`);
+    const nextWindow = todayOpen > nowMs ? todayOpen : todayOpen + DAY_MS;
+    const waitMin = Math.round((nextWindow - nowMs) / 60_000);
     return {
       due: false, targetDate: target, backlog: owed.length, exhaustedDates,
-      reason: `${target} owed (${owed.length} day(s) missing) — waiting for the ` +
-              `${pad(winStart)}:00–${pad(winEnd)}:00 UTC collection window. Fetching now would ` +
-              'load the switch during business hours.',
+      nextWindowIso: new Date(nextWindow).toISOString(),
+      reason: `${target} owed (${owed.length} day(s) missing) — DEFERRED until the ` +
+              `${pad(winStart)}:00–${pad(winEnd)}:00 UTC collection window, ` +
+              `${Math.floor(waitMin / 60)}h ${waitMin % 60}m away. Fetching now would load the ` +
+              'switch during business hours. An administrator can override with recovery mode.',
     };
   }
 

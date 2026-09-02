@@ -32805,6 +32805,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     armSource: string;
     /** Composed by server/forward-capture-arm.ts, which is unit-tested. */
     armHint: string;
+    /** Off-peak window overridden by an administrator (migration 086). */
+    recoveryMode: boolean;
     /** Cumulative first-attempt flag-read failures. A retry that succeeds is
      *  invisible in the state it produces, so count it: absorbing a cold start
      *  is fine, absorbing a database that is failing all day is not. */
@@ -32833,7 +32835,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         envValueSeen: '(scheduler not registered)', flagValueSeen: '(scheduler not registered)',
         armSource: 'none', armHint: 'The forward-capture scheduler is not registered in this process.',
         flagReadRetries: 0, lastTickError: null, lastTickErrorAt: null, tickErrors: 0,
-        collectingSince: null, collectingDate: null, progress: null, ticksSkippedBusy: 0 };
+        collectingSince: null, collectingDate: null, progress: null, ticksSkippedBusy: 0,
+        recoveryMode: false };
   const _seedJobId    = () => `sj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const _cleanSeedJobs = () => {
     const cut = Date.now() - 600_000;
@@ -39222,6 +39225,27 @@ ${footer}
     const { resolveArmState } = await import('./forward-capture-arm');
     /** Re-read per tick. The env half cannot change without a restart; the flag
      *  half is the entire point, so it must never be cached. */
+    /**
+     * Recovery mode — the audited override for the off-peak window
+     * (migration 086). Read on the same tick as the arm flag and treated the
+     * same way: a read that FAILS is not permission. Ignorance must never
+     * widen what the platform is allowed to do, so an unreadable flag leaves
+     * the window enforced.
+     */
+    let recoveryMode = false;
+    const readRecoveryMode = async () => {
+      try {
+        const { platformFeatureFlags } = await import('@shared/schema');
+        const row = await db.select({ enabled: platformFeatureFlags.enabled })
+          .from(platformFeatureFlags)
+          .where(eq(platformFeatureFlags.key, 'collection_recovery_mode')).limit(1);
+        recoveryMode = row.length ? Boolean(row[0].enabled) : false;
+      } catch {
+        recoveryMode = false;   // fail CLOSED: keep the window
+      }
+      _forwardCapture.recoveryMode = recoveryMode;
+    };
+
     const readArmState = async () => {
       let flagEnabled: boolean | null = null;
       let flagError: string | null = null;
@@ -39372,8 +39396,10 @@ ${footer}
         }).from(seedJobs).where(sql`job_id LIKE 'recon-%' AND started_at > now() - interval '30 days'`);
 
         _forwardCapture.lastTickAt = new Date().toISOString();
+        await readRecoveryMode();
         const decision = decideNightlyIngest({
           nowIso: new Date().toISOString(),
+          ignoreWindow: recoveryMode,
           attempts: rows.map((r: any) => ({
             date: String(r.date), status: String(r.status),
             startedAtIso: r.startedAt ? new Date(r.startedAt).toISOString() : undefined,
@@ -39744,6 +39770,11 @@ ${footer}
       alive: _forwardCapture.collectingSince != null ||
              (last != null && Date.now() - last < _forwardCapture.checkIntervalMs * 2),
       collecting: _forwardCapture.collectingSince != null,
+      // Deferred work says WHEN. "Nothing is happening" and "nothing is
+      // happening for another 12h 20m" are different messages, and only one of
+      // them stops an operator investigating a system that is working.
+      nextWindowIso: _forwardCapture.lastDecision?.nextWindowIso ?? null,
+      recoveryMode: _forwardCapture.recoveryMode,
       // Day-level progress — owner request 2026-09-02. The panel led with the
       // CURRENT account, so "asterisk is running" could equally mean account 7
       // of 25 or account 24 of 25, and an operator had no way to tell which.
