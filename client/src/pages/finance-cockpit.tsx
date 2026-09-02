@@ -284,25 +284,37 @@ export default function FinanceCockpitPage() {
   const overdueCount  = overdueInvoices.length;
   const overdueAmount = overdueInvoices.reduce((s: number, i: any) => s + invoiceAmount(i), 0);
 
-  // Current Billing Period: revenue from latest financial snapshot (period-first)
-  const currentPeriodRevenue = snapSummary?.totalRevenue ?? snapSummary?.revenue ?? 0;
+  // Current Billing Period: revenue from latest financial snapshot.
+  //
+  // The field is `totalSell`. This read `totalRevenue ?? revenue`, neither of
+  // which the endpoint has ever returned, so it rendered $0 while the snapshot
+  // card two panels down displayed $140.71 from the same response. Third
+  // instance of this exact defect on this page — see the invoiceAmount comment
+  // above, and the asList fix before it. A missing field does not throw in JS;
+  // it renders as zero and looks like a business fact.
+  const currentPeriodRevenue = snapSummary?.totalSell ?? 0;
   const currentPeriodLabel   = snapSummary?.reportDate
     ? new Date(snapSummary.reportDate).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
     : 'Current Period';
   const invoicesReady = invoices.filter((i: any) => ['draft','generated','review','approved'].includes(i.status)).length;
 
-  // Margin Alerts: unresolved
-  const activeMarginAlerts = marginAl.filter((a: any) => !a.resolvedAt);
+  // Margin Alerts: unacknowledged. The column is `acknowledged` /
+  // `acknowledgedAt`; `resolvedAt` does not exist, so every alert counted as
+  // active including ones an operator had already dealt with.
+  const activeMarginAlerts = marginAl.filter((a: any) => !a.acknowledgedAt && !a.acknowledged);
   const marginAlertCount   = activeMarginAlerts.length;
+  // The field is `amountUsd`.
   const marginImpact       = activeMarginAlerts.reduce(
-    (s: number, a: any) => s + Math.abs(a.marginDeltaUsd ?? a.amount ?? 0), 0
+    (s: number, a: any) => s + Math.abs(a.amountUsd ?? 0), 0
   );
 
   // Open Disputes
   const openDisputeCount = disputes.filter((d: any) => ["open", "escalated"].includes(d.status)).length;
+  // The field is `discrepancy` — the gap between our figure and the vendor's.
+  // `amount` does not exist on a dispute row.
   const disputedAmount   = disputes
     .filter((d: any) => ["open", "escalated"].includes(d.status))
-    .reduce((s: number, d: any) => s + (d.amount ?? 0), 0);
+    .reduce((s: number, d: any) => s + Math.abs(Number(d.discrepancy ?? 0)), 0);
 
   // Pending Reconciliations
   const pendingReconCount = reconRows.filter((r: any) =>
@@ -401,7 +413,12 @@ export default function FinanceCockpitPage() {
           <KpiCard
             label="Margin Alerts"
             value={String(marginAlertCount)}
-            sub={marginImpact > 0 ? `${fmt(marginImpact)} at risk` : "no active alerts"}
+            // Worded from the COUNT, not the amount. "no active alerts" beside
+            // a headline of 16 was the subtitle describing a different fact
+            // from the number above it.
+            sub={marginAlertCount === 0 ? "no active alerts"
+                 : marginImpact > 0 ? `${fmt(marginImpact)} at risk`
+                 : "no margin impact recorded"}
             icon={TrendingDown}
             accent={marginAlertCount > 0 ? "warn" : "ok"}
             href="/margin-intelligence"
@@ -410,7 +427,9 @@ export default function FinanceCockpitPage() {
           <KpiCard
             label="Open Disputes"
             value={String(openDisputeCount)}
-            sub={disputedAmount > 0 ? `${fmt(disputedAmount)} at risk` : "no open disputes"}
+            sub={openDisputeCount === 0 ? "no open disputes"
+                 : disputedAmount > 0 ? `${fmt(disputedAmount)} at risk`
+                 : "no amount recorded"}
             icon={ShieldAlert}
             accent={openDisputeCount > 3 ? "danger" : openDisputeCount > 0 ? "warn" : "ok"}
             href="/billing-disputes"
