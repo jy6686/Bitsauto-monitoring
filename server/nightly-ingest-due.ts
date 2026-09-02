@@ -77,6 +77,33 @@ export interface NightlyDecision {
 }
 
 export const DEFAULT_EARLIEST_HOUR_UTC = 1;
+
+/**
+ * THE COLLECTION WINDOW — when a run may START. Owner requirement 2026-09-02:
+ * "CDR fetch only on off peak time GMT 00 ... it makes SIPPY high load".
+ *
+ * The tick has always been cheap — it asks the ledger a question every ten
+ * minutes and fetches nothing when nothing is owed. But when a day WAS owed it
+ * collected immediately, at whatever hour the tick happened to notice, and on
+ * 2026-09-02 that meant pulling 09-01 from Sippy between 15:46 and 17:08 —
+ * the middle of the business day, against a switch carrying live traffic.
+ *
+ * The old rule exempted backlog days from the hour gate on purpose, so a gap
+ * would drain as fast as possible. That trade is now reversed: Sippy's daytime
+ * load matters more than closing a gap six hours sooner, and a backlog day is
+ * already late — waiting for tonight costs little.
+ *
+ * END BOUNDS THE START, NOT THE RUN. A collection that began at 05:40 and
+ * takes 70 minutes finishes at 06:50 and is not interrupted; killing work in
+ * flight would leave the day unsealed and re-run it entirely tomorrow. What
+ * the window prevents is new work STARTING outside it, so collection cannot
+ * creep into the working day one account at a time.
+ *
+ * The default end is generous (06:00) so a multi-day backlog makes real
+ * progress each night instead of one day per 24 hours.
+ */
+export const DEFAULT_WINDOW_START_HOUR_UTC = 2;
+export const DEFAULT_WINDOW_END_HOUR_UTC   = 6;
 export const DEFAULT_LOOKBACK_DAYS     = 7;
 export const DEFAULT_MAX_ATTEMPTS      = 3;
 /** A 'running' row older than this is treated as a dead attempt, not as work
@@ -98,6 +125,12 @@ export function decideNightlyIngest(opts: {
   nowIso:              string;
   attempts:            ReconAttempt[];
   earliestHourUtc?:    number;
+  /** Hours [start, end) during which a collection may BEGIN. */
+  windowStartHourUtc?: number;
+  windowEndHourUtc?:   number;
+  /** Operator-triggered runs bypass the window — an explicit human decision
+   *  to accept the load, which is different from a scheduler choosing to. */
+  ignoreWindow?:       boolean;
   lookbackDays?:       number;
   maxAttemptsPerDate?: number;
   staleRunningMs?:     number;
@@ -112,6 +145,8 @@ export function decideNightlyIngest(opts: {
   const maxAttempts  = Math.max(1, opts.maxAttemptsPerDate ?? DEFAULT_MAX_ATTEMPTS);
   const staleMs      = opts.staleRunningMs ?? DEFAULT_STALE_RUNNING_MS;
   const retryGapMs   = opts.minRetryGapMs ?? DEFAULT_MIN_RETRY_GAP_MS;
+  const winStart     = opts.windowStartHourUtc ?? DEFAULT_WINDOW_START_HOUR_UTC;
+  const winEnd       = opts.windowEndHourUtc   ?? DEFAULT_WINDOW_END_HOUR_UTC;
 
   /** In flight only while it is plausibly still alive. */
   const isLiveRun = (t: ReconAttempt): boolean => {
@@ -214,6 +249,23 @@ export function decideNightlyIngest(opts: {
       due: false, targetDate: target, backlog: owed.length, exhaustedDates,
       reason: `${target} is owed but the switch is still settling — collecting after ` +
               `${String(earliestHour).padStart(2, '0')}:00 UTC`,
+    };
+  }
+
+  // THE OFF-PEAK WINDOW. Applies to every owed day, backlog included: a
+  // daytime fetch loads a switch that is carrying live calls, and a day that
+  // is already late loses little by waiting for tonight.
+  const hour = new Date(nowMs).getUTCHours();
+  const inWindow = winStart <= winEnd
+    ? (hour >= winStart && hour < winEnd)
+    : (hour >= winStart || hour < winEnd);   // a window that crosses midnight
+  if (!opts.ignoreWindow && !inWindow) {
+    const pad = (h: number) => String(h).padStart(2, '0');
+    return {
+      due: false, targetDate: target, backlog: owed.length, exhaustedDates,
+      reason: `${target} owed (${owed.length} day(s) missing) — waiting for the ` +
+              `${pad(winStart)}:00–${pad(winEnd)}:00 UTC collection window. Fetching now would ` +
+              'load the switch during business hours.',
     };
   }
 
