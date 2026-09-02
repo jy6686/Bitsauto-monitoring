@@ -258,3 +258,91 @@ export function planFromHistory(opts: {
     },
   };
 }
+
+// ── Regression and confidence ────────────────────────────────────────────────
+/**
+ * An account that suddenly costs far more than its own history.
+ *
+ * This is the signal that would have caught the degradation nights early. On
+ * 2026-08-31 account 75 took 260s and account 64 took 403s against a ~60s
+ * norm — a 4-7× deviation, visible in the ledger the whole time, reported by
+ * nothing. The run completed, the day sealed, and the only trace was a slow
+ * clock nobody was watching.
+ *
+ * Compared against the MEDIAN of prior runs, so one bad night cannot quietly
+ * become the new expectation and suppress the next warning.
+ */
+export interface RuntimeRegression {
+  iAccount:   number;
+  name:       string | null;
+  expectedMs: number;
+  actualMs:   number;
+  /** Percent over expectation, e.g. 175 for 8m → 22m. */
+  deviationPct: number;
+  detail:     string;
+}
+
+/**
+ * @param tolerancePct how far over the median is acceptable before it is
+ *        reported. 100 = twice the usual time. Deliberately generous: this
+ *        warns about a platform that has changed, not about ordinary variance.
+ */
+export function detectRuntimeRegression(opts: {
+  history:    AccountHistory[];
+  /** The run just completed, per account. */
+  actual:     Array<{ iAccount: number; durationMs: number }>;
+  tolerancePct?: number;
+  /** Below this many prior runs there is no reliable expectation to deviate
+   *  from, and warning on one sample is how an alert becomes noise. */
+  minRuns?:   number;
+}): RuntimeRegression[] {
+  const tol = opts.tolerancePct ?? 100;
+  const minRuns = opts.minRuns ?? 3;
+  const byAccount = new Map(opts.history.map(h => [h.iAccount, h]));
+  const out: RuntimeRegression[] = [];
+
+  for (const a of opts.actual) {
+    const h = byAccount.get(a.iAccount);
+    if (!h) continue;
+    const priors = h.runs.map(r => r.durationMs).filter(d => Number.isFinite(d) && d > 0);
+    if (priors.length < minRuns) continue;
+    const expected = median(priors);
+    if (expected <= 0) continue;
+    const deviationPct = Math.round(((a.durationMs - expected) / expected) * 100);
+    if (deviationPct <= tol) continue;
+    out.push({
+      iAccount: a.iAccount, name: h.name ?? null,
+      expectedMs: expected, actualMs: a.durationMs, deviationPct,
+      detail: `expected ~${Math.round(expected / 1000)}s from ${priors.length} prior run(s), ` +
+              `took ${Math.round(a.durationMs / 1000)}s (+${deviationPct}%). Either this account ` +
+              'has grown or the platform slowed — the fetch telemetry for this run distinguishes them.',
+    });
+  }
+  return out.sort((a, b) => b.deviationPct - a.deviationPct);
+}
+
+/**
+ * How much the estimate deserves to be believed, 0-100.
+ *
+ * An estimate from one run and an estimate from twenty are not the same claim,
+ * and a finish time shown without that distinction invites the same misplaced
+ * trust the panel's old ETA did. Confidence is the share of queued accounts
+ * costed from at least `minRuns` of their own history.
+ */
+export function planConfidence(opts: {
+  order:   QueueAccount[];
+  history: AccountHistory[];
+  minRuns?: number;
+}): { pct: number; costed: number; total: number; basis: string } {
+  const minRuns = opts.minRuns ?? 3;
+  const runsFor = new Map(opts.history.map(h =>
+    [h.iAccount, h.runs.filter(r => Number.isFinite(r.durationMs) && r.durationMs > 0).length]));
+  const total = opts.order.length;
+  const costed = opts.order.filter(a => (runsFor.get(a.iAccount) ?? 0) >= minRuns).length;
+  const pct = total === 0 ? 0 : Math.round((costed / total) * 100);
+  return {
+    pct, costed, total,
+    basis: total === 0 ? 'nothing queued'
+      : `${costed} of ${total} account(s) have ${minRuns}+ prior runs; the rest use class defaults`,
+  };
+}

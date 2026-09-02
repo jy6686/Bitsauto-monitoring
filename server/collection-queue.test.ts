@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   planCollectionQueue, learnAccountCost, planFromHistory,
+  detectRuntimeRegression, planConfidence,
   DEFAULT_COST_MS, MAX_WORKERS, MIN_WORKERS,
   type QueueAccount,
 } from './collection-queue';
@@ -288,5 +289,110 @@ describe('learned costs — the planner must not carry today defect into tomorro
     expect(part.capacity.remaining).toBe(1);
     expect(part.estimateMs).toBeLessThan(full.estimateMs);
     expect(part.skipped).toEqual([315]);
+  });
+});
+
+describe('runtime regression — the signal the degradation nights never raised', () => {
+  /**
+   * On 2026-08-31 account 75 took 260s and account 64 took 403s against a ~60s
+   * norm. A 4–7x deviation, present in the ledger the whole time, reported by
+   * nothing: the runs completed, the day sealed, and the only trace was a slow
+   * clock nobody was watching.
+   */
+  const steady = (i: number, ms: number, n = 5) => ({
+    iAccount: i, name: `acct-${i}`,
+    runs: Array.from({ length: n }, () => ({ durationMs: ms, fetched: 0 })),
+  });
+
+  it('catches the 403s night against a 60s norm', () => {
+    const r = detectRuntimeRegression({
+      history: [steady(64, 60_000)],
+      actual: [{ iAccount: 64, durationMs: 403_000 }],
+    });
+    expect(r).toHaveLength(1);
+    expect(r[0].deviationPct).toBe(572);
+    expect(r[0].detail).toContain('fetch telemetry');
+  });
+
+  it('says nothing about ordinary variance', () => {
+    expect(detectRuntimeRegression({
+      history: [steady(64, 60_000)],
+      actual: [{ iAccount: 64, durationMs: 75_000 }],   // +25%
+    })).toEqual([]);
+  });
+
+  /**
+   * One sample is not an expectation. Warning on it is how an alert becomes
+   * noise and then becomes ignored — which is what happened to the panel's
+   * "scheduler may have stopped".
+   */
+  it('refuses to warn without enough history to have an expectation', () => {
+    expect(detectRuntimeRegression({
+      history: [{ iAccount: 64, runs: [{ durationMs: 60_000, fetched: 0 }] }],
+      actual: [{ iAccount: 64, durationMs: 600_000 }],
+    })).toEqual([]);
+  });
+
+  it('uses the median so one bad night cannot become the new expectation', () => {
+    // Four normal runs and one 400s outlier: the median stays 60s, so the NEXT
+    // slow run is still reported. A mean would have absorbed it.
+    const withOutlier = {
+      iAccount: 64, name: 'acct-64',
+      runs: [60_000, 61_000, 59_000, 60_000, 400_000].map(d => ({ durationMs: d, fetched: 0 })),
+    };
+    const r = detectRuntimeRegression({
+      history: [withOutlier], actual: [{ iAccount: 64, durationMs: 300_000 }],
+    });
+    expect(r).toHaveLength(1);
+    expect(r[0].expectedMs).toBe(60_000);
+  });
+
+  it('ranks the worst deviation first', () => {
+    const r = detectRuntimeRegression({
+      history: [steady(1, 60_000), steady(2, 60_000)],
+      actual: [{ iAccount: 1, durationMs: 180_000 }, { iAccount: 2, durationMs: 600_000 }],
+    });
+    expect(r.map(x => x.iAccount)).toEqual([2, 1]);
+  });
+
+  it('ignores an account it has never seen', () => {
+    expect(detectRuntimeRegression({
+      history: [], actual: [{ iAccount: 999, durationMs: 999_000 }],
+    })).toEqual([]);
+  });
+});
+
+describe('prediction confidence', () => {
+  /**
+   * An estimate from one run and an estimate from twenty are not the same
+   * claim. Showing a finish time without that distinction invites the
+   * misplaced trust the panel's old ETA earned.
+   */
+  it('is the share of the queue costed from real history', () => {
+    const c = planConfidence({
+      order: [heavy(1), heavy(2), light(3), light(4)],
+      history: [
+        { iAccount: 1, runs: Array.from({ length: 5 }, () => ({ durationMs: 1000, fetched: 9 })) },
+        { iAccount: 2, runs: Array.from({ length: 3 }, () => ({ durationMs: 1000, fetched: 9 })) },
+        { iAccount: 3, runs: [{ durationMs: 1000, fetched: 0 }] },   // too few
+      ],
+    });
+    expect(c.costed).toBe(2);
+    expect(c.total).toBe(4);
+    expect(c.pct).toBe(50);
+  });
+
+  it('is zero for an empty queue rather than a misleading 100', () => {
+    const c = planConfidence({ order: [], history: [] });
+    expect(c.pct).toBe(0);
+    expect(c.basis).toBe('nothing queued');
+  });
+
+  it('reaches 100 only when every queued account has real history', () => {
+    const c = planConfidence({
+      order: [heavy(1)],
+      history: [{ iAccount: 1, runs: Array.from({ length: 9 }, () => ({ durationMs: 1000, fetched: 9 })) }],
+    });
+    expect(c.pct).toBe(100);
   });
 });
