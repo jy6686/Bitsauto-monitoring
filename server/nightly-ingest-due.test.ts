@@ -515,3 +515,66 @@ describe('deferred work says WHEN, not just that it is waiting', () => {
     expect(d.nextWindowIso).toBeUndefined();
   });
 });
+
+/**
+ * `owed` vs `due`.
+ *
+ * The panel rendered `due === false` as "Nothing owed", and the off-peak
+ * deferral returns due:false with a reason beginning "2026-09-02 owed (1
+ * day(s) missing)". So an operator read "Nothing owed — 2026-09-02 owed" and
+ * had to resolve a contradiction before they could act on it. Two different
+ * facts had been collapsed into one boolean.
+ */
+describe('owed is not the same question as due-now', () => {
+  const base = {
+    collectingSince: '2026-08-24',
+    attempts: [] as any[],
+    lookbackDays: 14,
+  };
+
+  it('reports a deferred day as OWED but not due', () => {
+    const d = decideNightlyIngest({
+      ...base, nowIso: '2026-09-03T10:28:00Z',   // business hours, outside the window
+    });
+    expect(d.due).toBe(false);       // not now
+    expect(d.owed).toBe(true);       // but outstanding
+    expect(d.deferred).toBe(true);
+    expect(d.nextWindowIso).toBeTruthy();
+  });
+
+  it('reports genuinely nothing outstanding as not owed', () => {
+    const days: string[] = [];
+    for (let d = new Date('2026-08-24T00:00:00Z'); d < new Date('2026-09-03T00:00:00Z');
+         d.setUTCDate(d.getUTCDate() + 1)) {
+      days.push(d.toISOString().slice(0, 10));
+    }
+    const dec = decideNightlyIngest({
+      ...base, nowIso: '2026-09-03T10:28:00Z',
+      // daySentinel matters: a day is sealed by its own sentinel row, not by
+      // per-account rows. That is the rule the day-seal fix established, and a
+      // test that ignores it would pass for the wrong reason.
+      attempts: days.map(date => ({
+        date, status: 'done', startedAtIso: `${date}T03:00:00Z`, daySentinel: true,
+      })) as any,
+    });
+    expect(dec.owed).toBe(false);
+    expect(dec.due).toBe(false);
+    expect(dec.deferred).toBe(false);
+  });
+
+  it('reports a day due inside the window as owed AND due, not deferred', () => {
+    const d = decideNightlyIngest({ ...base, nowIso: '2026-09-03T03:00:00Z' });
+    expect(d.due).toBe(true);
+    expect(d.owed).toBe(true);
+    expect(d.deferred).toBe(false);
+  });
+
+  it('never claims a day is owed when the clock is unreadable', () => {
+    // Ignorance is not evidence of work outstanding, any more than it is
+    // evidence of none.
+    const d = decideNightlyIngest({ ...base, nowIso: 'not-a-date' });
+    expect(d.owed).toBe(false);
+    expect(d.deferred).toBe(false);
+    expect(d.targetDate).toBeNull();
+  });
+});

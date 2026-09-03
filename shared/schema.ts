@@ -2380,6 +2380,13 @@ export const seedJobs = pgTable("seed_jobs", {
   lastError:       text("last_error"),
   fetchedTotal:    integer("fetched_total").notNull().default(0),
   storedTotal:     integer("stored_total").notNull().default(0),
+  /** Slice attempts that failed and were retried (migration 504). */
+  retriesTotal:    integer("retries_total").notNull().default(0),
+  /** Milliseconds spent ASLEEP in retry backoff — time bought, not worked.
+   *  Without this, a 90-minute job and a 90-minute nap look identical. */
+  backoffMs:       bigint("backoff_ms", { mode: 'number' }).notNull().default(0),
+  /** continue | warn | abort — the pace verdict when the job stopped. */
+  paceVerdict:     varchar("pace_verdict", { length: 16 }),
   startedAt:       timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt:       timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   finishedAt:      timestamp("finished_at", { withTimezone: true }),

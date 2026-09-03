@@ -33140,6 +33140,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const envRetries = Number(process.env.SEED_SLICE_RETRIES);
         const sliceRetries = Number.isFinite(envRetries) && envRetries >= 0
           ? Math.floor(envRetries) : 2;
+        // Wall-clock ceiling for ONE account's job. Four hours is the width of
+        // the off-peak collection window: a job that cannot finish inside the
+        // window has already failed at its purpose, because the window is the
+        // whole point — it is when the switch is quiet.
+        const envBudget = Number(process.env.SEED_JOB_BUDGET_MIN);
+        const SEED_JOB_BUDGET_MS = (Number.isFinite(envBudget) && envBudget > 0
+          ? Math.floor(envBudget) : 240) * 60_000;
         // Owner decision, 2026-08-27: the Finance repository captures BILLABLE
         // calls, not every attempt. Observed ~244k attempts/day against ~25k
         // connected calls for one account — a ~10x reduction in pages, depth,
@@ -33462,6 +33469,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         let fetchedTotal = 0;
         let storedTotal  = 0;
         let sliceFailure: { slice: string; msg: string } | null = null;
+        // Where the wall clock goes. Until 2026-09-03 this existed only in log
+        // lines, on a deployment whose logs carry no timestamps — so a job that
+        // spent 50 of its 90 minutes asleep was indistinguishable from one that
+        // spent 90 minutes fetching.
+        let retriesTotal = 0;
+        let backoffMsTotal = 0;
+        let paceVerdict: string | null = null;
+        const jobStartedMs = Date.now();
 
         for (const slice of slices) {
           job.phase = `Slice ${slice.index}/${slices.length} (${slice.label})`;
@@ -33477,6 +33492,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             const waitMs = authFlavoured ? (CDR_AUTH_CACHE_MS + 30_000) * attempt : 30_000 * attempt;
             console.warn(`[seed-job:${jobId}] slice ${slice.index}/${slices.length} (${slice.label}): attempt ${attempt}/${sliceRetries} after ${Math.round(waitMs / 1000)}s — ${authFlavoured ? 'auth-flavoured failure, waiting out the negative auth cache' : 'retrying'}: ${win.msg}`);
             job.phase = `Slice ${slice.index}/${slices.length} — retry ${attempt}/${sliceRetries} in ${Math.round(waitMs / 1000)}s`;
+            retriesTotal++;
+            backoffMsTotal += waitMs;
             await sleep(waitMs);
             win = await fetchWindow(slice.startIso, slice.endIso);
           }
@@ -33553,14 +33570,38 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             currentSlice: slices[slice.index]?.label ?? slice.label,
             fetchedTotal,
             storedTotal,
+            retriesTotal,
+            backoffMs: backoffMsTotal,
           });
+
+          // PACE. There was no wall-clock budget of any kind before this: the
+          // 2026-09-03 job would have kept retrying until something outside it
+          // killed the process, which is exactly what happened at 07:00. Being
+          // killed and stopping deliberately leave the same partial data and
+          // completely different evidence.
+          const { assessBudget } = await import('./collection-budget');
+          const pace = assessBudget({
+            slicesDone: slice.index, slicesTotal: slices.length,
+            elapsedMs: Date.now() - jobStartedMs,
+            backoffMs: backoffMsTotal, retries: retriesTotal,
+            budgetMs: SEED_JOB_BUDGET_MS,
+          });
+          if (pace.verdict !== 'continue' && pace.verdict !== paceVerdict) {
+            paceVerdict = pace.verdict;
+            console.warn(`[seed-job:${jobId}] PACE ${pace.verdict.toUpperCase()} — ${pace.reason}`);
+          }
+          if (pace.verdict === 'abort') {
+            sliceFailure = { slice: slice.label, msg: `Stopped on pace: ${pace.reason}` };
+            break;
+          }
         }
 
         if (sliceFailure) {
           const msg = `Slice ${sliceFailure.slice} FAILED after ${fetchedTotal} CDR(s) fetched from earlier slices (${storedTotal} newly stored) — the period is INCOMPLETE. ${sliceFailure.msg}`;
           console.error(`[seed-job:${jobId}] ${msg}`);
           await progress({ status: 'error', lastError: msg, currentSlice: sliceFailure.slice,
-            finishedAt: new Date(), fetchedTotal, storedTotal });
+            finishedAt: new Date(), fetchedTotal, storedTotal,
+            retriesTotal, backoffMs: backoffMsTotal, paceVerdict: paceVerdict ?? 'abort' });
           job.status = 'error';
           job.error  = msg;
           job.phase  = msg;

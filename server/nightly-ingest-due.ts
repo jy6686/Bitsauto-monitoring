@@ -60,7 +60,21 @@ export interface ReconAttempt {
 }
 
 export interface NightlyDecision {
+  /**
+   * Should collection start RIGHT NOW? False during the off-peak deferral even
+   * though a day is owed — which is precisely why `owed` exists beside it.
+   *
+   * The panel rendered `due === false` as "Nothing owed", and the deferral path
+   * returns due:false with a reason that begins "2026-09-02 owed (1 day(s)
+   * missing)". So the banner read "Nothing owed — 2026-09-02 owed", which is a
+   * contradiction an operator has to resolve before they can act. Two different
+   * facts had been collapsed into one boolean.
+   */
   due:        boolean;
+  /** Is a business day outstanding at all, whether or not it is due now? */
+  owed:       boolean;
+  /** Owed, but held back until the collection window opens. */
+  deferred:   boolean;
   /** The day to collect, or null when nothing is owed. */
   targetDate: string | null;
   reason:     string;
@@ -145,7 +159,8 @@ export function decideNightlyIngest(opts: {
 }): NightlyDecision {
   const nowMs = Date.parse(opts.nowIso);
   if (!Number.isFinite(nowMs)) {
-    return { due: false, targetDate: null, reason: 'unparseable clock', backlog: 0, exhaustedDates: [] };
+    return { due: false, owed: false, deferred: false, targetDate: null,
+             reason: 'unparseable clock', backlog: 0, exhaustedDates: [] };
   }
   const earliestHour = opts.earliestHourUtc    ?? DEFAULT_EARLIEST_HOUR_UTC;
   const lookback     = Math.max(1, opts.lookbackDays ?? DEFAULT_LOOKBACK_DAYS);
@@ -223,7 +238,7 @@ export function decideNightlyIngest(opts: {
 
   if (owed.length === 0) {
     return {
-      due: false, targetDate: null, backlog: 0, exhaustedDates,
+      due: false, owed: false, deferred: false, targetDate: null, backlog: 0, exhaustedDates,
       reason: exhaustedDates.length > 0
         ? `nothing collectable — gave up on ${exhaustedDates.join(', ')} after ${maxAttempts} attempts`
         : `every day since ${collectingSince} through ${yesterday} collected`,
@@ -243,7 +258,7 @@ export function decideNightlyIngest(opts: {
   if (Number.isFinite(lastAttemptMs) && nowMs - lastAttemptMs < retryGapMs) {
     const mins = Math.ceil((retryGapMs - (nowMs - lastAttemptMs)) / 60000);
     return {
-      due: false, targetDate: target, backlog: owed.length, exhaustedDates,
+      due: false, owed: true, deferred: true, targetDate: target, backlog: owed.length, exhaustedDates,
       reason: `${target} failed recently — next retry in ~${mins} min`,
     };
   }
@@ -253,7 +268,7 @@ export function decideNightlyIngest(opts: {
   // the newest day — a backlog is never held back by it.
   if (target === yesterday && new Date(nowMs).getUTCHours() < earliestHour) {
     return {
-      due: false, targetDate: target, backlog: owed.length, exhaustedDates,
+      due: false, owed: true, deferred: true, targetDate: target, backlog: owed.length, exhaustedDates,
       reason: `${target} is owed but the switch is still settling — collecting after ` +
               `${String(earliestHour).padStart(2, '0')}:00 UTC`,
     };
@@ -274,7 +289,7 @@ export function decideNightlyIngest(opts: {
     const nextWindow = todayOpen > nowMs ? todayOpen : todayOpen + DAY_MS;
     const waitMin = Math.round((nextWindow - nowMs) / 60_000);
     return {
-      due: false, targetDate: target, backlog: owed.length, exhaustedDates,
+      due: false, owed: true, deferred: true, targetDate: target, backlog: owed.length, exhaustedDates,
       nextWindowIso: new Date(nextWindow).toISOString(),
       reason: `${target} owed (${owed.length} day(s) missing) — DEFERRED until the ` +
               `${pad(winStart)}:00–${pad(winEnd)}:00 UTC collection window, ` +
@@ -284,7 +299,7 @@ export function decideNightlyIngest(opts: {
   }
 
   return {
-    due: true, targetDate: target, backlog: owed.length, exhaustedDates,
+    due: true, owed: true, deferred: false, targetDate: target, backlog: owed.length, exhaustedDates,
     reason: owed.length > 1
       ? `${target} owed (oldest of ${owed.length} day(s) missing through ${yesterday})`
       : `${target} owed`,

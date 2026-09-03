@@ -45,6 +45,13 @@ interface SeedJobRow {
   startedAt: string;
   updatedAt: string;
   finishedAt: string | null;
+  /** Where the wall clock went (migration 504). Optional because rows written
+   *  before that migration have neither, and a missing count must not render
+   *  as a confident zero. */
+  retriesTotal?: number | null;
+  backoffMs?: number | null;
+  /** continue | warn | abort — the pace verdict when the job stopped. */
+  paceVerdict?: string | null;
   /** Resolved server-side from companies.sippy_i_account. Null when the id
    *  matches nothing, or when it is SHARED — see customerClaimants. */
   customerName?: string | null;
@@ -181,6 +188,36 @@ export function CdrImportMonitor() {
   // Completeness for the day the active job is importing — the question an
   // operator actually has ("is this day whole yet"), answered without typing.
   const day = running[0]?.periodStart ?? recent[0]?.periodStart ?? null;
+
+  /**
+   * What happened the last time this day was attempted, in one clause.
+   *
+   * The 2026-09-03 panel showed "33/48 · 0 stored · 1h 30m · Failed" in a list
+   * further down the page, while the banner above it said only that the day was
+   * owed. The operator's next question after "when will it retry" is always
+   * "what happened last time", and the answer was already on screen — just not
+   * next to the question.
+   */
+  const lastAttemptFor = (d: string | null | undefined): string | null => {
+    if (!d) return null;
+    const j = jobs.find(x => x.periodStart === d && x.status !== "running");
+    if (!j) return null;
+    const slices = `${j.completedSlices ?? 0}/${j.totalSlices ?? 0} slices`;
+    const took   = j.startedAt ? elapsed(j.startedAt, j.finishedAt ?? j.updatedAt) : null;
+    const verb   = j.status === "done" ? "completed" : "failed after";
+    // Retry spend, when the job recorded it (migration 504). A run that spent
+    // most of its wall clock asleep is a different problem from a slow one.
+    // A row from before migration 504 has no accounting at all. That is not
+    // the same as "no retries", so it prints nothing rather than a zero.
+    const measured = j.retriesTotal != null;
+    const retries  = Number(j.retriesTotal ?? 0);
+    const backoff  = Number(j.backoffMs ?? 0);
+    const spend = !measured ? ""
+      : retries > 0
+        ? ` — ${retries} retry(ies), ${Math.round(backoff / 60000)}m of it asleep in backoff`
+        : " — no retries";
+    return `${verb} ${slices}${took ? ` (${took})` : ""}, ${j.storedTotal ?? 0} stored${spend}.`;
+  };
   const acctJob = running[0] ?? recent[0] ?? null;
   const acct = acctJob?.iAccount ?? null;
   /** Same naming rule as the job rows — one resolver, so the header and the
@@ -422,13 +459,51 @@ export function CdrImportMonitor() {
                   </span>
                 </div>
               )}
+              {/* THREE states, not two. `due === false` was rendered as
+                  "Nothing owed", and the off-peak deferral returns due:false
+                  with a reason beginning "2026-09-02 owed" — so the banner read
+                  "Nothing owed — 2026-09-02 owed" and an operator had to
+                  resolve a contradiction before they could act.
+
+                  When a day IS outstanding this leads with that, then answers
+                  the two questions that follow: when will it next try, and
+                  what happened last time. */}
               {cap.lastDecision && (
-                <div>
-                  {cap.lastDecision.due
-                    ? <>Owes <span className="font-medium text-foreground">{cap.lastDecision.targetDate}</span>
-                      {cap.lastDecision.backlog > 1 && ` (${cap.lastDecision.backlog} days behind)`}</>
-                    : <>Nothing owed — {cap.lastDecision.reason}</>}
-                </div>
+                cap.lastDecision.owed ? (
+                  <div className="rounded border border-amber-500/40 bg-amber-500/5 p-2">
+                    <p className="font-medium text-amber-600 dark:text-amber-400">
+                      Collection overdue
+                    </p>
+                    <p className="mt-0.5">
+                      Business day <span className="font-medium text-foreground">
+                        {cap.lastDecision.targetDate}
+                      </span> has not completed
+                      {cap.lastDecision.backlog > 1 && ` — ${cap.lastDecision.backlog} days outstanding`}.
+                    </p>
+                    <p className="mt-0.5">
+                      {cap.lastDecision.deferred && cap.lastDecision.nextWindowIso
+                        ? <>Next automatic attempt{" "}
+                            <span className="font-medium text-foreground">
+                              {new Date(cap.lastDecision.nextWindowIso).toISOString().slice(11, 16)} UTC
+                            </span>
+                            {" "}({elapsed(new Date().toISOString(), cap.lastDecision.nextWindowIso)} away) — collecting now would load
+                            the switch during business hours.</>
+                        : cap.lastDecision.due
+                          ? <>Due now — the collector starts it on its next tick.</>
+                          : <>{cap.lastDecision.reason}</>}
+                    </p>
+                    {/* What happened last time, from the job ledger — the
+                        question an operator asks immediately after "when will
+                        it retry". */}
+                    {lastAttemptFor(cap.lastDecision.targetDate) && (
+                      <p className="mt-0.5 text-muted-foreground">
+                        Previous attempt {lastAttemptFor(cap.lastDecision.targetDate)}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div>Nothing owed — {cap.lastDecision.reason}</div>
+                )
               )}
               {/* A day the scheduler stopped retrying is a HOLE in the billing
                   week. It must be impossible to miss, including when a later
