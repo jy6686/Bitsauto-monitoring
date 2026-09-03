@@ -16,6 +16,109 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { CdrImportMonitor } from "@/components/finance/cdr-import-monitor";
 
+// ── Business Day Status ───────────────────────────────────────────────────────
+// This replaces the "Data Freshness 55%" ring. A percentage cannot answer the
+// only question it ever prompted — what is missing — because a score has
+// nowhere to put that. The chain can: eight stages, each with a state and a
+// reason, judged against the business day the platform owes.
+//
+// Grey is load-bearing here. Only a stage that actually FAILED, or one sitting
+// downstream of a failure, is red; a stage that simply has not run yet is grey,
+// because a board that turns red at 00:40 for work scheduled at 02:00 is a
+// board nobody reads twice.
+const TONE_STYLE: Record<string, { dot: string; text: string; mark: string }> = {
+  good:   { dot: "bg-emerald-500", text: "text-emerald-400", mark: "✓" },
+  active: { dot: "bg-amber-400 animate-pulse", text: "text-amber-400", mark: "◐" },
+  bad:    { dot: "bg-red-500", text: "text-red-400", mark: "✖" },
+  idle:   { dot: "bg-muted-foreground/40", text: "text-muted-foreground", mark: "○" },
+};
+
+const VERDICT_STYLE: Record<string, { label: string; cls: string }> = {
+  complete:          { label: "Complete",           cls: "text-emerald-400" },
+  awaiting_approval: { label: "Awaiting approval",  cls: "text-amber-400" },
+  in_progress:       { label: "In progress",        cls: "text-amber-400" },
+  not_due:           { label: "Not due yet",        cls: "text-muted-foreground" },
+  blocked:           { label: "Incomplete",         cls: "text-red-400" },
+};
+
+function BusinessDayPanel({ bd }: { bd: any }) {
+  if (!bd) {
+    return (
+      <Card><CardContent className="pt-4 pb-4">
+        <Skeleton className="h-6 w-72 mb-3" />
+        <Skeleton className="h-40 w-full" />
+      </CardContent></Card>
+    );
+  }
+  const v = VERDICT_STYLE[bd.verdict] ?? VERDICT_STYLE.blocked;
+  const stages: any[] = Array.isArray(bd.stages) ? bd.stages : [];
+  const unmeasured: string[] = Array.isArray(bd.unmeasured) ? bd.unmeasured : [];
+
+  return (
+    <Card>
+      <CardHeader className="pb-2 pt-4">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">Business Day Status</p>
+            <div className="flex items-baseline gap-3 mt-1">
+              <span className="text-2xl font-bold tabular-nums">{bd.targetDay}</span>
+              <span className={`text-lg font-semibold ${v.cls}`}>{v.label}</span>
+            </div>
+            <p className="text-sm text-muted-foreground mt-1 max-w-3xl">{bd.headline}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-muted-foreground">Automated stages</p>
+            <p className="text-2xl font-bold tabular-nums">
+              {bd.completed}<span className="text-muted-foreground text-base"> / {bd.automatedTotal}</span>
+            </p>
+            <p className="text-xs text-muted-foreground">
+              pipeline starts {String(bd.scheduledHourUtc ?? 2).padStart(2, "0")}:00 UTC
+            </p>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pb-4">
+        {/* The chain, drawn as a chain — each stage consumes what the one
+            above produced, so the vertical rail is information, not ornament. */}
+        <div className="relative">
+          {stages.map((st, i) => {
+            const t = TONE_STYLE[st.tone] ?? TONE_STYLE.idle;
+            const last = i === stages.length - 1;
+            return (
+              <div key={st.key} className="flex gap-3">
+                <div className="flex flex-col items-center">
+                  <span className={`w-3 h-3 rounded-full mt-2 shrink-0 ${t.dot}`} />
+                  {!last && <span className="w-px flex-1 bg-border my-1" />}
+                </div>
+                <div className={`flex-1 min-w-0 ${last ? "pb-0" : "pb-3"}`}>
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <span className={`font-mono text-xs ${t.text}`}>{t.mark}</span>
+                    <span className="font-medium text-sm">{st.label}</span>
+                    <span className={`text-xs font-mono uppercase tracking-wide ${t.text}`}>
+                      {String(st.state).replace(/_/g, " ")}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5 break-words">{st.detail}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {unmeasured.length > 0 && (
+          // "Not measured" and "not done" are different facts, and a grey dot
+          // alone cannot tell them apart.
+          <p className="text-xs text-muted-foreground mt-3 pt-3 border-t">
+            Not measured this cycle: <span className="font-mono">{unmeasured.join(", ")}</span>
+            {" "}— these probes returned nothing, so their stages show as waiting rather than done.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtAge(ts: string | null | undefined): string {
   if (!ts) return "—";
@@ -59,33 +162,6 @@ function StatusBadge({ status }: { status: NodeStatus }) {
   );
 }
 
-// ── Health score ring ─────────────────────────────────────────────────────────
-function ScoreRing({ score, label, size = "lg" }: { score: number; label: string; size?: "sm" | "lg" }) {
-  const color = score >= 80 ? "text-emerald-400" : score >= 50 ? "text-amber-400" : "text-red-400";
-  const ringColor = score >= 80 ? "stroke-emerald-500" : score >= 50 ? "stroke-amber-500" : "stroke-red-500";
-  const r = size === "lg" ? 42 : 28;
-  const circ = 2 * Math.PI * r;
-  const dash = (score / 100) * circ;
-
-  return (
-    <div className="flex flex-col items-center gap-1">
-      <div className="relative">
-        <svg width={size === "lg" ? 100 : 68} height={size === "lg" ? 100 : 68} className="-rotate-90">
-          <circle cx={size === "lg" ? 50 : 34} cy={size === "lg" ? 50 : 34} r={r} fill="none"
-            stroke="currentColor" strokeWidth={size === "lg" ? 7 : 5} className="text-muted/30" />
-          <circle cx={size === "lg" ? 50 : 34} cy={size === "lg" ? 50 : 34} r={r} fill="none"
-            strokeWidth={size === "lg" ? 7 : 5} strokeDasharray={`${dash} ${circ}`}
-            strokeLinecap="round" className={ringColor} />
-        </svg>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className={`font-bold ${size === "lg" ? "text-xl" : "text-sm"} ${color}`}>{score}%</span>
-        </div>
-      </div>
-      <span className="text-xs text-muted-foreground text-center">{label}</span>
-    </div>
-  );
-}
-
 // ── Pipeline node card ────────────────────────────────────────────────────────
 interface PipelineNodeProps {
   label: string;
@@ -100,6 +176,7 @@ interface PipelineNodeProps {
   /** Coverage detail for artefacts judged by which business day they cover. */
   coverage?: { covers?: string | null; expected?: string | null; daysBehind?: number | null };
 }
+
 function PipelineNode({ label, count, countLabel, latest, status, icon: Icon, missing, slaMinutes, coverage }: PipelineNodeProps) {
   const borderCls = status === "healthy" ? "border-emerald-500/40"
     : status === "stale" ? "border-amber-500/40"
@@ -250,6 +327,12 @@ export default function FinanceHealthPage() {
   });
 
   // Billing-workflow counts for the clickable invoice pipeline strip
+  const { data: businessDay } = useQuery<any>({
+    queryKey: ["/api/finance/business-day"],
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: true,
+  });
+
   const { data: invPipe } = useQuery<any>({
     queryKey: ["/api/finance/pipeline-health"],
     queryFn: () => apiRequest("GET", "/api/finance/pipeline-health").then(r => r.json()),
@@ -312,8 +395,6 @@ export default function FinanceHealthPage() {
   const sla = data?.sla ?? {};
   const build = data?.build ?? {};
 
-  const overallColor = (h.overall ?? 0) >= 80 ? "text-emerald-400" : (h.overall ?? 0) >= 50 ? "text-amber-400" : "text-red-400";
-  const overallLabel = (h.overall ?? 0) >= 80 ? "🟢 Healthy" : (h.overall ?? 0) >= 50 ? "🟡 Degraded" : "🔴 Critical";
 
   if (isLoading) {
     return (
@@ -364,9 +445,14 @@ export default function FinanceHealthPage() {
               )}
             </div>
             <div className="w-px h-3 bg-border/60" />
+            {/* The status bar says the same thing the panel says. A second,
+                differently-derived number here is how two parts of one page
+                end up disagreeing about the same day. */}
             <div className="flex items-center gap-1.5">
-              <span className="text-muted-foreground">Health</span>
-              <span className={`font-bold ${overallColor}`}>{h.overall ?? 0}%</span>
+              <span className="text-muted-foreground">{businessDay?.targetDay ?? "Business day"}</span>
+              <span className={`font-bold ${(VERDICT_STYLE[businessDay?.verdict] ?? VERDICT_STYLE.blocked).cls}`}>
+                {businessDay ? (VERDICT_STYLE[businessDay.verdict] ?? VERDICT_STYLE.blocked).label : "—"}
+              </span>
             </div>
             <div className="w-px h-3 bg-border/60" />
             <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -400,28 +486,44 @@ export default function FinanceHealthPage() {
         </div>
       </div>
 
-      {/* ── Overall Health Score ── */}
+      {/* ── Business day, then infrastructure ──────────────────────────────
+          Ordered deliberately: the first question is whether yesterday's
+          finance is complete, not whether a service responded. Infrastructure
+          is the diagnosis for a red stage, not the headline. */}
+      <BusinessDayPanel bd={businessDay} />
+
+      {/* ── Infrastructure ────────────────────────────────────────────────
+          The other half of the split: these are continuous services, so they
+          genuinely have an age and keep the heartbeat question. They are
+          reported as STATES rather than percentages — "responding" and "78%"
+          are not the same kind of claim, and only one of them is true. */}
       <Card>
         <CardContent className="pt-4 pb-4">
           <div className="flex items-center gap-6 flex-wrap">
-            {/* Overall */}
-            <div className="flex items-center gap-4">
-              <ScoreRing score={h.overall ?? 0} label="Overall" />
-              <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wide">Finance Health</p>
-                <p className={`text-3xl font-bold ${overallColor}`}>{h.overall ?? 0}%</p>
-                <p className="text-sm text-muted-foreground">{overallLabel}</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide w-full sm:w-auto">
+              Infrastructure
+            </p>
+            {[
+              { label: "API",       ok: (h.apiHealth ?? 0) >= 100,
+                note: (h.apiHealth ?? 0) >= 100 ? "All queries responding"
+                                                : "Some queries failing" },
+              { label: "Scheduler", ok: schedulerStatus === "healthy",
+                note: schedulerStatus === "healthy" ? "Last run succeeded"
+                    : schedulerStatus === "failed"  ? "Last run failed"
+                    : schedulerStatus === "idle"    ? "No run recorded yet"
+                    : "Run history unreadable" },
+              { label: "Database",  ok: !p.dmr?.missing && !p.snapshot?.missing,
+                note: (!p.dmr?.missing && !p.snapshot?.missing)
+                        ? "Readable" : "One or more tables unreadable" },
+            ].map(x => (
+              <div key={x.label} className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${x.ok ? "bg-emerald-500" : "bg-red-500"}`} />
+                <div>
+                  <p className="text-sm font-medium leading-tight">{x.label}</p>
+                  <p className="text-xs text-muted-foreground leading-tight">{x.note}</p>
+                </div>
               </div>
-            </div>
-            <Separator orientation="vertical" className="h-20 hidden sm:block" />
-            {/* Components */}
-            <div className="flex gap-5 flex-wrap">
-              <ScoreRing score={h.dataHealth ?? 0} label="Data Freshness" size="sm" />
-              <ScoreRing score={h.schedulerHealth ?? 0} label="Scheduler" size="sm" />
-              <ScoreRing score={h.consistency ?? 0} label="Consistency" size="sm" />
-              <ScoreRing score={h.apiHealth ?? 0} label="API Health" size="sm" />
-            </div>
-            {/* Data lineage hint */}
+            ))}
             <div className="ml-auto text-right hidden lg:block">
               <p className="text-xs text-muted-foreground">Last checked</p>
               <p className="text-sm font-medium">{fmtTs(data?.generated_at)}</p>
