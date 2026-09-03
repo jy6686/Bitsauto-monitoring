@@ -1449,6 +1449,10 @@ export const companies = pgTable("companies", {
   country:         varchar("country",    { length: 64  }),
   kam:             varchar("kam",        { length: 128 }),
   status:          varchar("status",     { length: 16  }).notNull().default('active'),
+  /** When status last changed (migration 506). Bounds the "finish the
+   *  outstanding day" rule for non-Active accounts so it terminates instead of
+   *  queueing a dormant customer every night forever. */
+  lifecycleChangedAt: timestamp("lifecycle_changed_at", { withTimezone: true }),
   companyType:     varchar("company_type",{ length: 32 }).notNull().default('retail'),
   contractType:    varchar("contract_type",{ length: 32}).notNull().default('bilateral'),
   department:      varchar("department", { length: 64  }),

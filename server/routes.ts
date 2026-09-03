@@ -10514,10 +10514,16 @@ export async function registerRoutes(
       if (!['active', 'inactive', 'dormant'].includes(status)) {
         return res.status(400).json({ error: 'status must be active | inactive | dormant' });
       }
+      // Stamped so the "finish the outstanding day" rule can terminate. A
+      // non-Active account is collected only for unsealed days on or before the
+      // day its lifecycle changed; without this date, "outstanding" means every
+      // day never collected, and a Dormant customer would be queued every
+      // night forever — the exact opposite of excluding it.
       const updated = await db.update(companies)
-        .set({ status })
+        .set({ status, lifecycleChangedAt: new Date() })
         .where(eq(companies.id, id))
-        .returning({ id: companies.id, name: companies.name, status: companies.status });
+        .returning({ id: companies.id, name: companies.name, status: companies.status,
+                     lifecycleChangedAt: companies.lifecycleChangedAt });
       if (!updated.length) return res.status(404).json({ error: `no company with id ${id}` });
       console.log(`[company-status] #${id} "${updated[0].name}" → ${status} by ${(req as any).user?.claims?.sub ?? 'unknown'}`);
       res.json({ company: updated[0] });
@@ -37491,8 +37497,13 @@ ${footer}
     try {
       const id = Number(req.params.id);
       if (isNaN(id)) return res.status(400).json({ error: 'Invalid ID' });
-      const { approveAndDispatch } = await import('./services/sippy/index');
-      const job = await approveAndDispatch(id, (req as any).user?.username ?? 'operator');
+      // approveJob, not the deprecated approveAndDispatch shim. Both behave
+      // identically — approval does NOT send — but a call site whose name
+      // asserts a dispatch is a trap for whoever reads it next, in both
+      // directions: someone may believe this mails the customer, or may
+      // "repair" it so that it does.
+      const { approveInvoiceJob } = await import('./services/sippy/index');
+      const job = await approveInvoiceJob(id, (req as any).user?.username ?? 'operator');
       res.json(job);
     } catch (err: any) { res.status(400).json({ error: err.message }); }
   });
@@ -39259,18 +39270,77 @@ ${footer}
    * evidence must not depend on commercial configuration. Rating still does,
    * and the seeder now stops at that seam per account.
    */
-  async function _accountsForCollection(): Promise<{
+  async function _accountsForCollection(targetDate?: string): Promise<{
     ready: Array<{ name: string; iAccount: number; iTariff: string | null }>;
     noTariff: string[];
+    /** Accounts the LIFECYCLE policy excluded, each with its reason. Reported,
+     *  never silent: an account that stops being collected must say why. */
+    excluded: Array<{ name: string; iAccount: number; reason: string }>;
+    lifecycleSummary: string | null;
   }> {
     const r = await db.execute(sql`
-      SELECT name, sippy_i_account, sippy_i_tariff
+      SELECT name, sippy_i_account, sippy_i_tariff, status, lifecycle_changed_at
         FROM companies
        WHERE sippy_i_account IS NOT NULL
        ORDER BY name`);
+    const rows = ((r as any).rows ?? []) as any[];
+
+    // ── Which days are already collected for this date? ───────────────────
+    // Fetched in the SAME change that introduces the status filter, and that
+    // ordering is deliberate. `WHERE status = 'active'` on its own would
+    // CREATE the loss this policy prevents: a customer who burns $2,000 at
+    // 11:00 and is switched to Inactive at 11:06 would drop out of the
+    // schedule that night, and the traffic already sitting on the switch would
+    // never be collected. The sealed-day lookup is what makes the filter safe,
+    // so it is not something to add afterwards.
+    const sealed = new Set<number>();
+    if (targetDate) {
+      try {
+        const sr = await db.execute(sql`
+          SELECT DISTINCT i_account FROM seed_jobs
+           WHERE job_id LIKE ${'recon-' + targetDate + '-%'}
+             AND status = 'done' AND i_account IS NOT NULL`);
+        for (const x of (((sr as any).rows ?? []) as any[])) sealed.add(Number(x.i_account));
+      } catch (e: any) {
+        // A failed lookup must not be read as "nothing is sealed" in a way
+        // that CHANGES a decision — it cannot here, because an unsealed day is
+        // collected, and re-collecting a sealed day is idempotent. Erring
+        // toward collection is the safe direction; erring toward skipping
+        // loses revenue.
+        console.warn(`[recon-nightly] sealed-day lookup failed (${String(e?.message ?? e)}) — ` +
+                     'treating every day as unsealed, which re-collects idempotently');
+      }
+    }
+
     const ready: Array<{ name: string; iAccount: number; iTariff: string | null }> = [];
     const noTariff: string[] = [];
-    for (const c of (((r as any).rows ?? []) as any[])) {
+    const excluded: Array<{ name: string; iAccount: number; reason: string }> = [];
+    let lifecycleSummary: string | null = null;
+
+    if (!targetDate) {
+      // No date to judge against — preserve the historical behaviour exactly.
+      // On-demand collection of a named account must not acquire a lifecycle
+      // filter as a side effect of the nightly scheduler gaining one.
+      for (const c of rows) {
+        const hasTariff = c.sippy_i_tariff != null && String(c.sippy_i_tariff) !== '';
+        if (!hasTariff) noTariff.push(String(c.name));
+        ready.push({ name: String(c.name), iAccount: Number(c.sippy_i_account),
+                     iTariff: hasTariff ? String(c.sippy_i_tariff) : null });
+      }
+      return { ready, noTariff, excluded, lifecycleSummary };
+    }
+
+    const { planByLifecycle } = await import('./collection-lifecycle');
+    const plan = planByLifecycle(rows, (c: any) => ({
+      status: c.status,
+      lifecycleChangedAtIso: c.lifecycle_changed_at
+        ? new Date(c.lifecycle_changed_at).toISOString() : null,
+      targetDay: targetDate,
+      daySealed: sealed.has(Number(c.sippy_i_account)),
+    }));
+    lifecycleSummary = plan.summary;
+
+    for (const { account: c, decision } of plan.collect) {
       const hasTariff = c.sippy_i_tariff != null && String(c.sippy_i_tariff) !== '';
       // Still NAMED, because it remains a real gap: these accounts will be
       // collected but not rated, certified or invoiced until the mapping is
@@ -39280,25 +39350,24 @@ ${footer}
         name: String(c.name), iAccount: Number(c.sippy_i_account),
         iTariff: hasTariff ? String(c.sippy_i_tariff) : null,
       });
+      if (decision.action === 'collect_outstanding') {
+        console.log(`[recon-nightly] ${c.name}: ${decision.reason}`);
+      }
     }
-    return { ready, noTariff };
+    for (const { account: c, decision } of plan.skipped) {
+      excluded.push({ name: String(c.name), iAccount: Number(c.sippy_i_account),
+                      reason: decision.reason });
+    }
+    return { ready, noTariff, excluded, lifecycleSummary };
   }
 
   async function _runNightlyReconciliation(targetDate?: string) {
     const startedAt = Date.now();
     try {
-      const { ready, noTariff } = await _accountsForCollection();
-      if (noTariff.length > 0) {
-        console.warn(
-          `[recon-nightly] ${noTariff.length} account(s) have no local tariff mapping and will be ` +
-          `COLLECTED but not rated: ${noTariff.join(', ')}. Their calls are priced on the switch; ` +
-          'map the tariff to rate, certify and invoice them.');
-      }
-      if (ready.length === 0) {
-        console.log('[recon-nightly] no company has a Sippy account — nothing to collect');
-        return;
-      }
-
+      // The DATE is resolved before the account list, because the lifecycle
+      // policy cannot decide anything without it: whether an Inactive customer
+      // still owes this particular day is the whole question.
+      //
       // Yesterday in UTC — the last fully-closed day. Reconciling today would
       // read a day still in progress and report gaps that are not gaps.
       const now  = new Date();
@@ -39306,6 +39375,33 @@ ${footer}
       // The scheduler names the day so a BACKLOG can be drained. Defaulting to
       // yesterday keeps the on-demand path unchanged.
       const date = targetDate ?? day.toISOString().slice(0, 10);
+
+      const { ready, noTariff, excluded, lifecycleSummary } = await _accountsForCollection(date);
+      if (noTariff.length > 0) {
+        console.warn(
+          `[recon-nightly] ${noTariff.length} account(s) have no local tariff mapping and will be ` +
+          `COLLECTED but not rated: ${noTariff.join(', ')}. Their calls are priced on the switch; ` +
+          'map the tariff to rate, certify and invoice them.');
+      }
+      // Every exclusion is NAMED with its reason. An account quietly leaving
+      // the nightly schedule is how billable traffic goes uncollected without
+      // anyone noticing — the failure this whole policy exists to prevent, so
+      // the policy itself must not be able to cause it silently.
+      if (excluded.length > 0) {
+        console.log(
+          `[recon-nightly] ${excluded.length} account(s) excluded by lifecycle for ${date}:\n` +
+          excluded.map(e => `  - ${e.name} (i_account ${e.iAccount}): ${e.reason}`).join('\n'));
+      }
+      if (lifecycleSummary) console.log(`[recon-nightly] lifecycle plan — ${lifecycleSummary}`);
+
+      if (ready.length === 0) {
+        console.log(
+          excluded.length > 0
+            ? `[recon-nightly] nothing to collect for ${date} — all ${excluded.length} account(s) ` +
+              'excluded by lifecycle (see reasons above)'
+            : '[recon-nightly] no company has a Sippy account — nothing to collect');
+        return;
+      }
 
       console.log(
         `[recon-nightly] collecting ${date} for ${ready.length} account(s) ` +
