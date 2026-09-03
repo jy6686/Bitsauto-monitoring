@@ -39824,38 +39824,116 @@ ${footer}
         } catch { return null; }
       };
 
-      const [dmrR, snapR, marginR, cdrR, invR, runR] = await Promise.all([
-        probe(`SELECT MAX(report_date)::text AS d FROM daily_minutes_reports`),
-        probe(`SELECT MAX(report_date)::text AS d FROM financial_snapshot`),
-        probe(`SELECT MAX(date)::text        AS d FROM margin_analytics_daily`),
-        probe(`SELECT MAX(connect_time)::date::text AS d FROM cdr_repository`),
+      const [dmrR, snapR, marginR, cdrR, jobsR, invR, runR, matR] = await Promise.all([
+        probe(`SELECT MAX(report_date)::text AS d,
+                      COUNT(*) FILTER (WHERE report_date = '${day}') AS rows_for_day
+                 FROM daily_minutes_reports`),
+        probe(`SELECT MAX(report_date)::text AS d,
+                      COUNT(DISTINCT account_id) FILTER (WHERE report_date = '${day}') AS accts
+                 FROM financial_snapshot`),
+        probe(`SELECT MAX(date)::text AS d,
+                      COUNT(*) FILTER (WHERE date = '${day}') AS rows_for_day
+                 FROM margin_analytics_daily`),
+        // raw_sippy_cdrs, NOT "cdr_repository" — I wrote a table name that does
+        // not exist, and because every probe swallows its own error it would
+        // have shown Collection as waiting forever with nothing in the log.
+        probe(`SELECT MAX(started_at)::date::text AS d FROM raw_sippy_cdrs`),
+        // The only DEFENSIBLE denominator for collection progress: accounts
+        // actually attempted for this day. Counting against "all active
+        // accounts" would read 3/48 on a normal night, because most accounts
+        // have no traffic — a progress bar that is wrong by construction.
+        probe(`SELECT COUNT(*) FILTER (WHERE status = 'done') AS done,
+                      COUNT(*)                                AS total,
+                      MAX(updated_at)::text                   AS last_at,
+                      MIN(started_at)::text                   AS first_at,
+                      SUM(stored_total)                       AS stored
+                 FROM seed_jobs WHERE job_id LIKE 'recon-${day}-%'`),
         probe(`SELECT COUNT(*) FILTER (WHERE status IN ('draft','generated','review')) AS drafted,
                       COUNT(*) FILTER (WHERE status IN ('approved','sent','paid'))     AS released,
-                      MAX(period_end)::text AS covers
+                      COUNT(*)                                                          AS total,
+                      MAX(period_end)::text AS covers, MAX(created_at)::text AS last_at
                  FROM invoices`),
-        probe(`SELECT status, target_date::text AS d FROM finance_pipeline_runs
+        probe(`SELECT status, target_date::text AS d, started_at::text AS started,
+                      completed_at::text AS finished, stages
+                 FROM finance_pipeline_runs ORDER BY started_at DESC LIMIT 1`),
+        probe(`SELECT completed_at::text AS at, duration_ms, clients_processed
+                 FROM materialization_runs WHERE status = 'success'
                 ORDER BY started_at DESC LIMIT 1`),
       ]);
 
       const running = runR?.status === 'running';
       const runDay  = runR?.d ?? null;
+      const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 
+      // Per-stage timing from the run ledger's JSONB, rather than a second
+      // guess at how long each stage takes.
+      const runStages: any[] = Array.isArray(runR?.stages) ? runR.stages
+        : (() => { try { return JSON.parse(runR?.stages ?? '[]'); } catch { return []; } })();
+      const stageRun = (n: string) => runStages.find((x: any) => x?.stage === n) ?? null;
+      const runFinished = runR?.finished ?? null;
+
+      const jobTotal = num(jobsR?.total);
       const evidence: Record<string, any> = {
-        collect:  { coveredDay: cdrR?.d ?? null },
+        collect: {
+          coveredDay: cdrR?.d ?? null,
+          lastRunAt: jobsR?.last_at ?? null,
+          durationMs: (jobsR?.first_at && jobsR?.last_at)
+            ? Math.max(0, Date.parse(jobsR.last_at) - Date.parse(jobsR.first_at)) : null,
+          ...(jobTotal > 0
+            ? { progress: { done: num(jobsR?.done), total: jobTotal, unit: 'accounts' } }
+            : {}),
+        },
         // Verification has no artefact of its own — it is a property OF the
-        // collection, so it inherits the collected day and is corrected by the
-        // reconciliation gate below rather than inventing a second answer.
-        verify:   { coveredDay: cdrR?.d ?? null },
-        dmr:      { coveredDay: dmrR?.d ?? null,    running: running && runDay === day },
-        snapshot: { coveredDay: snapR?.d ?? null },
-        margin:   { coveredDay: marginR?.d ?? null },
-        // Reconciliation is deliberately NOT inferred from a table's max date.
-        // It is a verdict, and until the daily gate is wired to this endpoint
-        // it must say it does not know rather than guess a green.
-        reconcile: { coveredDay: null,
-                     detail: 'Not yet wired to this view — run the daily reconciliation report' },
-        invoice_draft: { coveredDay: (Number(invR?.drafted ?? 0) > 0) ? (invR?.covers ?? null) : null },
-        invoice_send:  { coveredDay: (Number(invR?.released ?? 0) > 0) ? (invR?.covers ?? null) : null },
+        // collection. It inherits the collected day and deliberately carries NO
+        // progress of its own rather than borrowing collection's and implying a
+        // measurement that was never taken.
+        verify:   { coveredDay: cdrR?.d ?? null, lastRunAt: jobsR?.last_at ?? null },
+        dmr: {
+          coveredDay: dmrR?.d ?? null,
+          running: running && runDay === day,
+          failed: stageRun('dmr')?.status === 'failed',
+          note: stageRun('dmr')?.error ?? null,
+          lastRunAt: runFinished, durationMs: stageRun('dmr')?.durationMs ?? null,
+          ...(num(dmrR?.rows_for_day) > 0
+            ? { progress: { done: num(dmrR?.rows_for_day), total: num(dmrR?.rows_for_day), unit: 'reports' } }
+            : {}),
+        },
+        snapshot: {
+          coveredDay: snapR?.d ?? null,
+          failed: stageRun('snapshot')?.status === 'failed',
+          note: stageRun('snapshot')?.error ?? null,
+          lastRunAt: matR?.at ?? runFinished,
+          durationMs: matR?.duration_ms ?? stageRun('snapshot')?.durationMs ?? null,
+          ...(num(snapR?.accts) > 0
+            ? { progress: { done: num(snapR?.accts),
+                            total: num(matR?.clients_processed) || num(snapR?.accts),
+                            unit: 'customers' } }
+            : {}),
+        },
+        margin: {
+          coveredDay: marginR?.d ?? null,
+          failed: stageRun('margin')?.status === 'failed',
+          note: stageRun('margin')?.error ?? null,
+          lastRunAt: runFinished, durationMs: stageRun('margin')?.durationMs ?? null,
+        },
+        // Not inferred from a table's max date. Reconciliation is a VERDICT,
+        // and until the daily gate feeds this view it must say it cannot be
+        // reported rather than guess a green.
+        reconcile: { unavailable: true, reason: 'Daily reconciliation gate not yet reporting here' },
+        invoice_draft: {
+          coveredDay: num(invR?.drafted) > 0 ? (invR?.covers ?? null) : null,
+          lastRunAt: invR?.last_at ?? null,
+          ...(num(invR?.total) > 0
+            ? { progress: { done: num(invR?.drafted) + num(invR?.released),
+                            total: num(invR?.total), unit: 'invoices' } }
+            : {}),
+        },
+        invoice_send: {
+          coveredDay: num(invR?.released) > 0 ? (invR?.covers ?? null) : null,
+          ...(num(invR?.total) > 0
+            ? { progress: { done: num(invR?.released), total: num(invR?.total), unit: 'invoices' } }
+            : {}),
+        },
       };
 
       const status = assessBusinessDay({
@@ -39869,7 +39947,8 @@ ${footer}
         // Which probes came back empty, so a grey stage can be read as "not
         // measured" rather than "not done".
         unmeasured: Object.entries({ dmr: dmrR, snapshot: snapR, margin: marginR,
-                                     collect: cdrR, invoices: invR })
+                                     collect: cdrR, collectionJobs: jobsR, invoices: invR,
+                                     pipelineRuns: runR })
                           .filter(([, v]) => v === null).map(([k]) => k),
       });
     } catch (e: any) {

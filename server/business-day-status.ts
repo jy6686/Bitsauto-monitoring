@@ -57,7 +57,7 @@ import { dailyFreshness, dayKeyUtc, DEFAULT_GRACE_HOURS } from './freshness';
 
 export type StageState =
   | 'complete' | 'running' | 'failed' | 'blocked'
-  | 'waiting' | 'not_due' | 'awaiting_approval';
+  | 'waiting' | 'not_due' | 'awaiting_approval' | 'unavailable';
 
 /** Green / amber / red / grey, for a caller that renders rather than reasons. */
 export type StageTone = 'good' | 'active' | 'bad' | 'idle';
@@ -70,7 +70,36 @@ export const STATE_TONE: Record<StageState, StageTone> = {
   waiting: 'idle',
   not_due: 'idle',
   awaiting_approval: 'active',
+  // Grey, never red. "We cannot report on this" is not "this failed", and
+  // colouring it red would send someone to fix a stage that may be fine.
+  unavailable: 'idle',
 };
+
+/**
+ * Who has to act. A business blocker needs a person in finance; a technical
+ * one needs an engineer. Mixing them in a single list is how a dashboard sends
+ * the wrong person to look at the wrong thing.
+ */
+export type IssueClass = 'business' | 'technical';
+
+/** Where a stage's detail lives, for the board to double as navigation. */
+export const STAGE_HREF: Record<StageKey, string> = {
+  collect:       '/finance/health',
+  verify:        '/cdr-reconciliation',
+  dmr:           '/finance/pipeline-trace',
+  snapshot:      '/finance-cockpit',
+  margin:        '/margin-intelligence',
+  reconcile:     '/finance/reconciliation',
+  invoice_draft: '/invoices',
+  invoice_send:  '/invoice-jobs',
+};
+
+export interface StageProgress {
+  done: number;
+  total: number;
+  /** What is being counted — "accounts", "customers". Never assumed. */
+  unit: string;
+}
 
 export interface StageStatus {
   key:   StageKey;
@@ -84,6 +113,18 @@ export interface StageStatus {
   /** Which upstream stage this one is behind — set whenever there IS one,
    *  whether that stage failed (red here) or simply has not run (grey here). */
   blockedBy?: StageKey;
+  /** Real counts only. Omitted when the caller could not measure them —
+   *  a fabricated denominator is worse than no progress bar. */
+  progress?: StageProgress;
+  /** When this stage last SUCCEEDED, and how long it took. */
+  lastRunAt?: string | null;
+  durationMs?: number | null;
+  /** Set only when this stage is not complete. */
+  issueClass?: IssueClass;
+  /** Short phrase for the blocker callout — the WHY, without the stage name. */
+  reason?: string;
+  /** Detail page for this stage. */
+  href: string;
 }
 
 export type StageKey =
@@ -124,6 +165,17 @@ export interface StageEvidence {
   note?: string | null;
   /** Overrides the derived detail line when the caller knows better. */
   detail?: string;
+  /** Real counts. Omit rather than invent a denominator. */
+  progress?: StageProgress;
+  lastRunAt?: string | null;
+  durationMs?: number | null;
+  /** The caller could not determine this stage's status at all. Distinct from
+   *  failure: it means no integration or no answer, not a bad answer. */
+  unavailable?: boolean;
+  /** Short WHY for the callout, e.g. "reference data unavailable". */
+  reason?: string;
+  /** Overrides the derived business/technical classification. */
+  issueClass?: IssueClass;
 }
 
 export interface BusinessDayInput {
@@ -139,6 +191,7 @@ export type Verdict =
   | 'complete'       // every automated stage covers the target day
   | 'in_progress'    // something is running, nothing has failed
   | 'blocked'        // a stage failed, and downstream work cannot proceed
+  | 'unconfirmed'    // nothing failed, but a stage cannot be reported on
   | 'not_due'        // the window has not opened yet
   | 'awaiting_approval'; // automation finished; a person must release invoices
 
@@ -150,6 +203,10 @@ export interface BusinessDayStatus {
   /** The first stage that is not complete — the actionable one. */
   firstBlocker: StageStatus | null;
   stages: StageStatus[];
+  /** Split by who has to act. An engineer and a finance controller should not
+   *  have to read each other's list to find their own item. */
+  businessIssues:  StageStatus[];
+  technicalIssues: StageStatus[];
   /** Automated stages complete / automated stages total. Not a percentage. */
   completed: number;
   automatedTotal: number;
@@ -189,8 +246,10 @@ export function assessBusinessDay(input: BusinessDayInput): BusinessDayStatus {
   // that is a red condition or an ordinary not-there-yet.
   let upstreamBroken: StageKey | null = null;
   let upstreamFailed = false;
+  let upstreamClass: IssueClass | null = null;
   let anyRunning = false;
   let anyFailed  = false;
+  let anyUnavailable = false;
 
   for (const key of STAGE_ORDER) {
     const ev = input.evidence[key] ?? {};
@@ -202,6 +261,10 @@ export function assessBusinessDay(input: BusinessDayInput): BusinessDayStatus {
       state = 'complete';
     } else if (ev.running) {
       state = 'running'; anyRunning = true;
+    } else if (ev.unavailable && !upstreamBroken) {
+      // No integration, or no answer. Reporting this as a failure would send
+      // someone to fix a stage that may be working perfectly well.
+      state = 'unavailable'; anyUnavailable = true;
     } else if (upstreamBroken) {
       // Never asked. Reporting this as a failure sends someone to debug a
       // component that was never given its input — but only an upstream
@@ -220,10 +283,29 @@ export function assessBusinessDay(input: BusinessDayInput): BusinessDayStatus {
       state = 'waiting';
     }
 
+    // Classification. A stage that RAN and broke is technical; one waiting on
+    // a person or on business data is not. Anything downstream inherits the
+    // class of whatever is actually holding it up, so the callout points at
+    // the same team the root cause does.
+    const issueClass: IssueClass | undefined =
+      state === 'complete' ? undefined
+      : ev.issueClass ? ev.issueClass
+      : state === 'awaiting_approval' ? 'business'
+      : state === 'failed' ? 'technical'
+      : state === 'unavailable' ? 'technical'
+      : upstreamClass ?? 'business';
+
     stages.push({
       key, label: STAGE_LABEL[key], state, tone: STATE_TONE[state],
-      targetDay,
+      targetDay, href: STAGE_HREF[key],
       detail: ev.detail ?? describe(key, state, covers, targetDay, ev.note ?? null, upstreamBroken),
+      ...(ev.progress   ? { progress: ev.progress }     : {}),
+      ...(ev.lastRunAt  !== undefined ? { lastRunAt: ev.lastRunAt }   : {}),
+      ...(ev.durationMs !== undefined ? { durationMs: ev.durationMs } : {}),
+      ...(issueClass ? { issueClass } : {}),
+      ...(ev.reason ? { reason: ev.reason }
+         : state === 'blocked' && upstreamBroken
+           ? { reason: `${STAGE_LABEL[upstreamBroken]} did not complete` } : {}),
       ...(upstreamBroken && state !== 'complete' && state !== 'awaiting_approval'
           ? { blockedBy: upstreamBroken } : {}),
     });
@@ -233,6 +315,7 @@ export function assessBusinessDay(input: BusinessDayInput): BusinessDayStatus {
     if (!isComplete && state !== 'awaiting_approval' && !upstreamBroken) {
       upstreamBroken = key;
       upstreamFailed = state === 'failed';
+      upstreamClass  = issueClass ?? null;
     }
   }
 
@@ -244,13 +327,19 @@ export function assessBusinessDay(input: BusinessDayInput): BusinessDayStatus {
   const verdict: Verdict =
     allAutomatedDone
       ? (stages[stages.length - 1].state === 'complete' ? 'complete' : 'awaiting_approval')
-      : anyFailed  ? 'blocked'
-      : anyRunning ? 'in_progress'
-      : beforeWindow ? 'not_due'
+      : anyFailed       ? 'blocked'
+      : anyRunning      ? 'in_progress'
+      : beforeWindow    ? 'not_due'
+      // Nothing failed — we simply cannot see one of the stages. Saying
+      // "incomplete" would assert something the evidence does not support.
+      : anyUnavailable  ? 'unconfirmed'
       : 'blocked';
 
+  const issues = stages.filter(s => s.issueClass && s.state !== 'complete');
   return {
     targetDay, verdict, firstBlocker, stages,
+    businessIssues:  issues.filter(s => s.issueClass === 'business'),
+    technicalIssues: issues.filter(s => s.issueClass === 'technical'),
     completed, automatedTotal: automated.length,
     headline: headlineFor(verdict, targetDay, firstBlocker, completed, automated.length),
   };
@@ -275,6 +364,10 @@ function describe(
         : `Not due yet — scheduled tonight for ${targetDay}`;
     case 'awaiting_approval':
       return 'Requires a person — the platform never sends an invoice by itself';
+    case 'unavailable':
+      // Wording matters: this is read by executives, not by the team that
+      // wrote it. "Not yet wired to this view" is a development note.
+      return 'Status unavailable — planned integration';
     default:
       if (upstream && upstream !== key) {
         return `Waiting on ${STAGE_LABEL[upstream]} — ${targetDay} has not reached this stage`;
@@ -298,6 +391,10 @@ function headlineFor(
       return `${day} is being processed — ${done} of ${total} stages complete.`;
     case 'not_due':
       return `${day} is not due yet. Collection starts tonight.`;
+    case 'unconfirmed':
+      return blocker
+        ? `${day} processed ${done} of ${total} stages. ${blocker.label} cannot be confirmed.`
+        : `${day} cannot be fully confirmed.`;
     case 'blocked':
       return blocker
         ? `${day} is INCOMPLETE — stopped at ${blocker.label}. ${blocker.detail}`

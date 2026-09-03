@@ -38,8 +38,25 @@ const VERDICT_STYLE: Record<string, { label: string; cls: string }> = {
   awaiting_approval: { label: "Awaiting approval",  cls: "text-amber-400" },
   in_progress:       { label: "In progress",        cls: "text-amber-400" },
   not_due:           { label: "Not due yet",        cls: "text-muted-foreground" },
+  // Nothing failed — a stage simply cannot be reported on. Saying "Incomplete"
+  // would assert more than the evidence supports.
+  unconfirmed:       { label: "Unconfirmed",        cls: "text-amber-400" },
   blocked:           { label: "Incomplete",         cls: "text-red-400" },
 };
+
+function fmtStageDur(ms: number | null | undefined): string | null {
+  if (ms == null || !Number.isFinite(ms)) return null;
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 90_000) return `${(ms / 1000).toFixed(1)}s`;
+  if (ms < 5_400_000) return `${Math.round(ms / 60_000)}m`;
+  return `${(ms / 3_600_000).toFixed(1)}h`;
+}
+function fmtUtc(ts: string | null | undefined): string | null {
+  if (!ts) return null;
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 16).replace("T", " ") + " UTC";
+}
 
 function BusinessDayPanel({ bd }: { bd: any }) {
   if (!bd) {
@@ -53,6 +70,8 @@ function BusinessDayPanel({ bd }: { bd: any }) {
   const v = VERDICT_STYLE[bd.verdict] ?? VERDICT_STYLE.blocked;
   const stages: any[] = Array.isArray(bd.stages) ? bd.stages : [];
   const unmeasured: string[] = Array.isArray(bd.unmeasured) ? bd.unmeasured : [];
+  const business:  any[] = Array.isArray(bd.businessIssues)  ? bd.businessIssues  : [];
+  const technical: any[] = Array.isArray(bd.technicalIssues) ? bd.technicalIssues : [];
 
   return (
     <Card>
@@ -67,7 +86,7 @@ function BusinessDayPanel({ bd }: { bd: any }) {
             <p className="text-sm text-muted-foreground mt-1 max-w-3xl">{bd.headline}</p>
           </div>
           <div className="text-right">
-            <p className="text-xs text-muted-foreground">Automated stages</p>
+            <p className="text-xs text-muted-foreground">Completed stages</p>
             <p className="text-2xl font-bold tabular-nums">
               {bd.completed}<span className="text-muted-foreground text-base"> / {bd.automatedTotal}</span>
             </p>
@@ -76,34 +95,128 @@ function BusinessDayPanel({ bd }: { bd: any }) {
             </p>
           </div>
         </div>
+
+        {/* CURRENT BLOCKER, called out rather than left for the reader to find
+            by scanning the chain. "Incomplete" on its own sent people looking;
+            the stage AND the reason are the two things they were looking for. */}
+        {bd.firstBlocker && (
+          <div className={`mt-3 rounded-md border px-4 py-3 ${
+            bd.firstBlocker.tone === "bad"
+              ? "border-red-500/40 bg-red-500/5"
+              : "border-amber-500/40 bg-amber-500/5"}`}>
+            <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Current blocker</p>
+                <p className="text-lg font-semibold leading-tight">{bd.firstBlocker.label}</p>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Reason</p>
+                <p className="text-sm leading-tight break-words">
+                  {bd.firstBlocker.reason ?? bd.firstBlocker.detail}
+                </p>
+              </div>
+              {bd.firstBlocker.issueClass && (
+                <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                  {bd.firstBlocker.issueClass === "technical" ? "Technical" : "Business"}
+                </Badge>
+              )}
+              <Link href={bd.firstBlocker.href ?? "/finance/health"}>
+                <Button size="sm" variant="outline" className="h-7 text-xs">Open</Button>
+              </Link>
+            </div>
+          </div>
+        )}
       </CardHeader>
       <CardContent className="pb-4">
         {/* The chain, drawn as a chain — each stage consumes what the one
-            above produced, so the vertical rail is information, not ornament. */}
+            above produced, so the vertical rail is information, not ornament.
+            Each row is a link: the board doubles as navigation into the stage
+            that needs attention, which is where the reader was going anyway. */}
         <div className="relative">
           {stages.map((st, i) => {
             const t = TONE_STYLE[st.tone] ?? TONE_STYLE.idle;
             const last = i === stages.length - 1;
+            const pg = st.progress;
+            const pct = pg && pg.total > 0
+              ? Math.round((pg.done / pg.total) * 100) : null;
+            const when = fmtUtc(st.lastRunAt);
+            const dur  = fmtStageDur(st.durationMs);
             return (
               <div key={st.key} className="flex gap-3">
                 <div className="flex flex-col items-center">
                   <span className={`w-3 h-3 rounded-full mt-2 shrink-0 ${t.dot}`} />
                   {!last && <span className="w-px flex-1 bg-border my-1" />}
                 </div>
-                <div className={`flex-1 min-w-0 ${last ? "pb-0" : "pb-3"}`}>
-                  <div className="flex items-baseline gap-2 flex-wrap">
-                    <span className={`font-mono text-xs ${t.text}`}>{t.mark}</span>
-                    <span className="font-medium text-sm">{st.label}</span>
-                    <span className={`text-xs font-mono uppercase tracking-wide ${t.text}`}>
-                      {String(st.state).replace(/_/g, " ")}
-                    </span>
+                <Link href={st.href ?? "/finance/health"} className="flex-1 min-w-0">
+                  <div className={`group rounded-md px-2 -mx-2 py-1 hover:bg-muted/50 transition-colors
+                                   ${last ? "mb-0" : "mb-2"}`}>
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className={`font-mono text-xs ${t.text}`}>{t.mark}</span>
+                      <span className="font-medium text-sm group-hover:underline">{st.label}</span>
+                      <span className={`text-xs font-mono uppercase tracking-wide ${t.text}`}>
+                        {String(st.state).replace(/_/g, " ")}
+                      </span>
+                      {/* Progress only where it was actually measured. A stage
+                          with no counts shows none, rather than a bar implying
+                          a measurement nobody took. */}
+                      {pg && (
+                        <span className="text-xs font-mono tabular-nums text-muted-foreground">
+                          {pg.done} / {pg.total} {pg.unit}
+                          {pct != null && <span className="ml-1.5">{pct}%</span>}
+                        </span>
+                      )}
+                      <span className="ml-auto text-[11px] font-mono text-muted-foreground whitespace-nowrap">
+                        {when ?? "—"}{dur ? ` · ${dur}` : ""}
+                      </span>
+                    </div>
+                    {pct != null && (
+                      <div className="h-1 rounded bg-muted mt-1.5 overflow-hidden max-w-md">
+                        <div className={`h-full ${st.tone === "bad" ? "bg-red-500"
+                                        : st.tone === "good" ? "bg-emerald-500" : "bg-amber-400"}`}
+                             style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
+                      </div>
+                    )}
+                    <p className="text-xs text-muted-foreground mt-0.5 break-words">{st.detail}</p>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5 break-words">{st.detail}</p>
-                </div>
+                </Link>
               </div>
             );
           })}
         </div>
+
+        {/* BUSINESS vs TECHNICAL. These need different people, and a single
+            merged list makes each of them read the other's items to find
+            their own. Shown only when there is something to act on. */}
+        {(business.length > 0 || technical.length > 0) && (
+          <div className="grid sm:grid-cols-2 gap-4 mt-4 pt-4 border-t">
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
+                Business &mdash; finance action
+              </p>
+              {business.length === 0
+                ? <p className="text-xs text-muted-foreground">Nothing outstanding.</p>
+                : business.map((st: any) => (
+                    <div key={st.key} className="text-sm mb-1.5">
+                      <span className="font-medium">{st.label}</span>
+                      <span className="text-muted-foreground"> &mdash; {st.reason ?? st.detail}</span>
+                    </div>
+                  ))}
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
+                Technical &mdash; engineering action
+              </p>
+              {technical.length === 0
+                ? <p className="text-xs text-muted-foreground">Nothing outstanding.</p>
+                : technical.map((st: any) => (
+                    <div key={st.key} className="text-sm mb-1.5">
+                      <span className="font-medium">{st.label}</span>
+                      <span className="text-muted-foreground"> &mdash; {st.reason ?? st.detail}</span>
+                    </div>
+                  ))}
+            </div>
+          </div>
+        )}
 
         {unmeasured.length > 0 && (
           // "Not measured" and "not done" are different facts, and a grey dot

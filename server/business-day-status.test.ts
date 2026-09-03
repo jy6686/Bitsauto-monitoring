@@ -180,3 +180,99 @@ describe('heartbeats keep the age question, because they have an age', () => {
     expect(h.detail).toContain('6.0h');
   });
 });
+
+describe('the blocker is named, with a reason', () => {
+  it('carries a reason distinct from the stage name', () => {
+    // "Incomplete" alone made someone go looking. The callout has to say WHY.
+    const ev = allComplete();
+    ev.reconcile = { coveredDay: null, failed: true,
+                     reason: 'Reference data unavailable (2026-08-29)' };
+    delete ev.invoice_draft; delete ev.invoice_send;
+    const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: ev });
+    expect(r.firstBlocker?.label).toBe('Reconciliation');
+    expect(r.firstBlocker?.reason).toBe('Reference data unavailable (2026-08-29)');
+  });
+
+  it('gives a downstream stage the upstream as its reason', () => {
+    const ev = allComplete();
+    ev.margin = { coveredDay: null, failed: true, note: 'timeout' };
+    delete ev.reconcile; delete ev.invoice_draft; delete ev.invoice_send;
+    const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: ev });
+    expect(r.stages.find(s => s.key === 'reconcile')!.reason).toBe('Margin Analysis did not complete');
+  });
+});
+
+describe('business and technical issues are separated', () => {
+  it('routes a run failure to technical and an approval wait to business', () => {
+    // An engineer and a finance controller should not have to read each
+    // other's list to find their own item.
+    const ev = allComplete();
+    delete ev.invoice_send;                                  // awaiting approval
+    const ok = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: ev });
+    expect(ok.businessIssues.map(s => s.key)).toEqual(['invoice_send']);
+    expect(ok.technicalIssues).toHaveLength(0);
+
+    const ev2 = allComplete();
+    ev2.snapshot = { coveredDay: null, failed: true, note: 'connection refused' };
+    delete ev2.margin; delete ev2.reconcile; delete ev2.invoice_draft; delete ev2.invoice_send;
+    const bad = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: ev2 });
+    expect(bad.technicalIssues.map(s => s.key)).toContain('snapshot');
+    // Downstream inherits the class of what is actually holding it up, so the
+    // callout points at the same team as the root cause.
+    expect(bad.technicalIssues.map(s => s.key)).toContain('margin');
+    expect(bad.businessIssues.map(s => s.key)).not.toContain('margin');
+  });
+
+  it('never classifies a completed stage as an issue', () => {
+    const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: allComplete() });
+    expect(r.businessIssues).toHaveLength(0);
+    expect(r.technicalIssues).toHaveLength(0);
+  });
+});
+
+describe('a stage we cannot see is not a stage that failed', () => {
+  it('reads unavailable, stays grey, and does not claim the day is incomplete', () => {
+    const ev = allComplete();
+    ev.reconcile = { unavailable: true };
+    delete ev.invoice_draft; delete ev.invoice_send;
+    const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: ev });
+
+    const rec = r.stages.find(s => s.key === 'reconcile')!;
+    expect(rec.state).toBe('unavailable');
+    expect(rec.tone).toBe('idle');                       // grey, never red
+    expect(r.verdict).toBe('unconfirmed');               // not "blocked"
+    expect(r.headline).toContain('cannot be confirmed');
+  });
+
+  it('uses executive wording, not a development note', () => {
+    const r = assessBusinessDay({
+      nowMs: MORNING, scheduledHourUtc: 2,
+      evidence: { ...allComplete(), reconcile: { unavailable: true } },
+    });
+    const d = r.stages.find(s => s.key === 'reconcile')!.detail;
+    expect(d).toBe('Status unavailable — planned integration');
+    expect(d).not.toMatch(/wired|TODO|not implemented/i);
+  });
+});
+
+describe('progress, timing and navigation', () => {
+  it('passes real counts through and omits them when absent', () => {
+    const ev = allComplete();
+    ev.collect = { coveredDay: '2026-09-02', progress: { done: 48, total: 48, unit: 'accounts' },
+                   lastRunAt: '2026-09-03T05:30:11Z', durationMs: 5_416_000 };
+    const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: ev });
+    const c = r.stages.find(s => s.key === 'collect')!;
+    expect(c.progress).toEqual({ done: 48, total: 48, unit: 'accounts' });
+    expect(c.lastRunAt).toBe('2026-09-03T05:30:11Z');
+    expect(c.durationMs).toBe(5_416_000);
+    // A stage the caller could not measure must carry NO progress rather than
+    // a fabricated denominator.
+    expect(r.stages.find(s => s.key === 'margin')!.progress).toBeUndefined();
+  });
+
+  it('gives every stage a detail route, so the board doubles as navigation', () => {
+    const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: allComplete() });
+    expect(r.stages.every(s => typeof s.href === 'string' && s.href.startsWith('/'))).toBe(true);
+    expect(new Set(r.stages.map(s => s.href)).size).toBeGreaterThan(5);
+  });
+});
