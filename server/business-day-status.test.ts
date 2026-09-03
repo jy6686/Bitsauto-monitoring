@@ -213,7 +213,7 @@ describe('issues are separated three ways, by owner', () => {
     expect(ok.humanIssues.map(s => s.key)).toEqual(['invoice_send']);
     expect(ok.businessIssues).toHaveLength(0);
     expect(ok.technicalIssues).toHaveLength(0);
-    expect(ok.humanIssues[0].owner).toBe('Finance');
+    expect(ok.humanIssues[0].owner).toBe('Finance Manager');
 
     const ev2 = allComplete();
     ev2.snapshot = { coveredDay: null, failed: true, note: 'connection refused' };
@@ -315,13 +315,16 @@ describe('Finance Ready Today — the top line', () => {
     ev.reconcile = { unavailable: true };
     delete ev.invoice_draft; delete ev.invoice_send;
     const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: ev });
-    expect(r.readiness.ready).toBe('unconfirmed');
-    expect(r.readiness.reason).toContain('cannot be confirmed');
+    // 'review', not 'unconfirmed': the label has to name an action. The
+    // uncertainty stays in the reason line where it belongs.
+    expect(r.readiness.ready).toBe('review');
+    expect(r.readiness.reason).toContain('status unavailable');
+    expect(r.readiness.reason).toContain('needs review before billing');
   });
 
   it('does not call a not-yet-due day unready', () => {
     const r = assessBusinessDay({ nowMs: NIGHT, scheduledHourUtc: 2, evidence: {} });
-    expect(r.readiness.ready).toBe('unconfirmed');
+    expect(r.readiness.ready).toBe('review');
     expect(r.readiness.reason).toContain('not due yet');
   });
 });

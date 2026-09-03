@@ -74,12 +74,18 @@ function BusinessDayPanel({ bd }: { bd: any }) {
   // Three answers, not two. "Yes" and "No" are the ones worth having, but a
   // stage the platform cannot see supports neither — saying yes overclaims and
   // saying no asserts a failure that did not happen.
-  const READY: Record<string, { label: string; cls: string; ring: string }> = {
-    yes:         { label: "Yes", cls: "text-emerald-400", ring: "border-emerald-500/40 bg-emerald-500/5" },
-    no:          { label: "No",  cls: "text-red-400",     ring: "border-red-500/40 bg-red-500/5" },
-    unconfirmed: { label: "Cannot confirm", cls: "text-amber-400", ring: "border-amber-500/40 bg-amber-500/5" },
+  // Ready / Review Required / Not Ready. The middle label names an ACTION —
+  // "Cannot confirm" was honest and told nobody what to do. The uncertainty
+  // still appears, in the reason line underneath.
+  const READY: Record<string, { label: string; cls: string; ring: string; dot: string }> = {
+    yes:    { label: "Ready",           cls: "text-emerald-400",
+              ring: "border-emerald-500/40 bg-emerald-500/5", dot: "bg-emerald-500" },
+    review: { label: "Review Required", cls: "text-amber-400",
+              ring: "border-amber-500/40 bg-amber-500/5",     dot: "bg-amber-400" },
+    no:     { label: "Not Ready",       cls: "text-red-400",
+              ring: "border-red-500/40 bg-red-500/5",         dot: "bg-red-500" },
   };
-  const r = READY[rd?.ready ?? "unconfirmed"];
+  const r = READY[rd?.ready ?? "review"];
   const unmeasured: string[] = Array.isArray(bd.unmeasured) ? bd.unmeasured : [];
   const business:  any[] = Array.isArray(bd.businessIssues)  ? bd.businessIssues  : [];
   const technical: any[] = Array.isArray(bd.technicalIssues) ? bd.technicalIssues : [];
@@ -96,10 +102,13 @@ function BusinessDayPanel({ bd }: { bd: any }) {
         <div className={`border-b px-6 py-4 rounded-t-lg ${r.ring}`}>
           <div className="flex items-baseline gap-4 flex-wrap">
             <p className="text-xs text-muted-foreground uppercase tracking-wide">Finance ready today</p>
-            <span className={`text-3xl font-bold leading-none ${r.cls}`}>{r.label}</span>
+            <span className="flex items-baseline gap-2.5">
+              <span className={`w-3 h-3 rounded-full shrink-0 self-center ${r.dot}`} />
+              <span className={`text-3xl font-bold leading-none ${r.cls}`}>{r.label}</span>
+            </span>
             {cov && cov.total > 0 && (
               <span className="text-sm font-mono tabular-nums text-muted-foreground ml-auto">
-                Coverage {cov.done} / {cov.total} {cov.unit}
+                {cov.done} / {cov.total} {cov.unit} covered
               </span>
             )}
           </div>
@@ -159,6 +168,63 @@ function BusinessDayPanel({ bd }: { bd: any }) {
         )}
       </CardHeader>
       <CardContent className="pb-4">
+        {/* THREE DENOMINATORS, THREE QUESTIONS. Shown together and labelled
+            distinctly because each answers something different, and one of
+            them was actively misread while unlabelled:
+
+              Accounts        how many customers ran tonight
+              Current account how far through the one being fetched NOW —
+                              48 slices of 30 minutes is 24 hours, so this is
+                              progress through a DAY, not through a customer list
+              Coverage        how much of the business can be billed
+
+            "33/48" with no unit read as fifteen missed customers. It was two
+            thirds of one account's own day. */}
+        {(() => {
+          const collectStage = stages.find((x: any) => x.key === "collect");
+          const acct = collectStage?.progress ?? null;
+          const live = bd.currentAccount ?? null;
+          if (!acct && !live && !(cov && cov.total > 0)) return null;
+          const Cell = ({ label, done, total, unit, note }: any) => (
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</p>
+              {done == null
+                ? <p className="text-lg text-muted-foreground">not measured</p>
+                : <>
+                    <p className="text-lg font-semibold tabular-nums leading-tight">
+                      {done} <span className="text-muted-foreground font-normal">/ {total}</span>
+                      <span className="text-xs text-muted-foreground font-normal ml-1.5">{unit}</span>
+                    </p>
+                    {total > 0 && (
+                      <div className="h-1 rounded bg-muted mt-1.5 overflow-hidden">
+                        <div className="h-full bg-teal-500"
+                             style={{ width: `${Math.min(100, Math.round((done / total) * 100))}%` }} />
+                      </div>
+                    )}
+                  </>}
+              {note && <p className="text-[10px] text-muted-foreground mt-1">{note}</p>}
+            </div>
+          );
+          return (
+            <div className="mb-4 pb-4 border-b">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
+                Collection progress
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+                <Cell label="Accounts" done={acct?.done} total={acct?.total}
+                      unit={acct?.unit ?? "accounts"} note="customers run tonight" />
+                <Cell label="Current account" done={live?.done} total={live?.total}
+                      unit={live?.unit ?? "slices"}
+                      note={live
+                        ? `30-min slices of ${live.day ?? "the day"} — 48 = 24 hours`
+                        : "no collection running"} />
+                <Cell label="Business coverage" done={cov?.done} total={cov?.total}
+                      unit={cov?.unit ?? "customers"} note="billable customers collected" />
+              </div>
+            </div>
+          );
+        })()}
+
         {/* The chain, drawn as a chain — each stage consumes what the one
             above produced, so the vertical rail is information, not ornament.
             Each row is a link: the board doubles as navigation into the stage

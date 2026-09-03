@@ -40009,7 +40009,7 @@ ${footer}
       };
 
       const [dmrR, snapR, marginR, cdrR, jobsR, invR, runR, matR,
-             covR, pipeOkR, collectOkR] = await Promise.all([
+             covR, pipeOkR, collectOkR, liveR] = await Promise.all([
         probe(`SELECT MAX(report_date)::text AS d,
                       COUNT(*) FILTER (WHERE report_date = '${day}') AS rows_for_day
                  FROM daily_minutes_reports`),
@@ -40065,6 +40065,16 @@ ${footer}
                 WHERE status = 'success'`),
         probe(`SELECT MAX(updated_at)::text AS at FROM seed_jobs
                 WHERE job_id LIKE 'recon-%' AND status = 'done'`),
+        // THE THIRD PROGRESS LEVEL. Accounts and customers answer "how much of
+        // the business", but neither says how far through the account being
+        // fetched right now we are. That is slices — 48 of 30 minutes each —
+        // and it is a different question from both. Conflating it with accounts
+        // is what made "33/48" read as fifteen missed customers.
+        probe(`SELECT i_account, period_start::text AS day,
+                      completed_slices, total_slices, status, started_at::text AS started
+                 FROM seed_jobs
+                WHERE status = 'running' AND job_id LIKE 'recon-%'
+                ORDER BY started_at DESC LIMIT 1`),
       ]);
 
       const running = runR?.status === 'running';
@@ -40159,6 +40169,18 @@ ${footer}
         ...status,
         scheduledHourUtc: hour,
         generatedAt: new Date().toISOString(),
+        // Live state, deliberately NOT routed through the pure assessment:
+        // "how far through the account being fetched right now" is not a
+        // verdict about the business day, and mixing the two would let a
+        // transient number change a billing judgement.
+        currentAccount: liveR ? {
+          iAccount: Number(liveR.i_account) || null,
+          day: liveR.day ?? null,
+          done: num(liveR.completed_slices),
+          total: num(liveR.total_slices),
+          unit: 'slices',
+          startedAt: liveR.started ?? null,
+        } : null,
         // Which probes came back empty, so a grey stage can be read as "not
         // measured" rather than "not done".
         unmeasured: Object.entries({ dmr: dmrR, snapshot: snapR, margin: marginR,

@@ -91,11 +91,19 @@ export const STATE_TONE: Record<StageState, StageTone> = {
  */
 export type IssueClass = 'business' | 'technical' | 'human';
 
-/** Who owns each class, named so the board does not need a legend. */
+/**
+ * Who owns each class, named so the board does not need a legend.
+ *
+ * `human` is the Finance MANAGER specifically, not Finance generally. Invoice
+ * approval is an authority, not a task: the person who chases missing
+ * reference data and the person who releases an invoice to a customer are
+ * different roles, and naming both "Finance" puts the approval queue in front
+ * of people who cannot action it.
+ */
 export const ISSUE_OWNER: Record<IssueClass, string> = {
   technical: 'Engineering',
   business:  'Finance operations',
-  human:     'Finance',
+  human:     'Finance Manager',
 };
 
 /** Where a stage's detail lives, for the board to double as navigation. */
@@ -208,17 +216,22 @@ export interface StageEvidence {
 /**
  * The question an executive asks in the first three seconds.
  *
- * Deliberately THREE values, not two. "Yes" and "No" are the answers worth
- * having, but a stage the platform cannot see supports neither: saying yes
- * would overclaim and saying no would assert a failure that did not happen.
- * Reconciliation is in exactly that position today, so the third value is not
- * hypothetical.
+ * Three values, not two. "Yes" and "No" are the answers worth having, but a
+ * stage the platform cannot see supports neither: saying yes would overclaim
+ * and saying no would assert a failure that did not happen. Reconciliation is
+ * in exactly that position today, so the third value is not hypothetical.
+ *
+ * The middle value is `review`, not "unconfirmed", and the wording is the
+ * point. "Cannot confirm" is honest and tells nobody what to do; "Review
+ * required" is equally honest and names an action. The uncertainty lives in
+ * the reason line, where it belongs, rather than in a top-line label that
+ * leaves the reader stuck.
  *
  * The human approval gate does NOT make the answer no. Automation finishing
  * its part and handing over is the system working; readiness describes whether
  * finance CAN operate, not whether every box is ticked.
  */
-export type ReadyAnswer = 'yes' | 'no' | 'unconfirmed';
+export type ReadyAnswer = 'yes' | 'no' | 'review';
 
 export interface Readiness {
   ready: ReadyAnswer;
@@ -472,13 +485,13 @@ function readinessFor(
                reason: `All required stages completed for business day ${day}. ` +
                        `Invoices are drafted and waiting for approval.${cov}` };
     case 'unconfirmed':
-      return { ready: 'unconfirmed',
+      return { ready: 'review',
                reason: blocker
-                 ? `${blocker.label} cannot be confirmed, so readiness for ${day} is unknown. ` +
+                 ? `${blocker.label} status unavailable — ${day} needs review before billing. ` +
                    `${done} of ${total} stages completed.${cov}`
-                 : `Readiness for ${day} cannot be confirmed.${cov}` };
+                 : `Business day ${day} needs review before billing.${cov}` };
     case 'not_due':
-      return { ready: 'unconfirmed',
+      return { ready: 'review',
                reason: `Business day ${day} is not due yet — collection starts tonight.` };
     case 'in_progress':
       return { ready: 'no',

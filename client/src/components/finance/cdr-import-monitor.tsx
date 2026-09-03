@@ -743,45 +743,92 @@ export function CdrImportMonitor() {
         )}
 
         {/* ── Recent jobs ─────────────────────────────────────────────────── */}
-        {/* WHERE THE TIME WENT, and WHY — for the newest job that recorded it.
-            "1h 30m" is not a diagnosis. Working-versus-waiting says whether
-            the job was busy or blocked, and the cause distribution says which
-            subsystem to go and look at. Both were previously only in logs, on
-            a deployment whose logs carry no timestamps. */}
+        {/* LAST NIGHT'S COLLECTION — kept on screen whether or not anything is
+            running now.
+            Someone opening this page at 09:00 should not have to dig through
+            history to learn what happened overnight. Previously the panel
+            showed "No import running." and the outcome of the run that
+            actually mattered was three scrolls away in a recent-jobs list.
+
+            It also answers WHY, not just what: working-versus-waiting says
+            whether the job was busy or blocked, and the primary cause says
+            which subsystem to go and look at. Both were previously only in
+            log lines, on a deployment whose logs carry no timestamps. */}
         {(() => {
-          const j = jobs.find(x => x.retriesTotal != null && (x.retriesTotal ?? 0) > 0);
+          // Prefer the most recent FAILED per-account job — that is the one
+          // needing attention. Fall back to the most recent finished job, so a
+          // clean night still reports itself rather than showing nothing.
+          const perAccount = jobs.filter(
+            x => x.iAccount != null && !/^recon-\d{4}-\d{2}-\d{2}$/.test(x.jobId));
+          const j = perAccount.find(x => x.status === "error")
+                 ?? perAccount.find(x => x.finishedAt)
+                 ?? perAccount[0];
           if (!j) return null;
-          const elapsedMs = j.startedAt
-            ? Math.max(0, new Date(j.finishedAt ?? j.updatedAt).getTime() - new Date(j.startedAt).getTime())
-            : 0;
-          const waitMs = Math.min(Number(j.backoffMs ?? 0), elapsedMs);
+
+          const endIso = j.finishedAt ?? j.updatedAt;
+          const elapsedMs = j.startedAt && endIso
+            ? Math.max(0, new Date(endIso).getTime() - new Date(j.startedAt).getTime()) : 0;
+          // Clamped: backoff larger than elapsed means the accounting is
+          // wrong, and a negative "working" figure is a worse lie than a zero.
+          const waitMs = Math.min(Math.max(0, Number(j.backoffMs ?? 0)), elapsedMs);
           const workMs = Math.max(0, elapsedMs - waitMs);
           const pct = elapsedMs > 0 ? Math.round((workMs / elapsedMs) * 100) : null;
-          const mins = (ms: number) => ms < 90_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}m`;
+          const dur = (ms: number) => ms < 90_000 ? `${Math.round(ms / 1000)}s`
+                    : ms < 5_400_000 ? `${Math.round(ms / 60_000)}m`
+                    : `${(ms / 3_600_000).toFixed(1)}h`;
           const rc = j.retryCauses ?? null;
+          const retries = Number(j.retriesTotal ?? 0);
+          const failed = j.status === "error";
+
           return (
-            <div className="mt-3 rounded border p-3 text-xs">
+            <div className={`mt-3 rounded border p-3 text-xs ${
+              failed ? "border-red-500/40 bg-red-500/5" : ""}`}>
               <div className="flex items-baseline justify-between gap-3 flex-wrap">
                 <span className="font-medium">
-                  {customerLabel(j).title} &middot; {j.periodStart}
+                  Last collection &middot; business day{" "}
+                  <span className="tabular-nums">{j.periodStart}</span>
                 </span>
                 <span className="text-muted-foreground">
                   {j.workerId && <>worker {j.workerId} &middot; </>}
-                  {/* null queue wait is "not measured", not "no wait". */}
+                  {/* null queue wait is "not measured", NOT "no wait". */}
                   {j.queueWaitMs != null
-                    ? <>queue wait {mins(j.queueWaitMs)}</>
+                    ? <>queue wait {dur(j.queueWaitMs)}</>
                     : <>queue wait not measured</>}
                 </span>
               </div>
+
               <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <Stat label="Elapsed"    value={mins(elapsedMs)} />
-                <Stat label="Working"    value={mins(workMs)} />
-                <Stat label="Waiting"    value={mins(waitMs)} />
-                <Stat label="Productive" value={pct == null ? "—" : `${pct}%`}
-                      muted={pct != null && pct >= 90} />
+                <Stat label="Account"  value={customerLabel(j).title} />
+                <Stat label="Status"   value={failed ? "Failed" : j.status === "done" ? "Complete" : j.status} />
+                <Stat label="Progress" value={`${j.completedSlices}/${j.totalSlices} slices`} />
+                <Stat label="Stored"   value={num(j.storedTotal)} />
               </div>
+
+              <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <Stat label="Elapsed"    value={dur(elapsedMs)} />
+                <Stat label="Working"    value={dur(workMs)} />
+                <Stat label="Waiting"    value={dur(waitMs)} />
+                <Stat label="Productive" value={pct == null ? "—" : `${pct}%`} />
+              </div>
+
+              {retries > 0 && (
+                <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <Stat label="Retries" value={String(retries)} />
+                  <Stat label="Primary cause"
+                        value={rc?.dominant
+                          ? `${rc.causes?.[0]?.label ?? rc.dominant} (${rc.causes?.[0]?.count ?? "?"})`
+                          : "not classified"} />
+                </div>
+              )}
+
+              {j.lastError && (
+                <p className="mt-2 pt-2 border-t font-mono text-[10px] text-muted-foreground break-words">
+                  {j.lastError}
+                </p>
+              )}
+
               {rc && rc.causes?.length > 0 && (
-                <div className="mt-3 border-t pt-2">
+                <div className="mt-2 border-t pt-2">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5">
                     Retries by cause &middot; {rc.total} total
                   </p>
@@ -806,6 +853,12 @@ export function CdrImportMonitor() {
                     </p>
                   )}
                 </div>
+              )}
+
+              {retries === 0 && j.status === "done" && (
+                <p className="mt-2 text-muted-foreground">
+                  No retries — the switch answered every slice first time.
+                </p>
               )}
             </div>
           );
