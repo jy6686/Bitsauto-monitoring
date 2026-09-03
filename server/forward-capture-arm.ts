@@ -47,6 +47,12 @@ export interface ArmState {
   flagValueSeen: string;
   /** Plain language, naming the next action rather than restating the state. */
   hint: string;
+  /** Operating from a remembered flag value because the live read failed. */
+  cacheUsable?: boolean;
+  /** A remembered value existed but was too old to trust. */
+  cacheExpired?: boolean;
+  /** Age of the remembered value, ms. null when there is none. */
+  cacheAgeMs?: number | null;
 }
 
 export function isTruthyEnv(raw: string | null | undefined): boolean {
@@ -71,26 +77,81 @@ export interface ArmInputs {
    *  after every republish, and sent two people hunting a database fault
    *  that did not exist. */
   flagPending?: boolean;
+  /**
+   * The last value successfully read from the flag, and when.
+   *
+   * MEASURED 2026-09-03. Materialisation ran at 02:27 and 03:46 — the process
+   * was alive through the whole collection window — and forward capture
+   * collected nothing, with 12 flag-read retries on the panel. The arm flag is
+   * read at the start of every tick; when that read fails the state reports
+   * observe_only, which is behaviourally identical to being disarmed. So a
+   * database that blinks at 02:00 silently costs the night's collection, and
+   * this file's own hint has been saying "a flag that cannot be read must
+   * never be assumed off" while doing exactly that.
+   *
+   * A cached value fixes it in the honest direction: ignorance stops being
+   * grounds to STOP something an operator deliberately started. It is not
+   * grounds to start something either — see maxCacheAgeMs.
+   */
+  lastGoodFlag?:  boolean;
+  lastGoodAtIso?: string;
+  nowIso?:        string;
+  /**
+   * How long a cached arm state may be trusted. Default 24h.
+   *
+   * Without an expiry a multi-day database outage would leave the collector
+   * running on configuration nobody can see or change — the operator's Disarm
+   * button would appear to work and change nothing. An expiry converts a long
+   * outage into a refusal, which is visible, rather than into silent
+   * autonomy, which is not.
+   */
+  maxCacheAgeMs?: number;
 }
+
+export const DEFAULT_ARM_CACHE_MS = 24 * 60 * 60 * 1000;
 
 export function resolveArmState(inputs: ArmInputs): ArmState {
   const { envRaw, flagEnabled, flagError, flagPending } = inputs;
 
   const envArmed  = isTruthyEnv(envRaw);
   const envSet    = envRaw !== undefined && envRaw !== null;
-  const flagArmed = flagEnabled === true;
 
   const envValueSeen = !envSet
     ? '(not set in this process)'
     : JSON.stringify(envRaw);
 
+  // ── Cached arm state ───────────────────────────────────────────────────
+  // Resolved BEFORE the armed decision, because the decision depends on it.
+  // Applies ONLY when the live read failed and a previous read succeeded
+  // recently: never when pending (nothing has been read yet) and never when
+  // the read worked (a live value always beats a remembered one).
+  const cacheMaxMs = inputs.maxCacheAgeMs ?? DEFAULT_ARM_CACHE_MS;
+  const nowMs      = inputs.nowIso ? Date.parse(inputs.nowIso) : NaN;
+  const goodMs     = inputs.lastGoodAtIso ? Date.parse(inputs.lastGoodAtIso) : NaN;
+  const cacheAgeMs = Number.isFinite(nowMs) && Number.isFinite(goodMs) ? nowMs - goodMs : NaN;
+  const haveCache  = !flagPending && !!flagError && typeof inputs.lastGoodFlag === 'boolean';
+  // A negative age means the cache is stamped in the future — a clock problem,
+  // not a usable memory. Refuse it rather than trusting arithmetic that has
+  // already gone wrong.
+  const cacheUsable  = haveCache && Number.isFinite(cacheAgeMs) && cacheAgeMs >= 0 && cacheAgeMs <= cacheMaxMs;
+  const cacheExpired = haveCache && Number.isFinite(cacheAgeMs) && cacheAgeMs > cacheMaxMs;
+
+  // The live value wins whenever there is one. The cache only stands in for a
+  // FAILED read, and only to keep a collector running that an operator armed —
+  // never to start one.
+  const flagArmed = flagEnabled === true || (cacheUsable && inputs.lastGoodFlag === true);
+
   const flagValueSeen = flagPending
     ? '(not read yet — the first scheduler tick reads it)'
-    : flagError
-      ? `(could not read: ${flagError})`
-      : flagEnabled == null
-        ? '(no flag row — migration 085 registers it)'
-        : String(flagEnabled);
+    : cacheUsable
+      ? `${inputs.lastGoodFlag} (cached — live read failed: ${flagError})`
+      : cacheExpired
+        ? `(could not read: ${flagError}; cached value expired after ${Math.round(cacheMaxMs / 3600000)}h)`
+        : flagError
+          ? `(could not read: ${flagError})`
+          : flagEnabled == null
+            ? '(no flag row — migration 085 registers it)'
+            : String(flagEnabled);
 
   const armed  = flagArmed || envArmed;
   const source: ArmSource = flagArmed && envArmed ? 'both'
@@ -98,16 +159,38 @@ export function resolveArmState(inputs: ArmInputs): ArmState {
     : envArmed  ? 'env'
     : 'none';
 
-  return { armed, source, envValueSeen, flagValueSeen, hint: hintFor({
-    armed, source, envSet, envArmed, flagEnabled, flagError, flagPending, envValueSeen,
-  }) };
+  return { armed, source, envValueSeen, flagValueSeen, cacheUsable, cacheExpired,
+    cacheAgeMs: Number.isFinite(cacheAgeMs) ? cacheAgeMs : null,
+    hint: hintFor({
+      armed, source, envSet, envArmed, flagEnabled, flagError, flagPending, envValueSeen,
+      cacheUsable, cacheExpired, lastGoodAtIso: inputs.lastGoodAtIso, cacheMaxMs,
+    }) };
 }
 
 function hintFor(s: {
   armed: boolean; source: ArmSource; envSet: boolean; envArmed: boolean;
   flagEnabled?: boolean | null; flagError?: string | null; flagPending?: boolean;
   envValueSeen: string;
+  cacheUsable?: boolean; cacheExpired?: boolean;
+  lastGoodAtIso?: string; cacheMaxMs?: number;
 }): string {
+  // Cached state is reported BEFORE anything else: an operator seeing "Armed"
+  // is entitled to know the platform is running on a remembered value rather
+  // than a current one, and when it was last confirmed.
+  if (s.cacheUsable) {
+    return `Operating from a CACHED arm state — the live flag read is failing ` +
+           `(${s.flagError}). Last successful read ${s.lastGoodAtIso ?? 'unknown'}. ` +
+           'Collection continues on the last value an operator set, because a failed read is ' +
+           'not a decision to stop. Fix the database read: after ' +
+           `${Math.round((s.cacheMaxMs ?? 0) / 3600000)}h the cached value expires and ` +
+           'collection stops until the flag can be read again.';
+  }
+  if (s.cacheExpired) {
+    return `Observing only. The flag has not been readable for over ` +
+           `${Math.round((s.cacheMaxMs ?? 0) / 3600000)}h (${s.flagError}), so the remembered ` +
+           'arm state has expired. Running indefinitely on configuration nobody can see or ' +
+           'change is worse than stopping — fix the read, then re-arm.';
+  }
   if (s.armed) {
     // The disagreement case is the one worth spelling out: an operator who
     // turns the flag off and sees collection continue would otherwise be back

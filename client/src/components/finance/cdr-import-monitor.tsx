@@ -450,19 +450,31 @@ export function CdrImportMonitor() {
               <div className="flex items-center gap-1.5">
                 <span className="text-muted-foreground/70">Source</span>
                 <span className={
-                  cap.flagValueSeen?.startsWith("(could not read")
+                  cap.armCached || cap.flagValueSeen?.startsWith("(could not read")
                     ? "font-medium text-amber-600 dark:text-amber-400"
                     : cap.flagValueSeen?.startsWith("(not read yet")
                       ? "font-medium text-muted-foreground"
                       : "font-medium text-foreground"
                 }>
-                  {cap.flagValueSeen?.startsWith("(could not read") ? "Database unreadable"
+                  {cap.armCached ? "Cached arm state (database unreadable)"
+                    : cap.flagValueSeen?.startsWith("(could not read") ? "Database unreadable"
                     : cap.flagValueSeen?.startsWith("(not read yet") ? "Reading on first tick…"
                     : cap.armedBy === "flag" ? "Feature flag"
                     : cap.armedBy === "env"  ? "Environment variable"
                     : cap.armedBy === "both" ? "Feature flag + environment variable"
                     : "Not armed by either source"}
                 </span>
+                {/* Age, not just "cached". An operator deciding whether to
+                    trust a remembered arm state needs to know whether it was
+                    confirmed twenty minutes ago or twenty hours ago — the
+                    expiry is 24h and the difference is the whole judgement. */}
+                {cap.armCached && cap.armCacheAgeMs != null && (
+                  <span className="text-amber-600 dark:text-amber-400">
+                    · last confirmed {cap.armCacheAgeMs < 3_600_000
+                      ? `${Math.round(cap.armCacheAgeMs / 60_000)} min ago`
+                      : `${(cap.armCacheAgeMs / 3_600_000).toFixed(1)} h ago`}
+                  </span>
+                )}
                 {cap.flagReadRetries > 0 && (
                   <span className="text-muted-foreground/70">
                     · {cap.flagReadRetries} flag-read {cap.flagReadRetries === 1 ? "retry" : "retries"}

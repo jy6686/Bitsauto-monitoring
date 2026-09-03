@@ -193,3 +193,138 @@ describe('it reports the observation, not just the decision', () => {
     expect(blank.hint).toContain('not one of');
   });
 });
+
+/**
+ * Cached arm state.
+ *
+ * The night of 2026-09-03 is the specification: the process was alive
+ * (materialisation ran 02:27 and 03:46), the operator had armed collection
+ * days earlier, the flag read failed 12 times, and nothing was collected.
+ * Every case below is written from that night rather than from the API.
+ */
+describe('cached arm state', () => {
+  const HOUR = 3_600_000;
+  const now  = '2026-09-03T02:27:00Z';
+
+  it('keeps collecting when the read fails and the last good value was armed', () => {
+    const s = resolveArmState({
+      flagError: 'timeout exceeded when trying to connect',
+      lastGoodFlag: true, lastGoodAtIso: '2026-09-03T01:57:00Z', nowIso: now,
+    });
+    // The night this was written for.
+    expect(s.armed).toBe(true);
+    expect(s.source).toBe('flag');
+    expect(s.cacheUsable).toBe(true);
+    expect(s.flagValueSeen).toContain('cached');
+    // The operator must be told it is remembered, not current.
+    expect(s.hint).toContain('CACHED');
+    expect(s.hint).toContain('2026-09-03T01:57:00Z');
+  });
+
+  it('does not START collection from a cached FALSE', () => {
+    // Symmetry matters: the cache carries the operator's last decision, and
+    // "off" is as much a decision as "on".
+    const s = resolveArmState({
+      flagError: 'connection refused',
+      lastGoodFlag: false, lastGoodAtIso: '2026-09-03T01:57:00Z', nowIso: now,
+    });
+    expect(s.armed).toBe(false);
+    expect(s.cacheUsable).toBe(true);          // the cache APPLIED …
+    expect(s.flagValueSeen).toContain('false'); // … and it said off.
+  });
+
+  it('refuses a cached value older than the expiry', () => {
+    const s = resolveArmState({
+      flagError: 'connection refused',
+      lastGoodFlag: true,
+      lastGoodAtIso: '2026-09-01T01:00:00Z',   // 49h before now
+      nowIso: now,
+    });
+    expect(s.armed).toBe(false);
+    expect(s.cacheExpired).toBe(true);
+    expect(s.cacheUsable).toBe(false);
+    expect(s.hint).toContain('expired');
+  });
+
+  it('honours a custom expiry at both sides of the boundary', () => {
+    const base = { flagError: 'down', lastGoodFlag: true, nowIso: now, maxCacheAgeMs: 6 * HOUR };
+    const inside  = resolveArmState({ ...base, lastGoodAtIso: '2026-09-02T20:27:00Z' }); // exactly 6h
+    const outside = resolveArmState({ ...base, lastGoodAtIso: '2026-09-02T20:26:00Z' }); // 6h 1m
+    expect(inside.armed).toBe(true);
+    expect(outside.armed).toBe(false);
+  });
+
+  it('fails safe when there has NEVER been a successful read', () => {
+    // A process that has just started and cannot reach the database knows
+    // nothing about the operator's intent, and must not invent one.
+    const s = resolveArmState({ flagError: 'connection refused', nowIso: now });
+    expect(s.armed).toBe(false);
+    expect(s.cacheUsable).toBe(false);
+    expect(s.cacheExpired).toBe(false);
+  });
+
+  it('never uses the cache while the flag is merely PENDING', () => {
+    // Pending is "not asked yet", not "asked and failed". A cache surviving a
+    // restart must not pre-empt the first real read one tick later.
+    const s = resolveArmState({
+      flagPending: true, flagError: 'boot read failed',
+      lastGoodFlag: true, lastGoodAtIso: '2026-09-03T01:57:00Z', nowIso: now,
+    });
+    expect(s.cacheUsable).toBe(false);
+    expect(s.armed).toBe(false);
+    expect(s.hint).toContain('Starting up');
+  });
+
+  it('prefers a successful live read over the cache, in both directions', () => {
+    const disarmed = resolveArmState({
+      flagEnabled: false, lastGoodFlag: true,
+      lastGoodAtIso: '2026-09-03T01:57:00Z', nowIso: now,
+    });
+    // The operator disarmed it; a remembered "true" must not resurrect it.
+    expect(disarmed.armed).toBe(false);
+    expect(disarmed.cacheUsable).toBe(false);
+    expect(disarmed.flagValueSeen).toBe('false');
+
+    const armed = resolveArmState({
+      flagEnabled: true, lastGoodFlag: false,
+      lastGoodAtIso: '2026-09-03T01:57:00Z', nowIso: now,
+    });
+    expect(armed.armed).toBe(true);
+    expect(armed.flagValueSeen).toBe('true');
+  });
+
+  it('refuses a cache stamped in the future', () => {
+    // Clock skew between a restarted container and the database has produced
+    // negative ages before. A negative age is a broken clock, not a fresh
+    // memory, and trusting it would make the expiry unenforceable.
+    const s = resolveArmState({
+      flagError: 'down', lastGoodFlag: true,
+      lastGoodAtIso: '2026-09-03T09:00:00Z', nowIso: now,
+    });
+    expect(s.armed).toBe(false);
+    expect(s.cacheUsable).toBe(false);
+  });
+
+  it('reports the age so staleness is visible, not just usable/expired', () => {
+    const s = resolveArmState({
+      flagError: 'down', lastGoodFlag: true,
+      lastGoodAtIso: '2026-09-03T01:27:00Z', nowIso: now,
+    });
+    expect(s.cacheAgeMs).toBe(HOUR);
+  });
+
+  it('leaves every non-cache case exactly as it was', () => {
+    // The cache is additive. A caller that passes none of the new fields must
+    // get byte-identical behaviour, because those callers are the ones running
+    // in production right now.
+    for (const inputs of [
+      { flagEnabled: true }, { flagEnabled: false }, { flagEnabled: null },
+      { flagError: 'x' }, { flagPending: true }, { envRaw: 'on' }, { envRaw: 'nope' },
+    ]) {
+      const s = resolveArmState(inputs);
+      expect(s.cacheUsable).toBe(false);
+      expect(s.cacheExpired).toBe(false);
+      expect(s.cacheAgeMs).toBeNull();
+    }
+  });
+});

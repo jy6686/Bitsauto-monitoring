@@ -32937,6 +32937,23 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
      *  invisible in the state it produces, so count it: absorbing a cold start
      *  is fine, absorbing a database that is failing all day is not. */
     flagReadRetries: number;
+    /**
+     * Last flag value read SUCCESSFULLY, and when.
+     *
+     * In-memory on purpose, and the operator asked for exactly that: "if there
+     * has never been a successful read since startup, fail safely and do not
+     * collect". A process that has just started and cannot reach the database
+     * knows nothing about anyone's intent and must not invent one — so the
+     * cache is empty after a restart and the tick observes rather than
+     * collects. What it DOES cover is the measured case: a long-lived process
+     * whose flag read starts failing mid-life (12 retries on 2026-09-03) while
+     * an operator's armed decision is hours old and still stands.
+     */
+    lastGoodFlag: boolean | null;
+    lastGoodFlagAt: string | null;
+    /** True while the published arm state comes from memory, not the database. */
+    armCached: boolean;
+    armCacheAgeMs: number | null;
     /** A tick that THREW leaves lastTickAt untouched, so `alive:false` reads
      *  identically whether the process just booted or every tick is dying.
      *  Those need different responses, so the failure is published too. */
@@ -32961,6 +32978,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         envValueSeen: '(scheduler not registered)', flagValueSeen: '(scheduler not registered)',
         armSource: 'none', armHint: 'The forward-capture scheduler is not registered in this process.',
         flagReadRetries: 0, lastTickError: null, lastTickErrorAt: null, tickErrors: 0,
+        lastGoodFlag: null, lastGoodFlagAt: null,
+        armCached: false, armCacheAgeMs: null,
         collectingSince: null, collectingDate: null, progress: null, ticksSkippedBusy: 0,
         recoveryMode: false };
   const _seedJobId    = () => `sj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -39412,6 +39431,13 @@ ${footer}
             .where(eq(platformFeatureFlags.key, 'forward_capture')).limit(1);
           flagEnabled = row.length ? Boolean(row[0].enabled) : null;
           flagError = null;
+          // Remember it. Only a genuine read updates this — a missing row
+          // (flagEnabled null) is not a value an operator set, so it is not
+          // cached as one.
+          if (flagEnabled !== null) {
+            _forwardCapture.lastGoodFlag   = flagEnabled;
+            _forwardCapture.lastGoodFlagAt = new Date().toISOString();
+          }
           break;
         } catch (e: any) {
           // NOT "the flag is off". A read that failed is ignorance, and the
@@ -39428,12 +39454,31 @@ ${footer}
           await new Promise(r => setTimeout(r, backoff));
         }
       }
-      const state = resolveArmState({ envRaw: forwardCaptureRaw, flagEnabled, flagError });
+      const state = resolveArmState({
+        envRaw: forwardCaptureRaw, flagEnabled, flagError,
+        lastGoodFlag:  _forwardCapture.lastGoodFlag ?? undefined,
+        lastGoodAtIso: _forwardCapture.lastGoodFlagAt ?? undefined,
+        nowIso: new Date().toISOString(),
+      });
+      // A tick running on a remembered value is a degraded state, and the log
+      // is where an operator finds out it has been degraded all night.
+      if (state.cacheUsable) {
+        console.log(
+          `[recon-nightly] flag UNREADABLE (${flagError}) — operating from the cached ` +
+          `arm state ${_forwardCapture.lastGoodFlag} read at ${_forwardCapture.lastGoodFlagAt} ` +
+          `(${Math.round((state.cacheAgeMs ?? 0) / 60000)} min old). Collection continues.`);
+      } else if (state.cacheExpired) {
+        console.log(
+          `[recon-nightly] flag UNREADABLE (${flagError}) and the cached arm state has ` +
+          `EXPIRED — collection stops until the flag can be read.`);
+      }
       _forwardCapture.envValueSeen  = state.envValueSeen;
       _forwardCapture.flagValueSeen = state.flagValueSeen;
       _forwardCapture.armSource     = state.source;
       _forwardCapture.armHint       = state.hint;
       _forwardCapture.mode          = state.armed ? 'armed' : 'observe_only';
+      _forwardCapture.armCached     = Boolean(state.cacheUsable);
+      _forwardCapture.armCacheAgeMs = state.cacheAgeMs ?? null;
       return state;
     };
     // Published to the UI. A scheduler whose only witness is a log line is a
