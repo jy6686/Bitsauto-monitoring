@@ -42578,29 +42578,42 @@ ${footer}
   app.get('/api/finance/health', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
     try {
       const now = Date.now();
-      // FRESHNESS SLA MUST MATCH THE ARTEFACT'S CADENCE. Corrected 2026-09-02.
+      // HOW FRESHNESS IS ASKED — corrected twice, and the second correction is
+      // the one that matters.
       //
-      // These were 15 / 30 / 30 minutes for artefacts that are produced ONCE
-      // PER DAY by the 02:00 pipeline. A daily report with a 15-minute
-      // freshness SLA is stale for 23h45m out of every 24 — it had essentially
-      // never been green and never could be, which is why Data Freshness sat
-      // at 70% and the DMR card showed red with a perfectly healthy DMR behind
-      // it. An indicator that cannot be satisfied is worse than no indicator:
-      // it is the reason nobody reads the warnings any more.
+      // First attempt: 15 / 30 / 30 minutes for artefacts produced once a day.
+      // A daily report with a 15-minute SLA is stale for 23h45m out of every
+      // 24, which is why Data Freshness sat at 70% with healthy data behind it.
       //
-      // The rule now is two intervals of whatever actually produces the thing,
-      // so a single missed run shows and normal operation does not:
-      //   dmr, margin      daily pipeline (02:00)      → 26h
-      //   snapshot         materialisation, every 30m  → 60m
-      //   cockpit          derived with the snapshot    → 60m
-      //   invoice_queue    30-min scheduler             → 60m
+      // Second attempt (2026-09-02) raised the numbers to 26h. It did not work
+      // either, and 2026-09-03 shows why: freshness read 55% while the DMR was
+      // produced normally. `dmr` and `margin` report MAX(date) — a CALENDAR DAY
+      // naming the business day covered, not the moment the row was written.
+      // A DMR covering 09-02, written at 03:00 on 09-03, parses as midnight
+      // 09-02 and is 32 hours "old" by 08:22, five hours after it was produced
+      // successfully. The arithmetic was measuring the age of the DAY, and the
+      // day keeps ageing however fresh the row is. No minute count can separate
+      // "yesterday's report is missing" from "yesterday was a while ago".
       //
-      // If a daily artefact should be checked more tightly than this, the
-      // question to ask is "is there one for yesterday", not "was it written in
-      // the last N minutes" — a different check, not a smaller number.
-      const slaDefaults: Record<string, number> = {
-        dmr: 26 * 60, margin: 26 * 60, snapshot: 60, cockpit: 60, invoice_queue: 60,
-      };
+      // The comment here already carried the right question — "is there one for
+      // yesterday", not "was it written in the last N minutes" — and the code
+      // went on asking the second one. It now asks the first: see
+      // server/freshness.ts, which forces a caller to choose which of the two
+      // questions it means rather than defaulting into the wrong one.
+      //
+      //   dmr, margin    MAX(date), a business day    → coverage
+      //   snapshot       MAX(snapshot_time), a real
+      //                  timestamp on a daily cadence → 26h elapsed
+      //
+      // The snapshot's SLA was 60 minutes on the belief that materialisation
+      // runs every 30. It does not: `snapshot` is stage 2 of the once-a-day
+      // finance pipeline (daily-pipeline.service.ts), so 60 minutes was
+      // unsatisfiable for 23 hours of every day — and it carries WEIGHT 2 in
+      // the score below, so the one deadline that could never be met was also
+      // the one that counted double.
+      const { dailyFreshness, timestampFreshness } = await import('./freshness');
+      const { DEFAULT_SCHEDULED_HOUR_UTC } = await import('./finance-pipeline-schedule');
+      const SNAPSHOT_SLA_MINS = 26 * 60;
 
       async function safeQuery(query: string): Promise<{ rows: any[]; missing: boolean }> {
         try {
@@ -42609,12 +42622,6 @@ ${footer}
         } catch {
           return { rows: [], missing: true };
         }
-      }
-
-      function freshnessStatus(latest: string | null, slaMins: number): 'healthy' | 'stale' | 'never' {
-        if (!latest) return 'never';
-        const ageMins = (now - new Date(latest).getTime()) / 60000;
-        return ageMins <= slaMins ? 'healthy' : 'stale';
       }
 
       const [dmrR, marginR, snapshotR, runsR, invoiceStatusR, invoiceLatestR] = await Promise.all([
@@ -42630,9 +42637,11 @@ ${footer}
       const margin = { count: parseInt(marginR.rows[0]?.cnt ?? '0'), latest: marginR.rows[0]?.latest ?? null, missing: marginR.missing };
       const snap   = { count: parseInt(snapshotR.rows[0]?.cnt ?? '0'), latest: snapshotR.rows[0]?.latest ?? null, missing: snapshotR.missing };
 
-      const dmrStatus  = dmrR.missing  ? 'never' : freshnessStatus(dmr.latest, slaDefaults.dmr);
-      const margStatus = marginR.missing ? 'never' : freshnessStatus(margin.latest, slaDefaults.margin);
-      const snapStatus = snapshotR.missing ? 'never' : freshnessStatus(snap.latest, slaDefaults.snapshot);
+      const dmrFresh  = dailyFreshness({ latestDate: dmr.latest,    nowMs: now, scheduledHourUtc: DEFAULT_SCHEDULED_HOUR_UTC });
+      const margFresh = dailyFreshness({ latestDate: margin.latest, nowMs: now, scheduledHourUtc: DEFAULT_SCHEDULED_HOUR_UTC });
+      const dmrStatus  = dmrR.missing    ? 'never' : dmrFresh.status;
+      const margStatus = marginR.missing ? 'never' : margFresh.status;
+      const snapStatus = snapshotR.missing ? 'never' : timestampFreshness(snap.latest, now, SNAPSHOT_SLA_MINS);
 
       const runs = runsR.rows;
       const lastRun = runs[0] ?? null;
@@ -42676,10 +42685,10 @@ ${footer}
       // to leave this page (or resort to SQL) to unblock the pipeline.
       type WarningAction = { kind: 'run-dmr' | 'materialize' | 'open-invoices' | 'open-jobs'; label: string };
       const warnings: { level: 'warn' | 'error'; message: string; action?: WarningAction }[] = [];
-      if (dmrStatus === 'stale') warnings.push({ level: 'warn', message: `DMR data stale — last update over ${slaDefaults.dmr}min ago`, action: { kind: 'run-dmr', label: 'Run DMR' } });
+      if (dmrStatus === 'stale') warnings.push({ level: 'warn', message: `DMR ${dmrFresh.detail}`, action: { kind: 'run-dmr', label: 'Run DMR' } });
       if (dmrStatus === 'never') warnings.push({ level: 'warn', message: 'DMR has no rows — ensure DMR generation is running', action: { kind: 'run-dmr', label: 'Run DMR' } });
       if (snapStatus === 'never') warnings.push({ level: 'warn', message: 'Financial Snapshot not yet materialized', action: { kind: 'materialize', label: 'Materialize Now' } });
-      if (snapStatus === 'stale') warnings.push({ level: 'warn', message: `Financial Snapshot stale — last update over ${slaDefaults.snapshot}min ago`, action: { kind: 'materialize', label: 'Materialize Now' } });
+      if (snapStatus === 'stale') warnings.push({ level: 'warn', message: `Financial Snapshot stale — no materialisation in over ${Math.round(SNAPSHOT_SLA_MINS / 60)}h`, action: { kind: 'materialize', label: 'Materialize Now' } });
       if (runsR.missing) warnings.push({ level: 'warn', message: 'No materialization runs recorded yet — scheduler is active and will run within 30 minutes' });
       if (schedulerStatus === 'failed' && lastRun?.error) warnings.push({ level: 'error', message: `Last materialization run failed: ${lastRun.error}`, action: { kind: 'materialize', label: 'Retry Run' } });
       if (dmrAccounts > 0 && snapAccounts > 0 && dmrAccounts !== snapAccounts) warnings.push({ level: 'warn', message: `Snapshot inconsistency — DMR has ${dmrAccounts} accounts, Snapshot has ${snapAccounts} (see Snapshot Integrity for the missing list)`, action: { kind: 'materialize', label: 'Materialize Now' } });
@@ -42736,11 +42745,25 @@ ${footer}
         { key: 'testmode',  label: 'Email Test Mode',   ok: true, warn: emailTestMode, detail: emailTestMode ? `ON — all invoice email redirects to ${appSettings?.invoiceEmailTestRecipient || '(no test recipient set!)'}` : 'OFF — sends go to real clients' },
       ];
 
-      // The materialization scheduler runs on a fixed 30-minute interval; the
-      // ETA is an estimate from the last run, not a stored schedule.
-      const nextRunEta = lastRun?.started_at
-        ? new Date(new Date(lastRun.started_at).getTime() + 30 * 60 * 1000).toISOString()
-        : null;
+      // NEXT RUN — from the daily schedule, not from a 30-minute interval that
+      // does not exist. Adding 30 minutes to the last run put the ETA in the
+      // past within half an hour of every run, so the card read "Due now"
+      // permanently: at 08:22 on 2026-09-03 it was claiming a run was overdue
+      // when the day's snapshot had completed normally at 03:46.
+      //
+      // The real producer is stage 2 of the once-a-day finance pipeline, so the
+      // next run is the next occurrence of its scheduled hour. The pipeline is
+      // catch-up scheduled and may run late; this is when it is next DUE, which
+      // is the question the card is asking.
+      const nextRunEta = (() => {
+        if (!lastRun?.started_at) return null;
+        const last = new Date(lastRun.started_at).getTime();
+        if (!Number.isFinite(last)) return null;
+        const dayStart = Date.parse(`${new Date(last).toISOString().slice(0, 10)}T00:00:00Z`);
+        let due = dayStart + DEFAULT_SCHEDULED_HOUR_UTC * 3_600_000;
+        while (due <= last) due += 86_400_000;
+        return new Date(due).toISOString();
+      })();
 
       // Read the build stamp before composing the response: this module is ESM
       // in dev and CJS when bundled, so it must be imported, never require()d.
@@ -42761,9 +42784,26 @@ ${footer}
           invoices: { total: invoiceTotal, byStatus: invoiceByStatus, latest: invoiceLatest, missing: invoiceStatusR.missing, label: 'Invoices' },
         },
         integrity: { dmrAccounts, snapshotAccounts: snapAccounts, consistent: dmrAccounts === snapAccounts || snapAccounts === 0, accounts: integrityAccounts },
-        materialization: { runs, lastRun, schedulerStatus, missing: runsR.missing, nextRunEta, intervalMinutes: 30 },
+        materialization: {
+          runs, lastRun, schedulerStatus, missing: runsR.missing, nextRunEta,
+          // Was `intervalMinutes: 30`, which was never true — the snapshot is a
+          // stage of the daily pipeline, not a half-hourly job.
+          cadence: 'daily', scheduledHourUtc: DEFAULT_SCHEDULED_HOUR_UTC,
+        },
         health: { overall, dataHealth, schedulerHealth, consistency, apiHealth },
-        sla: slaDefaults,
+        // The BASIS, not just a number: two of these are judged by which
+        // business day they cover and one by elapsed time, and a UI printing
+        // "SLA: 60m" against a coverage check would be describing a rule that
+        // is not being applied.
+        sla: {
+          dmr:      { basis: 'coverage',  scheduledHourUtc: DEFAULT_SCHEDULED_HOUR_UTC,
+                      covers: dmrFresh.coveredDay, expected: dmrFresh.expectedDay,
+                      daysBehind: dmrFresh.daysBehind, detail: dmrFresh.detail },
+          margin:   { basis: 'coverage',  scheduledHourUtc: DEFAULT_SCHEDULED_HOUR_UTC,
+                      covers: margFresh.coveredDay, expected: margFresh.expectedDay,
+                      daysBehind: margFresh.daysBehind, detail: margFresh.detail },
+          snapshot: { basis: 'elapsed', slaMinutes: SNAPSHOT_SLA_MINS },
+        },
         warnings,
         readiness,
         // Environment + database identity. The page previously hardcoded a

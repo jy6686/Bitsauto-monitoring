@@ -95,9 +95,12 @@ interface PipelineNodeProps {
   status: NodeStatus;
   icon: React.ElementType;
   missing?: boolean;
+  /** Elapsed-time SLA, minutes — only for artefacts judged that way. */
   slaMinutes?: number;
+  /** Coverage detail for artefacts judged by which business day they cover. */
+  coverage?: { covers?: string | null; expected?: string | null; daysBehind?: number | null };
 }
-function PipelineNode({ label, count, countLabel, latest, status, icon: Icon, missing, slaMinutes }: PipelineNodeProps) {
+function PipelineNode({ label, count, countLabel, latest, status, icon: Icon, missing, slaMinutes, coverage }: PipelineNodeProps) {
   const borderCls = status === "healthy" ? "border-emerald-500/40"
     : status === "stale" ? "border-amber-500/40"
     : "border-slate-500/20";
@@ -122,7 +125,20 @@ function PipelineNode({ label, count, countLabel, latest, status, icon: Icon, mi
           {latest && (
             <div className="text-right shrink-0">
               <p className="text-xs text-muted-foreground">{fmtAge(latest)}</p>
-              {slaMinutes && <p className="text-[10px] text-muted-foreground">SLA: {slaMinutes}m</p>}
+              {/* A daily artefact is judged by which business day it covers,
+                  so printing a minute count here would describe a rule that is
+                  not the one being applied. */}
+              {coverage?.expected
+                ? <p className="text-[10px] text-muted-foreground">
+                    {coverage.covers
+                      ? `Covers ${coverage.covers} · owed ${coverage.expected}`
+                      : `No data · owed ${coverage.expected}`}
+                  </p>
+                : slaMinutes
+                  ? <p className="text-[10px] text-muted-foreground">
+                      SLA: {slaMinutes >= 60 ? `${Math.round(slaMinutes / 60)}h` : `${slaMinutes}m`}
+                    </p>
+                  : null}
             </div>
           )}
         </div>
@@ -513,7 +529,7 @@ export default function FinanceHealthPage() {
             status={p.dmr?.status ?? "never"}
             icon={Activity}
             missing={p.dmr?.missing}
-            slaMinutes={sla.dmr}
+            coverage={sla.dmr}
           />
           <ConnectorArrow healthy={p.dmr?.status === "healthy"} />
 
@@ -526,7 +542,7 @@ export default function FinanceHealthPage() {
             status={p.snapshot?.status ?? "never"}
             icon={Database}
             missing={p.snapshot?.missing}
-            slaMinutes={sla.snapshot}
+            slaMinutes={sla.snapshot?.slaMinutes}
           />
 
           {/* Consumer forks */}
