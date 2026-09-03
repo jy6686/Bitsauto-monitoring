@@ -39793,6 +39793,90 @@ ${footer}
     }
   });
 
+  // GET /api/finance/business-day — "is yesterday's finance complete?"
+  //
+  // This replaces the Data Freshness percentage as the page's headline. The
+  // percentage could not answer the only question anyone asked it — what is
+  // missing — because a score has nowhere to put that. This returns the chain
+  // instead: eight stages, each with a state and a reason.
+  //
+  // Every stage is judged by COVERAGE against the business day the platform
+  // owes, never by elapsed minutes. See business-day-status.ts for why those
+  // are different questions, and freshness.ts for what asking the wrong one
+  // cost.
+  app.get('/api/finance/business-day', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { assessBusinessDay, targetBusinessDay } = await import('./business-day-status');
+      const { DEFAULT_SCHEDULED_HOUR_UTC } = await import('./finance-pipeline-schedule');
+      const now  = Date.now();
+      const hour = DEFAULT_SCHEDULED_HOUR_UTC;
+      const day  = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.day ?? ''))
+        ? String(req.query.day) : targetBusinessDay(now, hour);
+
+      // Each probe answers for itself and NEVER for its neighbours: a query
+      // that fails yields no evidence, which resolves to waiting rather than
+      // to a verdict the database never gave us.
+      const probe = async (sqlText: string): Promise<any | null> => {
+        try {
+          const r: any = await db.execute(sql.raw(sqlText));
+          const rows = r?.rows ?? (Array.isArray(r) ? r : []);
+          return rows[0] ?? null;
+        } catch { return null; }
+      };
+
+      const [dmrR, snapR, marginR, cdrR, invR, runR] = await Promise.all([
+        probe(`SELECT MAX(report_date)::text AS d FROM daily_minutes_reports`),
+        probe(`SELECT MAX(report_date)::text AS d FROM financial_snapshot`),
+        probe(`SELECT MAX(date)::text        AS d FROM margin_analytics_daily`),
+        probe(`SELECT MAX(connect_time)::date::text AS d FROM cdr_repository`),
+        probe(`SELECT COUNT(*) FILTER (WHERE status IN ('draft','generated','review')) AS drafted,
+                      COUNT(*) FILTER (WHERE status IN ('approved','sent','paid'))     AS released,
+                      MAX(period_end)::text AS covers
+                 FROM invoices`),
+        probe(`SELECT status, target_date::text AS d FROM finance_pipeline_runs
+                ORDER BY started_at DESC LIMIT 1`),
+      ]);
+
+      const running = runR?.status === 'running';
+      const runDay  = runR?.d ?? null;
+
+      const evidence: Record<string, any> = {
+        collect:  { coveredDay: cdrR?.d ?? null },
+        // Verification has no artefact of its own — it is a property OF the
+        // collection, so it inherits the collected day and is corrected by the
+        // reconciliation gate below rather than inventing a second answer.
+        verify:   { coveredDay: cdrR?.d ?? null },
+        dmr:      { coveredDay: dmrR?.d ?? null,    running: running && runDay === day },
+        snapshot: { coveredDay: snapR?.d ?? null },
+        margin:   { coveredDay: marginR?.d ?? null },
+        // Reconciliation is deliberately NOT inferred from a table's max date.
+        // It is a verdict, and until the daily gate is wired to this endpoint
+        // it must say it does not know rather than guess a green.
+        reconcile: { coveredDay: null,
+                     detail: 'Not yet wired to this view — run the daily reconciliation report' },
+        invoice_draft: { coveredDay: (Number(invR?.drafted ?? 0) > 0) ? (invR?.covers ?? null) : null },
+        invoice_send:  { coveredDay: (Number(invR?.released ?? 0) > 0) ? (invR?.covers ?? null) : null },
+      };
+
+      const status = assessBusinessDay({
+        nowMs: now, scheduledHourUtc: hour, targetDayOverride: day, evidence,
+      });
+
+      res.json({
+        ...status,
+        scheduledHourUtc: hour,
+        generatedAt: new Date().toISOString(),
+        // Which probes came back empty, so a grey stage can be read as "not
+        // measured" rather than "not done".
+        unmeasured: Object.entries({ dmr: dmrR, snapshot: snapR, margin: marginR,
+                                     collect: cdrR, invoices: invR })
+                          .filter(([, v]) => v === null).map(([k]) => k),
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message ?? e) });
+    }
+  });
+
   // GET /api/finance/reconciliation/daily — the recovery work list.
   //
   // Owner's strategy 2026-09-01: compare every (day, account) cell against the
@@ -42601,19 +42685,20 @@ ${footer}
       // server/freshness.ts, which forces a caller to choose which of the two
       // questions it means rather than defaulting into the wrong one.
       //
-      //   dmr, margin    MAX(date), a business day    → coverage
-      //   snapshot       MAX(snapshot_time), a real
-      //                  timestamp on a daily cadence → 26h elapsed
-      //
       // The snapshot's SLA was 60 minutes on the belief that materialisation
       // runs every 30. It does not: `snapshot` is stage 2 of the once-a-day
       // finance pipeline (daily-pipeline.service.ts), so 60 minutes was
       // unsatisfiable for 23 hours of every day — and it carries WEIGHT 2 in
       // the score below, so the one deadline that could never be met was also
-      // the one that counted double.
-      const { dailyFreshness, timestampFreshness } = await import('./freshness');
+      // the one that counted double. It has a report_date column and now
+      // answers by coverage like the other two.
+      // All three daily artefacts now answer the coverage question, because all
+      // three have a business-day column: daily_minutes_reports.report_date,
+      // margin_analytics_daily.date and financial_snapshot.report_date. Nothing
+      // on this page is judged in elapsed minutes any more — that question is
+      // reserved for the continuous services, which genuinely have an age.
+      const { dailyFreshness } = await import('./freshness');
       const { DEFAULT_SCHEDULED_HOUR_UTC } = await import('./finance-pipeline-schedule');
-      const SNAPSHOT_SLA_MINS = 26 * 60;
 
       async function safeQuery(query: string): Promise<{ rows: any[]; missing: boolean }> {
         try {
@@ -42627,7 +42712,12 @@ ${footer}
       const [dmrR, marginR, snapshotR, runsR, invoiceStatusR, invoiceLatestR] = await Promise.all([
         safeQuery(`SELECT COUNT(*) as cnt, MAX(generated_at) as latest FROM daily_minutes_reports`),
         safeQuery(`SELECT COUNT(*) as cnt, MAX(date) as latest FROM margin_analytics_daily`),
-        safeQuery(`SELECT COUNT(*) as cnt, MAX(snapshot_time) as latest FROM financial_snapshot`),
+        // financial_snapshot carries report_date — the business day each row
+        // COVERS — so the snapshot can answer the coverage question directly
+        // instead of being judged on when it was written. snapshot_time is
+        // still read, as the heartbeat of the materialisation itself.
+        safeQuery(`SELECT COUNT(*) as cnt, MAX(report_date) as latest,
+                          MAX(snapshot_time) as last_written FROM financial_snapshot`),
         safeQuery(`SELECT id, started_at, completed_at, status, rows_written, clients_processed, vendors_processed, duration_ms, error, snapshot_version FROM materialization_runs ORDER BY started_at DESC LIMIT 20`),
         safeQuery(`SELECT status, COUNT(*) as cnt FROM invoices GROUP BY status`),
         safeQuery(`SELECT MAX(created_at) as latest FROM invoices`),
@@ -42641,7 +42731,8 @@ ${footer}
       const margFresh = dailyFreshness({ latestDate: margin.latest, nowMs: now, scheduledHourUtc: DEFAULT_SCHEDULED_HOUR_UTC });
       const dmrStatus  = dmrR.missing    ? 'never' : dmrFresh.status;
       const margStatus = marginR.missing ? 'never' : margFresh.status;
-      const snapStatus = snapshotR.missing ? 'never' : timestampFreshness(snap.latest, now, SNAPSHOT_SLA_MINS);
+      const snapFresh  = dailyFreshness({ latestDate: snap.latest, nowMs: now, scheduledHourUtc: DEFAULT_SCHEDULED_HOUR_UTC });
+      const snapStatus = snapshotR.missing ? 'never' : snapFresh.status;
 
       const runs = runsR.rows;
       const lastRun = runs[0] ?? null;
@@ -42688,7 +42779,7 @@ ${footer}
       if (dmrStatus === 'stale') warnings.push({ level: 'warn', message: `DMR ${dmrFresh.detail}`, action: { kind: 'run-dmr', label: 'Run DMR' } });
       if (dmrStatus === 'never') warnings.push({ level: 'warn', message: 'DMR has no rows — ensure DMR generation is running', action: { kind: 'run-dmr', label: 'Run DMR' } });
       if (snapStatus === 'never') warnings.push({ level: 'warn', message: 'Financial Snapshot not yet materialized', action: { kind: 'materialize', label: 'Materialize Now' } });
-      if (snapStatus === 'stale') warnings.push({ level: 'warn', message: `Financial Snapshot stale — no materialisation in over ${Math.round(SNAPSHOT_SLA_MINS / 60)}h`, action: { kind: 'materialize', label: 'Materialize Now' } });
+      if (snapStatus === 'stale') warnings.push({ level: 'warn', message: `Financial Snapshot ${snapFresh.detail}`, action: { kind: 'materialize', label: 'Materialize Now' } });
       if (runsR.missing) warnings.push({ level: 'warn', message: 'No materialization runs recorded yet — scheduler is active and will run within 30 minutes' });
       if (schedulerStatus === 'failed' && lastRun?.error) warnings.push({ level: 'error', message: `Last materialization run failed: ${lastRun.error}`, action: { kind: 'materialize', label: 'Retry Run' } });
       if (dmrAccounts > 0 && snapAccounts > 0 && dmrAccounts !== snapAccounts) warnings.push({ level: 'warn', message: `Snapshot inconsistency — DMR has ${dmrAccounts} accounts, Snapshot has ${snapAccounts} (see Snapshot Integrity for the missing list)`, action: { kind: 'materialize', label: 'Materialize Now' } });
@@ -42802,7 +42893,9 @@ ${footer}
           margin:   { basis: 'coverage',  scheduledHourUtc: DEFAULT_SCHEDULED_HOUR_UTC,
                       covers: margFresh.coveredDay, expected: margFresh.expectedDay,
                       daysBehind: margFresh.daysBehind, detail: margFresh.detail },
-          snapshot: { basis: 'elapsed', slaMinutes: SNAPSHOT_SLA_MINS },
+          snapshot: { basis: 'coverage', scheduledHourUtc: DEFAULT_SCHEDULED_HOUR_UTC,
+                      covers: snapFresh.coveredDay, expected: snapFresh.expectedDay,
+                      daysBehind: snapFresh.daysBehind, detail: snapFresh.detail },
         },
         warnings,
         readiness,
