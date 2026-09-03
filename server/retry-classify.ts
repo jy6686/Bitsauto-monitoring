@@ -71,14 +71,17 @@ export const CAUSE_OWNER: Record<RetryCause, string> = {
  */
 const RULES: Array<[RetryCause, RegExp]> = [
   // The platform's own refusal, which is not a switch problem at all.
-  ['circuit_open',  /circuit breaker is open|circuit_open|CDR fetch DID NOT RUN/i],
+  // NOT the bare "CDR fetch DID NOT RUN" prefix: that also opens the
+  // no-credentials message, which is a configuration fault and must file
+  // under auth, not here.
+  ['circuit_open',  /circuit breaker is open|circuit_open/i],
 
   // Credentials before any generic status family: a 401 filed as "client
   // error" is true and useless.
   // `\bauth\b` catches an XML-RPC faultString of just "Auth", which is a real
   // credential signal. The word boundary keeps it narrow: it does not match
   // "authorization", "authorised" or "author".
-  ['auth',          /\b401\b|\b403\b|\bauth\b|unauthor|forbidden|authentication|invalid credential|bad credential|login fail|access denied/i],
+  ['auth',          /\b401\b|\b403\b|\bauth\b|unauthor|forbidden|authentication|invalid credential|bad credential|login fail|access denied|no xml-?rpc credentials/i],
 
   ['rate_limit',    /\b429\b|rate ?limit|too many requests|throttl|slow down/i],
 
@@ -92,7 +95,10 @@ const RULES: Array<[RetryCause, RegExp]> = [
 
   ['network',       /ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|EPIPE|socket hang ?up|dns|getaddrinfo|network|TLS|certificate/i],
 
-  ['server_error',  /\b50[0234]\b|internal server error|bad gateway|service unavailable|gateway time/i],
+  // A bare 50x needs HTTP context. This platform's own fetch messages embed
+  // pagination offsets — "offset=500" — and a naked \b500\b would file every
+  // one of those under a switch fault.
+  ['server_error',  /\b(?:http|status(?: code)?|code|error)\s*[:=]?\s*50[0234]\b|\b50[0234]\s+(?:internal|bad gateway|service unavail|gateway)|internal server error|bad gateway|service unavailable|gateway time/i],
 
   // The switch answering in-band with a fault is a distinct fact from an HTTP
   // failure: the call arrived and was rejected.

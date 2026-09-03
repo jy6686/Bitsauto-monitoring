@@ -2384,11 +2384,16 @@ export const seedJobs = pgTable("seed_jobs", {
   lastError:       text("last_error"),
   fetchedTotal:    integer("fetched_total").notNull().default(0),
   storedTotal:     integer("stored_total").notNull().default(0),
-  /** Slice attempts that failed and were retried (migration 504). */
-  retriesTotal:    integer("retries_total").notNull().default(0),
+  /** Slice attempts that failed and were retried (504; nullable since 507).
+   *  NULL = collected before the instrumentation existed — not measured.
+   *  A NOT NULL DEFAULT 0 backfilled every historical run as "0 retries,
+   *  100% productive", a confident zero the panel could not tell from a
+   *  measured one. */
+  retriesTotal:    integer("retries_total"),
   /** Milliseconds spent ASLEEP in retry backoff — time bought, not worked.
-   *  Without this, a 90-minute job and a 90-minute nap look identical. */
-  backoffMs:       bigint("backoff_ms", { mode: 'number' }).notNull().default(0),
+   *  Without this, a 90-minute job and a 90-minute nap look identical.
+   *  NULL = not measured (see retriesTotal). */
+  backoffMs:       bigint("backoff_ms", { mode: 'number' }),
   /** continue | warn | abort — the pace verdict when the job stopped. */
   paceVerdict:     varchar("pace_verdict", { length: 16 }),
   /** {cause: {count, sample}} from retry-classify.ts (migration 505). Which

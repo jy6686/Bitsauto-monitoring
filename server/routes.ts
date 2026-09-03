@@ -33225,7 +33225,12 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             };
             const resetFields = reset
               ? { ...descriptive, completedSlices: 0, fetchedTotal: 0, storedTotal: 0,
-                  lastError: null, finishedAt: null, startedAt: dsql`now()` }
+                  lastError: null, finishedAt: null, startedAt: dsql`now()`,
+                  // Migration 504/505 columns. Without this a clean re-run of a
+                  // jobId that previously failed inherits the earlier run's
+                  // retry-cause distribution and renders it beside "no retries".
+                  retriesTotal: 0, backoffMs: 0, paceVerdict: null, retryCauses: null,
+                  queuedAt: null, queueWaitMs: null }
               : {};
             await db.insert(seedJobs).values({
               jobId, ...descriptive, ...fields,
@@ -39277,6 +39282,10 @@ ${footer}
      *  never silent: an account that stops being collected must say why. */
     excluded: Array<{ name: string; iAccount: number; reason: string }>;
     lifecycleSummary: string | null;
+    /** Every account with a Sippy id already has a clean 'done' row for this
+     *  day. The caller must then write the day sentinel itself, because the
+     *  per-account loop that normally writes it has nothing to loop over. */
+    allSealed: boolean;
   }> {
     const r = await db.execute(sql`
       SELECT name, sippy_i_account, sippy_i_tariff, status, lifecycle_changed_at
@@ -39296,10 +39305,15 @@ ${footer}
     const sealed = new Set<number>();
     if (targetDate) {
       try {
+        // last_error IS NULL is load-bearing. storeSlice records lastError and
+        // returns 0 for a chunk that failed to write while the job still ends
+        // 'done' — so 'done' alone would seal a day whose CDRs were fetched
+        // and never stored, and this lookup would then stop the nightly re-run
+        // that was the only thing re-storing it.
         const sr = await db.execute(sql`
           SELECT DISTINCT i_account FROM seed_jobs
            WHERE job_id LIKE ${'recon-' + targetDate + '-%'}
-             AND status = 'done' AND i_account IS NOT NULL`);
+             AND status = 'done' AND last_error IS NULL AND i_account IS NOT NULL`);
         for (const x of (((sr as any).rows ?? []) as any[])) sealed.add(Number(x.i_account));
       } catch (e: any) {
         // A failed lookup must not be read as "nothing is sealed" in a way
@@ -39327,7 +39341,7 @@ ${footer}
         ready.push({ name: String(c.name), iAccount: Number(c.sippy_i_account),
                      iTariff: hasTariff ? String(c.sippy_i_tariff) : null });
       }
-      return { ready, noTariff, excluded, lifecycleSummary };
+      return { ready, noTariff, excluded, lifecycleSummary, allSealed: false };
     }
 
     const { planByLifecycle } = await import('./collection-lifecycle');
@@ -39358,7 +39372,9 @@ ${footer}
       excluded.push({ name: String(c.name), iAccount: Number(c.sippy_i_account),
                       reason: decision.reason });
     }
-    return { ready, noTariff, excluded, lifecycleSummary };
+    const allSealed = rows.length > 0 &&
+      rows.every((c: any) => sealed.has(Number(c.sippy_i_account)));
+    return { ready, noTariff, excluded, lifecycleSummary, allSealed };
   }
 
   async function _runNightlyReconciliation(targetDate?: string) {
@@ -39376,7 +39392,7 @@ ${footer}
       // yesterday keeps the on-demand path unchanged.
       const date = targetDate ?? day.toISOString().slice(0, 10);
 
-      const { ready, noTariff, excluded, lifecycleSummary } = await _accountsForCollection(date);
+      const { ready, noTariff, excluded, lifecycleSummary, allSealed } = await _accountsForCollection(date);
       if (noTariff.length > 0) {
         console.warn(
           `[recon-nightly] ${noTariff.length} account(s) have no local tariff mapping and will be ` +
@@ -39395,6 +39411,32 @@ ${footer}
       if (lifecycleSummary) console.log(`[recon-nightly] lifecycle plan — ${lifecycleSummary}`);
 
       if (ready.length === 0) {
+        // THE STALL THE AUDIT FOUND. Every account already has a clean 'done'
+        // row for this day, but the day sentinel `recon-<date>` is only ever
+        // written at the END of the per-account loop — which has nothing to
+        // loop over. Returning here left the day unsealed, decideNightlyIngest
+        // kept targeting it as the oldest owed day, and no later day was
+        // collected until it aged out of the lookback a week later. Seal it.
+        if (allSealed) {
+          try {
+            const { seedJobs } = await import('@shared/schema');
+            await db.insert(seedJobs).values({
+              jobId: `recon-${date}`, iAccount: null, iTariff: null,
+              periodStart: date, periodEnd: date, sliceMinutes: 0,
+              totalSlices: excluded.length, completedSlices: excluded.length,
+              status: 'done', fetchedTotal: 0, storedTotal: 0,
+              finishedAt: new Date(),
+            } as any).onConflictDoUpdate({
+              target: seedJobs.jobId,
+              set: { status: 'done', finishedAt: new Date(), lastError: null } as any,
+            });
+            console.log(`[recon-nightly] ${date}: every account already collected — day sealed`);
+          } catch (e: any) {
+            console.error(`[recon-nightly] ${date}: all accounts sealed but the day sentinel ` +
+                          `could not be written (${String(e?.message ?? e)}) — the day stays owed`);
+          }
+          return;
+        }
         console.log(
           excluded.length > 0
             ? `[recon-nightly] nothing to collect for ${date} — all ${excluded.length} account(s) ` +
@@ -40000,13 +40042,27 @@ ${footer}
       // Each probe answers for itself and NEVER for its neighbours: a query
       // that fails yields no evidence, which resolves to waiting rather than
       // to a verdict the database never gave us.
-      const probe = async (sqlText: string): Promise<any | null> => {
+      // `undefined` = the query ran and returned no row (a real, empty answer).
+      // `null`      = the query FAILED. The two must stay distinguishable: a
+      // failed read is ignorance, and rendering ignorance as "incomplete" turns
+      // a database hiccup into a red "Not Ready" on the executive line.
+      const probeFailures: string[] = [];
+      const probe = async (sqlText: string): Promise<any | null | undefined> => {
         try {
           const r: any = await db.execute(sql.raw(sqlText));
           const rows = r?.rows ?? (Array.isArray(r) ? r : []);
-          return rows[0] ?? null;
-        } catch { return null; }
+          return rows[0] ?? undefined;
+        } catch (e: any) {
+          const msg = String(e?.message ?? e).slice(0, 160);
+          probeFailures.push(msg);
+          console.warn(`[business-day] probe failed: ${msg} — ${sqlText.replace(/\s+/g, ' ').slice(0, 90)}`);
+          return null;
+        }
       };
+      /** Evidence for a stage whose probe FAILED: unavailable, never incomplete. */
+      const failedProbe = (what: string) => ({
+        unavailable: true, reason: `${what} could not be read from the database`,
+      });
 
       const [dmrR, snapR, marginR, cdrR, jobsR, invR, runR, matR,
              covR, pipeOkR, collectOkR, liveR] = await Promise.all([
@@ -40022,7 +40078,13 @@ ${footer}
         // raw_sippy_cdrs, NOT "cdr_repository" — I wrote a table name that does
         // not exist, and because every probe swallows its own error it would
         // have shown Collection as waiting forever with nothing in the log.
-        probe(`SELECT MAX(started_at)::date::text AS d FROM raw_sippy_cdrs`),
+        // The DAY SENTINEL. `recon-<day>` with status done is the platform's own
+        // definition of "this business day is collected for every account". The
+        // previous probe took MAX(started_at) over the WHOLE raw_sippy_cdrs table
+        // — unscoped by account or day — so one collected account marked
+        // Collection and Verification complete in green for everyone.
+        probe(`SELECT period_start::text AS d FROM seed_jobs
+                WHERE job_id = 'recon-${day}' AND status = 'done' LIMIT 1`),
         // The only DEFENSIBLE denominator for collection progress: accounts
         // actually attempted for this day. Counting against "all active
         // accounts" would read 3/48 on a normal night, because most accounts
@@ -40033,9 +40095,12 @@ ${footer}
                       MIN(started_at)::text                   AS first_at,
                       SUM(stored_total)                       AS stored
                  FROM seed_jobs WHERE job_id LIKE 'recon-${day}-%'`),
+        // Denominator excludes void / cancelled / superseded: those sit in
+        // neither FILTER and previously inflated `total` only, so the bar could
+        // never reach 100% on a clean ledger.
         probe(`SELECT COUNT(*) FILTER (WHERE status IN ('draft','generated','review')) AS drafted,
                       COUNT(*) FILTER (WHERE status IN ('approved','sent','paid'))     AS released,
-                      COUNT(*)                                                          AS total,
+                      COUNT(*) FILTER (WHERE status NOT IN ('void','cancelled','superseded')) AS total,
                       MAX(period_end)::text AS covers, MAX(created_at)::text AS last_at
                  FROM invoices`),
         probe(`SELECT status, target_date::text AS d, started_at::text AS started,
@@ -40053,11 +40118,22 @@ ${footer}
         // Numerator is customers with a COMPLETED collection job for the day,
         // not customers with rows — a customer with no calls that day is
         // correctly collected and would otherwise be counted as missing.
-        probe(`SELECT (SELECT COUNT(DISTINCT i_account) FROM seed_jobs
-                        WHERE job_id LIKE 'recon-${day}-%' AND status = 'done'
-                          AND i_account IS NOT NULL) AS done,
-                      (SELECT COUNT(*) FROM companies
-                        WHERE sippy_i_account IS NOT NULL AND status = 'active') AS total`),
+        // ONE population on both sides. The numerator used to count any
+        // account with a done row (including outstanding-day collections of
+        // inactive customers) while the denominator counted only active ones,
+        // so done could exceed total and a missing active customer was masked.
+        // Eligible = has a Sippy id and is active or unclassified — the same
+        // rule collection-lifecycle.ts applies.
+        probe(`WITH eligible AS (
+                 SELECT sippy_i_account AS acct FROM companies
+                  WHERE sippy_i_account IS NOT NULL
+                    AND (status IS NULL OR lower(trim(status)) NOT IN ('inactive','dormant')))
+               SELECT (SELECT COUNT(*) FROM eligible e
+                        WHERE EXISTS (SELECT 1 FROM seed_jobs j
+                                       WHERE j.i_account = e.acct
+                                         AND j.job_id LIKE 'recon-${day}-%'
+                                         AND j.status = 'done' AND j.last_error IS NULL)) AS done,
+                      (SELECT COUNT(*) FROM eligible) AS total`),
         // LAST SUCCESSFUL completion per stage, which is not the last run. A
         // failed stage has a recent run and an older success, and a timestamp
         // under a red mark must not imply the stage did something it did not.
@@ -40089,9 +40165,17 @@ ${footer}
       const runFinished = runR?.finished ?? null;
 
       const jobTotal = num(jobsR?.total);
+      const covTotal0 = num(covR?.total), covDone0 = num(covR?.done);
+      // Collected = the sentinel says so, OR every eligible customer has a clean
+      // done row (the sentinel is written only after the last account, so a run
+      // that died after the final account but before the seal still counts).
+      const collectedDay: string | null =
+        cdrR?.d ? String(cdrR.d)
+        : (covTotal0 > 0 && covDone0 >= covTotal0) ? day
+        : null;
       const evidence: Record<string, any> = {
-        collect: {
-          coveredDay: cdrR?.d ?? null,
+        collect: cdrR === null ? failedProbe('Collection status') : {
+          coveredDay: collectedDay,
           lastRunAt: jobsR?.last_at ?? null,
           lastSuccessAt: collectOkR?.at ?? null,
           durationMs: (jobsR?.first_at && jobsR?.last_at)
@@ -40104,33 +40188,35 @@ ${footer}
         // collection. It inherits the collected day and deliberately carries NO
         // progress of its own rather than borrowing collection's and implying a
         // measurement that was never taken.
-        verify:   { coveredDay: cdrR?.d ?? null, lastRunAt: jobsR?.last_at ?? null,
-                    lastSuccessAt: collectOkR?.at ?? null },
-        dmr: {
+        verify:   cdrR === null ? failedProbe('Verification status') : {
+          coveredDay: collectedDay, lastRunAt: jobsR?.last_at ?? null,
+          lastSuccessAt: collectOkR?.at ?? null },
+        dmr: dmrR === null ? failedProbe('Daily Minutes Report') : {
           coveredDay: dmrR?.d ?? null,
           running: running && runDay === day,
           failed: stageRun('dmr')?.status === 'failed',
           note: stageRun('dmr')?.error ?? null,
           lastRunAt: runFinished, lastSuccessAt: pipeOkR?.at ?? null,
           durationMs: stageRun('dmr')?.durationMs ?? null,
-          ...(num(dmrR?.rows_for_day) > 0
-            ? { progress: { done: num(dmrR?.rows_for_day), total: num(dmrR?.rows_for_day), unit: 'reports' } }
-            : {}),
+          // No progress bar: a DMR has no measured denominator, and total=done
+          // is a bar that reads 100% by construction. business-day-status.ts
+          // states the rule — a fabricated denominator is worse than no bar.
         },
-        snapshot: {
+        snapshot: snapR === null ? failedProbe('Financial Snapshot') : {
           coveredDay: snapR?.d ?? null,
           failed: stageRun('snapshot')?.status === 'failed',
           note: stageRun('snapshot')?.error ?? null,
           lastRunAt: matR?.at ?? runFinished,
           lastSuccessAt: matR?.at ?? null,
           durationMs: matR?.duration_ms ?? stageRun('snapshot')?.durationMs ?? null,
-          ...(num(snapR?.accts) > 0
-            ? { progress: { done: num(snapR?.accts),
-                            total: num(matR?.clients_processed) || num(snapR?.accts),
+          // Only when materialization recorded how many customers it processed.
+          // Falling back to total=done fabricated a 100% bar.
+          ...(num(snapR?.accts) > 0 && num(matR?.clients_processed) > 0
+            ? { progress: { done: num(snapR?.accts), total: num(matR?.clients_processed),
                             unit: 'customers' } }
             : {}),
         },
-        margin: {
+        margin: marginR === null ? failedProbe('Margin Analysis') : {
           coveredDay: marginR?.d ?? null,
           failed: stageRun('margin')?.status === 'failed',
           note: stageRun('margin')?.error ?? null,
@@ -40183,10 +40269,13 @@ ${footer}
         } : null,
         // Which probes came back empty, so a grey stage can be read as "not
         // measured" rather than "not done".
+        // Probes that FAILED (null) — as opposed to ran and found nothing
+        // (undefined). Their stages already read `unavailable`; this names them.
         unmeasured: Object.entries({ dmr: dmrR, snapshot: snapR, margin: marginR,
                                      collect: cdrR, collectionJobs: jobsR, invoices: invR,
-                                     pipelineRuns: runR })
+                                     pipelineRuns: runR, coverage: covR })
                           .filter(([, v]) => v === null).map(([k]) => k),
+        probeFailures,
       });
     } catch (e: any) {
       res.status(500).json({ error: String(e?.message ?? e) });
@@ -43026,7 +43115,11 @@ ${footer}
       }
 
       const [dmrR, marginR, snapshotR, runsR, invoiceStatusR, invoiceLatestR] = await Promise.all([
-        safeQuery(`SELECT COUNT(*) as cnt, MAX(generated_at) as latest FROM daily_minutes_reports`),
+        // report_date, the business day COVERED — not generated_at, the moment
+        // the row was written. dailyFreshness judges coverage, and feeding it a
+        // write timestamp re-creates the age-of-the-day defect this endpoint
+        // was rewritten to remove.
+        safeQuery(`SELECT COUNT(*) as cnt, MAX(report_date) as latest FROM daily_minutes_reports`),
         safeQuery(`SELECT COUNT(*) as cnt, MAX(date) as latest FROM margin_analytics_daily`),
         // financial_snapshot carries report_date — the business day each row
         // COVERS — so the snapshot can answer the coverage question directly

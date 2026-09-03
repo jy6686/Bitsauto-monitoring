@@ -77,14 +77,40 @@ describe('blocked is not failed', () => {
 });
 
 describe('nothing is late before it is owed', () => {
-  it('reads not_due before the scheduled hour, with no red anywhere', () => {
-    // An amber board at 00:40 for work scheduled at 02:00 teaches people to
-    // stop reading the board.
-    const r = assessBusinessDay({ nowMs: NIGHT, scheduledHourUtc: 2, evidence: {} });
+  it('reads not_due before THIS DAY\'s window, with no red anywhere', () => {
+    // At 00:40 on 09-03, asking about 09-02: its window opens 02:00 today.
+    // An amber board for work not yet scheduled teaches people to stop
+    // reading the board.
+    const r = assessBusinessDay({
+      nowMs: NIGHT, scheduledHourUtc: 2, targetDayOverride: '2026-09-02', evidence: {},
+    });
     expect(r.verdict).toBe('not_due');
     expect(r.headline).toContain('not due yet');
     expect(r.stages.every(s => s.tone !== 'bad')).toBe(true);
     expect(r.stages[0].state).toBe('not_due');
+  });
+
+  it('does NOT call an overdue day not-due just because today\'s clock is early', () => {
+    // The audit's finding. At 00:40 on 09-04 the auto-target is 09-02, which
+    // was owed by 08:00 on 09-03 and is ~17h overdue. The old code compared
+    // against TODAY's 02:00 and reported every stage "not due yet".
+    const r = assessBusinessDay({
+      nowMs: at('2026-09-04T00:40:00Z'), scheduledHourUtc: 2, evidence: {},
+    });
+    expect(r.targetDay).toBe('2026-09-02');
+    expect(r.verdict).not.toBe('not_due');
+    expect(r.stages[0].state).not.toBe('not_due');
+    expect(r.readiness.ready).toBe('no');
+  });
+
+  it('never yields not_due for the auto-target under the default grace', () => {
+    // With a 6h grace the auto-target's window is always already open, so a
+    // not_due verdict there would be a bug in targetBusinessDay, not a state.
+    for (const iso of ['2026-09-03T00:10:00Z', '2026-09-03T02:30:00Z',
+                       '2026-09-03T08:00:00Z', '2026-09-03T23:59:00Z']) {
+      const r = assessBusinessDay({ nowMs: at(iso), scheduledHourUtc: 2, evidence: {} });
+      expect(r.verdict).not.toBe('not_due');
+    }
   });
 
   it('agrees with dailyFreshness about which day is owed', () => {
@@ -323,7 +349,13 @@ describe('Finance Ready Today — the top line', () => {
   });
 
   it('does not call a not-yet-due day unready', () => {
-    const r = assessBusinessDay({ nowMs: NIGHT, scheduledHourUtc: 2, evidence: {} });
+    // A day whose own window has not opened — asked for explicitly. The
+    // auto-target is never in this state (see the not_due suite), and the
+    // previous version of this test passed only because the module wrongly
+    // judged an overdue day against today's clock.
+    const r = assessBusinessDay({
+      nowMs: NIGHT, scheduledHourUtc: 2, targetDayOverride: '2026-09-02', evidence: {},
+    });
     expect(r.readiness.ready).toBe('review');
     expect(r.readiness.reason).toContain('not due yet');
   });

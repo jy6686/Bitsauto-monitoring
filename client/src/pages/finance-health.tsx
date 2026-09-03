@@ -435,7 +435,13 @@ function PipelineNode({ label, count, countLabel, latest, status, icon: Icon, mi
           </div>
           {latest && (
             <div className="text-right shrink-0">
-              <p className="text-xs text-muted-foreground">{fmtAge(latest)}</p>
+              {/* Age only when `latest` IS an age. A coverage-judged node's
+                  `latest` is the business day covered, and "2 days ago" under
+                  a report produced this morning is the age-of-the-day defect
+                  again; the coverage line below already names the day. */}
+              {!coverage?.expected && (
+                <p className="text-xs text-muted-foreground">{fmtAge(latest)}</p>
+              )}
               {/* A daily artefact is judged by which business day it covers,
                   so printing a minute count here would describe a rule that is
                   not the one being applied. */}
@@ -878,7 +884,7 @@ export default function FinanceHealthPage() {
             status={p.snapshot?.status ?? "never"}
             icon={Database}
             missing={p.snapshot?.missing}
-            slaMinutes={sla.snapshot?.slaMinutes}
+            coverage={sla.snapshot}
           />
 
           {/* Consumer forks */}
@@ -1183,12 +1189,25 @@ export default function FinanceHealthPage() {
               <AlertCircle className="w-3.5 h-3.5" />
               Freshness SLAs:
             </div>
-            {Object.entries(sla).map(([k, v]: [string, any]) => (
-              <div key={k} className="flex items-center gap-1 text-xs">
-                <span className="capitalize text-foreground font-medium">{k.replace(/_/g, " ")}</span>
-                <span className="text-muted-foreground">{v}m</span>
-              </div>
-            ))}
+            {/* `sla` values are OBJECTS now — {basis, covers, expected, detail}
+                for coverage-judged artefacts, {basis, slaMinutes} for elapsed
+                ones. Rendering the object itself as a child throws in React and
+                took the whole page down into the error boundary on every load.
+                Render the sentence the server wrote, and fall back to a plain
+                number only if one is ever sent again. */}
+            {Object.entries(sla).map(([k, v]: [string, any]) => {
+              const label = v && typeof v === "object"
+                ? (v.basis === "coverage"
+                    ? (v.detail ?? (v.covers ? `covers ${v.covers}` : "no data"))
+                    : (v.slaMinutes != null ? `${v.slaMinutes}m` : "—"))
+                : (typeof v === "number" ? `${v}m` : String(v ?? "—"));
+              return (
+                <div key={k} className="flex items-center gap-1 text-xs">
+                  <span className="capitalize text-foreground font-medium">{k.replace(/_/g, " ")}</span>
+                  <span className="text-muted-foreground">{label}</span>
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>

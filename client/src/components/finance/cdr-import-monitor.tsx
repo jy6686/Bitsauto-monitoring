@@ -770,14 +770,19 @@ export function CdrImportMonitor() {
             ? Math.max(0, new Date(endIso).getTime() - new Date(j.startedAt).getTime()) : 0;
           // Clamped: backoff larger than elapsed means the accounting is
           // wrong, and a negative "working" figure is a worse lie than a zero.
-          const waitMs = Math.min(Math.max(0, Number(j.backoffMs ?? 0)), elapsedMs);
-          const workMs = Math.max(0, elapsedMs - waitMs);
-          const pct = elapsedMs > 0 ? Math.round((workMs / elapsedMs) * 100) : null;
+          // Measured only if BOTH accounting columns are present. NULL means the
+          // run predates the instrumentation (migration 507 un-backfilled them),
+          // and a NULL coerced to 0 renders "Waiting 0s · Productive 100%" —
+          // a confident measurement nobody took.
+          const measured = j.retriesTotal != null && j.backoffMs != null;
+          const waitMs = measured ? Math.min(Math.max(0, Number(j.backoffMs)), elapsedMs) : null;
+          const workMs = waitMs == null ? null : Math.max(0, elapsedMs - waitMs);
+          const pct = (waitMs != null && elapsedMs > 0) ? Math.round((workMs! / elapsedMs) * 100) : null;
           const dur = (ms: number) => ms < 90_000 ? `${Math.round(ms / 1000)}s`
                     : ms < 5_400_000 ? `${Math.round(ms / 60_000)}m`
                     : `${(ms / 3_600_000).toFixed(1)}h`;
           const rc = j.retryCauses ?? null;
-          const retries = Number(j.retriesTotal ?? 0);
+          const retries = j.retriesTotal == null ? null : Number(j.retriesTotal);
           const failed = j.status === "error";
 
           return (
@@ -806,12 +811,12 @@ export function CdrImportMonitor() {
 
               <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <Stat label="Elapsed"    value={dur(elapsedMs)} />
-                <Stat label="Working"    value={dur(workMs)} />
-                <Stat label="Waiting"    value={dur(waitMs)} />
+                <Stat label="Working"    value={workMs == null ? "not measured" : dur(workMs)} />
+                <Stat label="Waiting"    value={waitMs == null ? "not measured" : dur(waitMs)} />
                 <Stat label="Productive" value={pct == null ? "—" : `${pct}%`} />
               </div>
 
-              {retries > 0 && (
+              {retries != null && retries > 0 && (
                 <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <Stat label="Retries" value={String(retries)} />
                   <Stat label="Primary cause"
@@ -855,9 +860,16 @@ export function CdrImportMonitor() {
                 </div>
               )}
 
+              {/* A MEASURED zero says the switch answered first time. A NULL
+                  says nothing was measured, and must not borrow that sentence. */}
               {retries === 0 && j.status === "done" && (
                 <p className="mt-2 text-muted-foreground">
                   No retries — the switch answered every slice first time.
+                </p>
+              )}
+              {retries == null && (
+                <p className="mt-2 text-muted-foreground">
+                  Retry accounting not recorded — this run predates the instrumentation.
                 </p>
               )}
             </div>
@@ -906,7 +918,7 @@ export function CdrImportMonitor() {
                         ambiguity has already misled a reading of this panel. */}
                     <span className="shrink-0 text-muted-foreground tabular-nums">
                       {job.completedSlices}/{job.totalSlices} slices · {num(job.storedTotal)} stored · {elapsed(job.startedAt, job.finishedAt)}
-                      {job.retriesTotal != null && job.retriesTotal > 0 && (
+                      {job.retriesTotal != null && job.retriesTotal > 0 && job.backoffMs != null && (
                         <span className="text-amber-600 dark:text-amber-400">
                           {" "}&middot; {job.retriesTotal} retries, {Math.round(Number(job.backoffMs ?? 0) / 60000)}m backoff
                         </span>

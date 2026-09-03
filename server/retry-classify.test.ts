@@ -69,6 +69,25 @@ describe('the order of the rules is the substance', () => {
     expect(classifyRetry(
       'CDR fetch DID NOT RUN — the XML-RPC circuit breaker is open.')).toBe('circuit_open');
   });
+
+  it('does not let the DID-NOT-RUN prefix swallow the no-credentials case', () => {
+    // Both refusals share a prefix. One is a breaker, the other is missing
+    // configuration, and they are fixed by different people.
+    expect(classifyRetry(
+      'CDR fetch DID NOT RUN — no XML-RPC credentials are configured (Settings → Sippy Connection).'))
+      .toBe('auth');
+  });
+
+  it('needs HTTP context before reading a bare 50x as a switch error', () => {
+    // The fetch layer's own messages carry pagination offsets. A naked
+    // \b500\b filed every "offset=500" under a switch fault.
+    expect(classifyRetry('page fetched at offset=500, 0 rows')).toBe('unknown');
+    expect(classifyRetry('slice 12: 504 rows after filter')).toBe('unknown');
+    expect(classifyRetry('HTTP 500')).toBe('server_error');
+    expect(classifyRetry('status code 502')).toBe('server_error');
+    expect(classifyRetry('503 Service Unavailable')).toBe('server_error');
+    expect(classifyRetry('500 Internal Server Error')).toBe('server_error');
+  });
 });
 
 describe('unknown is a real bucket, not a dustbin', () => {

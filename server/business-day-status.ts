@@ -308,11 +308,21 @@ export function assessBusinessDay(input: BusinessDayInput): BusinessDayStatus {
   const targetDay = input.targetDayOverride
     ?? targetBusinessDay(input.nowMs, input.scheduledHourUtc, graceHours);
 
-  // Has the window even opened? Before it does, nothing is late and every
-  // stage reads not_due — an amber dashboard at 00:30 for work scheduled at
-  // 02:00 trains people to ignore the dashboard.
-  const todayStart = Date.parse(`${dayKeyUtc(input.nowMs)}T00:00:00Z`);
-  const windowOpens = todayStart + input.scheduledHourUtc * 3_600_000;
+  // Has THIS DAY's window opened? The window for business day D opens at
+  // D+1 at the scheduled hour — not "today at the scheduled hour", which was
+  // the audit's finding: at 00:40 on 09-04 the board judged 09-02, a day
+  // already 19 hours overdue, and read every stage as "not due yet" because
+  // the clock had not yet reached 02:00 *today*. A day is only not-due before
+  // its own window, never because the current date's window has not opened.
+  //
+  // With the default 6h grace, targetBusinessDay() never yields a day whose
+  // window is still ahead, so this is reachable only through targetDayOverride
+  // (asking about today) — which is exactly when it must say not_due rather
+  // than "incomplete".
+  const targetStart = Date.parse(`${targetDay}T00:00:00Z`);
+  const windowOpens = Number.isFinite(targetStart)
+    ? targetStart + 86_400_000 + input.scheduledHourUtc * 3_600_000
+    : Number.NEGATIVE_INFINITY;   // unparseable day: never "not due"
   const beforeWindow = input.nowMs < windowOpens;
 
   const stages: StageStatus[] = [];
