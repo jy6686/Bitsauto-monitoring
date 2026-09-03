@@ -33068,7 +33068,13 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
              *  one, and the operator must be able to narrow them WITHOUT an env
              *  change — on this host an env change restarts the process, which
              *  kills the very import being tuned. */
-            sliceMinutes?: number | null },
+            sliceMinutes?: number | null;
+            /** When the scheduler ENQUEUED this job, ms. Supplied only by a
+             *  caller that actually queues; omitted, queue wait is reported as
+             *  not measured rather than as zero. Today nothing queues, so this
+             *  is normally absent — it becomes meaningful with the pull queue
+             *  and 4-5 concurrent workers. */
+            queuedAtMs?: number | null },
     jobState?: _SeedJobState,
     label = 'sync',
   ): Promise<{ fetched: number; created: number; skipped: number; message?: string;
@@ -33225,7 +33231,41 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             console.warn(`[seed-job:${jobId}] progress write failed (non-fatal): ${String(e?.message ?? e)}`);
           }
         };
-        await progress({ status: 'running', currentSlice: slices[0]?.label ?? null }, true);
+        // Worker attribution and queue wait, for the move to 4-5 concurrent
+        // workers. With one worker a slow job is just a slow job; with five,
+        // "slow" has four possible locations and only queue wait separates the
+        // scheduler's backlog from the switch's latency.
+        const workerId = String(process.env.COLLECTION_WORKER_ID ?? 'w1');
+        const queuedAtMs = Number(opts.queuedAtMs);
+        const hasQueueTime = Number.isFinite(queuedAtMs) && queuedAtMs > 0;
+        // Deliberately null rather than 0 when nothing queued this job. A zero
+        // would read as "no queue delay measured and there was none", which is
+        // a stronger claim than "nobody told us when it was queued".
+        const queueWaitMs = hasQueueTime ? Math.max(0, Date.now() - queuedAtMs) : null;
+
+        const causeSnapshot = async () => {
+          try {
+            // Dynamic import, not require(): this module is ESM in dev and CJS
+            // when bundled, and the rest of the file already learned that.
+            const { summariseRetries } = await import('./retry-classify');
+            const d = summariseRetries(retryMessages);
+            return {
+              total: d.total,
+              dominant: d.dominant?.cause ?? null,
+              mostlyUnclassified: d.mostlyUnclassified,
+              causes: d.causes.map((c: any) => ({
+                cause: c.cause, label: c.label, owner: c.owner,
+                count: c.count, sample: c.sample ?? null,
+              })),
+            };
+          } catch { return null; }
+        };
+
+        await progress({
+          status: 'running', currentSlice: slices[0]?.label ?? null,
+          workerId,
+          ...(hasQueueTime ? { queuedAt: new Date(queuedAtMs), queueWaitMs } : {}),
+        }, true);
 
         // One time window, fetched with the strict three-outcome page model:
         // an ERROR is never end-of-data, a mid-run method switch is a different
@@ -33477,6 +33517,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         let backoffMsTotal = 0;
         let paceVerdict: string | null = null;
         const jobStartedMs = Date.now();
+        // The raw failure messages, classified once at the end rather than
+        // bucketed here — a caller that counts its own causes drifts from
+        // retry-classify.ts the first time a rule changes.
+        const retryMessages: string[] = [];
 
         for (const slice of slices) {
           job.phase = `Slice ${slice.index}/${slices.length} (${slice.label})`;
@@ -33494,6 +33538,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             job.phase = `Slice ${slice.index}/${slices.length} — retry ${attempt}/${sliceRetries} in ${Math.round(waitMs / 1000)}s`;
             retriesTotal++;
             backoffMsTotal += waitMs;
+            retryMessages.push(String(win.msg ?? '').slice(0, 300));
             await sleep(waitMs);
             win = await fetchWindow(slice.startIso, slice.endIso);
           }
@@ -33572,6 +33617,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             storedTotal,
             retriesTotal,
             backoffMs: backoffMsTotal,
+            ...(retryMessages.length > 0 ? { retryCauses: await causeSnapshot() } : {}),
           });
 
           // PACE. There was no wall-clock budget of any kind before this: the
@@ -33601,7 +33647,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           console.error(`[seed-job:${jobId}] ${msg}`);
           await progress({ status: 'error', lastError: msg, currentSlice: sliceFailure.slice,
             finishedAt: new Date(), fetchedTotal, storedTotal,
-            retriesTotal, backoffMs: backoffMsTotal, paceVerdict: paceVerdict ?? 'abort' });
+            retriesTotal, backoffMs: backoffMsTotal, paceVerdict: paceVerdict ?? 'abort',
+            ...(retryMessages.length > 0 ? { retryCauses: await causeSnapshot() } : {}) });
           job.status = 'error';
           job.error  = msg;
           job.phase  = msg;

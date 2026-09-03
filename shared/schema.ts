@@ -2387,6 +2387,15 @@ export const seedJobs = pgTable("seed_jobs", {
   backoffMs:       bigint("backoff_ms", { mode: 'number' }).notNull().default(0),
   /** continue | warn | abort — the pace verdict when the job stopped. */
   paceVerdict:     varchar("pace_verdict", { length: 16 }),
+  /** {cause: {count, sample}} from retry-classify.ts (migration 505). Which
+   *  subsystem caused the retries — the question 504's totals could not answer. */
+  retryCauses:     jsonb("retry_causes"),
+  /** Worker attribution (migration 505). With one worker a slow job is a slow
+   *  job; with five, "slow" has four possible locations and queue wait is the
+   *  one that belongs to the scheduler rather than to the switch. */
+  workerId:        varchar("worker_id", { length: 32 }),
+  queuedAt:        timestamp("queued_at", { withTimezone: true }),
+  queueWaitMs:     integer("queue_wait_ms"),
   startedAt:       timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt:       timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   finishedAt:      timestamp("finished_at", { withTimezone: true }),

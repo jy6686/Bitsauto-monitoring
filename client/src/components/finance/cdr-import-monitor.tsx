@@ -52,6 +52,17 @@ interface SeedJobRow {
   backoffMs?: number | null;
   /** continue | warn | abort — the pace verdict when the job stopped. */
   paceVerdict?: string | null;
+  /** Which subsystem caused the retries (migration 505). */
+  retryCauses?: {
+    total: number;
+    dominant: string | null;
+    mostlyUnclassified: boolean;
+    causes: Array<{ cause: string; label: string; owner: string; count: number; sample: string | null }>;
+  } | null;
+  /** Worker attribution (migration 505). queueWaitMs is null when nothing
+   *  queued the job — which is not the same as a zero wait. */
+  workerId?: string | null;
+  queueWaitMs?: number | null;
   /** Resolved server-side from companies.sippy_i_account. Null when the id
    *  matches nothing, or when it is SHARED — see customerClaimants. */
   customerName?: string | null;
@@ -732,6 +743,74 @@ export function CdrImportMonitor() {
         )}
 
         {/* ── Recent jobs ─────────────────────────────────────────────────── */}
+        {/* WHERE THE TIME WENT, and WHY — for the newest job that recorded it.
+            "1h 30m" is not a diagnosis. Working-versus-waiting says whether
+            the job was busy or blocked, and the cause distribution says which
+            subsystem to go and look at. Both were previously only in logs, on
+            a deployment whose logs carry no timestamps. */}
+        {(() => {
+          const j = jobs.find(x => x.retriesTotal != null && (x.retriesTotal ?? 0) > 0);
+          if (!j) return null;
+          const elapsedMs = j.startedAt
+            ? Math.max(0, new Date(j.finishedAt ?? j.updatedAt).getTime() - new Date(j.startedAt).getTime())
+            : 0;
+          const waitMs = Math.min(Number(j.backoffMs ?? 0), elapsedMs);
+          const workMs = Math.max(0, elapsedMs - waitMs);
+          const pct = elapsedMs > 0 ? Math.round((workMs / elapsedMs) * 100) : null;
+          const mins = (ms: number) => ms < 90_000 ? `${Math.round(ms / 1000)}s` : `${Math.round(ms / 60_000)}m`;
+          const rc = j.retryCauses ?? null;
+          return (
+            <div className="mt-3 rounded border p-3 text-xs">
+              <div className="flex items-baseline justify-between gap-3 flex-wrap">
+                <span className="font-medium">
+                  {customerLabel(j).title} &middot; {j.periodStart}
+                </span>
+                <span className="text-muted-foreground">
+                  {j.workerId && <>worker {j.workerId} &middot; </>}
+                  {/* null queue wait is "not measured", not "no wait". */}
+                  {j.queueWaitMs != null
+                    ? <>queue wait {mins(j.queueWaitMs)}</>
+                    : <>queue wait not measured</>}
+                </span>
+              </div>
+              <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <Stat label="Elapsed"    value={mins(elapsedMs)} />
+                <Stat label="Working"    value={mins(workMs)} />
+                <Stat label="Waiting"    value={mins(waitMs)} />
+                <Stat label="Productive" value={pct == null ? "—" : `${pct}%`}
+                      muted={pct != null && pct >= 90} />
+              </div>
+              {rc && rc.causes?.length > 0 && (
+                <div className="mt-3 border-t pt-2">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1.5">
+                    Retries by cause &middot; {rc.total} total
+                  </p>
+                  {rc.causes.map(c => (
+                    <div key={c.cause} className="flex items-baseline gap-2 py-0.5">
+                      <span className="w-32 shrink-0">{c.label}</span>
+                      <span className="tabular-nums font-medium w-10 text-right">{c.count}</span>
+                      <span className="text-muted-foreground/70 truncate">{c.owner}</span>
+                    </div>
+                  ))}
+                  {/* If `unknown` dominates, that is a finding about OUR rules,
+                      not about the switch, and it must not read as one. */}
+                  {rc.mostlyUnclassified && (
+                    <p className="mt-1.5 text-amber-600 dark:text-amber-400">
+                      Most retries are unclassified — the cause rules need extending, so this
+                      distribution does not yet say which subsystem is at fault.
+                      {rc.causes.find(c => c.cause === "unknown")?.sample && (
+                        <span className="block font-mono text-[10px] mt-0.5 text-muted-foreground">
+                          {rc.causes.find(c => c.cause === "unknown")!.sample}
+                        </span>
+                      )}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
         {recent.length > 0 && (
           <div>
             <div className="mb-2 text-[11px] uppercase tracking-wide text-muted-foreground">Recent</div>
