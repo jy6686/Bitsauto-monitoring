@@ -69,12 +69,43 @@ function BusinessDayPanel({ bd }: { bd: any }) {
   }
   const v = VERDICT_STYLE[bd.verdict] ?? VERDICT_STYLE.blocked;
   const stages: any[] = Array.isArray(bd.stages) ? bd.stages : [];
+  const rd = bd.readiness ?? null;
+  const cov = bd.coverage ?? null;
+  // Three answers, not two. "Yes" and "No" are the ones worth having, but a
+  // stage the platform cannot see supports neither — saying yes overclaims and
+  // saying no asserts a failure that did not happen.
+  const READY: Record<string, { label: string; cls: string; ring: string }> = {
+    yes:         { label: "Yes", cls: "text-emerald-400", ring: "border-emerald-500/40 bg-emerald-500/5" },
+    no:          { label: "No",  cls: "text-red-400",     ring: "border-red-500/40 bg-red-500/5" },
+    unconfirmed: { label: "Cannot confirm", cls: "text-amber-400", ring: "border-amber-500/40 bg-amber-500/5" },
+  };
+  const r = READY[rd?.ready ?? "unconfirmed"];
   const unmeasured: string[] = Array.isArray(bd.unmeasured) ? bd.unmeasured : [];
   const business:  any[] = Array.isArray(bd.businessIssues)  ? bd.businessIssues  : [];
   const technical: any[] = Array.isArray(bd.technicalIssues) ? bd.technicalIssues : [];
+  const human:     any[] = Array.isArray(bd.humanIssues)     ? bd.humanIssues     : [];
 
   return (
     <Card>
+      {/* FINANCE READY TODAY — the first thing on the page.
+          This is the question an executive asks within seconds of opening the
+          dashboard, and everything below it exists to explain the answer. It
+          sits above the stage chain because a reader who only takes one thing
+          from this page should take this. */}
+      {rd && (
+        <div className={`border-b px-6 py-4 rounded-t-lg ${r.ring}`}>
+          <div className="flex items-baseline gap-4 flex-wrap">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">Finance ready today</p>
+            <span className={`text-3xl font-bold leading-none ${r.cls}`}>{r.label}</span>
+            {cov && cov.total > 0 && (
+              <span className="text-sm font-mono tabular-nums text-muted-foreground ml-auto">
+                Coverage {cov.done} / {cov.total} {cov.unit}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground mt-1.5 max-w-4xl">{rd.reason}</p>
+        </div>
+      )}
       <CardHeader className="pb-2 pt-4">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
@@ -165,8 +196,16 @@ function BusinessDayPanel({ bd }: { bd: any }) {
                           {pct != null && <span className="ml-1.5">{pct}%</span>}
                         </span>
                       )}
+                      {/* LAST SUCCESSFUL completion, which is not the last
+                          run. A failed stage has a recent run and an older
+                          success, and a timestamp under a red mark would imply
+                          the stage did something it did not. So a completed
+                          stage shows when it completed; anything else says so
+                          and shows its last success separately. */}
                       <span className="ml-auto text-[11px] font-mono text-muted-foreground whitespace-nowrap">
-                        {when ?? "—"}{dur ? ` · ${dur}` : ""}
+                        {st.state === "complete"
+                          ? <>{fmtUtc(st.lastSuccessAt ?? st.lastRunAt) ?? "—"}{dur ? ` · ${dur}` : ""}</>
+                          : <span className={t.text}>Not completed</span>}
                       </span>
                     </div>
                     {pct != null && (
@@ -176,7 +215,19 @@ function BusinessDayPanel({ bd }: { bd: any }) {
                              style={{ width: `${Math.min(100, Math.max(0, pct))}%` }} />
                       </div>
                     )}
-                    <p className="text-xs text-muted-foreground mt-0.5 break-words">{st.detail}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 break-words">
+                      {st.detail}
+                      {st.state !== "complete" && st.lastSuccessAt && (
+                        <span className="text-muted-foreground/70">
+                          {" "}&middot; last succeeded {fmtUtc(st.lastSuccessAt)}
+                        </span>
+                      )}
+                      {st.state !== "complete" && !st.lastSuccessAt && when && (
+                        <span className="text-muted-foreground/70">
+                          {" "}&middot; last ran {when}{dur ? ` (${dur})` : ""}
+                        </span>
+                      )}
+                    </p>
                   </div>
                 </Link>
               </div>
@@ -184,37 +235,41 @@ function BusinessDayPanel({ bd }: { bd: any }) {
           })}
         </div>
 
-        {/* BUSINESS vs TECHNICAL. These need different people, and a single
-            merged list makes each of them read the other's items to find
-            their own. Shown only when there is something to act on. */}
-        {(business.length > 0 || technical.length > 0) && (
-          <div className="grid sm:grid-cols-2 gap-4 mt-4 pt-4 border-t">
-            <div>
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
-                Business &mdash; finance action
-              </p>
-              {business.length === 0
-                ? <p className="text-xs text-muted-foreground">Nothing outstanding.</p>
-                : business.map((st: any) => (
-                    <div key={st.key} className="text-sm mb-1.5">
-                      <span className="font-medium">{st.label}</span>
-                      <span className="text-muted-foreground"> &mdash; {st.reason ?? st.detail}</span>
-                    </div>
-                  ))}
-            </div>
-            <div>
-              <p className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
-                Technical &mdash; engineering action
-              </p>
-              {technical.length === 0
-                ? <p className="text-xs text-muted-foreground">Nothing outstanding.</p>
-                : technical.map((st: any) => (
-                    <div key={st.key} className="text-sm mb-1.5">
-                      <span className="font-medium">{st.label}</span>
-                      <span className="text-muted-foreground"> &mdash; {st.reason ?? st.detail}</span>
-                    </div>
-                  ))}
-            </div>
+        {/* THREE lists, by owner. Two was wrong: waiting for reference data
+            and waiting for a named person to press approve have different
+            owners and different remedies, and an engineer reading a merged
+            list cannot tell whether to investigate infrastructure, chase data,
+            or simply wait. Each column names its owner so the board needs no
+            legend. */}
+        {(technical.length > 0 || business.length > 0 || human.length > 0) && (
+          <div className="grid sm:grid-cols-3 gap-4 mt-4 pt-4 border-t">
+            {([
+              { key: "technical", title: "Technical", owner: "Engineering",
+                items: technical, cls: "text-red-400" },
+              { key: "business",  title: "Business",  owner: "Finance operations",
+                items: business,  cls: "text-amber-400" },
+              { key: "human",     title: "Human",     owner: "Finance",
+                items: human,     cls: "text-amber-400" },
+            ] as const).map(col => (
+              <div key={col.key}>
+                <div className="flex items-baseline gap-2 mb-2">
+                  <p className={`text-[11px] uppercase tracking-wide font-medium ${col.cls}`}>
+                    {col.title}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">{col.owner}</p>
+                </div>
+                {col.items.length === 0
+                  ? <p className="text-xs text-muted-foreground">Nothing outstanding.</p>
+                  : col.items.map((st: any) => (
+                      <div key={st.key} className="mb-2">
+                        <p className="text-sm font-medium leading-tight">{st.label}</p>
+                        <p className="text-xs text-muted-foreground leading-tight mt-0.5">
+                          {st.reason ?? st.detail}
+                        </p>
+                      </div>
+                    ))}
+              </div>
+            ))}
           </div>
         )}
 

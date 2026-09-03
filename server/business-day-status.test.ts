@@ -202,15 +202,18 @@ describe('the blocker is named, with a reason', () => {
   });
 });
 
-describe('business and technical issues are separated', () => {
-  it('routes a run failure to technical and an approval wait to business', () => {
-    // An engineer and a finance controller should not have to read each
-    // other's list to find their own item.
+describe('issues are separated three ways, by owner', () => {
+  it('routes an approval wait to HUMAN, not to business', () => {
+    // Folding approval into "business" was wrong: waiting for reference data
+    // and waiting for a named person to press approve have different owners
+    // and different remedies.
     const ev = allComplete();
     delete ev.invoice_send;                                  // awaiting approval
     const ok = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: ev });
-    expect(ok.businessIssues.map(s => s.key)).toEqual(['invoice_send']);
+    expect(ok.humanIssues.map(s => s.key)).toEqual(['invoice_send']);
+    expect(ok.businessIssues).toHaveLength(0);
     expect(ok.technicalIssues).toHaveLength(0);
+    expect(ok.humanIssues[0].owner).toBe('Finance');
 
     const ev2 = allComplete();
     ev2.snapshot = { coveredDay: null, failed: true, note: 'connection refused' };
@@ -221,12 +224,14 @@ describe('business and technical issues are separated', () => {
     // callout points at the same team as the root cause.
     expect(bad.technicalIssues.map(s => s.key)).toContain('margin');
     expect(bad.businessIssues.map(s => s.key)).not.toContain('margin');
+    expect(bad.technicalIssues[0].owner).toBe('Engineering');
   });
 
   it('never classifies a completed stage as an issue', () => {
     const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: allComplete() });
     expect(r.businessIssues).toHaveLength(0);
     expect(r.technicalIssues).toHaveLength(0);
+    expect(r.humanIssues).toHaveLength(0);
   });
 });
 
@@ -274,5 +279,96 @@ describe('progress, timing and navigation', () => {
     const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: allComplete() });
     expect(r.stages.every(s => typeof s.href === 'string' && s.href.startsWith('/'))).toBe(true);
     expect(new Set(r.stages.map(s => s.href)).size).toBeGreaterThan(5);
+  });
+});
+
+describe('Finance Ready Today — the top line', () => {
+  it('says yes with all stages complete', () => {
+    const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: allComplete() });
+    expect(r.readiness.ready).toBe('yes');
+    expect(r.readiness.reason).toContain('All required stages completed');
+    expect(r.readiness.reason).toContain('2026-09-02');
+  });
+
+  it('still says YES when invoices are waiting for approval', () => {
+    // The gate is the system working. Reporting it as unready would train
+    // people to ignore the top line on every normal day.
+    const ev = allComplete(); delete ev.invoice_send;
+    const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: ev });
+    expect(r.readiness.ready).toBe('yes');
+    expect(r.readiness.reason).toContain('waiting for approval');
+  });
+
+  it('says no and names the cause when a stage failed', () => {
+    const ev = allComplete();
+    ev.collect = { coveredDay: null, failed: true, reason: 'Collection incomplete (33/48 jobs)' };
+    for (const k of ['verify','dmr','snapshot','margin','reconcile','invoice_draft','invoice_send'] as StageKey[]) delete ev[k];
+    const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: ev });
+    expect(r.readiness.ready).toBe('no');
+    expect(r.readiness.reason).toContain('Collection incomplete (33/48 jobs)');
+  });
+
+  it('refuses both answers when a stage cannot be seen', () => {
+    // Saying yes would overclaim; saying no would assert a failure that did
+    // not happen. Reconciliation is in exactly this position today.
+    const ev = allComplete();
+    ev.reconcile = { unavailable: true };
+    delete ev.invoice_draft; delete ev.invoice_send;
+    const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: ev });
+    expect(r.readiness.ready).toBe('unconfirmed');
+    expect(r.readiness.reason).toContain('cannot be confirmed');
+  });
+
+  it('does not call a not-yet-due day unready', () => {
+    const r = assessBusinessDay({ nowMs: NIGHT, scheduledHourUtc: 2, evidence: {} });
+    expect(r.readiness.ready).toBe('unconfirmed');
+    expect(r.readiness.reason).toContain('not due yet');
+  });
+});
+
+describe('both denominators, because they answer different questions', () => {
+  it('carries business coverage alongside per-stage runtime progress', () => {
+    // "How is tonight's run going" is 33/48 jobs attempted. "How much of the
+    // business can be billed" is 45/49 customers collected. Choosing one
+    // leaves the other question unanswered.
+    const ev = allComplete();
+    ev.collect = { coveredDay: '2026-09-02',
+                   progress: { done: 48, total: 48, unit: 'jobs' } };
+    const r = assessBusinessDay({
+      nowMs: MORNING, scheduledHourUtc: 2, evidence: ev,
+      coverage: { done: 45, total: 49, unit: 'customers' },
+    });
+    expect(r.stages.find(s => s.key === 'collect')!.progress)
+      .toEqual({ done: 48, total: 48, unit: 'jobs' });
+    expect(r.coverage).toEqual({ done: 45, total: 49, unit: 'customers' });
+    expect(r.readiness.reason).toContain('Coverage 45/49 customers');
+  });
+
+  it('is null when the caller did not measure it', () => {
+    const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: allComplete() });
+    expect(r.coverage).toBeNull();
+    expect(r.readiness.reason).not.toContain('Coverage');
+  });
+});
+
+describe('last SUCCESSFUL completion is not the last run', () => {
+  it('keeps them apart on a failed stage', () => {
+    // A failed stage has a recent run and an older success. Showing the run
+    // time under a red mark implies the stage did something it did not.
+    const ev = allComplete();
+    ev.margin = { coveredDay: null, failed: true, note: 'timeout',
+                  lastRunAt: '2026-09-03T06:00:00Z',
+                  lastSuccessAt: '2026-09-02T03:12:00Z' };
+    delete ev.reconcile; delete ev.invoice_draft; delete ev.invoice_send;
+    const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: ev });
+    const m = r.stages.find(s => s.key === 'margin')!;
+    expect(m.lastRunAt).toBe('2026-09-03T06:00:00Z');
+    expect(m.lastSuccessAt).toBe('2026-09-02T03:12:00Z');
+    expect(m.state).toBe('failed');
+  });
+
+  it('omits a success timestamp the caller never supplied', () => {
+    const r = assessBusinessDay({ nowMs: MORNING, scheduledHourUtc: 2, evidence: allComplete() });
+    expect(r.stages[0].lastSuccessAt).toBeUndefined();
   });
 });

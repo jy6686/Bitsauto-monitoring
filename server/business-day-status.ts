@@ -76,11 +76,27 @@ export const STATE_TONE: Record<StageState, StageTone> = {
 };
 
 /**
- * Who has to act. A business blocker needs a person in finance; a technical
- * one needs an engineer. Mixing them in a single list is how a dashboard sends
- * the wrong person to look at the wrong thing.
+ * Who has to act. Three, not two.
+ *
+ * The first version folded approval into `business`, which was wrong: waiting
+ * for reference data and waiting for a named person to press approve are
+ * different situations with different owners and different remedies. An
+ * engineer reading a merged list cannot tell whether to investigate
+ * infrastructure, chase data, or simply wait.
+ *
+ *   technical  an engineer investigates — a run broke, a service is down
+ *   business   data or upstream state is missing — finance or ops chases it
+ *   human      the platform is finished and a person must act. Nothing is
+ *              wrong; this is the approval gate working as designed.
  */
-export type IssueClass = 'business' | 'technical';
+export type IssueClass = 'business' | 'technical' | 'human';
+
+/** Who owns each class, named so the board does not need a legend. */
+export const ISSUE_OWNER: Record<IssueClass, string> = {
+  technical: 'Engineering',
+  business:  'Finance operations',
+  human:     'Finance',
+};
 
 /** Where a stage's detail lives, for the board to double as navigation. */
 export const STAGE_HREF: Record<StageKey, string> = {
@@ -116,11 +132,21 @@ export interface StageStatus {
   /** Real counts only. Omitted when the caller could not measure them —
    *  a fabricated denominator is worse than no progress bar. */
   progress?: StageProgress;
-  /** When this stage last SUCCEEDED, and how long it took. */
+  /** When this stage last RAN, successfully or not, and how long it took. */
   lastRunAt?: string | null;
   durationMs?: number | null;
+  /**
+   * When this stage last COMPLETED SUCCESSFULLY. Distinct from lastRunAt on
+   * purpose: a failed stage has a recent run and an older success, and showing
+   * the run time under a red mark implies the stage did something it did not.
+   * A green mark with a real completion timestamp is the difference between
+   * "the check passed" and "the check ran".
+   */
+  lastSuccessAt?: string | null;
   /** Set only when this stage is not complete. */
   issueClass?: IssueClass;
+  /** Who owns the next action. Derived from issueClass, carried for the UI. */
+  owner?: string;
   /** Short phrase for the blocker callout — the WHY, without the stage name. */
   reason?: string;
   /** Detail page for this stage. */
@@ -168,6 +194,7 @@ export interface StageEvidence {
   /** Real counts. Omit rather than invent a denominator. */
   progress?: StageProgress;
   lastRunAt?: string | null;
+  lastSuccessAt?: string | null;
   durationMs?: number | null;
   /** The caller could not determine this stage's status at all. Distinct from
    *  failure: it means no integration or no answer, not a bad answer. */
@@ -178,8 +205,31 @@ export interface StageEvidence {
   issueClass?: IssueClass;
 }
 
+/**
+ * The question an executive asks in the first three seconds.
+ *
+ * Deliberately THREE values, not two. "Yes" and "No" are the answers worth
+ * having, but a stage the platform cannot see supports neither: saying yes
+ * would overclaim and saying no would assert a failure that did not happen.
+ * Reconciliation is in exactly that position today, so the third value is not
+ * hypothetical.
+ *
+ * The human approval gate does NOT make the answer no. Automation finishing
+ * its part and handing over is the system working; readiness describes whether
+ * finance CAN operate, not whether every box is ticked.
+ */
+export type ReadyAnswer = 'yes' | 'no' | 'unconfirmed';
+
+export interface Readiness {
+  ready: ReadyAnswer;
+  /** One sentence. Names the cause when the answer is not yes. */
+  reason: string;
+}
+
 export interface BusinessDayInput {
   nowMs: number;
+  /** Business coverage — customers with a completed collection for this day. */
+  coverage?: { done: number; total: number; unit: string };
   scheduledHourUtc: number;
   graceHours?: number;
   /** Force the day under judgement. Normally derived from the clock. */
@@ -207,6 +257,18 @@ export interface BusinessDayStatus {
    *  have to read each other's list to find their own item. */
   businessIssues:  StageStatus[];
   technicalIssues: StageStatus[];
+  /** Nothing is wrong here — a person simply has to act. */
+  humanIssues:     StageStatus[];
+  /**
+   * BUSINESS coverage, alongside the runtime progress on each stage. These
+   * answer different questions and both get asked: "how is tonight's run
+   * going" is 33/48 jobs attempted, while "how much of the business is ready
+   * to bill" is 45/49 customers with a completed collection. Choosing one
+   * leaves the other question unanswered.
+   */
+  coverage: { done: number; total: number; unit: string } | null;
+  /** The one line an executive reads first. */
+  readiness: Readiness;
   /** Automated stages complete / automated stages total. Not a percentage. */
   completed: number;
   automatedTotal: number;
@@ -290,7 +352,7 @@ export function assessBusinessDay(input: BusinessDayInput): BusinessDayStatus {
     const issueClass: IssueClass | undefined =
       state === 'complete' ? undefined
       : ev.issueClass ? ev.issueClass
-      : state === 'awaiting_approval' ? 'business'
+      : state === 'awaiting_approval' ? 'human'
       : state === 'failed' ? 'technical'
       : state === 'unavailable' ? 'technical'
       : upstreamClass ?? 'business';
@@ -300,9 +362,10 @@ export function assessBusinessDay(input: BusinessDayInput): BusinessDayStatus {
       targetDay, href: STAGE_HREF[key],
       detail: ev.detail ?? describe(key, state, covers, targetDay, ev.note ?? null, upstreamBroken),
       ...(ev.progress   ? { progress: ev.progress }     : {}),
-      ...(ev.lastRunAt  !== undefined ? { lastRunAt: ev.lastRunAt }   : {}),
+      ...(ev.lastRunAt     !== undefined ? { lastRunAt: ev.lastRunAt }         : {}),
+      ...(ev.lastSuccessAt !== undefined ? { lastSuccessAt: ev.lastSuccessAt } : {}),
       ...(ev.durationMs !== undefined ? { durationMs: ev.durationMs } : {}),
-      ...(issueClass ? { issueClass } : {}),
+      ...(issueClass ? { issueClass, owner: ISSUE_OWNER[issueClass] } : {}),
       ...(ev.reason ? { reason: ev.reason }
          : state === 'blocked' && upstreamBroken
            ? { reason: `${STAGE_LABEL[upstreamBroken]} did not complete` } : {}),
@@ -340,6 +403,10 @@ export function assessBusinessDay(input: BusinessDayInput): BusinessDayStatus {
     targetDay, verdict, firstBlocker, stages,
     businessIssues:  issues.filter(s => s.issueClass === 'business'),
     technicalIssues: issues.filter(s => s.issueClass === 'technical'),
+    humanIssues:     issues.filter(s => s.issueClass === 'human'),
+    coverage: input.coverage ?? null,
+    readiness: readinessFor(verdict, targetDay, firstBlocker, completed, automated.length,
+                            input.coverage ?? null),
     completed, automatedTotal: automated.length,
     headline: headlineFor(verdict, targetDay, firstBlocker, completed, automated.length),
   };
@@ -375,6 +442,54 @@ function describe(
       return covers
         ? `Covers ${covers}; ${targetDay} not yet processed`
         : `${targetDay} not yet processed`;
+  }
+}
+
+/**
+ * "Finance Ready Today" — the top line.
+ *
+ * Ready means the automated pipeline has done its part for the business day,
+ * so finance can operate. Invoices sitting in approval is NOT a no: the gate
+ * is the system working as designed, and reporting it as unready would train
+ * people to ignore the top line on every normal day.
+ */
+function readinessFor(
+  verdict: Verdict, day: string, blocker: StageStatus | null,
+  done: number, total: number,
+  coverage: { done: number; total: number; unit: string } | null,
+): Readiness {
+  const cov = coverage && coverage.total > 0
+    ? ` Coverage ${coverage.done}/${coverage.total} ${coverage.unit}.` : '';
+
+  switch (verdict) {
+    case 'complete':
+      return { ready: 'yes',
+               reason: `All required stages completed for business day ${day}.${cov}` };
+    case 'awaiting_approval':
+      // Automation finished. A person has to release the invoices, which is
+      // the control working, not a fault.
+      return { ready: 'yes',
+               reason: `All required stages completed for business day ${day}. ` +
+                       `Invoices are drafted and waiting for approval.${cov}` };
+    case 'unconfirmed':
+      return { ready: 'unconfirmed',
+               reason: blocker
+                 ? `${blocker.label} cannot be confirmed, so readiness for ${day} is unknown. ` +
+                   `${done} of ${total} stages completed.${cov}`
+                 : `Readiness for ${day} cannot be confirmed.${cov}` };
+    case 'not_due':
+      return { ready: 'unconfirmed',
+               reason: `Business day ${day} is not due yet — collection starts tonight.` };
+    case 'in_progress':
+      return { ready: 'no',
+               reason: `Business day ${day} is still processing — ${done} of ${total} ` +
+                       `stages completed.${cov}` };
+    case 'blocked':
+      return { ready: 'no',
+               reason: blocker
+                 ? `${blocker.label} incomplete${blocker.reason ? ` — ${blocker.reason}` : ''}. ` +
+                   `${done} of ${total} stages completed for ${day}.${cov}`
+                 : `Business day ${day} is incomplete.${cov}` };
   }
 }
 

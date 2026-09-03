@@ -39865,7 +39865,8 @@ ${footer}
         } catch { return null; }
       };
 
-      const [dmrR, snapR, marginR, cdrR, jobsR, invR, runR, matR] = await Promise.all([
+      const [dmrR, snapR, marginR, cdrR, jobsR, invR, runR, matR,
+             covR, pipeOkR, collectOkR] = await Promise.all([
         probe(`SELECT MAX(report_date)::text AS d,
                       COUNT(*) FILTER (WHERE report_date = '${day}') AS rows_for_day
                  FROM daily_minutes_reports`),
@@ -39900,6 +39901,27 @@ ${footer}
         probe(`SELECT completed_at::text AS at, duration_ms, clients_processed
                  FROM materialization_runs WHERE status = 'success'
                 ORDER BY started_at DESC LIMIT 1`),
+        // BUSINESS COVERAGE — the second denominator. Per-stage progress
+        // answers "how is tonight's run going" (48 jobs attempted); this
+        // answers "how much of the business can be billed" (45 of 49
+        // customers collected). Both questions get asked and they are not the
+        // same question, so neither number substitutes for the other.
+        //
+        // Numerator is customers with a COMPLETED collection job for the day,
+        // not customers with rows — a customer with no calls that day is
+        // correctly collected and would otherwise be counted as missing.
+        probe(`SELECT (SELECT COUNT(DISTINCT i_account) FROM seed_jobs
+                        WHERE job_id LIKE 'recon-${day}-%' AND status = 'done'
+                          AND i_account IS NOT NULL) AS done,
+                      (SELECT COUNT(*) FROM companies
+                        WHERE sippy_i_account IS NOT NULL AND status = 'active') AS total`),
+        // LAST SUCCESSFUL completion per stage, which is not the last run. A
+        // failed stage has a recent run and an older success, and a timestamp
+        // under a red mark must not imply the stage did something it did not.
+        probe(`SELECT MAX(completed_at)::text AS at FROM finance_pipeline_runs
+                WHERE status = 'success'`),
+        probe(`SELECT MAX(updated_at)::text AS at FROM seed_jobs
+                WHERE job_id LIKE 'recon-%' AND status = 'done'`),
       ]);
 
       const running = runR?.status === 'running';
@@ -39918,6 +39940,7 @@ ${footer}
         collect: {
           coveredDay: cdrR?.d ?? null,
           lastRunAt: jobsR?.last_at ?? null,
+          lastSuccessAt: collectOkR?.at ?? null,
           durationMs: (jobsR?.first_at && jobsR?.last_at)
             ? Math.max(0, Date.parse(jobsR.last_at) - Date.parse(jobsR.first_at)) : null,
           ...(jobTotal > 0
@@ -39928,13 +39951,15 @@ ${footer}
         // collection. It inherits the collected day and deliberately carries NO
         // progress of its own rather than borrowing collection's and implying a
         // measurement that was never taken.
-        verify:   { coveredDay: cdrR?.d ?? null, lastRunAt: jobsR?.last_at ?? null },
+        verify:   { coveredDay: cdrR?.d ?? null, lastRunAt: jobsR?.last_at ?? null,
+                    lastSuccessAt: collectOkR?.at ?? null },
         dmr: {
           coveredDay: dmrR?.d ?? null,
           running: running && runDay === day,
           failed: stageRun('dmr')?.status === 'failed',
           note: stageRun('dmr')?.error ?? null,
-          lastRunAt: runFinished, durationMs: stageRun('dmr')?.durationMs ?? null,
+          lastRunAt: runFinished, lastSuccessAt: pipeOkR?.at ?? null,
+          durationMs: stageRun('dmr')?.durationMs ?? null,
           ...(num(dmrR?.rows_for_day) > 0
             ? { progress: { done: num(dmrR?.rows_for_day), total: num(dmrR?.rows_for_day), unit: 'reports' } }
             : {}),
@@ -39944,6 +39969,7 @@ ${footer}
           failed: stageRun('snapshot')?.status === 'failed',
           note: stageRun('snapshot')?.error ?? null,
           lastRunAt: matR?.at ?? runFinished,
+          lastSuccessAt: matR?.at ?? null,
           durationMs: matR?.duration_ms ?? stageRun('snapshot')?.durationMs ?? null,
           ...(num(snapR?.accts) > 0
             ? { progress: { done: num(snapR?.accts),
@@ -39955,7 +39981,8 @@ ${footer}
           coveredDay: marginR?.d ?? null,
           failed: stageRun('margin')?.status === 'failed',
           note: stageRun('margin')?.error ?? null,
-          lastRunAt: runFinished, durationMs: stageRun('margin')?.durationMs ?? null,
+          lastRunAt: runFinished, lastSuccessAt: pipeOkR?.at ?? null,
+          durationMs: stageRun('margin')?.durationMs ?? null,
         },
         // Not inferred from a table's max date. Reconciliation is a VERDICT,
         // and until the daily gate feeds this view it must say it cannot be
@@ -39977,8 +40004,12 @@ ${footer}
         },
       };
 
+      const covTotal = num(covR?.total);
       const status = assessBusinessDay({
         nowMs: now, scheduledHourUtc: hour, targetDayOverride: day, evidence,
+        ...(covTotal > 0
+          ? { coverage: { done: num(covR?.done), total: covTotal, unit: 'customers' } }
+          : {}),
       });
 
       res.json({

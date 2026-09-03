@@ -766,8 +766,19 @@ export function CdrImportMonitor() {
                       <span className="font-medium">{who.title}</span>
                       <span className="ml-1.5 text-muted-foreground tabular-nums">{job.periodStart}</span>
                     </span>
+                    {/* "33/48" with no unit reads as accounts. It is TIME
+                        SLICES within this one account's day — 48 slices of 30
+                        minutes is 24 hours — so 33/48 means the account got
+                        two thirds of the way through its own day, not that 15
+                        accounts were missed. The label costs nothing and the
+                        ambiguity has already misled a reading of this panel. */}
                     <span className="shrink-0 text-muted-foreground tabular-nums">
-                      {job.completedSlices}/{job.totalSlices} · {num(job.storedTotal)} stored · {elapsed(job.startedAt, job.finishedAt)}
+                      {job.completedSlices}/{job.totalSlices} slices · {num(job.storedTotal)} stored · {elapsed(job.startedAt, job.finishedAt)}
+                      {job.retriesTotal != null && job.retriesTotal > 0 && (
+                        <span className="text-amber-600 dark:text-amber-400">
+                          {" "}&middot; {job.retriesTotal} retries, {Math.round(Number(job.backoffMs ?? 0) / 60000)}m backoff
+                        </span>
+                      )}
                     </span>
                     <StatusBadge status={job.status} />
                   </div>
