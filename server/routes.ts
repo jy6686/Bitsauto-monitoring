@@ -36266,7 +36266,7 @@ ${footer}
   // and `ready` (everything proven) being separate.
   app.get('/api/finance/deploy-verification',
     (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
-    async (_req: any, res: any) => {
+    async (req: any, res: any) => {
     try {
       const { verifyDeployment } = await import('./deploy-verification');
 
@@ -36308,31 +36308,63 @@ ${footer}
         hasDefault: r.column_default != null,
       }));
 
-      // Step 5. Only rows created AFTER the migration count: 507 deliberately
-      // NULLs pre-instrumentation rows, so a NULL on an old row is correct.
+      // Step 5, the runtime chain. Only rows STARTED after the migration
+      // count: 507 deliberately NULLs pre-instrumentation rows, so a NULL on
+      // an older row is correct and counting it would manufacture a failure.
+      //
+      // started_at, not created_at — seed_jobs has no created_at column, and
+      // "a job RAN after the migration" is the question anyway.
       const applied507 = ledger.find(e => e.filename === REQUIRED[3])?.appliedAt ?? null;
-      let telemetry = null, telemetryError: string | null = null;
+      let run = null, runError: string | null = null;
       try {
         if (applied507) {
-          // started_at, not created_at — seed_jobs has no created_at column,
-          // and "a job RAN after the migration" is the question anyway.
           const t: any = await db.execute(sql`
-            SELECT count(*)::int AS rows_since,
-                   count(retries_total)::int AS instrumented,
-                   max(started_at) AS newest
+            SELECT count(*)::int                                        AS started,
+                   count(*) FILTER (WHERE status = 'running')::int      AS running,
+                   count(*) FILTER (WHERE status = 'done')::int         AS completed,
+                   count(*) FILTER (WHERE status NOT IN ('running','done'))::int AS failed,
+                   -- Telemetry counted only over COMPLETED jobs: a run still in
+                   -- flight has not reached its final write yet, and counting it
+                   -- as a miss would fail a deploy for being observed early.
+                   count(retries_total) FILTER (WHERE status = 'done')::int AS with_retry,
+                   count(worker_id)     FILTER (WHERE status = 'done')::int AS with_worker,
+                   -- The day sentinel. Per-account done rows prove those
+                   -- accounts ran, never that the day finished.
+                   count(*) FILTER (WHERE status = 'done'
+                                      AND job_id = 'recon-' || period_start)::int AS sentinels,
+                   max(finished_at) FILTER (WHERE status = 'done')       AS newest_done
               FROM seed_jobs
              WHERE started_at > ${applied507}::timestamptz`);
           const row = (t.rows ?? [])[0] ?? {};
-          telemetry = {
+          const n = (x: any) => Number(x ?? 0);
+          run = {
             migrationAppliedAt: applied507,
-            rowsSince: Number(row.rows_since ?? 0),
-            rowsSinceInstrumented: Number(row.instrumented ?? 0),
-            newestRowAt: row.newest ? new Date(row.newest).toISOString() : null,
+            jobsStarted:   n(row.started),
+            jobsRunning:   n(row.running),
+            jobsFailed:    n(row.failed),
+            jobsCompleted: n(row.completed),
+            completedWithRetryTelemetry: n(row.with_retry),
+            completedWithWorkerMetadata: n(row.with_worker),
+            daySentinels:  n(row.sentinels),
+            newestCompletedAt: row.newest_done ? new Date(row.newest_done).toISOString() : null,
           };
         } else {
-          telemetry = { migrationAppliedAt: null, rowsSince: 0, rowsSinceInstrumented: 0, newestRowAt: null };
+          run = {
+            migrationAppliedAt: null,
+            jobsStarted: 0, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 0,
+            completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
+            daySentinels: 0, newestCompletedAt: null,
+          };
         }
-      } catch (e: any) { telemetryError = e?.message ?? 'unknown error'; }
+      } catch (e: any) { runError = e?.message ?? 'unknown error'; }
+
+      const { getBuildInfo } = await import('./build-info');
+      const build: any = getBuildInfo();
+      let schemaLatest: string | null = null;
+      try {
+        const s: any = await db.execute(sql`SELECT max(filename) AS latest FROM schema_migrations`);
+        schemaLatest = ((s.rows ?? [])[0] ?? {}).latest ?? null;
+      } catch { schemaLatest = null; }
 
       res.json({
         readOnly: true,
@@ -36341,7 +36373,19 @@ ${footer}
           requiredMigrations: REQUIRED,
           ledger, pending: ledgerData.pending ?? [],
           columns, expectedColumns: EXPECTED,
-          telemetry, telemetryError,
+          version: {
+            gitCommit: build.gitCommit ?? null,
+            gitBranch: build.gitBranch ?? null,
+            buildTime: build.buildTime ?? null,
+            environment: build.environment ?? null,
+            schemaLatest,
+            // Optional caller assertion. The process cannot know what it was
+            // SUPPOSED to be running, which is why a stale build went two days
+            // unnoticed; CI or an operator supplies it.
+            expectedCommit: typeof req.query?.expectedCommit === 'string'
+              ? req.query.expectedCommit : null,
+          },
+          run, runError,
         }),
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }

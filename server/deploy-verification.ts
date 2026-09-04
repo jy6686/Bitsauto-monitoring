@@ -1,66 +1,101 @@
 /**
- * deploy-verification.ts — did the finance package actually land?
+ * deploy-verification.ts — did the finance package actually land, and has the
+ * running system PROVEN it?
  *
- * WHY THIS IS CODE AND NOT A MARKDOWN CHECKLIST. A checklist cannot fail. It
- * gets read once on the day it is written, skimmed on the second deploy, and
- * skipped on the third — and the deploy it was written for is the one nobody
- * needed it on. These are the same five steps, executable, so the answer is a
- * measurement rather than a memory of having looked.
+ * WHY THIS IS CODE AND NOT A MARKDOWN CHECKLIST. A checklist cannot fail. It is
+ * read on the first deploy, skimmed on the second and skipped on the third —
+ * and the third is the one that needed it. A checklist records what someone
+ * intended to do; this reports what the running system has demonstrated.
  *
- * ── The distinction that shapes this module ────────────────────────────────
- * A migration applying and the instrumentation WORKING are different claims,
- * and only the first is provable at deploy time. Migrations 504–507 add
- * columns whose whole purpose is to be filled by the nightly collector; a
- * successful migration proves the schema changed and nothing else. Until a
- * collection run has happened, the telemetry check is `pending`, which is a
- * third state — not a pass, and emphatically not a failure.
+ * ── Three kinds of verification, deliberately separated ────────────────────
+ *   SCHEMA    the migrations applied and the columns exist
+ *   CODE      the build running right now is the one that was meant to ship
+ *   RUNTIME   the nightly process exercised the new code and wrote to it
  *
- * Collapsing `pending` into `fail` would page someone at 03:00 for a deploy
- * that went perfectly. Collapsing it into `pass` would report the package
- * verified when the only thing verified is that Postgres accepted four ALTER
- * statements. So `ok` (nothing is broken) and `ready` (everything is proven)
- * are reported separately.
+ * They fail independently and they fail differently. On 2026-09-04 the source
+ * tree held the rating fix while production ran commit 4055d7a9 at schema 503:
+ * every schema check would have passed on the repository and none of it was
+ * deployed. Only asking the running process reveals that.
  *
- * ── Why nullability is checked and not assumed ─────────────────────────────
- * 504 creates retries_total NOT NULL DEFAULT 0; 507 removes both. Drizzle
- * declares the column nullable. If 504 lands and 507 does not — the runner
- * halts on failure, so this is a real sequence — the ORM and the database
- * disagree in a direction tests cannot catch, because tests do not run against
- * production's schema. An insert of NULL then fails at runtime, in the
- * collector, at night.
+ * ── Why `pending` is a state and not a failure ─────────────────────────────
+ * Migrations 504-507 add columns whose entire purpose is to be filled by the
+ * nightly collector. A successful migration proves the schema changed and
+ * nothing else. Until a collection has RUN and COMPLETED, the runtime checks
+ * are `PENDING`.
+ *
+ * Collapsing that into `FAIL` pages someone at 03:00 for a deploy that went
+ * perfectly. Collapsing it into `PASS` reports the package verified when the
+ * only thing verified is that Postgres accepted four ALTER statements. So
+ * `ok` (nothing is broken) and `ready` (everything is proven) are separate,
+ * and immediately after a good deploy the honest answer is ok=true ready=false.
+ *
+ * ── The runtime chain ──────────────────────────────────────────────────────
+ * "A job started" is not enough — it is exactly the claim that hides a run
+ * which started and immediately crashed. The chain is checked link by link:
+ *
+ *   migration applied → job started → job COMPLETED → retry telemetry written
+ *                     → worker metadata written → day sentinel written
+ *
+ * Each link is its own check so the output names where the chain stopped, and
+ * a link whose prerequisite has not happened is PENDING rather than FAIL:
+ * telemetry cannot be faulted for being absent when nothing has run to write
+ * it. Only a link that HAD its opportunity and did not deliver fails.
  *
  * Pure: no DB, no clock, no I/O. The caller measures; this judges.
  */
 
-export type CheckState =
+export type CheckStatus =
   /** Verified. */
-  | 'pass'
+  | 'PASS'
   /** Verified to be wrong. */
-  | 'fail'
+  | 'FAIL'
   /** Cannot be true yet, and that is expected. Not a failure. */
-  | 'pending'
+  | 'PENDING'
   /** Could not be measured. Neither reassuring nor alarming. */
-  | 'unknown';
+  | 'UNKNOWN';
 
 export interface DeployCheck {
   id: string;
-  /** The owner's step number, so the output maps onto the agreed checklist. */
+  /** The agreed checklist step this belongs to. */
   step: number;
   title: string;
-  state: CheckState;
+  status: CheckStatus;
   /** What was measured, with the values that produced the verdict. */
   detail: string;
   /** What to do about it. Empty when passing. */
   remedy: string;
 }
 
-export interface DeployVerification {
-  /** True when nothing is broken. A `pending` telemetry check does not clear this. */
+export interface DeployOverall {
+  /** PASS only when every check passed; FAIL if any failed; else PENDING/UNKNOWN. */
+  status: CheckStatus;
+  /** Nothing is known to be broken. A PENDING runtime check does not clear this. */
   ok: boolean;
-  /** True only when every check passes, telemetry included. */
+  /** Everything has been exercised successfully. */
   ready: boolean;
-  checks: DeployCheck[];
   headline: string;
+}
+
+export interface DeployVerification {
+  overall: DeployOverall;
+  checks: DeployCheck[];
+  /** Echoed so a caller sees what it is running against without a second call. */
+  runtime: VersionFacts & { expectedSchema: string };
+}
+
+export interface VersionFacts {
+  gitCommit: string | null;
+  gitBranch: string | null;
+  buildTime: string | null;
+  environment: string | null;
+  /** Newest migration the DATABASE reports, read live. */
+  schemaLatest: string | null;
+  /**
+   * Optional caller assertion: the commit that was supposed to be deployed.
+   * Supplied by CI or an operator; the process cannot know it on its own,
+   * which is precisely why the mismatch went unnoticed for two days.
+   */
+  expectedCommit?: string | null;
 }
 
 export interface LedgerEntry {
@@ -84,91 +119,126 @@ export interface ExpectedColumn {
   mustBeNullable: boolean;
 }
 
-export interface TelemetryFacts {
-  /** When the newest required migration landed. */
+/** The nightly chain, measured. All counts are since the migration landed. */
+export interface RunFacts {
   migrationAppliedAt: string | null;
-  /** seed_jobs rows created after that moment. */
-  rowsSince: number;
-  /** Of those, how many carry a non-null retries_total. */
-  rowsSinceInstrumented: number;
-  /** Newest such row, for the message. */
-  newestRowAt: string | null;
+  jobsStarted: number;
+  /** Still in flight. A run in progress is not a failure. */
+  jobsRunning: number;
+  /** Ended in error, or died without finishing. */
+  jobsFailed: number;
+  /** Reached status 'done'. */
+  jobsCompleted: number;
+  /** Of the completed jobs, how many carry a non-null retries_total. */
+  completedWithRetryTelemetry: number;
+  /** Of the completed jobs, how many carry a non-null worker_id. */
+  completedWithWorkerMetadata: number;
+  /** `recon-<date>` rows at status done — the day-completion sentinel. */
+  daySentinels: number;
+  newestCompletedAt: string | null;
 }
 
 export interface DeployFacts {
   /** The highest migration this package requires, e.g. '507_...sql'. */
   targetMigration: string;
-  /** Every migration the package requires, in order. */
   requiredMigrations: readonly string[];
   ledger: readonly LedgerEntry[];
-  /** Migration files known but not applied. */
   pending: readonly string[];
-  /** What the database actually has, for the columns below. */
   columns: readonly ColumnFact[];
-  /** What the ORM declares. */
   expectedColumns: readonly ExpectedColumn[];
-  telemetry: TelemetryFacts | null;
-  /** Why telemetry could not be measured, when it could not. */
-  telemetryError?: string | null;
+  version: VersionFacts;
+  run: RunFacts | null;
+  /** Why the runtime chain could not be measured, when it could not. */
+  runError?: string | null;
 }
 
 const pass = (id: string, step: number, title: string, detail: string): DeployCheck =>
-  ({ id, step, title, state: 'pass', detail, remedy: '' });
+  ({ id, step, title, status: 'PASS', detail, remedy: '' });
+
+const pending = (id: string, step: number, title: string, detail: string, remedy: string): DeployCheck =>
+  ({ id, step, title, status: 'PENDING', detail, remedy });
+
+const fail = (id: string, step: number, title: string, detail: string, remedy: string): DeployCheck =>
+  ({ id, step, title, status: 'FAIL', detail, remedy });
 
 export function verifyDeployment(f: DeployFacts): DeployVerification {
   const checks: DeployCheck[] = [
-    checkSchemaVersion(f),
+    checkRuntimeVersion(f),
     checkMigrationsApplied(f),
     checkColumnsExist(f),
     checkOrmAgreement(f),
-    checkTelemetryFlowing(f),
+    ...checkRuntimeChain(f),
   ];
 
-  const failed  = checks.filter(c => c.state === 'fail');
-  const pending = checks.filter(c => c.state === 'pending');
-  const unknown = checks.filter(c => c.state === 'unknown');
+  const failed  = checks.filter(c => c.status === 'FAIL');
+  const waiting = checks.filter(c => c.status === 'PENDING');
+  const unknown = checks.filter(c => c.status === 'UNKNOWN');
 
   const ok    = failed.length === 0;
-  const ready = ok && pending.length === 0 && unknown.length === 0;
+  const ready = ok && waiting.length === 0 && unknown.length === 0;
+
+  const status: CheckStatus =
+    failed.length  ? 'FAIL'
+  : ready          ? 'PASS'
+  : waiting.length ? 'PENDING'
+                   : 'UNKNOWN';
 
   const headline =
-    !ok      ? `DEPLOY NOT VERIFIED — ${failed.length} check(s) failed: ` +
-               failed.map(c => c.title).join('; ') + '.'
-  : ready    ? 'Package verified end to end, including live telemetry.'
-  : pending.length
-             ? `Schema verified; ${pending.length} check(s) cannot be confirmed yet — ` +
-               pending.map(c => c.title).join('; ') +
-               '. Nothing is wrong; re-run after the next nightly collection.'
-             : `Schema verified, but ${unknown.length} check(s) could not be measured: ` +
-               unknown.map(c => c.title).join('; ') + '.';
+    failed.length  ? `DEPLOY NOT VERIFIED — ${failed.length} check(s) failed: ` +
+                     failed.map(c => c.title).join('; ') + '.'
+  : ready          ? 'Package verified end to end, including a completed nightly run.'
+  : waiting.length ? `Schema and build verified; ${waiting.length} runtime check(s) cannot be ` +
+                     `confirmed yet — ${waiting.map(c => c.title).join('; ')}. Nothing is wrong; ` +
+                     're-run after the next nightly collection completes.'
+                   : `Verified so far, but ${unknown.length} check(s) could not be measured: ` +
+                     unknown.map(c => c.title).join('; ') + '.';
 
-  return { ok, ready, checks, headline };
-}
-
-// ── 1. The build reports the expected schema version ────────────────────────
-
-function checkSchemaVersion(f: DeployFacts): DeployCheck {
-  const applied = f.ledger.filter(e => e.appliedAt).map(e => e.filename).sort();
-  const latest  = applied.length ? applied[applied.length - 1] : null;
-
-  if (latest === f.targetMigration) {
-    return pass('schema-version', 1, 'schemaLatest is the target migration',
-      `Newest applied migration is ${latest}.`);
-  }
   return {
-    id: 'schema-version', step: 1, title: 'schemaLatest is the target migration',
-    state: 'fail',
-    detail: `Newest applied migration is ${latest ?? '(none)'}, expected ${f.targetMigration}.`,
-    remedy: latest && latest < f.targetMigration
-      ? 'The deployment did not boot with the new files, or the runner halted. Check the ' +
-        'boot log for "[migrate] FAILED".'
-      : 'The deployed build is ahead of what this check expects — update targetMigration.',
+    overall: { status, ok, ready, headline },
+    checks,
+    runtime: { ...f.version, expectedSchema: f.targetMigration },
   };
 }
 
-// ── 2. Every required migration is applied, none pending, none drifted ──────
+// ── 1. Is the running build the one that was meant to ship? ─────────────────
+
+function checkRuntimeVersion(f: DeployFacts): DeployCheck {
+  const id = 'runtime-version', step = 1;
+  const title = 'Running build and schema are the expected ones';
+  const v = f.version;
+  const where = `commit ${v.gitCommit ?? 'unknown'} (${v.gitBranch ?? '?'}), built ` +
+                `${v.buildTime ?? 'unknown'}, env ${v.environment ?? 'unknown'}`;
+
+  // The caller's assertion, when it supplied one. The process cannot know what
+  // it was SUPPOSED to be — which is why 4055d7a9 ran for two days unnoticed.
+  if (v.expectedCommit && v.gitCommit && v.expectedCommit !== v.gitCommit) {
+    return fail(id, step, title,
+      `Running ${v.gitCommit}, expected ${v.expectedCommit}. ${where}. ` +
+      `Schema is ${v.schemaLatest ?? '(unreadable)'}.`,
+      'The deployment did not pick up the intended commit. Redeploy; every other check ' +
+      'below is describing the WRONG BUILD and cannot be trusted as evidence for this one.');
+  }
+
+  if (v.schemaLatest !== f.targetMigration) {
+    return fail(id, step, title,
+      `Schema is ${v.schemaLatest ?? '(unreadable)'}, expected ${f.targetMigration}. ${where}.`,
+      v.schemaLatest && v.schemaLatest < f.targetMigration
+        ? 'The running build did not apply the new migrations, or the runner halted. Check the ' +
+          'boot log for "[migrate] FAILED", and confirm this process is talking to the database ' +
+          'you think it is.'
+        : 'The database is ahead of what this package expects — update targetMigration.');
+  }
+
+  return pass(id, step, title,
+    `Schema ${v.schemaLatest} matches the expected ${f.targetMigration}. Running ${where}.` +
+    (v.expectedCommit ? ` Commit matches the expected ${v.expectedCommit}.` : ''));
+}
+
+// ── 2. Every required migration applied, none pending, none drifted ─────────
 
 function checkMigrationsApplied(f: DeployFacts): DeployCheck {
+  const id = 'migrations-applied', step = 2;
+  const title = 'All required migrations applied';
   const byName = new Map(f.ledger.map(e => [e.filename, e]));
   const missing: string[] = [];
   const drifted: string[] = [];
@@ -178,54 +248,46 @@ function checkMigrationsApplied(f: DeployFacts): DeployCheck {
     if (!e || !e.appliedAt) { missing.push(name); continue; }
     if (e.driftedTo) drifted.push(name);
   }
-
   const stillPending = f.requiredMigrations.filter(m => f.pending.includes(m));
 
   if (!missing.length && !drifted.length) {
-    return pass('migrations-applied', 2, 'All required migrations applied',
+    return pass(id, step, title,
       `${f.requiredMigrations.length} migration(s) applied with no checksum drift.`);
   }
 
-  return {
-    id: 'migrations-applied', step: 2, title: 'All required migrations applied',
-    state: 'fail',
-    detail:
-      (missing.length ? `Not applied: ${missing.join(', ')}. ` : '') +
-      (stillPending.length ? `Reported pending: ${stillPending.join(', ')}. ` : '') +
-      (drifted.length ? `Checksum drift (file changed since it was applied): ${drifted.join(', ')}.` : ''),
-    remedy: missing.length
-      // The runner halts rather than skipping, so the FIRST missing one is the cause.
+  return fail(id, step, title,
+    (missing.length ? `Not applied: ${missing.join(', ')}. ` : '') +
+    (stillPending.length ? `Reported pending: ${stillPending.join(', ')}. ` : '') +
+    (drifted.length ? `Checksum drift (file changed since it was applied): ${drifted.join(', ')}.` : ''),
+    missing.length
+      // The runner halts rather than skipping, so the FIRST one is the cause.
       ? `The runner halts after a failure, so ${missing[0]} is the one to diagnose — ` +
         'everything after it was skipped deliberately.'
       : 'A drifted migration was edited after being applied. It is not re-run automatically. ' +
-        'Decide whether the database needs the newer version.',
-  };
+        'Decide whether the database needs the newer version.');
 }
 
 // ── 3. The columns exist ────────────────────────────────────────────────────
 
 function checkColumnsExist(f: DeployFacts): DeployCheck {
+  const id = 'columns-exist', step = 3, title = 'Diagnostic columns exist';
   const have = new Set(f.columns.map(c => `${c.table}.${c.column}`));
-  const absent = f.expectedColumns
-    .map(e => `${e.table}.${e.column}`)
-    .filter(k => !have.has(k));
+  const absent = f.expectedColumns.map(e => `${e.table}.${e.column}`).filter(k => !have.has(k));
 
   if (!absent.length) {
-    return pass('columns-exist', 3, 'Diagnostic columns exist',
-      `All ${f.expectedColumns.length} column(s) present.`);
+    return pass(id, step, title, `All ${f.expectedColumns.length} column(s) present.`);
   }
-  return {
-    id: 'columns-exist', step: 3, title: 'Diagnostic columns exist',
-    state: 'fail',
-    detail: `${absent.length} of ${f.expectedColumns.length} missing: ${absent.join(', ')}.`,
-    remedy: 'The migration reported applied but the column is absent — check for a manual ' +
-            'schema change, or a database other than the one the app is connected to.',
-  };
+  return fail(id, step, title,
+    `${absent.length} of ${f.expectedColumns.length} missing: ${absent.join(', ')}.`,
+    'The migration reported applied but the column is absent — check for a manual schema ' +
+    'change, or a database other than the one this process is connected to.');
 }
 
-// ── 4. The database and the ORM agree about nullability ─────────────────────
+// ── 4. The database and the ORM agree ───────────────────────────────────────
 
 function checkOrmAgreement(f: DeployFacts): DeployCheck {
+  const id = 'orm-agreement', step = 4;
+  const title = 'Database nullability matches the ORM';
   const byKey = new Map(f.columns.map(c => [`${c.table}.${c.column}`, c]));
   const disagreements: string[] = [];
 
@@ -246,70 +308,125 @@ function checkOrmAgreement(f: DeployFacts): DeployCheck {
   }
 
   if (!disagreements.length) {
-    return pass('orm-agreement', 4, 'Database nullability matches the ORM',
+    return pass(id, step, title,
       `${f.expectedColumns.length} column(s) agree, defaults included.`);
   }
-  return {
-    id: 'orm-agreement', step: 4, title: 'Database nullability matches the ORM',
-    state: 'fail',
-    detail: disagreements.join('; ') + '.',
-    remedy: 'This is the 504-applied-without-507 case. Tests cannot catch it because they do ' +
-            'not run against production schema; it surfaces as a runtime insert failure in ' +
-            'the collector, at night. Apply the outstanding migration.',
-  };
+  return fail(id, step, title, disagreements.join('; ') + '.',
+    'This is the 504-applied-without-507 case. Tests cannot catch it because they do not run ' +
+    'against production schema; it surfaces as a runtime insert failure in the collector, at ' +
+    'night. Apply the outstanding migration.');
 }
 
-// ── 5. The instrumentation is recording, not merely present ─────────────────
+// ── 5. The runtime chain, link by link ──────────────────────────────────────
 
-function checkTelemetryFlowing(f: DeployFacts): DeployCheck {
-  const id = 'telemetry-flowing', step = 5;
-  const title = 'New telemetry is being populated';
+function checkRuntimeChain(f: DeployFacts): DeployCheck[] {
+  const step = 5;
+  const ids = ['runtime-job', 'retry-telemetry', 'worker-metadata', 'day-sentinel'] as const;
+  const titles: Record<typeof ids[number], string> = {
+    'runtime-job':     'A nightly collection has COMPLETED',
+    'retry-telemetry': 'Retry accounting is being written',
+    'worker-metadata': 'Worker attribution is being written',
+    'day-sentinel':    'A day-completion sentinel has been written',
+  };
 
-  if (f.telemetryError) {
-    return { id, step, title, state: 'unknown',
-      detail: `Could not measure: ${f.telemetryError}`,
-      remedy: 'Re-run this check once the query can complete.' };
-  }
-  const t = f.telemetry;
-  if (!t) {
-    return { id, step, title, state: 'unknown',
-      detail: 'No telemetry measurement was supplied.',
-      remedy: 'The caller must query seed_jobs for rows created after the migration.' };
-  }
-  if (!t.migrationAppliedAt) {
-    return { id, step, title, state: 'pending',
-      detail: 'The migration has not been applied, so no row could carry the new columns yet.',
-      remedy: 'Resolve the migration checks above first.' };
-  }
+  const allWith = (status: CheckStatus, detail: string, remedy: string): DeployCheck[] =>
+    ids.map(id => ({ id, step, title: titles[id], status, detail, remedy }));
 
-  // The distinction this whole check exists for.
-  if (t.rowsSince === 0) {
-    return { id, step, title, state: 'pending',
-      detail: `No collection job has run since the migration landed at ${t.migrationAppliedAt}. ` +
-              'A successful migration proves the schema changed; only a run proves the ' +
-              'instrumentation records anything.',
-      remedy: 'Re-run this check after the next nightly collection. Nothing is wrong yet.' };
+  if (f.runError) {
+    return allWith('UNKNOWN', `Could not measure: ${f.runError}`,
+      'Re-run this check once the query can complete.');
+  }
+  const r = f.run;
+  if (!r) {
+    return allWith('UNKNOWN', 'No runtime measurement was supplied.',
+      'The caller must query seed_jobs for activity since the migration.');
+  }
+  if (!r.migrationAppliedAt) {
+    return allWith('PENDING',
+      'The migration has not been applied, so nothing could have exercised it yet.',
+      'Resolve the migration checks above first.');
   }
 
-  if (t.rowsSinceInstrumented === 0) {
-    return { id, step, title, state: 'fail',
-      detail: `${t.rowsSince} job(s) have run since ${t.migrationAppliedAt} and NONE carries ` +
-              'retry accounting. The columns exist and the collector is not writing them.',
-      remedy: 'The schema landed but the code that fills it did not, or the deployed build ' +
-              'predates it. Compare the build stamp against the commit that added the ' +
-              'instrumented loop.' };
+  const since = `since the migration landed at ${r.migrationAppliedAt}`;
+
+  // ── Link 1: a job started, and one COMPLETED ──────────────────────────────
+  // "Started" alone is the claim that hides a run which crashed immediately,
+  // which is exactly the failure this deploy is most exposed to.
+  let job: DeployCheck;
+  if (r.jobsStarted === 0) {
+    job = pending(ids[0], step, titles[ids[0]],
+      `No collection job has started ${since}.`,
+      'Re-run after the next nightly collection. Nothing is wrong yet.');
+  } else if (r.jobsCompleted > 0) {
+    job = pass(ids[0], step, titles[ids[0]],
+      `${r.jobsCompleted} of ${r.jobsStarted} job(s) ${since} reached status done` +
+      (r.newestCompletedAt ? `, most recently ${r.newestCompletedAt}.` : '.'));
+  } else if (r.jobsRunning > 0) {
+    job = pending(ids[0], step, titles[ids[0]],
+      `${r.jobsRunning} job(s) started ${since} and are still running. None has completed yet.`,
+      'Re-run when the collection finishes. A run in progress is not a failure.');
+  } else {
+    job = fail(ids[0], step, titles[ids[0]],
+      `${r.jobsStarted} job(s) started ${since} and NONE completed — ` +
+      `${r.jobsFailed} ended in error or died. The schema landed and the first run did not survive.`,
+      'This is the case a migration-only check would have reported as a successful deploy. ' +
+      'Read the newest seed_jobs row\'s last_error, and retry_causes if it was populated.');
   }
 
-  if (t.rowsSinceInstrumented < t.rowsSince) {
-    return { id, step, title, state: 'fail',
-      detail: `${t.rowsSinceInstrumented} of ${t.rowsSince} job(s) since the migration carry ` +
-              'retry accounting. A partial rollout writes the columns on some paths and not ' +
-              'others, which is harder to spot than none at all.',
-      remedy: 'Find the job path that does not record. A NULL here is indistinguishable from ' +
-              'a pre-instrumentation row, so the gap will not announce itself later.' };
+  // Downstream links have had no opportunity unless something completed.
+  const noOpportunity = (id: typeof ids[number]): DeployCheck =>
+    pending(id, step, titles[id],
+      job.status === 'FAIL'
+        ? 'No job has completed, so nothing could have written this.'
+        : `Waiting on the first completed collection ${since}.`,
+      job.status === 'FAIL'
+        ? 'Blocked by the failed run above; fix that first.'
+        : 'Re-run after the next nightly collection completes. Nothing is wrong yet.');
+
+  const populated = (
+    id: typeof ids[number], count: number, what: string, column: string,
+  ): DeployCheck => {
+    if (r.jobsCompleted === 0) return noOpportunity(id);
+    if (count === 0) {
+      return fail(id, step, titles[id],
+        `${r.jobsCompleted} job(s) completed ${since} and NONE carries ${what}. ` +
+        `The column ${column} exists and the collector is not writing it.`,
+        `Nothing writes ${column}. The schema landed but the code that fills it did not, or the ` +
+        'deployed build predates the instrumented loop. Compare the build stamp above against ' +
+        'the commit that added it.');
+    }
+    if (count < r.jobsCompleted) {
+      return fail(id, step, titles[id],
+        `${count} of ${r.jobsCompleted} completed job(s) carry ${what}. A partial rollout ` +
+        'writes the column on some paths and not others.',
+        `Find the job path that does not record ${column}. A NULL there is indistinguishable ` +
+        'from a pre-instrumentation row, so the gap will not announce itself later.');
+    }
+    return pass(id, step, titles[id],
+      `All ${r.jobsCompleted} completed job(s) ${since} carry ${what}.`);
+  };
+
+  const retry  = populated(ids[1], r.completedWithRetryTelemetry, 'retry accounting', 'retries_total');
+  const worker = populated(ids[2], r.completedWithWorkerMetadata, 'worker attribution', 'worker_id');
+
+  // ── Link 4: the day sentinel ──────────────────────────────────────────────
+  // Per-account done rows prove those accounts ran, never that the day
+  // finished. `recon-<date>` at status done is the platform's own claim that a
+  // business day is complete, and it is the only thing that means collected.
+  let sentinel: DeployCheck;
+  if (r.jobsCompleted === 0) {
+    sentinel = noOpportunity(ids[3]);
+  } else if (r.daySentinels > 0) {
+    sentinel = pass(ids[3], step, titles[ids[3]],
+      `${r.daySentinels} day sentinel(s) written ${since}.`);
+  } else {
+    sentinel = fail(ids[3], step, titles[ids[3]],
+      `${r.jobsCompleted} job(s) completed ${since} but no day-completion sentinel was written. ` +
+      'Per-account done rows prove those accounts ran, never that the day finished — a ' +
+      'sentinel-less day is re-collected in full on the next pass.',
+      'The run completed per account and stopped before sealing the day. Check whether every ' +
+      'account in scope reached done; the sentinel is only written when all of them do.');
   }
 
-  return pass(id, step, title,
-    `All ${t.rowsSince} job(s) since ${t.migrationAppliedAt} carry retry accounting` +
-    (t.newestRowAt ? `, most recently ${t.newestRowAt}.` : '.'));
+  return [job, retry, worker, sentinel];
 }
