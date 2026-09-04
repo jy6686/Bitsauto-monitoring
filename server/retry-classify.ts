@@ -85,6 +85,14 @@ const RULES: Array<[RetryCause, RegExp]> = [
 
   ['rate_limit',    /\b429\b|rate ?limit|too many requests|throttl|slow down/i],
 
+  // A CONNECTION-POOL timeout before the generic timeout rule. Production's
+  // real string is "timeout exceeded when trying to connect" — pg's pool
+  // message — and the generic /timeout/ below would file it under
+  // "Switch / network", sending someone to the switch when the pool is the
+  // thing that is exhausted. Observed live on 2026-09-04 alongside 17
+  // flag-read retries, which is the same pool.
+  ['database',      /timeout exceeded when trying to connect|connection pool|pool (?:is )?(?:exhaust|full)|remaining connection slots/i],
+
   // Timeouts before network: ETIMEDOUT is a socket code but the actionable
   // reading is "it did not answer in time".
   ['timeout',       /timeout|timed ?out|ETIMEDOUT|ESOCKETTIMEDOUT|AbortError|aborted|deadline exceeded/i],

@@ -377,13 +377,24 @@ function probePeriods(billingPeriods: any): PolicyCheck {
 function declaredChecks(): PolicyCheck[] {
   return [
     {
+      // Re-checked 2026-09-04 against the code as it now stands. The offsetless
+      // window this described is gone: the seeder delegates to computeSeedSlices,
+      // which parses `${periodStart}T00:00:00Z` explicitly and ends at
+      // `${endDate}T00:00:00Z` + 24h — an exclusive upper bound, so the final
+      // second is no longer lost.
+      //
+      // Left as a `declared` CONFORMS rather than deleted, because the rule is
+      // still worth asserting. But a stale "diverges" is worse than no check at
+      // all: it teaches people to discount the whole panel, and this one had
+      // been pointing at routes.ts line numbers that moved long ago.
       rule: 'CDR ingestion builds its fetch window in UTC',
-      status: 'diverges',
+      status: 'conforms',
       kind: 'declared',
-      detail: 'The seeder builds `${periodStart}T00:00:00` with no offset and ends at ' +
-              'T23:59:59 (inclusive, losing the final second). Both differ from the ' +
-              'half-open UTC convention the period module already implements.',
-      reference: 'BILLING-POLICY.md §1.1 · server/routes.ts:32718-32719',
+      detail: 'computeSeedSlices parses `${periodStart}T00:00:00Z` with an explicit offset ' +
+              'and bounds the period at `${endDate}T00:00:00Z` + 24h — half-open, matching ' +
+              'the period module. Verified 2026-09-04; the previous offsetless form no ' +
+              'longer exists in the seeder.',
+      reference: 'BILLING-POLICY.md §1.1 · server/seed-slices.ts:66-69',
     },
     {
       rule: 'Money is compared on an absolute band, never a percentage',

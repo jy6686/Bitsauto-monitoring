@@ -25,6 +25,18 @@ describe('the order of the rules is the substance', () => {
     expect(classifyRetry('AbortError: The operation was aborted')).toBe('timeout');
   });
 
+  it('reads a POOL timeout as database, not as a switch timeout', () => {
+    // Measured in production 2026-09-04: this exact string was the forward
+    // capture tick's lastTickError, alongside 17 flag-read retries — the same
+    // pool. The generic /timeout/ rule would have filed it under
+    // "Switch / network" and sent someone to the switch.
+    expect(classifyRetry('timeout exceeded when trying to connect')).toBe('database');
+    expect(classifyRetry('remaining connection slots are reserved')).toBe('database');
+    // A genuine switch timeout must still read as one.
+    expect(classifyRetry('connect ETIMEDOUT 104.245.246.110:443')).toBe('timeout');
+    expect(classifyRetry('Sippy did not respond, request timed out')).toBe('timeout');
+  });
+
   it('reads a pg connection fault as DATABASE, not as network', () => {
     // "Connection terminated" looks like a socket problem and points at our
     // own pool. Filing it under network sends someone to the wrong system.

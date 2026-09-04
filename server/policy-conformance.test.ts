@@ -159,11 +159,28 @@ describe('policyConformance — declared facts are labelled as such', () => {
     }
   });
 
-  it('records the two divergences this platform currently carries', async () => {
+  it('still records the DMR divergence, which is real and unfixed', async () => {
+    // The DMR sets its platform side equal to the Sippy side on every row
+    // path, so drift is structurally zero and `missing_cdr` can never fire.
+    // That is the hole at the centre of the reconciliation story and it must
+    // stay visible until the DMR genuinely compares two sources.
     const checks = await policyConformance();
-
-    expect(find(checks, 'CDR ingestion builds its fetch window in UTC')!.status).toBe('diverges');
     expect(find(checks, 'The DMR independently reconciles')!.status).toBe('diverges');
+  });
+
+  it('no longer claims the fetch window is offsetless — that was fixed', async () => {
+    // This check asserted a divergence against routes.ts line numbers that had
+    // moved, describing a seeder that no longer exists: computeSeedSlices
+    // parses `T00:00:00Z` explicitly with a half-open upper bound.
+    //
+    // A stale "diverges" is worse than no check. It is the same failure this
+    // whole panel exists to prevent — a confident claim that stopped matching
+    // reality — and it teaches people to discount every other row.
+    const checks = await policyConformance();
+    const c = find(checks, 'CDR ingestion builds its fetch window in UTC')!;
+    expect(c.status).toBe('conforms');
+    expect(c.reference).toContain('seed-slices.ts');
+    expect(c.detail).not.toContain('no offset');
   });
 
   it('reports every check with a status, a method and a reference', async () => {
