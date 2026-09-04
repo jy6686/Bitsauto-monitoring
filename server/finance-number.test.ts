@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   readNumber, requireNumber, checkFields, assertFields, numberOrDash, sumField,
-  FieldFaultCollector, MissingFinanceFieldError, reportFaults, FAULT_POLICY,
+  FieldFaultCollector, MissingFinanceFieldError, reportFaults, FAULT_POLICY, SEVERITY_RANK,
 } from './finance-number';
 
 /**
@@ -305,8 +305,98 @@ describe('fault policy — alerting that does not become noise', () => {
     for (const k of kinds) {
       expect(FAULT_POLICY[k]).toBeDefined();
       expect(FAULT_POLICY[k].meaning.length).toBeGreaterThan(20);
+      // Adding a fault kind without owner, alert AND severity is now a test
+      // failure rather than a silently unranked entry on a health page.
+      expect(FAULT_POLICY[k].owner).toBeDefined();
+      expect(typeof FAULT_POLICY[k].alert).toBe('boolean');
+      expect(SEVERITY_RANK[FAULT_POLICY[k].severity]).toBeGreaterThanOrEqual(0);
     }
     expect(Object.keys(FAULT_POLICY).sort()).toEqual([...kinds].sort());
+  });
+});
+
+describe('severity — the ordering alert alone cannot express', () => {
+  it('grades the five kinds as agreed', () => {
+    expect(FAULT_POLICY['row-missing'].severity).toBe('critical');
+    expect(FAULT_POLICY['field-absent'].severity).toBe('critical');
+    expect(FAULT_POLICY['wrong-type'].severity).toBe('high');
+    expect(FAULT_POLICY['not-numeric'].severity).toBe('medium');
+    expect(FAULT_POLICY['field-null'].severity).toBe('info');
+  });
+
+  it('is a different axis from alert, which is why both exist', () => {
+    // Four kinds alert. `alert` cannot tell them apart; severity can.
+    const alerting = (Object.keys(FAULT_POLICY) as Array<keyof typeof FAULT_POLICY>)
+      .filter(k => FAULT_POLICY[k].alert);
+    expect(alerting).toHaveLength(4);
+    expect(new Set(alerting.map(k => FAULT_POLICY[k].severity)).size).toBe(3);
+    // And the one that does not alert is the one that is merely informational.
+    expect(FAULT_POLICY['field-null'].alert).toBe(false);
+    expect(FAULT_POLICY['field-null'].severity).toBe('info');
+  });
+
+  it('counts by severity and names the worst', () => {
+    const rep = reportFaults([
+      readNumber({ b: [] },       'b', 't'),   // wrong-type  → high
+      readNumber({ c: 'abc' },    'c', 't'),   // not-numeric → medium
+      readNumber({ d: null },     'd', 't'),   // field-null  → info
+      readNumber({},              'a', 't'),   // field-absent→ critical
+    ]);
+    expect(rep.bySeverity).toEqual({ critical: 1, high: 1, medium: 1, info: 1 });
+    expect(rep.worstSeverity).toBe('critical');
+    expect(rep.summary).toContain('worst critical');
+  });
+
+  it('reports the worst present, not the worst possible', () => {
+    const rep = reportFaults([
+      readNumber({ c: 'abc' }, 'c', 't'),
+      readNumber({ d: null },  'd', 't'),
+    ]);
+    expect(rep.worstSeverity).toBe('medium');
+    expect(rep.bySeverity.critical).toBe(0);
+  });
+
+  it('has no severity at all when nothing failed', () => {
+    // null, not 'info' — no faults is the absence of a severity, not the
+    // lowest one. A page that renders "info" on a clean read is lying quietly.
+    const rep = reportFaults([readNumber({ a: 1 }, 'a', 't')]);
+    expect(rep.worstSeverity).toBeNull();
+    expect(rep.bySeverity).toEqual({ critical: 0, high: 0, medium: 0, info: 0 });
+  });
+
+  it('orders groups Critical → High → Medium → Info, then by volume', () => {
+    const rep = reportFaults([
+      ...Array.from({ length: 900 }, () => readNumber({ d: null }, 'd', 't')),   // info
+      ...Array.from({ length: 50 },  () => readNumber({ c: 'abc' }, 'c', 't')),  // medium
+      ...Array.from({ length: 10 },  () => readNumber({ b: [] }, 'b', 't')),     // high
+      readNumber({}, 'a', 't'),                                                  // critical
+    ]);
+    expect(rep.groups.map(g => g.severity)).toEqual(['critical', 'high', 'medium', 'info']);
+    // Exactly the inverse of volume — which is the point.
+    expect(rep.groups.map(g => g.occurrences)).toEqual([1, 10, 50, 900]);
+  });
+
+  it('breaks a severity tie by volume', () => {
+    const rep = reportFaults([
+      readNumber({}, 'rare', 't'),
+      ...Array.from({ length: 5 }, () => readNumber({}, 'common', 't')),
+    ]);
+    expect(rep.groups.map(g => g.severity)).toEqual(['critical', 'critical']);
+    expect(rep.groups[0].field).toBe('common');
+  });
+
+  it('carries severity onto each group for rendering', () => {
+    const rep = reportFaults([readNumber({}, 'amount', 'invoice_line_items')]);
+    expect(rep.groups[0]).toMatchObject({
+      severity: 'critical', owner: 'engineering', alert: true,
+    });
+  });
+
+  it('SEVERITY_RANK orders correctly and is total', () => {
+    expect(SEVERITY_RANK.critical).toBeGreaterThan(SEVERITY_RANK.high);
+    expect(SEVERITY_RANK.high).toBeGreaterThan(SEVERITY_RANK.medium);
+    expect(SEVERITY_RANK.medium).toBeGreaterThan(SEVERITY_RANK.info);
+    expect(Object.keys(SEVERITY_RANK).sort()).toEqual(['critical', 'high', 'info', 'medium']);
   });
 });
 

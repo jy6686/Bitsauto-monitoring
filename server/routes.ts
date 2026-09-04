@@ -36121,13 +36121,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
            ${faultReport.faultCount} unreadable value(s). Rows carrying them are excluded from
            the totals below.
            <table style="width:auto;margin-top:8px;font-size:11px">
-             <thead><tr><th style="background:none;padding:2px 8px">Field</th>
+             <thead><tr><th style="background:none;padding:2px 8px">Severity</th>
+               <th style="background:none;padding:2px 8px">Field</th>
                <th style="background:none;padding:2px 8px">Problem</th>
                <th style="background:none;padding:2px 8px">Owner</th>
                <th style="background:none;padding:2px 8px">Rows</th>
                <th style="background:none;padding:2px 8px">Row has</th></tr></thead>
              <tbody>${faultReport.groups.map(g =>
-               `<tr><td style="border:none;padding:2px 8px">${g.path}</td>` +
+               `<tr><td style="border:none;padding:2px 8px;text-transform:uppercase">${g.severity}</td>` +
+               `<td style="border:none;padding:2px 8px">${g.path}</td>` +
                `<td style="border:none;padding:2px 8px">${g.fault}</td>` +
                `<td style="border:none;padding:2px 8px">${g.alert ? g.owner : 'no action'}</td>` +
                `<td style="border:none;padding:2px 8px">${g.occurrences}</td>` +
@@ -36145,6 +36147,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // (nulls excluded from the total) with nothing to page about.
       res.setHeader('X-Field-Faults', String(faultReport.faultCount));
       res.setHeader('X-Field-Faults-Alertable', String(faultReport.alertable));
+      if (faultReport.worstSeverity) {
+        res.setHeader('X-Field-Faults-Severity', faultReport.worstSeverity);
+      }
 
       // 2. The reproduction disagreeing with what the switch actually charged.
       //    Every invoice generated before the 2026-09-04 units fix carries a

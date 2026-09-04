@@ -59,6 +59,21 @@ export type FieldFault =
 /** Who fixes a fault of this kind, and whether it should wake anyone. */
 export type FaultOwner = 'engineering' | 'finance' | 'none';
 
+/**
+ * How bad, independent of who fixes it and whether it pages.
+ *
+ * `alert` is a boolean and answers "raise or stay quiet". Severity is the
+ * ordering, so a health page can rank Critical → High → Medium → Info instead
+ * of showing one undifferentiated alerting bucket. The two are related but not
+ * the same axis: everything except `field-null` alerts, yet those four are not
+ * equally urgent.
+ */
+export type FaultSeverity = 'critical' | 'high' | 'medium' | 'info';
+
+/** Sort order. Higher is worse. */
+export const SEVERITY_RANK: Record<FaultSeverity, number> =
+  { critical: 3, high: 2, medium: 1, info: 0 };
+
 export interface FaultPolicy {
   owner: FaultOwner;
   /**
@@ -68,6 +83,7 @@ export interface FaultPolicy {
    * noise that nobody reads when a real one arrives.
    */
   alert: boolean;
+  severity: FaultSeverity;
   meaning: string;
 }
 
@@ -81,25 +97,32 @@ export interface FaultPolicy {
  */
 export const FAULT_POLICY: Record<FieldFault, FaultPolicy> = {
   'row-missing': {
-    owner: 'engineering', alert: true,
-    meaning: 'A query returned nothing where a row was required. Code or query defect.',
+    owner: 'engineering', alert: true, severity: 'critical',
+    meaning: 'A query returned nothing where a row was required. Code or query defect. ' +
+             'Critical because every field on that row is unreadable, not just one.',
   },
   'field-absent': {
-    owner: 'engineering', alert: true,
-    meaning: 'Producer and consumer disagree about the column name. Schema mismatch.',
+    owner: 'engineering', alert: true, severity: 'critical',
+    meaning: 'Producer and consumer disagree about the column name. Schema mismatch. ' +
+             'Critical because it is silent, total and affects every row alike — all four ' +
+             'production defects this module was built for were this.',
   },
   'field-null': {
-    owner: 'none', alert: false,
+    owner: 'none', alert: false, severity: 'info',
     meaning: 'A nullable column is null. Legitimate data state; usually no action.',
   },
   'wrong-type': {
-    owner: 'engineering', alert: true,
-    meaning: 'An array, object or boolean where a number belongs. Bad payload shape.',
+    owner: 'engineering', alert: true, severity: 'high',
+    meaning: 'An array, object or boolean where a number belongs. Bad payload shape. ' +
+             'High rather than critical: the field exists and is being written, so the ' +
+             'contract holds and the defect is narrower than a name mismatch.',
   },
   'not-numeric': {
-    owner: 'finance', alert: true,
+    owner: 'finance', alert: true, severity: 'medium',
     meaning: 'A value that should be numeric will not parse. Data quality; needs Finance ' +
-             'to say what the figure should be, and Engineering to find how it got there.',
+             'to say what the figure should be, and Engineering to find how it got there. ' +
+             'Medium because the field exists, holds the right type family, and the fault ' +
+             'is usually confined to particular rows rather than the whole read.',
   },
 };
 
@@ -171,6 +194,8 @@ export interface FaultGroup {
   owner: FaultOwner;
   /** Whether this group should raise. False only for `field-null`. */
   alert: boolean;
+  /** From FAULT_POLICY — lets a page rank rather than only filter. */
+  severity: FaultSeverity;
   availableFields: string[];
   suggestions: string[];
   /** One example of what was found. null when the field was simply absent. */
@@ -189,6 +214,10 @@ export interface FaultReport {
   byFault: Record<string, number>;
   /** Counts by who fixes it, for routing rather than triage. */
   byOwner: Record<FaultOwner, number>;
+  /** Counts by severity, for a health page that ranks rather than filters. */
+  bySeverity: Record<FaultSeverity, number>;
+  /** The worst severity present, or null when nothing failed. The top line. */
+  worstSeverity: FaultSeverity | null;
   /**
    * Faults that should raise an alert — everything except `field-null`.
    *
@@ -214,12 +243,14 @@ export function reportFaults(reads: readonly FieldRead[]): FaultReport {
   const groups = new Map<string, FaultGroup>();
   const byFault: Record<string, number> = {};
   const byOwner: Record<FaultOwner, number> = { engineering: 0, finance: 0, none: 0 };
+  const bySeverity: Record<FaultSeverity, number> = { critical: 0, high: 0, medium: 0, info: 0 };
   let alertable = 0;
 
   for (const r of bad) {
     const policy = FAULT_POLICY[r.fault!];
     byFault[r.fault!] = (byFault[r.fault!] ?? 0) + 1;
     byOwner[policy.owner]++;
+    bySeverity[policy.severity]++;
     if (policy.alert) alertable++;
 
     const key = `${r.path}|${r.fault}`;
@@ -230,6 +261,7 @@ export function reportFaults(reads: readonly FieldRead[]): FaultReport {
       occurrences: 1,
       owner: policy.owner,
       alert: policy.alert,
+      severity: policy.severity,
       availableFields: r.availableFields,
       suggestions: r.suggestions,
       received: r.received,
@@ -237,23 +269,27 @@ export function reportFaults(reads: readonly FieldRead[]): FaultReport {
     });
   }
 
-  // Alertable first, then by volume — so a single field-absent outranks a
-  // thousand nulls, which is the order someone triaging needs.
+  // Severity first, then volume. This subsumes the older alertable-first sort
+  // — field-null is the only non-alerting kind and also the only `info` — and
+  // orders the alerting kinds among themselves, which alert alone could not.
+  // One missing column still outranks a thousand legitimate nulls.
   const list = [...groups.values()].sort((a, b) =>
-    Number(b.alert) - Number(a.alert) || b.occurrences - a.occurrences);
+    SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity] || b.occurrences - a.occurrences);
+
+  const worstSeverity = list.length ? list[0].severity : null;
 
   return {
     ok: bad.length === 0,
     faultCount: bad.length,
     groups: list,
-    byFault, byOwner, alertable,
+    byFault, byOwner, bySeverity, worstSeverity, alertable,
     quiet: alertable === 0,
     summary: bad.length === 0
       ? 'All fields read.'
       : `${bad.length} unreadable field(s) across ${list.length} path(s)` +
         (alertable === 0
           ? ' — all of them legitimate null data states, none alertable'
-          : `, ${alertable} alertable`) + ': ' +
+          : `, ${alertable} alertable, worst ${worstSeverity}`) + ': ' +
         Object.entries(byFault).map(([k, n]) => `${n} ${k}`).join(', ') +
         `. Paths: ${list.map(g => g.path).join(', ')}.`,
   };
