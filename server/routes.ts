@@ -36037,27 +36037,125 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // Get line items
       const lines = await db.select().from(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, id));
 
+      // ── This renderer used to read five field names that do not exist ──────
+      // `country`, `destination`, `minutes`, `ratePerMin` and `amount` are none
+      // of them columns on invoice_line_items. Every `Number(undefined) || 0`
+      // produced 0, and the page printed 362 rows of $0.00 with no error.
+      //
+      // The table carries `durationSecs`, `reproducedCost` and `prefix`.
+      // Minutes and rate are DERIVED from those rather than stored, because
+      // they are presentation values and duplicating them in SQL means they can
+      // drift from the money they describe.
+      //
+      // Country and destination are the two genuinely absent facts. They are
+      // resolved from `prefix` through the commercial catalogue at VIEW time,
+      // which is honest for a preview but is NOT immutable: re-versioning the
+      // catalogue changes what an old invoice renders. If this page ever
+      // becomes the document a customer receives, they must be denormalised at
+      // generation instead. The stored html_content — the artefact that is
+      // actually emailed — is unaffected either way.
+      const { readNumber, numberOrDash, FieldFaultCollector } = await import('./finance-number');
+      const { resolvePrefix } = await import('./services/commercial/prefix-resolver');
+      const faults = new FieldFaultCollector();
+      const TBL = 'invoice_line_items';
+
+      // Resolve each DISTINCT prefix once. 362 lines carried two prefixes; a
+      // per-row lookup would have been 724 queries for two answers.
+      const prefixes = [...new Set((lines as any[]).map(l => String(l.prefix ?? '')).filter(Boolean))];
+      const destByPrefix = new Map<string, { country: string; destination: string }>();
+      for (const p of prefixes) {
+        try {
+          const r = await resolvePrefix(p);
+          // An unresolved prefix says so. It does not become "Unknown", which
+          // reads as a country and hides how much traffic is unclassified.
+          const name = r.destination ?? `Unresolved (prefix ${p})`;
+          destByPrefix.set(p, {
+            destination: name,
+            country: r.destination ? name.split(' - ')[0].split('(')[0].trim() : 'Unresolved',
+          });
+        } catch {
+          destByPrefix.set(p, { destination: `Unresolved (prefix ${p})`, country: 'Unresolved' });
+        }
+      }
+      const place = (l: any) =>
+        destByPrefix.get(String(l.prefix ?? '')) ?? { country: 'Unresolved', destination: '—' };
+
+      /** Minutes and rate derived from the columns that exist, never invented. */
+      const derive = (line: any) => {
+        const secs = readNumber(line, 'durationSecs',   TBL);
+        const cost = readNumber(line, 'reproducedCost', TBL);
+        faults.record(secs); faults.record(cost);
+        const minutes = secs.ok ? secs.value! / 60 : null;
+        return {
+          minutes,
+          amount: cost.ok ? cost.value! : null,
+          // A rate is money per minute. Zero minutes has no rate — printing
+          // 0.00000 there would assert a free destination.
+          ratePerMin: (cost.ok && minutes != null && minutes > 0) ? cost.value! / minutes : null,
+        };
+      };
+
+      const derived = (lines as any[]).map(l => ({ line: l, ...derive(l), ...place(l) }));
+
       // Group by country for page 1 summary
       const byCountry = new Map<string, { minutes: number; amount: number }>();
-      for (const line of lines as any[]) {
-        const country = (line.country || line.destination || 'Unknown').split(' - ')[0].split('(')[0].trim();
-        const existing = byCountry.get(country) ?? { minutes: 0, amount: 0 };
-        byCountry.set(country, {
-          minutes: existing.minutes + (Number(line.minutes) || 0),
-          amount:  existing.amount  + (Number(line.amount)  || 0),
+      for (const d of derived) {
+        const existing = byCountry.get(d.country) ?? { minutes: 0, amount: 0 };
+        byCountry.set(d.country, {
+          minutes: existing.minutes + (d.minutes ?? 0),
+          amount:  existing.amount  + (d.amount  ?? 0),
         });
       }
 
       const totalMinutes = Array.from(byCountry.values()).reduce((s, r) => s + r.minutes, 0);
       const totalAmount  = Array.from(byCountry.values()).reduce((s, r) => s + r.amount,  0);
 
+      // ── Two banners, because a preview that looks like an invoice must not
+      // be quietly wrong ────────────────────────────────────────────────────
+      // 1. Fields that could not be read at all. Totals below omit those rows,
+      //    and the reader is told rather than left to trust a number.
+      const faultBanner = faults.ok ? '' :
+        `<div style="background:#7f1d1d;color:#fff;padding:10px;margin-bottom:16px;font-size:12px">
+           <strong>INCOMPLETE — figures are missing, not zero.</strong><br>
+           ${faults.summary()} Rows with unreadable values are excluded from the totals below.
+         </div>`;
+
+      // 2. The reproduction disagreeing with what the switch actually charged.
+      //    Every invoice generated before the 2026-09-04 units fix carries a
+      //    reproduced cost 60x the tariff on 1/1 rates, and this page renders
+      //    the reproduction. Without this banner the inflated figure would look
+      //    exactly like a correct one.
+      let reproSum = 0, actualSum = 0, comparable = 0;
+      for (const d of derived) {
+        const a = readNumber(d.line, 'actualCost', TBL);
+        if (d.amount != null && a.ok) { reproSum += d.amount; actualSum += a.value!; comparable++; }
+      }
+      const ratio = actualSum > 0 ? reproSum / actualSum : null;
+      const divergent = comparable > 0 && ratio != null && Math.abs(ratio - 1) > 0.01;
+      const deltaBanner = !divergent ? '' :
+        `<div style="background:#78350f;color:#fff;padding:10px;margin-bottom:16px;font-size:12px">
+           <strong>REPRODUCED COST DISAGREES WITH THE SWITCH.</strong><br>
+           Across ${comparable} comparable line(s) this invoice reproduces
+           $${reproSum.toFixed(5)} where Sippy charged $${actualSum.toFixed(5)} —
+           ${ratio!.toFixed(1)}x. Invoices generated before the rating units fix of
+           2026-09-04 over-state every 1/1 rate by 60x; their snapshots must be
+           regenerated before the figures below mean anything.
+         </div>`;
+
       // Build HTML for PDF
       const countrySummaryRows = Array.from(byCountry.entries()).map(([country, data]) =>
         `<tr><td>${country}</td><td style="text-align:right">${data.minutes.toFixed(2)}</td><td style="text-align:right">${data.amount.toFixed(2)}</td></tr>`
       ).join('');
 
-      const detailRows = (lines as any[]).map(line =>
-        `<tr><td>${line.country || ''}</td><td>${line.destination || ''}</td><td style="text-align:right">${Number(line.minutes||0).toFixed(2)}</td><td style="text-align:right">${Number(line.ratePerMin||0).toFixed(5)}</td><td style="text-align:right">${Number(line.amount||0).toFixed(2)}</td></tr>`
+      // An em dash where a figure could not be read. It occupies the same
+      // column as "0.00" and means the opposite, which is the entire point.
+      const dash = (v: number | null, dp: number) => v == null ? '—' : v.toFixed(dp);
+
+      const detailRows = derived.map(d =>
+        `<tr><td>${d.country}</td><td>${d.destination}</td>` +
+        `<td style="text-align:right">${dash(d.minutes, 2)}</td>` +
+        `<td style="text-align:right">${dash(d.ratePerMin, 5)}</td>` +
+        `<td style="text-align:right">${dash(d.amount, 2)}</td></tr>`
       ).join('');
 
       const header = `<div style="display:flex;justify-content:space-between;border-bottom:2px solid #1a56db;padding-bottom:12px;margin-bottom:20px">
@@ -36073,6 +36171,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
 <!-- PAGE 1: Country Summary -->
 ${header}
+${faultBanner}
+${deltaBanner}
 <h2>INVOICE</h2>
 <div class="info-grid">
   <div class="info-left"><strong>${inv.customerName || 'Customer'}</strong></div>
