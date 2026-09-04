@@ -36222,6 +36222,61 @@ ${footer}
     } catch(e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/finance/invoice-restatement — what would regenerating change?
+  //
+  // STRICTLY READ-ONLY. It writes nothing, and is the thing to read BEFORE
+  // authorising any regeneration: the rating engine was corrected on
+  // 2026-09-04 and every invoice generated before then holds an inflated
+  // figure, frozen, in its snapshots and its stored HTML.
+  //
+  // Each line is re-rated from the rate parameters the SNAPSHOT froze at
+  // generation — price1Used, intervalNUsed and the rest — never from a live
+  // tariff. A restatement that consulted today's tariffs would re-price
+  // historical traffic at today's rates, which is a different and much worse
+  // operation wearing the same name.
+  //
+  // `correctedVsActual` is the number that authorises the decision. Sippy's
+  // own actual_cost is on every snapshot row, so the restatement is checked
+  // against the switch before it is applied.
+  app.get('/api/finance/invoice-restatement',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+    try {
+      const { invoices: invT } = await import('@shared/schema');
+      const { restateInvoice, summariseRestatements } = await import('./invoice-restatement');
+
+      const onlyId = req.query.invoiceId ? Number(req.query.invoiceId) : null;
+      const invRows = onlyId
+        ? await db.select().from(invT).where(eq(invT.id, onlyId))
+        : await db.select().from(invT);
+
+      const results = [];
+      for (const inv of invRows as any[]) {
+        // The rate parameters live only on the snapshot; line items copy the
+        // money but not the tariff that produced it. So the join is required.
+        const snaps: any = await db.execute(sql`
+          SELECT s.*
+            FROM invoice_line_items li
+            JOIN invoice_cdr_snapshots s ON s.id = li.snapshot_id
+           WHERE li.invoice_id = ${inv.id}
+           ORDER BY s.id`);
+        results.push(restateInvoice(inv, (snaps.rows ?? []) as any[]));
+      }
+
+      // Worst over-statement first: the invoice most worth looking at leads.
+      results.sort((a, b) => b.reduction - a.reduction);
+
+      res.json({
+        readOnly: true,
+        note: 'This endpoint computes and writes nothing. Regeneration is a separate, ' +
+              'explicitly authorised action.',
+        engineFixedAt: '2026-09-04',
+        summary: summariseRestatements(results),
+        invoices: results,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   app.get('/api/billing/reconciliation/export/csv', (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next), async (req: any, res: any) => {
     try {
       const { buildCarrierSnapshotXLSX, buildCarrierReconSummaryXLSX, LARGE_EXPORT_THRESHOLD, XLSX_MIME, storeTempFile } = await import('./services/billing/reconciliation-export');
