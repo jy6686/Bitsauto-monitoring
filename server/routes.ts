@@ -36337,6 +36337,39 @@ ${footer}
              WHERE started_at > ${applied507}::timestamptz`);
           const row = (t.rows ?? [])[0] ?? {};
           const n = (x: any) => Number(x ?? 0);
+
+          // Coverage and timings for the NEWEST SEALED day.
+          //
+          // `total_slices` on the sentinel is the roster the planner built;
+          // the per-account `recon-<day>-<account>` rows are what actually
+          // finished clean. Two quantities from two writers — which is what
+          // makes this a check and not a restatement, since the sealing
+          // condition tests errors and never counts.
+          const cov: any = await db.execute(sql`
+            WITH newest AS (
+              SELECT period_start, total_slices, started_at, finished_at, stored_total
+                FROM seed_jobs
+               WHERE status = 'done'
+                 AND job_id = 'recon-' || period_start
+                 AND started_at > ${applied507}::timestamptz
+               ORDER BY period_start DESC
+               LIMIT 1
+            )
+            SELECT nw.period_start, nw.total_slices, nw.finished_at, nw.stored_total,
+                   EXTRACT(EPOCH FROM (nw.finished_at - nw.started_at)) AS seal_secs,
+                   (SELECT count(*)::int FROM seed_jobs a
+                     WHERE a.job_id LIKE 'recon-' || nw.period_start || '-%'
+                       AND a.status = 'done' AND a.last_error IS NULL) AS collected,
+                   (SELECT max(queue_wait_ms)::int FROM seed_jobs a
+                     WHERE a.job_id LIKE 'recon-' || nw.period_start || '-%') AS max_queue_wait,
+                   (SELECT sum(backoff_ms)::bigint FROM seed_jobs a
+                     WHERE a.job_id LIKE 'recon-' || nw.period_start || '-%') AS total_backoff
+              FROM newest nw`);
+          const c0 = (cov.rows ?? [])[0] ?? null;
+          // null, never 0, when a value was not recorded — a missing duration
+          // is not a duration of zero.
+          const nn = (x: any) => (x == null ? null : Number(x));
+
           run = {
             migrationAppliedAt: applied507,
             jobsStarted:   n(row.started),
@@ -36347,6 +36380,18 @@ ${footer}
             completedWithWorkerMetadata: n(row.with_worker),
             daySentinels:  n(row.sentinels),
             newestCompletedAt: row.newest_done ? new Date(row.newest_done).toISOString() : null,
+            coverage: c0 ? {
+              day: c0.period_start == null ? null : String(c0.period_start),
+              expectedAccounts:  n(c0.total_slices),
+              collectedAccounts: n(c0.collected),
+              sealedAt: c0.finished_at ? new Date(c0.finished_at).toISOString() : null,
+            } : null,
+            timings: c0 ? {
+              sealDurationSeconds: nn(c0.seal_secs) == null ? null : Math.round(nn(c0.seal_secs)!),
+              rowsWritten:    nn(c0.stored_total),
+              maxQueueWaitMs: nn(c0.max_queue_wait),
+              totalBackoffMs: nn(c0.total_backoff),
+            } : null,
           };
         } else {
           run = {
@@ -36354,6 +36399,7 @@ ${footer}
             jobsStarted: 0, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 0,
             completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
             daySentinels: 0, newestCompletedAt: null,
+            coverage: null, timings: null,
           };
         }
       } catch (e: any) { runError = e?.message ?? 'unknown error'; }

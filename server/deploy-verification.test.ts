@@ -41,9 +41,17 @@ const good = (over: Partial<DeployFacts> = {}): DeployFacts => ({
     jobsStarted: 25, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 25,
     completedWithRetryTelemetry: 25, completedWithWorkerMetadata: 25,
     daySentinels: 1, newestCompletedAt: '2026-09-06T01:14:00Z',
+    coverage: { day: '2026-09-05', expectedAccounts: 25, collectedAccounts: 25,
+                sealedAt: '2026-09-06T01:14:00Z' },
+    timings: { sealDurationSeconds: 73, rowsWritten: 4154,
+               maxQueueWaitMs: 182, totalBackoffMs: 0 },
   },
   ...over,
 });
+
+/** Override only the run block, keeping the healthy defaults. */
+const withRun = (over: Partial<NonNullable<DeployFacts['run']>>): DeployFacts =>
+  good({ run: { ...good().run!, ...over } });
 
 const v = (f: DeployFacts) => verifyDeployment(f);
 const find = (r: ReturnType<typeof verifyDeployment>, id: string) =>
@@ -73,6 +81,110 @@ describe('a fully verified deployment', () => {
       expect(['PASS', 'FAIL', 'PENDING', 'UNKNOWN']).toContain(c.status);
       expect(c.remedy).toBe('');    // nothing to remedy when passing
     }
+  });
+});
+
+describe('day coverage — a sentinel is a belief, not a proof', () => {
+  it('PASSES when the sealed day covered its whole roster', () => {
+    const c = find(v(good()), 'day-coverage');
+    expect(c.status).toBe('PASS');
+    expect(c.detail).toContain('all 25 expected account(s)');
+    expect(c.metrics).toMatchObject({ expectedAccounts: 25, collectedAccounts: 25 });
+  });
+
+  it('FAILS a day sealed short, and says the day is unrecoverable', () => {
+    // The user's case: Expected 49, Collected 12, Sentinel YES.
+    const c = find(v(withRun({
+      coverage: { day: '2026-09-05', expectedAccounts: 49, collectedAccounts: 12,
+                  sealedAt: '2026-09-06T01:14:00Z' },
+    })), 'day-coverage');
+
+    expect(c.status).toBe('FAIL');
+    expect(c.detail).toContain('SEALED with only 12 of 49');
+    expect(c.detail).toContain('the per-account rows say it is not');
+    // The consequence is the part that matters: this day is never revisited.
+    expect(c.remedy).toContain('never be re-collected');
+    expect(c.remedy).toContain('permanently unbilled');
+    expect(c.remedy).toContain('recon-2026-09-05-<account>');
+    expect(v(withRun({
+      coverage: { day: '2026-09-05', expectedAccounts: 49, collectedAccounts: 12, sealedAt: null },
+    })).overall.ok).toBe(false);
+  });
+
+  it('catches the historical shape — a run that died after 7 of 25', () => {
+    const c = find(v(withRun({
+      coverage: { day: '2026-08-30', expectedAccounts: 25, collectedAccounts: 7, sealedAt: null },
+    })), 'day-coverage');
+    expect(c.status).toBe('FAIL');
+    expect(c.metrics).toMatchObject({ expectedAccounts: 25, collectedAccounts: 7 });
+  });
+
+  it('does not fail when MORE was collected than planned', () => {
+    // Not a completeness risk — the roster likely shrank mid-run. Reported.
+    const c = find(v(withRun({
+      coverage: { day: '2026-09-05', expectedAccounts: 25, collectedAccounts: 26, sealedAt: null },
+    })), 'day-coverage');
+    expect(c.status).toBe('PASS');
+    expect(c.detail).toContain('More than expected is not a completeness risk');
+  });
+
+  it('is UNKNOWN, not PASS, when the roster could not be read', () => {
+    // A sentinel with no roster cannot distinguish complete from short. That
+    // is an absence of evidence, and must not read as evidence of absence.
+    for (const coverage of [
+      null,
+      { day: null, expectedAccounts: 0, collectedAccounts: 0, sealedAt: null },
+      { day: '2026-09-05', expectedAccounts: 0, collectedAccounts: 0, sealedAt: null },
+    ]) {
+      const c = find(v(withRun({ coverage: coverage as any })), 'day-coverage');
+      expect(c.status).toBe('UNKNOWN');
+    }
+    expect(v(withRun({ coverage: null })).overall.ready).toBe(false);
+  });
+
+  it('is PENDING when nothing has sealed yet, not FAIL', () => {
+    // The sentinel check owns "should have sealed". This one only asks whether
+    // a day that DID seal was complete.
+    const r = v(withRun({
+      jobsStarted: 0, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 0,
+      completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
+      daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null,
+    }));
+    expect(find(r, 'day-coverage').status).toBe('PENDING');
+    expect(r.overall.ok).toBe(true);
+  });
+
+  it('does not double-report when the sentinel itself failed', () => {
+    const r = v(withRun({ daySentinels: 0, coverage: null }));
+    expect(find(r, 'day-sentinel').status).toBe('FAIL');
+    expect(find(r, 'day-coverage').status).toBe('PENDING');
+    expect(find(r, 'day-coverage').detail).toContain('no sealed day to check');
+  });
+});
+
+describe('metrics — already recorded, now visible', () => {
+  it('surfaces duration, rows written and queue wait on the right checks', () => {
+    const r = v(good());
+    expect(find(r, 'runtime-job').metrics).toMatchObject({
+      jobsStarted: 25, jobsCompleted: 25, sealDurationSeconds: 73,
+    });
+    expect(find(r, 'retry-telemetry').metrics).toMatchObject({
+      rowsWritten: 4154, totalBackoffMs: 0,
+    });
+    expect(find(r, 'worker-metadata').metrics).toMatchObject({ maxQueueWaitMs: 182 });
+  });
+
+  it('reports metrics even when the check FAILS — that is when they matter', () => {
+    const c = find(v(withRun({ completedWithRetryTelemetry: 19 })), 'retry-telemetry');
+    expect(c.status).toBe('FAIL');
+    expect(c.metrics).toMatchObject({ completedJobs: 25, withRetryTelemetry: 19 });
+  });
+
+  it('carries nulls rather than zeros when timings are unavailable', () => {
+    // A missing duration is not a duration of zero. Same rule as the money.
+    const c = find(v(withRun({ timings: null })), 'runtime-job');
+    expect(c.status).toBe('PASS');
+    expect(c.metrics!.sealDurationSeconds).toBeNull();
   });
 });
 
@@ -117,10 +229,10 @@ describe('the runtime chain stops where the evidence stops', () => {
   const chain = ['runtime-job', 'retry-telemetry', 'worker-metadata', 'day-sentinel'];
 
   it('is PENDING all the way down before anything runs', () => {
-    const r = v(good({
-      run: { migrationAppliedAt: APPLIED, jobsStarted: 0, jobsRunning: 0, jobsFailed: 0,
-             jobsCompleted: 0, completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
-             daySentinels: 0, newestCompletedAt: null },
+    const r = v(withRun({
+      jobsStarted: 0, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 0,
+      completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
+      daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null,
     }));
     for (const id of chain) expect(find(r, id).status).toBe('PENDING');
     // Nothing broken, nothing proven.
@@ -129,10 +241,10 @@ describe('the runtime chain stops where the evidence stops', () => {
   });
 
   it('treats a run IN FLIGHT as pending, not failed', () => {
-    const r = v(good({
-      run: { migrationAppliedAt: APPLIED, jobsStarted: 3, jobsRunning: 3, jobsFailed: 0,
-             jobsCompleted: 0, completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
-             daySentinels: 0, newestCompletedAt: null },
+    const r = v(withRun({
+      jobsStarted: 3, jobsRunning: 3, jobsFailed: 0, jobsCompleted: 0,
+      completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
+      daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null,
     }));
     expect(find(r, 'runtime-job').status).toBe('PENDING');
     expect(find(r, 'runtime-job').detail).toContain('still running');
@@ -141,10 +253,10 @@ describe('the runtime chain stops where the evidence stops', () => {
 
   it('FAILS when the first run started and did not survive', () => {
     // The case a migration-only check reports as a successful deploy.
-    const r = v(good({
-      run: { migrationAppliedAt: APPLIED, jobsStarted: 4, jobsRunning: 0, jobsFailed: 4,
-             jobsCompleted: 0, completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
-             daySentinels: 0, newestCompletedAt: null },
+    const r = v(withRun({
+      jobsStarted: 4, jobsRunning: 0, jobsFailed: 4, jobsCompleted: 0,
+      completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
+      daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null,
     }));
     const job = find(r, 'runtime-job');
     expect(job.status).toBe('FAIL');
@@ -159,10 +271,10 @@ describe('the runtime chain stops where the evidence stops', () => {
   });
 
   it('does not fault telemetry that never had an opportunity', () => {
-    const r = v(good({
-      run: { migrationAppliedAt: APPLIED, jobsStarted: 0, jobsRunning: 0, jobsFailed: 0,
-             jobsCompleted: 0, completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
-             daySentinels: 0, newestCompletedAt: null },
+    const r = v(withRun({
+      jobsStarted: 0, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 0,
+      completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
+      daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null,
     }));
     expect(find(r, 'retry-telemetry').status).toBe('PENDING');
     expect(find(r, 'retry-telemetry').detail).toContain('Waiting on the first completed');
@@ -170,13 +282,7 @@ describe('the runtime chain stops where the evidence stops', () => {
 });
 
 describe('telemetry that ran and did not deliver', () => {
-  const completedBut = (over: Record<string, number>) => good({
-    run: {
-      migrationAppliedAt: APPLIED, jobsStarted: 25, jobsRunning: 0, jobsFailed: 0,
-      jobsCompleted: 25, completedWithRetryTelemetry: 25, completedWithWorkerMetadata: 25,
-      daySentinels: 1, newestCompletedAt: '2026-09-06T01:14:00Z', ...over,
-    },
-  });
+  const completedBut = (over: Partial<NonNullable<DeployFacts['run']>>) => withRun(over);
 
   it('fails when jobs completed and NONE recorded retries', () => {
     const c = find(v(completedBut({ completedWithRetryTelemetry: 0 })), 'retry-telemetry');
@@ -296,10 +402,10 @@ describe('unmeasurable is not the same as broken', () => {
 
 describe('overall — ok and ready are different questions', () => {
   it('ok=true ready=false is the honest answer right after a good deploy', () => {
-    const r = v(good({
-      run: { migrationAppliedAt: APPLIED, jobsStarted: 0, jobsRunning: 0, jobsFailed: 0,
-             jobsCompleted: 0, completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
-             daySentinels: 0, newestCompletedAt: null },
+    const r = v(withRun({
+      jobsStarted: 0, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 0,
+      completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
+      daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null,
     }));
     expect(r.overall.ok).toBe(true);
     expect(r.overall.ready).toBe(false);
@@ -310,7 +416,7 @@ describe('overall — ok and ready are different questions', () => {
       pending: [...REQUIRED], ledger: [],
       run: { migrationAppliedAt: null, jobsStarted: 0, jobsRunning: 0, jobsFailed: 0,
              jobsCompleted: 0, completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
-             daySentinels: 0, newestCompletedAt: null },
+             daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null },
     }));
     expect(r.overall.status).toBe('FAIL');
     expect(r.overall.headline).not.toContain('Nothing is wrong');
