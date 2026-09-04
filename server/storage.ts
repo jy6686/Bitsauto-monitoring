@@ -2311,9 +2311,35 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(companies).orderBy(companies.name);
   }
 
+  /**
+   * The company owning a Sippy account.
+   *
+   * `companies.sippy_i_account` has NO unique constraint, and production
+   * currently has at least one account claimed by two rows: the seed-jobs
+   * endpoint's unfiltered `SELECT sippy_i_account, name FROM companies` returns
+   * both "Internal-ptcl" and "ptcl" for account 76, which is why the CDR panel
+   * cannot name that customer and shows the pair.
+   *
+   * This used to destructure `[0]` off an unordered SELECT, so which company
+   * owned an account depended on Postgres's row order — it could differ
+   * between calls, and nothing said so. Rating, invoicing and reconciliation
+   * all resolve identity through here.
+   *
+   * Ordering by id makes the choice stable and the warning makes it visible.
+   * Neither is a fix: the duplicate is data and has to be resolved in the
+   * Rate Manager. This only stops the ambiguity being silent.
+   */
   async getCompanyBySippyAccount(iAccount: number): Promise<Company | null> {
-    const [row] = await db.select().from(companies).where(eq(companies.sippyIAccount, iAccount));
-    return row ?? null;
+    const rows = await db.select().from(companies)
+      .where(eq(companies.sippyIAccount, iAccount))
+      .orderBy(companies.id);
+    if (rows.length > 1) {
+      console.warn(
+        `[companies] sippy_i_account ${iAccount} is claimed by ${rows.length} companies ` +
+        `(${rows.map(r => `#${r.id} "${r.name}"`).join(', ')}) — resolving to the lowest id. ` +
+        'One external account must map to one customer; fix this in the Rate Manager.');
+    }
+    return rows[0] ?? null;
   }
 
   async getCompany(id: number): Promise<Company | null> {
