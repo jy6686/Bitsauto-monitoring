@@ -8,10 +8,13 @@
 -- refuse. Nothing was measured for those rows. They must say so.
 --
 -- The columns become nullable, and rows that could not have passed through
--- the instrumented loop are set back to NULL. The boundary is the UTC moment
--- 504 was authored (2026-09-03 ~13:10 UTC); a conservative cut at 13:00 UTC
--- catches every pre-instrumentation row and cannot touch a genuine
--- post-instrumentation zero, because none existed before the migration did.
+-- the instrumented loop are set back to NULL. The boundary is this migration's
+-- OWN execution — see the note above the UPDATE. An earlier draft used a
+-- hand-picked 13:00 UTC cut, which sat before 504 actually landed and left
+-- every row written in between still claiming a measured zero.
+
+BEGIN;
+
 ALTER TABLE seed_jobs ALTER COLUMN retries_total DROP NOT NULL;
 ALTER TABLE seed_jobs ALTER COLUMN retries_total DROP DEFAULT;
 ALTER TABLE seed_jobs ALTER COLUMN backoff_ms    DROP NOT NULL;
@@ -34,3 +37,23 @@ UPDATE seed_jobs
  WHERE retry_causes IS NULL
    AND pace_verdict IS NULL
    AND updated_at < now();
+
+DO $$
+DECLARE bad text;
+BEGIN
+  -- Both the NOT NULL and the DEFAULT must be gone. Either one left behind
+  -- reinstates the confident zero this migration exists to remove.
+  SELECT string_agg(column_name || ' (nullable=' || is_nullable ||
+                    ', default=' || coalesce(column_default,'none') || ')', '; ')
+    INTO bad
+    FROM information_schema.columns
+   WHERE table_name='seed_jobs'
+     AND column_name IN ('retries_total','backoff_ms')
+     AND (is_nullable <> 'YES' OR column_default IS NOT NULL);
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION '507: retry columns still constrained: %', bad;
+  END IF;
+  RAISE NOTICE '507: unmeasured retry accounting now reads NULL, not 0.';
+END$$;
+
+COMMIT;

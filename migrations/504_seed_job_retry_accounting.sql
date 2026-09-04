@@ -9,7 +9,25 @@
 -- The retries were only ever in the logs, and the logs on this deployment
 -- carry no timestamps. So the accounting moves into the job row, where the
 -- panel can read it.
+
+BEGIN;
+
 ALTER TABLE seed_jobs ADD COLUMN IF NOT EXISTS retries_total  INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE seed_jobs ADD COLUMN IF NOT EXISTS backoff_ms     BIGINT  NOT NULL DEFAULT 0;
 -- The budget verdict at the point the job stopped, when one was reached.
 ALTER TABLE seed_jobs ADD COLUMN IF NOT EXISTS pace_verdict   VARCHAR(16);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_name='seed_jobs' AND column_name='retries_total')
+  OR NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_name='seed_jobs' AND column_name='backoff_ms')
+  OR NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_name='seed_jobs' AND column_name='pace_verdict') THEN
+    RAISE EXCEPTION '504: retry accounting columns missing after apply.';
+  END IF;
+  RAISE NOTICE '504: seed_jobs can now say where its wall clock went.';
+END$$;
+
+COMMIT;

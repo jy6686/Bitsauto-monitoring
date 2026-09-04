@@ -10,6 +10,9 @@
 -- retry_causes is a {cause: count} object plus one sample message per cause,
 -- classified by server/retry-classify.ts. Stored rather than derived so the
 -- distribution survives the log rotation it was previously trapped in.
+
+BEGIN;
+
 ALTER TABLE seed_jobs ADD COLUMN IF NOT EXISTS retry_causes JSONB;
 
 -- Worker attribution, for the move to 4-5 concurrent workers. With one worker
@@ -20,3 +23,18 @@ ALTER TABLE seed_jobs ADD COLUMN IF NOT EXISTS retry_causes JSONB;
 ALTER TABLE seed_jobs ADD COLUMN IF NOT EXISTS worker_id     VARCHAR(32);
 ALTER TABLE seed_jobs ADD COLUMN IF NOT EXISTS queued_at     TIMESTAMPTZ;
 ALTER TABLE seed_jobs ADD COLUMN IF NOT EXISTS queue_wait_ms INTEGER;
+
+DO $$
+DECLARE missing text;
+BEGIN
+  SELECT string_agg(c, ', ') INTO missing
+    FROM unnest(ARRAY['retry_causes','worker_id','queued_at','queue_wait_ms']) AS c
+   WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns
+                      WHERE table_name='seed_jobs' AND column_name=c);
+  IF missing IS NOT NULL THEN
+    RAISE EXCEPTION '505: columns missing after apply: %', missing;
+  END IF;
+  RAISE NOTICE '505: retry causes and worker attribution recorded on the job row.';
+END$$;
+
+COMMIT;

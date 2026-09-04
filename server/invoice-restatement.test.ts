@@ -188,6 +188,132 @@ describe('restateInvoice — partial and unusable data', () => {
   });
 });
 
+describe('correctionImpact — the four questions, pre-answered', () => {
+  it('reproduces the C-2608-0009 shape from the real figures', () => {
+    // $10,050.38 reproduced against Sippy's $167.51 — the 60x, at scale.
+    // One 1/1 line long enough to produce those totals.
+    const secs = 167.51 / 0.035 * 60;      // minutes -> seconds at 3.5c/min
+    const r = restateInvoice(inv({ id: 9, invoiceNumber: 'C-2608-0009', status: 'draft' }), [
+      snap({ durationSecs: secs, reproducedCost: 0.035 * secs, actualCost: 167.51 }),
+    ]);
+    const i = r.correctionImpact;
+
+    expect(i.invoice).toBe('C-2608-0009');
+    expect(i.previousTotal).toBeCloseTo(10050.6, 0);
+    expect(i.correctedTotal).toBeCloseTo(167.51, 2);
+    // delta is corrected MINUS previous: an invoice coming down is negative.
+    expect(i.delta).toBeLessThan(0);
+    expect(i.delta).toBeCloseTo(-9883.1, 0);
+    expect(i.relativeErrorPct).toBeCloseTo(5900, 0);
+    expect(i.overstatementFactor).toBeCloseTo(60, 1);
+    expect(i.action).toBe('regenerate');
+    expect(i.agreesWithSwitch).toBe(true);
+    expect(i.materiality).toBe('critical');
+  });
+
+  it('answers "is this a credit note" for an asserted document', () => {
+    const i = restateInvoice(inv({ status: 'sent' }), [snap()]).correctionImpact;
+    expect(i.action).toBe('credit_note');
+    expect(i.actionReason).toContain('do not rewrite it');
+    expect(i.actionReason).toContain('$14.76');       // the money, in the answer
+  });
+
+  it('answers "no action required" without the reader doing arithmetic', () => {
+    const i = restateInvoice(inv(), [snap({
+      interval1Used: 60, intervalNUsed: 60, reproducedCost: 0.28, actualCost: 0.28,
+    })]).correctionImpact;
+    expect(i.action).toBe('none');
+    expect(i.delta).toBe(0);
+    expect(i.materiality).toBe('none');
+    expect(i.overstatementFactor).toBeCloseTo(1, 6);
+  });
+
+  it('says INVESTIGATE when the restatement misses the switch, draft or not', () => {
+    // "It is only a draft" is not a reason to freeze a second wrong number.
+    // Checked before eligibility, so a draft cannot slip through as safe.
+    const i = restateInvoice(inv({ status: 'draft' }), [snap({ actualCost: 5.0 })]).correctionImpact;
+    expect(i.action).toBe('investigate');
+    expect(i.agreesWithSwitch).toBe(false);
+    expect(i.actionReason).toContain('replace one wrong figure with another');
+  });
+
+  it('grades materiality so a cent is not queued beside ten thousand dollars', () => {
+    const at = (stored: number, corrected: number) =>
+      restateInvoice(inv(), [snap({
+        interval1Used: 60, intervalNUsed: 60,
+        durationSecs: 60, price1Used: corrected, priceNUsed: corrected,
+        reproducedCost: stored, actualCost: corrected,
+      })]).correctionImpact.materiality;
+
+    expect(at(0.035,   0.035)).toBe('none');       // unchanged
+    expect(at(0.5,     0.035)).toBe('minor');      // under $1
+    expect(at(50,      0.035)).toBe('major');      // under $100
+    expect(at(10050,   0.035)).toBe('critical');
+  });
+
+  it('refuses a percentage rather than reporting infinity', () => {
+    // A corrected total of zero has no meaningful multiple or percentage.
+    const i = restateInvoice(inv(), [snap({
+      durationSecs: 0, reproducedCost: 5, actualCost: 0,
+    })]).correctionImpact;
+    expect(i.relativeErrorPct).toBeNull();
+    expect(i.overstatementFactor).toBeNull();
+    expect(i.delta).toBe(-5);                      // the money is still stated
+  });
+
+  it('is JSON-safe, for the endpoint and the UI', () => {
+    const i = restateInvoice(inv(), [snap()]).correctionImpact;
+    expect(JSON.parse(JSON.stringify(i))).toEqual(i);
+  });
+});
+
+describe('summary rollups — the work queue, not just a count', () => {
+  const build = () => [
+    restateInvoice(inv({ id: 7, invoiceNumber: 'C-7', status: 'sent'  }), [snap()]),
+    restateInvoice(inv({ id: 8, invoiceNumber: 'C-8', status: 'draft' }), [snap()]),
+    restateInvoice(inv({ id: 9, invoiceNumber: 'C-9', status: 'draft' }), [snap({ actualCost: 5.0 })]),
+    restateInvoice(inv({ id: 10, invoiceNumber: 'C-10', status: 'draft' }), [snap({
+      interval1Used: 60, intervalNUsed: 60, reproducedCost: 0.28, actualCost: 0.28,
+    })]),
+  ];
+
+  it('groups by action, with counts AND money', () => {
+    const s = summariseRestatements(build());
+    expect(s.byAction.credit_note.invoices).toBe(1);
+    expect(s.byAction.regenerate.invoices).toBe(1);
+    expect(s.byAction.investigate.invoices).toBe(1);
+    expect(s.byAction.none.invoices).toBe(1);
+    // "3 invoices" and "$14.76" are different arguments for acting today.
+    expect(s.byAction.regenerate.delta).toBeCloseTo(-14.7648, 3);
+    expect(s.byAction.none.delta).toBe(0);
+  });
+
+  it('names the invoices that do NOT restate to the switch', () => {
+    const s = summariseRestatements(build());
+    expect(s.notReachingSwitch).toEqual(['C-9']);
+    expect(s.headline).toContain('do NOT restate to the switch');
+    expect(s.headline).toContain('must be investigated before any regeneration');
+  });
+
+  it('stays quiet about that when every restatement lands', () => {
+    const s = summariseRestatements([
+      restateInvoice(inv({ status: 'draft' }), [snap()]),
+    ]);
+    expect(s.notReachingSwitch).toEqual([]);
+    expect(s.headline).not.toContain('do NOT restate');
+  });
+
+  it('counts materiality across the set', () => {
+    const s = summariseRestatements(build());
+    expect(s.byMateriality.none).toBe(1);    // the already-correct invoice
+    expect(s.byMateriality.major).toBe(3);   // $14.76 each: over $1, under $100
+    expect(s.byMateriality.critical).toBe(0);
+    // Every invoice lands in exactly one bucket.
+    const total = Object.values(s.byMateriality).reduce((a, b) => a + b, 0);
+    expect(total).toBe(s.invoices);
+  });
+});
+
 describe('correctedVsActualAgrees', () => {
   it('accepts a cent of absolute drift, or half a percent on larger sums', () => {
     expect(correctedVsActualAgrees(0.27537, 0.275368)).toBe(true);
