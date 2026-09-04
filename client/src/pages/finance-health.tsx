@@ -433,23 +433,33 @@ function PipelineNode({ label, count, countLabel, latest, status, icon: Icon, mi
             </span>
             <span className="text-xs text-muted-foreground ml-1">{countLabel}</span>
           </div>
-          {latest && (
+          {/* A node is coverage-judged or elapsed-judged, and the two never
+              mix. Presence of `coverage` decides it — NOT `coverage.expected`
+              being truthy, which silently fell back to the age path whenever
+              the server sent a shape this component did not expect, which is
+              the same failure class as the original defect.
+
+              The block is no longer gated on `latest`: an empty table has no
+              latest, and that is exactly when "No data · owed <day>" is the
+              most useful thing on the card. Under the old guard that sentence
+              was unreachable. */}
+          {(coverage || latest || slaMinutes) && (
             <div className="text-right shrink-0">
               {/* Age only when `latest` IS an age. A coverage-judged node's
                   `latest` is the business day covered, and "2 days ago" under
                   a report produced this morning is the age-of-the-day defect
                   again; the coverage line below already names the day. */}
-              {!coverage?.expected && (
+              {!coverage && latest && (
                 <p className="text-xs text-muted-foreground">{fmtAge(latest)}</p>
               )}
               {/* A daily artefact is judged by which business day it covers,
                   so printing a minute count here would describe a rule that is
                   not the one being applied. */}
-              {coverage?.expected
+              {coverage
                 ? <p className="text-[10px] text-muted-foreground">
                     {coverage.covers
-                      ? `Covers ${coverage.covers} · owed ${coverage.expected}`
-                      : `No data · owed ${coverage.expected}`}
+                      ? `Covers ${coverage.covers}${coverage.expected ? ` · owed ${coverage.expected}` : ""}`
+                      : `No data${coverage.expected ? ` · owed ${coverage.expected}` : ""}`}
                   </p>
                 : slaMinutes
                   ? <p className="text-[10px] text-muted-foreground">

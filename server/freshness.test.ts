@@ -151,3 +151,48 @@ describe('dayKeyUtc', () => {
     expect(dayKeyUtc(at('2026-09-04T00:00:00Z'))).toBe('2026-09-04');
   });
 });
+
+/**
+ * THE DRIVER CONTRACT.
+ *
+ * node-postgres parses a Postgres DATE (oid 1082) into a JS Date at LOCAL
+ * midnight, not UTC midnight. On any host east of UTC — this one runs PKT
+ * (+0500) — `MAX(report_date)` for 2026-09-02 arrives as
+ * 2026-09-01T19:00:00Z, and normaliseDay reads it back in UTC as 2026-09-01.
+ * Every daily artefact then reported one business day stale, with a false
+ * "Run DMR" warning attached: the exact over-reporting this module exists to
+ * prevent, arriving through the driver rather than the arithmetic.
+ *
+ * The fix is `::text` in SQL, so the day is never a Date at all. These tests
+ * pin BOTH halves: the cast output must work, and the uncast output must be
+ * recognisably wrong, so nobody "simplifies" the cast away.
+ */
+describe('a Postgres DATE must reach this module as text, not as a Date', () => {
+  const now = at('2026-09-03T09:00:00Z');
+  const opts = { nowMs: now, scheduledHourUtc: 2 };
+
+  it('is correct for the ::text form the queries now send', () => {
+    const f = dailyFreshness({ latestDate: '2026-09-02', ...opts });
+    expect(f.coveredDay).toBe('2026-09-02');
+    expect(f.status).toBe('healthy');
+    expect(f.daysBehind).toBe(0);
+  });
+
+  it('shifts a day when handed the driver\'s local-midnight Date from east of UTC', () => {
+    // Reproduces what pg returns on a PKT host WITHOUT the cast. Documented as
+    // a failure mode, not endorsed: the module cannot repair this, because a
+    // local-midnight Date is genuinely a different instant.
+    const pktLocalMidnight = new Date('2026-09-01T19:00:00Z');   // = 2026-09-02 00:00 PKT
+    const f = dailyFreshness({ latestDate: pktLocalMidnight, ...opts });
+    expect(f.coveredDay).toBe('2026-09-01');
+    expect(f.status).toBe('stale');
+    expect(f.daysBehind).toBe(1);
+  });
+
+  it('is unaffected west of UTC, which is why this hid in review', () => {
+    // A US-hosted process parses the same column to 2026-09-02T05:00Z, still
+    // the right UTC day. The defect only appears east of Greenwich.
+    const estLocalMidnight = new Date('2026-09-02T05:00:00Z');
+    expect(dailyFreshness({ latestDate: estLocalMidnight, ...opts }).coveredDay).toBe('2026-09-02');
+  });
+});
