@@ -108,6 +108,12 @@ describe('day coverage — a sentinel is a belief, not a proof', () => {
     expect(c.remedy).toContain('never be re-collected');
     expect(c.remedy).toContain('permanently unbilled');
     expect(c.remedy).toContain('recon-2026-09-05-<account>');
+    // The check can fail on a PERFECT collector if the roster double-counts an
+    // account, so the remedy rules that out first rather than sending someone
+    // to hunt a collector bug that is not there.
+    expect(c.remedy.startsWith('FIRST, rule out a duplicate roster entry')).toBe(true);
+    expect(c.remedy).toContain('neither the roster query nor planByLifecycle applies DISTINCT');
+    expect(c.remedy).toContain('GROUP BY 1 HAVING count(*) > 1');
     expect(v(withRun({
       coverage: { day: '2026-09-05', expectedAccounts: 49, collectedAccounts: 12, failedAccounts: 0,
                   sealedAt: null },

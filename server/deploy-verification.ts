@@ -583,15 +583,21 @@ function checkDayCoverage(
               `${cov.expectedAccounts} expected account(s) collected (${percentage}%)` +
               (shortfall ? ` — ${shortfall}.` : '.') +
               ' The sentinel says the day is finished; the per-account rows say it is not.',
-      remedy: 'This is a day that will never be re-collected — nightly-ingest-due treats a done ' +
-              'sentinel as collected forever, so the missing accounts are permanently ' +
-              'unbilled unless the seal is removed. ' +
+      remedy: 'FIRST, rule out a duplicate roster entry: `expected` is the planner\'s ' +
+              'ready.length, and neither the roster query nor planByLifecycle applies DISTINCT ' +
+              'on sippy_i_account — so two company rows sharing one account inflate `expected` ' +
+              'while producing a single recon-<date>-<account> row, and this check fails on a ' +
+              'collector that ran perfectly. Compare against ' +
+              'SELECT sippy_i_account, count(*) FROM companies WHERE sippy_i_account IS NOT NULL ' +
+              'GROUP BY 1 HAVING count(*) > 1. ' +
+              'If the roster is clean, this is a day that will never be re-collected — ' +
+              'nightly-ingest-due treats a done sentinel as collected forever, so the missing ' +
+              'accounts are permanently unbilled unless the seal is removed. ' +
               (notAttempted
                 ? `${notAttempted} account(s) left NO row at all, so start with why the loop ` +
                   'did not reach them rather than with the ones that errored. '
                 : '') +
-              `Identify the accounts with no clean recon-${cov.day}-<account> row before ` +
-              'anything else.',
+              `Identify the accounts with no clean recon-${cov.day}-<account> row.`,
       metrics: m };
   }
 
