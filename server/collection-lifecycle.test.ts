@@ -219,3 +219,56 @@ describe('planByLifecycle', () => {
     }
   });
 });
+
+/**
+ * SEALING MUST FOLLOW EVIDENCE, NOT ITS ABSENCE.
+ *
+ * The nightly runner seals a day when no account still owes it. That is
+ * correct when the emptiness is a business fact — every account collected, or
+ * retired past this day. It is dangerous when the emptiness came from a query
+ * that failed, because a written sentinel is treated as "collected" forever by
+ * nightly-ingest-due and the day is never revisited.
+ *
+ * The planner is where the distinction becomes visible: a failed sealed-day
+ * lookup yields an EMPTY sealed set, which looks identical to a day nobody has
+ * collected. These pin that the planner keeps the two apart by outcome, so the
+ * caller's `sealedLookupOk` guard has something honest to guard.
+ */
+describe('an empty sealed set is not evidence of a collected day', () => {
+  type A = { name: string; status: string | null; changed?: string | null };
+  const plan = (accts: A[], sealed: Set<string>) =>
+    planByLifecycle(accts, (a: A) => ({
+      status: a.status, lifecycleChangedAtIso: a.changed ?? null,
+      targetDay: DAY, daySealed: sealed.has(a.name),
+    }));
+
+  it('leaves active accounts to COLLECT when the sealed set is empty', () => {
+    // This is what a failed lookup looks like. The day must not read as
+    // finished — the actives are queued, so the runner never reaches the
+    // empty-list seal path at all.
+    const p = plan([{ name: 'a', status: 'active' }, { name: 'b', status: 'active' }], new Set());
+    expect(p.collect).toHaveLength(2);
+    expect(p.skipped).toHaveLength(0);
+  });
+
+  it('CAN legitimately empty the list with no sealed accounts, when all are retired', () => {
+    // The dangerous overlap: nothing sealed AND nothing to collect. Here it is
+    // a real business fact — every account retired before the target day — but
+    // it is indistinguishable from a failed lookup by shape alone, which is
+    // exactly why the caller must also know the lookup ran.
+    const p = plan([
+      { name: 'x', status: 'dormant',  changed: '2026-08-01T00:00:00Z' },
+      { name: 'y', status: 'inactive', changed: '2026-08-15T00:00:00Z' },
+    ], new Set());
+    expect(p.collect).toHaveLength(0);
+    expect(p.counts.outstanding).toBe(0);
+    expect(p.skipped.every(s => s.decision.reason.includes('after retirement'))).toBe(true);
+  });
+
+  it('empties the list the SAFE way when every account is genuinely sealed', () => {
+    const p = plan([{ name: 'a', status: 'active' }, { name: 'b', status: 'active' }],
+                   new Set(['a', 'b']));
+    expect(p.collect).toHaveLength(0);
+    expect(p.skipped.every(s => s.decision.reason.includes('already collected'))).toBe(true);
+  });
+});

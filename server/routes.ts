@@ -39308,6 +39308,10 @@ ${footer}
     // never be collected. The sealed-day lookup is what makes the filter safe,
     // so it is not something to add afterwards.
     const sealed = new Set<number>();
+    // Did the lookup actually RUN? An empty `sealed` from a failed query and an
+    // empty one from a genuinely uncollected day are indistinguishable by size,
+    // and only one of them may be used to conclude anything.
+    let sealedLookupOk = !targetDate;
     if (targetDate) {
       try {
         // last_error IS NULL is load-bearing. storeSlice records lastError and
@@ -39320,6 +39324,7 @@ ${footer}
            WHERE job_id LIKE ${'recon-' + targetDate + '-%'}
              AND status = 'done' AND last_error IS NULL AND i_account IS NOT NULL`);
         for (const x of (((sr as any).rows ?? []) as any[])) sealed.add(Number(x.i_account));
+        sealedLookupOk = true;
       } catch (e: any) {
         // A failed lookup must not be read as "nothing is sealed" in a way
         // that CHANGES a decision — it cannot here, because an unsealed day is
@@ -39381,7 +39386,14 @@ ${footer}
     // that account: already collected, or after its retirement. So an empty
     // collect list over a non-empty account list is a finished day, whatever
     // mix of reasons produced it.
-    const nothingOwed = rows.length > 0 && plan.collect.length === 0;
+    //
+    // BUT ONLY IF WE ACTUALLY LOOKED. `sealedLookupOk` is the difference
+    // between "no account owes this day" and "the query that would have told us
+    // failed". Without it a database blip plus an all-retired roster would seal
+    // a day nothing had collected — writing a permanent 'collected' verdict
+    // from evidence never read. Sealing is irreversible in practice, because
+    // nightly-ingest-due treats a done sentinel as collected forever.
+    const nothingOwed = sealedLookupOk && rows.length > 0 && plan.collect.length === 0;
     return { ready, noTariff, excluded, lifecycleSummary, allSealed: nothingOwed };
   }
 
@@ -39556,6 +39568,7 @@ ${footer}
       } catch (e: any) {
         // Cannot prove the day is clean, so do not seal it. An unsealed day is
         // re-run and de-duplicates; a wrongly sealed one is never revisited.
+        // Same asymmetry as sealedLookupOk above.
         dirtyAccounts = -1;
         console.warn(`[recon-nightly] ${date}: clean-day check failed ` +
                      `(${String(e?.message ?? e)}) — withholding the seal`);
