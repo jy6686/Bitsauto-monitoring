@@ -73,16 +73,37 @@ describe('DEFECT: reproduceCost charges per interval, not per minute', () => {
 });
 
 /**
- * WHERE THIS REACHES MONEY.
+ * WHERE THIS REACHES MONEY — measured 2026-09-04, and NOT where I first said.
  *
  * The platform's own policy audit reports, as MEASURED:
  *
  *   "The stored html_content bills the rating engine's reproduction —
- *    currently up to 60x wrong — while the canonical PDF sums actual_cost.
- *    The two renderers still disagree about which column is money."
+ *    currently up to 60x wrong — while the canonical PDF sums actual_cost."
  *
- * So an invoice's stored HTML can carry the 60x figure while its PDF carries
- * the switch's actual charge. Which document a customer receives decides
- * whether they are billed correctly. That is the finding to resolve first —
- * before the engine, because it is the one with a customer at the end of it.
+ * I repeated that as "an invoice's stored HTML can carry the 60x figure" and
+ * called it the finding with a customer at the end of it. Then I rendered a
+ * real one. Invoice C-2608-0007 (asterisk, tariff 32 — the only invoice ever
+ * marked sent that carries a divergence):
+ *
+ *     Sippy actual_cost       $0.275368
+ *     reproduction engine    $16.522050   (60x — the defect above)
+ *     rendered HTML document  $0.000000   <- all 362 lines
+ *
+ * The document does not over-bill by 60x. It bills NOTHING: 362 rows of
+ * 0.00 minutes, 0.00000 rate/min, 0.00 amount, country "Unknown", under a
+ * total of 0.00. In the direction this platform actually cares about that is
+ * worse, because under-billing is the failure it exists to prevent.
+ *
+ * The renderer reads s.durationSecs and s.reproducedCost, and both columns
+ * exist on invoice_cdr_snapshots (reproduced_cost is NOT NULL) — so the stored
+ * rows carry zeros, while the invoice HEADER carries totalReproduced $16.52
+ * over lineCount 362. Header and lines disagree about the same invoice. That
+ * is a separate defect from this one and is not yet traced to its cause.
+ *
+ * Two things follow for the rating fix:
+ *   - It is not the customer-facing emergency I implied. Nobody has been
+ *     over-billed: invoice email was in test mode and went to the operator,
+ *     and invoiceEmailTestMode is still true.
+ *   - Correcting the engine ALONE will not make the document right, because
+ *     the document is not currently reading a non-zero cost from anywhere.
  */
