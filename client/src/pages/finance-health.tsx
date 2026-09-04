@@ -577,6 +577,14 @@ export default function FinanceHealthPage() {
   });
 
   // Billing-workflow counts for the clickable invoice pipeline strip
+  // Clocks change only on restart, so this polls slowly. It is here to be
+  // FOUND when someone asks "is this UTC or local?", not to be watched.
+  const { data: clocks } = useQuery<any>({
+    queryKey: ["/api/finance/runtime-clocks"],
+    refetchInterval: 10 * 60_000,
+    refetchIntervalInBackground: true,
+  });
+
   const { data: businessDay } = useQuery<any>({
     queryKey: ["/api/finance/business-day"],
     refetchInterval: 60_000,
@@ -784,6 +792,73 @@ export default function FinanceHealthPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* ── Runtime clocks ────────────────────────────────────────────────
+          Placed on the page rather than left as an endpoint because the
+          question it answers ("is this GMT or local?") gets asked during an
+          incident, when nobody is reading source. The round-trip row is the
+          point: it is a live measurement, not a restatement of settings, and
+          it is what would have caught the day-shift that made every artefact
+          read one business day stale. */}
+      {clocks && (
+        <Card className={!clocks.ok ? "border-red-500/40" : undefined}>
+          <CardHeader className="pb-2 pt-4">
+            <div className="flex items-baseline justify-between gap-3 flex-wrap">
+              <CardTitle className="text-sm">Runtime clocks</CardTitle>
+              <span className={`text-xs ${
+                !clocks.ok ? "text-red-400"
+                : clocks.findings?.some((f: any) => f.severity === "warning")
+                  ? "text-amber-400" : "text-muted-foreground"}`}>
+                {clocks.summary}
+              </span>
+            </div>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+              {[
+                ["Business day", clocks.businessDayBasis],
+                ["Now", clocks.nowUtc],
+                ["Day being collected", clocks.businessDayNow],
+                ["Collection window", clocks.collectionWindowUtc],
+                ["Process TZ", clocks.processTz],
+                ["Database TZ", clocks.databaseTz],
+              ].map(([k, v]: any) => (
+                <div key={k}>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{k}</p>
+                  <p className="font-mono tabular-nums">{v}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* The measurement. Both forms shown, because the uncast one
+                failing is a latent trap even when the cast one works. */}
+            {clocks.roundTrip && (
+              <div className="mt-3 pt-3 border-t flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs font-mono">
+                <span className="text-[11px] uppercase tracking-wide text-muted-foreground font-sans">
+                  DATE round-trip
+                </span>
+                <span>in <span className="tabular-nums">{clocks.roundTrip.expected}</span></span>
+                <span className={clocks.roundTrip.viaText === clocks.roundTrip.expected
+                                   ? "text-emerald-400" : "text-red-400"}>
+                  ::text &rarr; {clocks.roundTrip.viaText ?? "—"}
+                </span>
+                <span className={clocks.roundTrip.viaDate === clocks.roundTrip.expected
+                                   ? "text-emerald-400" : "text-amber-400"}>
+                  raw DATE &rarr; {clocks.roundTrip.viaDate ?? "—"}
+                </span>
+              </div>
+            )}
+
+            {clocks.findings?.filter((f: any) => f.severity !== "info").map((f: any, i: number) => (
+              <div key={i} className={`mt-2 text-xs ${
+                f.severity === "critical" ? "text-red-400" : "text-amber-400"}`}>
+                <span className="font-medium">{f.claim}</span>{" "}
+                <span className="text-muted-foreground">{f.detail}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Warnings panel ── */}
       {warnings.length > 0 && (

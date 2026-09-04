@@ -40068,6 +40068,74 @@ ${footer}
     }
   });
 
+  // GET /api/finance/runtime-clocks — which clock is this process keeping?
+  //
+  // Not a settings dump. The timezone defect that made every daily artefact
+  // read one business day stale was invisible in the source — every business
+  // day, collection window and slice boundary was already explicit UTC, and the
+  // collection path has zero local-time accessors. It lived in the driver:
+  // node-postgres materialises a DATE at the PROCESS's local midnight, and this
+  // host runs PKT. Only asking the RUNNING process could have found it.
+  //
+  // So this endpoint measures. It pushes a known day through the real driver
+  // twice — once as a bare DATE, once cast ::text — normalises both through the
+  // exact function the defect travelled through, and reports whether they
+  // agree. A page that merely printed "Process TZ: UTC" would have said nothing.
+  app.get('/api/finance/runtime-clocks', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { assessRuntimeClocks } = await import('./runtime-clocks');
+      const { normaliseDay } = await import('./freshness');
+      const { DEFAULT_WINDOW_START_HOUR_UTC, DEFAULT_WINDOW_END_HOUR_UTC } =
+        await import('./nightly-ingest-due');
+      const { DEFAULT_SCHEDULED_HOUR_UTC } = await import('./finance-pipeline-schedule');
+
+      // A fixed, known day. Using "today" would make the probe's own answer
+      // move, and a self-check whose expected value drifts proves nothing.
+      const PROBE_DAY = '2026-09-02';
+      let roundTrip: any = null;
+      let roundTripError: string | null = null;
+      let databaseTz: string | null = null;
+      try {
+        const r: any = await db.execute(sql.raw(
+          `SELECT DATE '${PROBE_DAY}' AS as_date,
+                  DATE '${PROBE_DAY}'::text AS as_text,
+                  current_setting('TimeZone') AS db_tz`));
+        const row = (r?.rows ?? (Array.isArray(r) ? r : []))[0];
+        if (row) {
+          databaseTz = row.db_tz ?? null;
+          roundTrip = {
+            expected: PROBE_DAY,
+            // Through the SAME normaliser the freshness path uses. A probe that
+            // reimplemented it would be testing the probe.
+            viaDate: normaliseDay(row.as_date),
+            viaText: normaliseDay(row.as_text),
+          };
+        } else {
+          roundTripError = 'the probe query returned no row';
+        }
+      } catch (e: any) {
+        roundTripError = String(e?.message ?? e).slice(0, 160);
+      }
+
+      const report = assessRuntimeClocks({
+        processTz: (() => {
+          try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return null; }
+        })(),
+        envTz: process.env.TZ ?? null,
+        databaseTz,
+        nowIso: new Date().toISOString(),
+        collectionWindowUtc: { startHour: DEFAULT_WINDOW_START_HOUR_UTC,
+                               endHour:   DEFAULT_WINDOW_END_HOUR_UTC },
+        pipelineHourUtc: DEFAULT_SCHEDULED_HOUR_UTC,
+        roundTrip,
+        roundTripError,
+      });
+      res.json({ ...report, generatedAt: new Date().toISOString() });
+    } catch (e: any) {
+      res.status(500).json({ error: String(e?.message ?? e) });
+    }
+  });
+
   // GET /api/finance/business-day — "is yesterday's finance complete?"
   //
   // This replaces the Data Freshness percentage as the page's headline. The

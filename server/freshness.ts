@@ -145,7 +145,12 @@ export function dailyFreshness(input: DailyFreshnessInput): DailyFreshness {
   };
 }
 
-function normaliseDay(v: string | Date | null | undefined): string | null {
+/**
+ * Exported so the runtime-clock self-check can push a real driver value
+ * through the EXACT function the timezone defect travelled through. A probe
+ * that reimplements this would prove something about the probe.
+ */
+export function normaliseDay(v: string | Date | null | undefined): string | null {
   if (v == null) return null;
   if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : dayKeyUtc(v.getTime());
   const s = String(v).trim();
