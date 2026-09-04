@@ -154,6 +154,11 @@ function probeBillingDateConversion(toSippyDate: Function): PolicyCheck {
  * while the verifier reproduced $305.27. A ten-second call is the smallest case
  * that exposes it: 0.035 x 10/60 = $0.00583, against $0.35 if the price is
  * applied once per one-second interval.
+ *
+ * As of 2026-09-04 this probe reports `conforms`: the engine was corrected and
+ * now delegates to `rating-cost.rateCall`. The check stays exactly as it was —
+ * it is the independent confirmation that the fix is real, and the guard that
+ * fails if the units ever regress.
  */
 function probeRatingUnits(reproduceCost: Function): PolicyCheck {
   const rule = 'The rating engine applies per-minute prices per minute';
@@ -190,8 +195,11 @@ function probeRatingUnits(reproduceCost: Function): PolicyCheck {
               `$${actual.toFixed(6)} where the tariff gives $${expected.toFixed(6)} — ` +
               `${ratio.toFixed(1)}x. The per-minute price is being charged once per billing ` +
               `interval, so every tariff whose intervals are not 60/60 is mis-reproduced. ` +
-              `Certification cannot converge while this holds; invoices are unaffected because ` +
-              `they bill the switch's actual_cost.`,
+              `This reaches CUSTOMER DOCUMENTS: invoices.html_content renders the reproduced ` +
+              `cost and its per-line rate column, so an invoice would print a rate ${ratio.toFixed(0)}x ` +
+              `the tariff. An earlier version of this message said invoices were unaffected ` +
+              `because they bill the switch's actual_cost — that was wrong, and the stored ` +
+              `document of C-2608-0007 disproves it.`,
       reference };
   } catch (e: any) {
     return { rule, status: 'probe_failed', kind: 'measured',

@@ -43,20 +43,28 @@ describe('policyConformance — it measures rather than asserts', () => {
    * The business-level probe: a real ten-second call through the shipped
    * reproduceCost, judged against the TARIFF's arithmetic, not the engine's.
    *
-   * EXPECTED TO FLIP when rateCall is wired in: the engine will return 0.00583,
-   * the probe will report conforms, and this assertion will fail loudly — the
-   * signal that the units fix landed. Change it to 'conforms' then.
+   * IT FLIPPED, on 2026-09-04, exactly as the previous version of this comment
+   * said it would. rateCall is wired in, the engine returns 0.00583, and the
+   * probe reports conforms.
+   *
+   * Worth stating why this is evidence and not circularity: the probe's
+   * expected value is `0.035 * (10/60)`, computed inside the probe from the
+   * tariff alone. It never calls the engine to find out what the answer should
+   * be. Three "reconciliations that cannot fail" already exist in this
+   * codebase, each because one side was derived from the other — this one was
+   * built to avoid that, which is what makes it flipping mean something.
    */
-  it('runs a real call through the rating engine and reports the 60x divergence', async () => {
+  it('runs a real call through the rating engine and finds the units correct', async () => {
     const checks = await policyConformance();
     const units = find(checks, 'per-minute prices per minute');
 
     expect(units).toBeDefined();
     expect(units!.kind).toBe('measured');
-    expect(units!.status).toBe('diverges');
-    // 0.35 reproduced where the tariff says 0.00583 — exactly 60x on 1/1.
-    expect(units!.detail).toMatch(/60\.0x/);
-    expect(units!.detail).toMatch(/invoices are unaffected/);
+    expect(units!.status).toBe('conforms');
+    // $0.005833 reproduced, matching the tariff's own arithmetic. It was
+    // $0.350000 — exactly 60x — until the units fix landed.
+    expect(units!.detail).toMatch(/0\.005833/);
+    expect(units!.detail).not.toMatch(/60\.0x/);
   });
 
   it('probes the period module and finds it conforming', async () => {

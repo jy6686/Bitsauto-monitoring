@@ -194,10 +194,15 @@ describe('differential vs the shipped engine', () => {
     expect(mismatches).toEqual([]);
   });
 
-  // The two engines differ by 60 x blocks / billedSecs. That is NOT a constant,
-  // and assuming it was would have asserted a falsehood: it collapses to 1 when
-  // a block IS a minute, and to 60 when a block is a second. So the blast radius
-  // of the defect is "every tariff whose intervals are not 60/60".
+  // These four tests were a DIFFERENTIAL: two independent engines, and the
+  // shape of the gap between them. The gap was 60 x blocks / billedSecs — not
+  // a constant, collapsing to 1 when a block IS a minute and to 60 when a
+  // block is a second, which is what identified the blast radius as "every
+  // tariff whose intervals are not 60/60".
+  //
+  // Since 2026-09-04 there is only one engine: reproduceCost delegates to
+  // rateCall. So these now assert IDENTITY, and they keep their value — they
+  // are what fails if someone reintroduces local arithmetic in the engine.
 
   it('agrees exactly on 60/60 tariffs — the shipped engine is right there', async () => {
     // A 60-second block priced per minute and priced per block are the same
@@ -211,15 +216,17 @@ describe('differential vs the shipped engine', () => {
     }
   });
 
-  it('differs by exactly 60x on 1/1 tariffs — where the production calls were', async () => {
+  it('agrees exactly on 1/1 tariffs — where the 60x used to be', async () => {
     // Prefixes 192 and 1880 are both 1/1, which is why asterisk's connected
-    // calls came out sixty times high while the aggregate looked merely wrong.
+    // calls came out sixty times high. This assertion used to read
+    // `expect(old / now).toBeCloseTo(60, 6)`; the engine now delegates to
+    // rateCall, so the two are the same function and the ratio is 1.
     const reproduceCost = await shipped();
     const rate = { price1: 0.06, priceN: 0.06, interval1: 1, intervalN: 1 };
     for (const dur of DURATIONS.filter(d => d > 0)) {
       const old = reproduceCost(dur, rate as any).reproducedCost;
       const now = rateCall(dur, rate).cost;
-      expect(old / now).toBeCloseTo(60, 6);
+      expect(old).toBe(now);
     }
   });
 
@@ -239,13 +246,14 @@ describe('differential vs the shipped engine', () => {
     }
   });
 
-  it('the shipped engine prices the production call at 0.35 — the defect itself', async () => {
+  it('the shipped engine now prices the production call at 0.00583', async () => {
     // Prefix 192, snapshot v142740, one real 10-second call. Sippy charged
-    // 0.035 x 10/60. This test exists to fail LOUDLY when reproduceCost is
-    // corrected, so the fix cannot land without someone deleting it on purpose.
+    // 0.035 x 10/60 = $0.005833. This test used to assert 0.35 and existed to
+    // fail LOUDLY when reproduceCost was corrected, so the fix could not land
+    // without someone rewriting it on purpose. It did, and this is the rewrite.
     const reproduceCost = await shipped();
     const rate = { price1: 0.035, priceN: 0.035, interval1: 1, intervalN: 1 };
-    expect(reproduceCost(10, rate as any).reproducedCost).toBeCloseTo(0.35, 8);
+    expect(reproduceCost(10, rate as any).reproducedCost).toBeCloseTo(0.035 * 10 / 60, 8);
     expect(rateCall(10, rate).cost).toBeCloseTo(0.035 * 10 / 60, 8);
   });
 });

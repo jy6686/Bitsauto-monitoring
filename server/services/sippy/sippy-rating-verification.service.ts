@@ -33,6 +33,7 @@ import type { SippyCDR, SippyTariffRate } from './types';
 import { SippyConfig } from './types';
 import { auditLog } from './sippy-audit.service';
 import { selectTariffVersion } from '../../tariff-effective-dating';
+import { rateCall } from '../../rating-cost';
 
 // ── Discrepancy classification ─────────────────────────────────────────────────
 
@@ -145,74 +146,58 @@ export interface ReproducedRating {
 }
 
 /**
- * Reproduce the Sippy billing cost for a call using standard Sippy billing formula.
+ * Reproduce the Sippy billing cost for a call.
  *
  * Standard Sippy formula:
- *   1. If duration <= grace_period → cost = 0 (grace: no charge for very short calls)
+ *   1. If duration <= grace_period → cost = 0 (no charge for very short calls)
  *   2. billable = max(0, duration - free_seconds)
  *   3. if billable == 0 → cost = connect_fee + post_call_surcharge
- *   4. if billable <= interval_1:
- *        cost = connect_fee + price_1
- *      else:
- *        n_extra = ceil((billable - interval_1) / interval_n)
- *        cost = connect_fee + price_1 + n_extra * price_n
- *   5. cost += post_call_surcharge
+ *   4. otherwise the INTERVAL fields decide how many seconds are billed:
+ *        billed = billable <= interval_1
+ *                   ? interval_1
+ *                   : interval_1 + ceil((billable - interval_1) / interval_n) * interval_n
+ *      and the PRICE fields decide what a minute of those seconds costs:
+ *        cost = (interval_1 / 60) * price_1
+ *             + (tail_intervals * interval_n / 60) * price_n
+ *   5. cost += connect_fee + post_call_surcharge
  *
- * price_1 and price_n are per-block prices (not per-minute rates).
- * interval_1 and interval_n are billing blocks in seconds.
+ * price_1 and price_n are prices PER MINUTE. interval_1 and interval_n are
+ * billing blocks in seconds. Those are different units and keeping them
+ * separate is load-bearing — see below.
+ *
+ * ── 2026-09-04: this function used to charge price_1 PER BLOCK ───────────────
+ * It returned `price_1 + n_extra * price_n` with no division by 60, which
+ * over-bills by 60/interval_n. On 60/60 tariffs a block IS a minute and the
+ * answer came out right, which is why it survived; 42 of the 44 rate rows on
+ * the two live tariffs are 1/1, where it was 60x.
+ *
+ * It is not merely a verification figure. `invoices.html_content` renders this
+ * cost, and a customer document printed "@ $2.10000/min" against a $0.03500
+ * tariff. The arithmetic now lives in `billing-increments`, tested directly
+ * against the owner's specification of the five increment patterns, and this
+ * function is a thin adapter onto it. Both characterisation tests that pinned
+ * the defect have been rewritten into correctness assertions.
  */
 export function reproduceCost(
   durationSecs: number,
   rate: SippyTariffRate,
 ): ReproducedRating {
-  const interval1   = Number(rate.interval1   ?? 60);
-  const intervalN   = Number(rate.intervalN   ?? 60);
-  const price1      = Number(rate.price1      ?? 0);
-  const priceN      = Number(rate.priceN      ?? 0);
-  const connectFee  = Number(rate.connectFee  ?? 0);
-  const freeSecs    = Number(rate.freeSeconds ?? 0);
-  const gracePeriod = Number(rate.gracePeriod ?? 0);
-  const surcharge   = Number(rate.postCallSurcharge ?? 0);
-
-  // Grace period check
-  if (gracePeriod > 0 && durationSecs <= gracePeriod) {
-    return {
-      reproducedCost: 0,
-      billedSecs: 0,
-      rate,
-      formula: `grace(${gracePeriod}s)`,
-    };
-  }
-
-  const billable = Math.max(0, durationSecs - freeSecs);
-
-  if (billable === 0) {
-    const cost = +(connectFee + surcharge).toFixed(8);
-    return { reproducedCost: cost, billedSecs: 0, rate, formula: `connect_fee_only` };
-  }
-
-  let mainCost: number;
-  let billedSecs: number;
-
-  if (billable <= interval1) {
-    mainCost  = price1;
-    billedSecs = interval1;
-  } else {
-    const remaining = billable - interval1;
-    const nExtra    = Math.ceil(remaining / intervalN);
-    mainCost  = price1 + nExtra * priceN;
-    billedSecs = interval1 + nExtra * intervalN;
-  }
-
-  const total = +(connectFee + mainCost + surcharge).toFixed(8);
+  const rated = rateCall(durationSecs, {
+    price1:            rate.price1,
+    priceN:            rate.priceN,
+    interval1:         rate.interval1,
+    intervalN:         rate.intervalN,
+    connectFee:        rate.connectFee,
+    freeSeconds:       rate.freeSeconds,
+    gracePeriod:       rate.gracePeriod,
+    postCallSurcharge: rate.postCallSurcharge,
+  });
 
   return {
-    reproducedCost: total,
-    billedSecs,
+    reproducedCost: rated.cost,
+    billedSecs:     rated.billedSecs,
     rate,
-    formula: billable <= interval1
-      ? `${connectFee}+${price1}[≤${interval1}s]+${surcharge}`
-      : `${connectFee}+${price1}+ceil((${billable}-${interval1})/${intervalN})*${priceN}+${surcharge}`,
+    formula:        rated.formula,
   };
 }
 
