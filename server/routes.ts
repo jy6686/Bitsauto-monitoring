@@ -36114,11 +36114,30 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // be quietly wrong ────────────────────────────────────────────────────
       // 1. Fields that could not be read at all. Totals below omit those rows,
       //    and the reader is told rather than left to trust a number.
-      const faultBanner = faults.ok ? '' :
+      const faultReport = faults.report();
+      const faultBanner = faultReport.ok ? '' :
         `<div style="background:#7f1d1d;color:#fff;padding:10px;margin-bottom:16px;font-size:12px">
            <strong>INCOMPLETE — figures are missing, not zero.</strong><br>
-           ${faults.summary()} Rows with unreadable values are excluded from the totals below.
+           ${faultReport.faultCount} unreadable value(s). Rows carrying them are excluded from
+           the totals below.
+           <table style="width:auto;margin-top:8px;font-size:11px">
+             <thead><tr><th style="background:none;padding:2px 8px">Field</th>
+               <th style="background:none;padding:2px 8px">Problem</th>
+               <th style="background:none;padding:2px 8px">Rows</th>
+               <th style="background:none;padding:2px 8px">Row has</th></tr></thead>
+             <tbody>${faultReport.groups.map(g =>
+               `<tr><td style="border:none;padding:2px 8px">${g.path}</td>` +
+               `<td style="border:none;padding:2px 8px">${g.fault}</td>` +
+               `<td style="border:none;padding:2px 8px">${g.occurrences}</td>` +
+               `<td style="border:none;padding:2px 8px">${
+                 g.suggestions.length ? `try ${g.suggestions[0]}`
+                 : g.availableFields.length ? g.availableFields.join(', ')
+                 : g.received ? `${g.received.type} ${g.received.preview}` : '—'}</td></tr>`
+             ).join('')}</tbody>
+           </table>
          </div>`;
+      // A health check can read the disposition without fetching the document.
+      res.setHeader('X-Field-Faults', String(faultReport.faultCount));
 
       // 2. The reproduction disagreeing with what the switch actually charged.
       //    Every invoice generated before the 2026-09-04 units fix carries a

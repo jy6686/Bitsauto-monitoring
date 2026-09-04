@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   readNumber, requireNumber, checkFields, assertFields, numberOrDash, sumField,
-  FieldFaultCollector, MissingFinanceFieldError,
+  FieldFaultCollector, MissingFinanceFieldError, reportFaults,
 } from './finance-number';
 
 /**
@@ -85,6 +85,150 @@ describe('the message names where to look', () => {
       .toContain('present, but no value recorded');
     expect(readNumber({}, 'actualCost', 't').detail)
       .toContain('does not exist on the row');
+  });
+});
+
+describe('the diagnostic is structured, so nothing has to parse prose', () => {
+  // The first version of this module put the row's available keys inside the
+  // `detail` string, which recreated the very problem it was written to solve:
+  // a consumer wanting the column list had to parse English.
+  const ROW = { id: 1, prefix: '192', durationSecs: 429, reproducedCost: 0.25025 };
+
+  it('exposes field and table separately, not only as a joined path', () => {
+    const r = readNumber(ROW, 'amount', 'invoice_line_items');
+    expect(r.field).toBe('amount');
+    expect(r.table).toBe('invoice_line_items');
+    expect(r.path).toBe('invoice_line_items.amount');
+  });
+
+  it('exposes availableFields as an ARRAY', () => {
+    const r = readNumber(ROW, 'amount', 'invoice_line_items');
+    expect(r.availableFields).toEqual(['id', 'prefix', 'durationSecs', 'reproducedCost']);
+    // The fix a reader needs is now a value, not a substring of a sentence.
+    expect(r.availableFields).toContain('reproducedCost');
+  });
+
+  it('exposes suggestions as an ARRAY, best match first', () => {
+    // Both share the "total" stem, so both are candidates — but totalSell
+    // agrees for six characters and totalBuy for five, so the useful one leads
+    // and suggestions[0] is worth reading.
+    const r = readNumber({ totalSell: 500, totalBuy: 400 }, 'totalSales', 'cockpit');
+    expect(r.suggestions).toEqual(['totalSell', 'totalBuy']);
+    expect(r.suggestions[0]).toBe('totalSell');
+  });
+
+  it('offers nothing when nothing is close, rather than a coincidence', () => {
+    // Under four shared leading characters, a "match" is noise. The invoice
+    // row has no field resembling `amount`, and saying so is the honest answer.
+    expect(readNumber(ROW, 'amount', 'invoice_line_items').suggestions).toEqual([]);
+    expect(readNumber({ delta: 1, prefix: '9' }, 'duration', 't').suggestions).toEqual([]);
+  });
+
+  it('reports what it received, typed, for the non-absent faults', () => {
+    expect(readNumber({ a: '' },   'a', 't').received).toEqual({ type: 'string',  preview: '""' });
+    expect(readNumber({ a: null }, 'a', 't').received).toEqual({ type: 'null',    preview: 'null' });
+    expect(readNumber({ a: [] },   'a', 't').received).toEqual({ type: 'array',   preview: '' });
+    expect(readNumber({ a: true }, 'a', 't').received).toEqual({ type: 'boolean', preview: 'true' });
+    expect(readNumber({ a: 'abc' },'a', 't').received).toEqual({ type: 'string',  preview: '"abc"' });
+    // Absent has nothing to report as received; availableFields is its evidence.
+    expect(readNumber({}, 'a', 't').received).toBeNull();
+    expect(readNumber({ a: 1 }, 'a', 't').received).toBeNull();
+  });
+
+  it('truncates a huge value rather than carrying it into a log line', () => {
+    const r = readNumber({ a: 'x'.repeat(500) }, 'a', 't');
+    expect(r.received!.preview.length).toBeLessThanOrEqual(120);
+    expect(r.received!.preview.endsWith('...')).toBe(true);
+  });
+
+  it('keeps the whole verdict JSON-safe', () => {
+    // It has to survive res.json() without a replacer.
+    const r = readNumber({}, 'amount', 'invoice_line_items');
+    expect(() => JSON.stringify(r)).not.toThrow();
+    expect(JSON.parse(JSON.stringify(r))).toEqual(r);
+  });
+
+  it('a test asserts on the discriminant, never on the message', () => {
+    // The property the suggestion asked for, stated as a test.
+    expect(readNumber({}, 'a', 't').fault).toBe('field-absent');
+    expect(readNumber({ a: null }, 'a', 't').fault).toBe('field-null');
+    expect(readNumber({ a: '' }, 'a', 't').fault).toBe('not-numeric');
+    expect(readNumber(null, 'a', 't').fault).toBe('row-missing');
+  });
+});
+
+describe('reportFaults — one shape for APIs, banners, logs and health checks', () => {
+  it('groups repeated faults so 362 rows are one row with a count', () => {
+    // The live invoice renderer's exact situation: the same field absent on
+    // every line. A consumer wants the fact once, with a count.
+    const reads = Array.from({ length: 362 }, () =>
+      readNumber({ durationSecs: 1, reproducedCost: 2 }, 'amount', 'invoice_line_items'));
+    const rep = reportFaults(reads);
+
+    expect(rep.ok).toBe(false);
+    expect(rep.faultCount).toBe(362);
+    expect(rep.groups).toHaveLength(1);
+    expect(rep.groups[0]).toMatchObject({
+      path: 'invoice_line_items.amount',
+      field: 'amount',
+      table: 'invoice_line_items',
+      fault: 'field-absent',
+      occurrences: 362,
+    });
+    expect(rep.groups[0].availableFields).toContain('reproducedCost');
+  });
+
+  it('counts by fault kind, so a health check can alert on field-absent alone', () => {
+    // field-absent is a code defect and should page someone. field-null is a
+    // data state and usually should not. A single "N faults" number conflates
+    // them, which is why byFault exists.
+    const rep = reportFaults([
+      readNumber({}, 'a', 't'),
+      readNumber({}, 'b', 't'),
+      readNumber({ c: null }, 'c', 't'),
+    ]);
+    expect(rep.byFault).toEqual({ 'field-absent': 2, 'field-null': 1 });
+  });
+
+  it('orders groups by occurrence, worst first', () => {
+    const rep = reportFaults([
+      readNumber({ x: null }, 'rare', 't'),
+      ...Array.from({ length: 5 }, () => readNumber({}, 'common', 't')),
+    ]);
+    expect(rep.groups[0].field).toBe('common');
+    expect(rep.groups[0].occurrences).toBe(5);
+  });
+
+  it('is clean and honest when nothing failed', () => {
+    const rep = reportFaults([readNumber({ a: 1 }, 'a', 't')]);
+    expect(rep).toMatchObject({ ok: true, faultCount: 0, groups: [], byFault: {} });
+    expect(rep.summary).toBe('All fields read.');
+  });
+
+  it('the collector and a caught error produce the SAME shape', () => {
+    // A caller that collects and a caller that catches must report
+    // identically, or a health check has to handle two formats.
+    const c = new FieldFaultCollector();
+    c.record(readNumber({ totalSell: 1 }, 'totalRevenue', 'cockpit'));
+
+    let caught: MissingFinanceFieldError;
+    try { requireNumber({ totalSell: 1 }, 'totalRevenue', 'cockpit'); throw new Error('x'); }
+    catch (e) { caught = e as MissingFinanceFieldError; }
+
+    expect(caught!.toJSON()).toEqual(c.report());
+    expect(JSON.parse(JSON.stringify(c))).toEqual(c.report());   // toJSON on the collector
+  });
+
+  it('assertFields carries every failure into one structured report', () => {
+    try {
+      assertFields({ durationSecs: 1 }, ['minutes', 'ratePerMin', 'amount'], 'invoice_line_items');
+      expect.unreachable('should have thrown');
+    } catch (e) {
+      const rep = (e as MissingFinanceFieldError).toJSON();
+      expect(rep.faultCount).toBe(3);
+      expect(rep.groups.map(g => g.field)).toEqual(['minutes', 'ratePerMin', 'amount']);
+      expect(rep.byFault).toEqual({ 'field-absent': 3 });
+    }
   });
 });
 

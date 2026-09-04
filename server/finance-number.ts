@@ -54,19 +54,51 @@ export type FieldFault =
   /** The key exists and holds something that is not a number: "", " ", [], {}. */
   | 'not-numeric';
 
+/**
+ * The verdict of one read — a structured diagnostic, not a message.
+ *
+ * Every fact a consumer might want is its own field. An API response, a UI
+ * banner, a log line and an automated contract check all read the SAME object;
+ * none of them parses `detail`, which exists only for humans. The first
+ * version of this interface put the row's available keys inside `detail`,
+ * which quietly recreated the problem the module was written to solve.
+ *
+ * JSON-safe throughout: no Errors, no undefined, no cycles.
+ */
 export interface FieldRead {
   /** True only when a real number was found. */
   ok: boolean;
   /** The number, or null when it could not be read. Never a substituted zero. */
   value: number | null;
   fault: FieldFault | null;
-  /** Fully qualified, e.g. "invoice_line_items.amount". */
+  /** The field name alone, for grouping and equality checks. */
+  field: string;
+  /** The table, view or DTO alone. */
+  table: string;
+  /** Fully qualified, e.g. "invoice_line_items.amount". For messages. */
   path: string;
-  /** One sentence naming what was found instead. */
+  /**
+   * The keys the row actually has. Populated on `field-absent`, which is the
+   * fault where it is diagnostic; empty otherwise, so a 362-row loop does not
+   * carry the same column list 362 times.
+   */
+  availableFields: string[];
+  /** Near-misses from `availableFields`. Structured, not embedded in prose. */
+  suggestions: string[];
+  /** What was found instead. null on success and on `field-absent`. */
+  received: { type: string; preview: string } | null;
+  /** One sentence for a human. Never parse this. */
   detail: string;
 }
 
-/** Thrown by `requireNumber` and `assertFields`. Carries the paths. */
+/**
+ * Thrown by `requireNumber` and `assertFields`.
+ *
+ * Carries the structured reads, so a catch block never has to parse
+ * `e.message` to find out which field was wrong. `toJSON()` puts the same
+ * shape into an API response as the collector produces, so a caller that
+ * catches and a caller that collects report identically.
+ */
 export class MissingFinanceFieldError extends Error {
   readonly reads: FieldRead[];
   constructor(message: string, reads: FieldRead[]) {
@@ -74,6 +106,75 @@ export class MissingFinanceFieldError extends Error {
     this.name = 'MissingFinanceFieldError';
     this.reads = reads;
   }
+  toJSON(): FaultReport {
+    return reportFaults(this.reads);
+  }
+}
+
+/** One unreadable path, with its occurrence count and diagnostics. */
+export interface FaultGroup {
+  path: string;
+  table: string;
+  field: string;
+  fault: FieldFault;
+  occurrences: number;
+  availableFields: string[];
+  suggestions: string[];
+  /** One example of what was found. null when the field was simply absent. */
+  received: { type: string; preview: string } | null;
+  detail: string;
+}
+
+/** What an API response, a UI banner, a log line or a health check consumes. */
+export interface FaultReport {
+  ok: boolean;
+  faultCount: number;
+  /** Grouped by path so 362 identical faults are one row carrying a count. */
+  groups: FaultGroup[];
+  /** Counts by fault kind, for a health check that alerts on `field-absent`. */
+  byFault: Record<string, number>;
+  summary: string;
+}
+
+/**
+ * Group failed reads into a report.
+ *
+ * Grouped deliberately: the invoice renderer produced 362 identical faults,
+ * and a consumer wants "invoice_line_items.amount is absent, 362 times" rather
+ * than 362 copies of the same column list.
+ */
+export function reportFaults(reads: readonly FieldRead[]): FaultReport {
+  const bad = reads.filter(r => !r.ok);
+  const groups = new Map<string, FaultGroup>();
+  const byFault: Record<string, number> = {};
+
+  for (const r of bad) {
+    byFault[r.fault!] = (byFault[r.fault!] ?? 0) + 1;
+    const key = `${r.path}|${r.fault}`;
+    const existing = groups.get(key);
+    if (existing) { existing.occurrences++; continue; }
+    groups.set(key, {
+      path: r.path, table: r.table, field: r.field, fault: r.fault!,
+      occurrences: 1,
+      availableFields: r.availableFields,
+      suggestions: r.suggestions,
+      received: r.received,
+      detail: r.detail,
+    });
+  }
+
+  const list = [...groups.values()].sort((a, b) => b.occurrences - a.occurrences);
+  return {
+    ok: bad.length === 0,
+    faultCount: bad.length,
+    groups: list,
+    byFault,
+    summary: bad.length === 0
+      ? 'All fields read.'
+      : `${bad.length} unreadable field(s) across ${list.length} path(s): ` +
+        Object.entries(byFault).map(([k, n]) => `${n} ${k}`).join(', ') +
+        `. Paths: ${list.map(g => g.path).join(', ')}.`,
+  };
 }
 
 /**
@@ -92,14 +193,13 @@ export class FieldFaultCollector {
   get paths(): string[] {
     return [...new Set(this.faults.map(f => f.path))];
   }
-  summary(): string {
-    if (this.ok) return 'All fields read.';
-    const byFault = new Map<FieldFault, number>();
-    for (const f of this.faults) byFault.set(f.fault!, (byFault.get(f.fault!) ?? 0) + 1);
-    const counts = [...byFault].map(([k, n]) => `${n} ${k}`).join(', ');
-    return `${this.faults.length} unreadable field(s) across ${this.paths.length} path(s): ` +
-           `${counts}. Paths: ${this.paths.join(', ')}.`;
-  }
+  /**
+   * The structured report. This is what belongs in an API response — a banner
+   * built from `summary()` alone forces the next consumer to parse English.
+   */
+  report(): FaultReport { return reportFaults(this.faults); }
+  toJSON(): FaultReport { return this.report(); }
+  summary(): string { return this.report().summary; }
 }
 
 function describe(v: unknown): string {
@@ -121,11 +221,16 @@ function describe(v: unknown): string {
  */
 export function readNumber(row: unknown, field: string, table: string): FieldRead {
   const path = `${table}.${field}`;
-  const fail = (fault: FieldFault, detail: string): FieldRead =>
-    ({ ok: false, value: null, fault, path, detail });
+  const base = { field, table, path, availableFields: [] as string[], suggestions: [] as string[] };
+
+  const fail = (
+    fault: FieldFault, detail: string,
+    extra: Partial<FieldRead> = {},
+  ): FieldRead => ({ ok: false, value: null, fault, ...base, received: null, detail, ...extra });
 
   if (row === null || row === undefined || typeof row !== 'object') {
-    return fail('row-missing', `No row to read ${path} from — got ${describe(row)}.`);
+    return fail('row-missing', `No row to read ${path} from — got ${describe(row)}.`,
+      { received: typed(row) });
   }
 
   const obj = row as Record<string, unknown>;
@@ -134,33 +239,76 @@ export function readNumber(row: unknown, field: string, table: string): FieldRea
   // written: a SQL NULL comes back as null, not undefined.
   if (!(field in obj) || obj[field] === undefined) {
     const keys = Object.keys(obj);
-    const near = keys.filter(k => k.toLowerCase().includes(field.toLowerCase().slice(0, 4)));
+    const near = nearMisses(field, keys);
     return fail('field-absent',
       `${path} does not exist on the row. Available: [${keys.join(', ')}]` +
-      (near.length ? `. Did you mean ${near.join(' or ')}?` : '') + '.');
+      (near.length ? `. Did you mean ${near.join(' or ')}?` : '') + '.',
+      { availableFields: keys, suggestions: near });
   }
 
   const raw = obj[field];
 
   if (raw === null) {
-    return fail('field-null', `${path} is null — present, but no value recorded.`);
+    return fail('field-null', `${path} is null — present, but no value recorded.`,
+      { received: { type: 'null', preview: 'null' } });
   }
 
   // Number("") and Number(" ") and Number([]) are all 0. Guard before coercing:
   // these are the coercions that manufacture money out of nothing.
   if (typeof raw === 'string' && raw.trim() === '') {
-    return fail('not-numeric', `${path} is an empty string, which coerces to 0 but means nothing.`);
+    return fail('not-numeric', `${path} is an empty string, which coerces to 0 but means nothing.`,
+      { received: typed(raw) });
   }
   if (typeof raw === 'boolean' || Array.isArray(raw) || typeof raw === 'object') {
-    return fail('not-numeric', `${path} holds ${describe(raw)}, not a number.`);
+    return fail('not-numeric', `${path} holds ${describe(raw)}, not a number.`,
+      { received: typed(raw) });
   }
 
   const n = Number(raw);
   if (!Number.isFinite(n)) {
-    return fail('not-numeric', `${path} holds ${describe(raw)}, which is not a finite number.`);
+    return fail('not-numeric', `${path} holds ${describe(raw)}, which is not a finite number.`,
+      { received: typed(raw) });
   }
 
-  return { ok: true, value: n, fault: null, path, detail: `${path} = ${n}` };
+  return { ok: true, value: n, fault: null, ...base, received: null, detail: `${path} = ${n}` };
+}
+
+/**
+ * Candidate names, best first.
+ *
+ * Ranked by shared leading characters rather than filtered by a fixed stem: a
+ * blunt four-character stem offers `totalBuy` for `totalSales`, which is
+ * true and useless. Ordering by agreement puts `totalSell` first, so
+ * `suggestions[0]` is worth reading. Four characters remains the floor — below
+ * that the "match" is coincidence.
+ */
+function nearMisses(field: string, keys: readonly string[]): string[] {
+  const f = field.toLowerCase();
+  const scored = keys
+    .map(k => ({ k, n: sharedPrefix(f, k.toLowerCase()) }))
+    .filter(x => x.n >= 4)
+    .sort((a, b) => b.n - a.n || a.k.localeCompare(b.k));
+  return scored.map(x => x.k);
+}
+
+function sharedPrefix(a: string, b: string): number {
+  const max = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < max && a[i] === b[i]) i++;
+  return i;
+}
+
+/** A JSON-safe description of what was found, for structured consumers. */
+function typed(v: unknown): { type: string; preview: string } {
+  const type =
+    v === null ? 'null' :
+    Array.isArray(v) ? 'array' :
+    typeof v;
+  let preview: string;
+  try {
+    preview = typeof v === 'string' ? JSON.stringify(v) : String(v);
+  } catch { preview = '(unprintable)'; }
+  return { type, preview: preview.length > 120 ? preview.slice(0, 117) + '...' : preview };
 }
 
 /**
