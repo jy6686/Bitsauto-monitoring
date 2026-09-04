@@ -36387,6 +36387,18 @@ ${footer}
             completedWithWorkerMetadata: n(row.with_worker),
             daySentinels:  n(row.sentinels),
             newestCompletedAt: row.newest_done ? new Date(row.newest_done).toISOString() : null,
+            // Read from what the scheduler already publishes each tick — the
+            // same ArmState it gates on. `mode` is set from state.armed, so
+            // this is the decision that actually governs whether a job can
+            // exist, not a second opinion about it.
+            arm: {
+              armed: _forwardCapture.mode === 'armed' ? true
+                   : _forwardCapture.mode === 'observe_only' ? false
+                   : null,
+              source: _forwardCapture.armSource ?? null,
+              hint:   _forwardCapture.armHint ?? null,
+              cached: Boolean(_forwardCapture.armCached),
+            },
             coverage: c0 ? {
               day: c0.period_start == null ? null : String(c0.period_start),
               expectedAccounts:  n(c0.total_slices),
@@ -36407,7 +36419,7 @@ ${footer}
             jobsStarted: 0, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 0,
             completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
             daySentinels: 0, newestCompletedAt: null,
-            coverage: null, timings: null,
+            arm: null, coverage: null, timings: null,
           };
         }
       } catch (e: any) { runError = e?.message ?? 'unknown error'; }

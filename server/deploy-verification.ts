@@ -51,6 +51,17 @@ export type CheckStatus =
   | 'FAIL'
   /** Cannot be true yet, and that is expected. Not a failure. */
   | 'PENDING'
+  /**
+   * Nothing is broken, and nothing will happen either — the system is in a
+   * state that prevents progress until someone acts.
+   *
+   * Split out of PENDING because the two are operationally opposite. PENDING
+   * says "wait"; BLOCKED says "waiting will not help". A disarmed collector
+   * reported as PENDING reads as "the nightly window has not come yet" and
+   * stays that way forever, which is the exact wait-forever ambiguity this
+   * module exists to remove elsewhere.
+   */
+  | 'BLOCKED'
   /** Could not be measured. Neither reassuring nor alarming. */
   | 'UNKNOWN';
 
@@ -76,9 +87,16 @@ export interface DeployCheck {
 }
 
 export interface DeployOverall {
-  /** PASS only when every check passed; FAIL if any failed; else PENDING/UNKNOWN. */
+  /**
+   * The top line. PASS only when every check passed; otherwise the most
+   * actionable state present, ranked FAIL > BLOCKED > PENDING > UNKNOWN.
+   *
+   * A MONITOR SHOULD KEY ON THIS, not on `ok`. `ok` answers "has anything
+   * failed", which stays true while a BLOCKED deployment sits making no
+   * progress forever — green on a system that will never finish.
+   */
   status: CheckStatus;
-  /** Nothing is known to be broken. A PENDING runtime check does not clear this. */
+  /** Nothing is known to be BROKEN. Does not mean the deployment is progressing. */
   ok: boolean;
   /** Everything has been exercised successfully. */
   ready: boolean;
@@ -173,6 +191,24 @@ export interface RunFacts {
     failedAccounts: number;
     sealedAt: string | null;
   } | null;
+  /**
+   * The collector's arm state, as the scheduler already publishes it.
+   *
+   * Read, never inferred: `_forwardCapture.mode` is set every tick from the
+   * same ArmState the scheduler gates on, so this reports the decision that
+   * actually governs whether a job can exist. No new persistence, no second
+   * source of truth to drift.
+   */
+  arm: {
+    /** null when the state could not be read — distinct from disarmed. */
+    armed: boolean | null;
+    /** flag | env | both | none — the operator's first question. */
+    source: string | null;
+    /** Composed by forward-capture-arm.ts; names the next action. */
+    hint: string | null;
+    /** Operating from a remembered flag value because the live read failed. */
+    cached: boolean;
+  } | null;
   /** Already-recorded numbers, surfaced so a regression is visible early. */
   timings: {
     /** Sentinel started_at → finished_at. */
@@ -219,15 +255,19 @@ export function verifyDeployment(f: DeployFacts): DeployVerification {
   ];
 
   const failed  = checks.filter(c => c.status === 'FAIL');
+  const blocked = checks.filter(c => c.status === 'BLOCKED');
   const waiting = checks.filter(c => c.status === 'PENDING');
   const unknown = checks.filter(c => c.status === 'UNKNOWN');
 
   const ok    = failed.length === 0;
-  const ready = ok && waiting.length === 0 && unknown.length === 0;
+  const ready = ok && blocked.length === 0 && waiting.length === 0 && unknown.length === 0;
 
+  // Most actionable first. BLOCKED outranks PENDING because one of them can be
+  // resolved and the other can only be waited on.
   const status: CheckStatus =
     failed.length  ? 'FAIL'
   : ready          ? 'PASS'
+  : blocked.length ? 'BLOCKED'
   : waiting.length ? 'PENDING'
                    : 'UNKNOWN';
 
@@ -235,6 +275,9 @@ export function verifyDeployment(f: DeployFacts): DeployVerification {
     failed.length  ? `DEPLOY NOT VERIFIED — ${failed.length} check(s) failed: ` +
                      failed.map(c => c.title).join('; ') + '.'
   : ready          ? 'Package verified end to end, including a completed nightly run.'
+  : blocked.length ? 'Schema and build verified, but verification CANNOT PROCEED: ' +
+                     blocked.map(c => c.title).join('; ') + '. ' +
+                     'This will not resolve by waiting — see the remedy.'
   : waiting.length ? `Schema and build verified; ${waiting.length} runtime check(s) cannot be ` +
                      `confirmed yet — ${waiting.map(c => c.title).join('; ')}. Nothing is wrong; ` +
                      're-run after the next nightly collection completes.'
@@ -403,10 +446,38 @@ function checkRuntimeChain(f: DeployFacts): DeployCheck[] {
   // "Started" alone is the claim that hides a run which crashed immediately,
   // which is exactly the failure this deploy is most exposed to.
   let job: DeployCheck;
-  if (r.jobsStarted === 0) {
+  if (r.jobsStarted === 0 && r.arm?.armed === false) {
+    // BLOCKED, not PENDING. The nightly tick returns before the reconciliation
+    // when disarmed, so it creates no job rows at all — waiting for the window
+    // cannot change this, and reporting "nothing is wrong yet" would be a
+    // wait-forever answer to a question with an action attached.
+    job = {
+      id: ids[0], step, title: titles[ids[0]], status: 'BLOCKED',
+      detail: `No collection job has started ${since}, and the collector is DISARMED ` +
+              `(source: ${r.arm.source ?? 'unknown'}` +
+              (r.arm.cached ? ', from a cached flag value' : '') + '). ' +
+              'The nightly tick reports what it WOULD collect and fetches nothing, so no job ' +
+              'row can appear however long you wait.',
+      remedy: r.arm.hint
+        ? `Arm the collector, then re-run this check. ${r.arm.hint}`
+        : 'Arm the collector, then re-run this check.',
+      metrics: { armed: 0, armSource: r.arm.source ?? null, armCached: r.arm.cached ? 1 : 0 },
+    };
+  } else if (r.jobsStarted === 0) {
+    // Armed, or the arm state could not be read. Either way nothing has run
+    // yet and waiting is still the right advice — but say which it is.
+    const unreadable = r.arm == null || r.arm.armed == null;
     job = pending(ids[0], step, titles[ids[0]],
-      `No collection job has started ${since}.`,
-      'Re-run after the next nightly collection. Nothing is wrong yet.');
+      `No collection job has started ${since}.` +
+      (unreadable
+        ? ' The collector\'s arm state could not be read, so this cannot distinguish ' +
+          '"the window has not come" from "the collector is disarmed".'
+        : ` The collector is armed (source: ${r.arm!.source ?? 'unknown'}), so the next ` +
+          'window should produce one.'),
+      unreadable
+        ? 'Re-run after the next nightly collection. If it is still PENDING, check the boot ' +
+          'log for "OBSERVE-ONLY" before concluding you are still waiting.'
+        : 'Re-run after the next nightly collection. Nothing is wrong yet.');
   } else if (r.jobsCompleted > 0) {
     job = pass(ids[0], step, titles[ids[0]],
       `${r.jobsCompleted} of ${r.jobsStarted} job(s) ${since} reached status done` +
@@ -424,14 +495,17 @@ function checkRuntimeChain(f: DeployFacts): DeployCheck[] {
   }
 
   // Downstream links have had no opportunity unless something completed.
+  // Downstream links carry ONE cause, not five copies of it. They stay PENDING
+  // and point at the link that actually needs acting on — the same shape used
+  // for a failed run, so an operator reads one row and acts once.
   const noOpportunity = (id: typeof ids[number]): DeployCheck =>
     pending(id, step, titles[id],
-      job.status === 'FAIL'
-        ? 'No job has completed, so nothing could have written this.'
-        : `Waiting on the first completed collection ${since}.`,
-      job.status === 'FAIL'
-        ? 'Blocked by the failed run above; fix that first.'
-        : 'Re-run after the next nightly collection completes. Nothing is wrong yet.');
+      job.status === 'FAIL'    ? 'No job has completed, so nothing could have written this.'
+    : job.status === 'BLOCKED' ? 'The collector is disarmed, so no job can write this.'
+                               : `Waiting on the first completed collection ${since}.`,
+      job.status === 'FAIL'    ? 'Blocked by the failed run above; fix that first.'
+    : job.status === 'BLOCKED' ? 'Blocked by the disarmed collector above; arm it first.'
+                               : 'Re-run after the next nightly collection completes. Nothing is wrong yet.');
 
   const populated = (
     id: typeof ids[number], count: number, what: string, column: string,
@@ -492,6 +566,9 @@ function checkRuntimeChain(f: DeployFacts): DeployCheck[] {
       jobsStarted: r.jobsStarted, jobsCompleted: r.jobsCompleted,
       jobsRunning: r.jobsRunning, jobsFailed: r.jobsFailed,
       sealDurationSeconds: r.timings?.sealDurationSeconds ?? null,
+      // Present on every runtime-job result, not only when it blocks: "the
+      // collector was armed" is context for a PASS as much as for a stall.
+      armed: r.arm?.armed == null ? null : (r.arm.armed ? 1 : 0),
     }),
     withMetrics(retry, {
       completedJobs: r.jobsCompleted,
@@ -509,8 +586,15 @@ function checkRuntimeChain(f: DeployFacts): DeployCheck[] {
   ];
 }
 
+/**
+ * Add the general metrics without discarding any a check set for itself.
+ *
+ * Merged, not replaced: the BLOCKED branch records the arm state that produced
+ * its verdict, and a blanket assignment here silently threw that away — the
+ * evidence for a check vanishing on its way out of the function.
+ */
 function withMetrics(c: DeployCheck, metrics: Record<string, number | string | null>): DeployCheck {
-  return { ...c, metrics };
+  return { ...c, metrics: { ...(c.metrics ?? {}), ...metrics } };
 }
 
 function checkDayCoverage(

@@ -41,6 +41,7 @@ const good = (over: Partial<DeployFacts> = {}): DeployFacts => ({
     jobsStarted: 25, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 25,
     completedWithRetryTelemetry: 25, completedWithWorkerMetadata: 25,
     daySentinels: 1, newestCompletedAt: '2026-09-06T01:14:00Z',
+    arm: { armed: true, source: 'flag', hint: '', cached: false },
     coverage: { day: '2026-09-05', expectedAccounts: 25, collectedAccounts: 25, failedAccounts: 0,
                   sealedAt: '2026-09-06T01:14:00Z' },
     timings: { sealDurationSeconds: 73, rowsWritten: 4154,
@@ -78,9 +79,122 @@ describe('a fully verified deployment', () => {
     expect(JSON.parse(JSON.stringify(r))).toEqual(r);
     for (const c of r.checks) {
       expect(typeof c.id).toBe('string');
-      expect(['PASS', 'FAIL', 'PENDING', 'UNKNOWN']).toContain(c.status);
+      expect(['PASS', 'FAIL', 'PENDING', 'BLOCKED', 'UNKNOWN']).toContain(c.status);
       expect(c.remedy).toBe('');    // nothing to remedy when passing
     }
+  });
+});
+
+describe('BLOCKED — waiting will not help', () => {
+  /** Nothing has run, and the collector is disarmed. */
+  const disarmed = (over: Record<string, unknown> = {}) => withRun({
+    jobsStarted: 0, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 0,
+    completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
+    daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null,
+    arm: { armed: false, source: 'none', cached: false,
+           hint: 'Set the forward_capture_armed flag or FORWARD_CAPTURE_ARMED=1.' },
+    ...over,
+  });
+
+  it('reports BLOCKED rather than an eternal PENDING', () => {
+    // The nightly tick returns before the reconciliation when disarmed, so no
+    // job row can EVER appear. PENDING would say "wait" forever.
+    const c = find(v(disarmed()), 'runtime-job');
+    expect(c.status).toBe('BLOCKED');
+    expect(c.detail).toContain('DISARMED');
+    expect(c.detail).toContain('no job row can appear however long you wait');
+  });
+
+  it('carries the scheduler\'s own hint as the remedy', () => {
+    // Read, not invented — forward-capture-arm.ts composes the hint and this
+    // reports it, so there is one wording for the operator to act on.
+    const c = find(v(disarmed()), 'runtime-job');
+    expect(c.remedy).toContain('Arm the collector');
+    expect(c.remedy).toContain('FORWARD_CAPTURE_ARMED=1');
+    expect(c.metrics).toMatchObject({ armed: 0, armSource: 'none' });
+  });
+
+  it('notes when the arm state came from a cached flag value', () => {
+    const c = find(v(disarmed({
+      arm: { armed: false, source: 'flag', hint: 'x', cached: true },
+    })), 'runtime-job');
+    expect(c.detail).toContain('from a cached flag value');
+    expect(c.metrics!.armCached).toBe(1);
+  });
+
+  it('propagates ONE cause downstream, not five copies', () => {
+    const r = v(disarmed());
+    for (const id of ['retry-telemetry', 'worker-metadata', 'day-sentinel', 'day-coverage']) {
+      expect(find(r, id).status).toBe('PENDING');
+      expect(find(r, id).remedy).toContain('arm it first');
+    }
+    // Exactly one row is the thing to act on.
+    expect(r.checks.filter(c => c.status === 'BLOCKED')).toHaveLength(1);
+  });
+
+  it('outranks PENDING in the overall status', () => {
+    // One is resolvable, the other can only be waited on. The resolvable one
+    // must be what an operator sees first.
+    const r = v(disarmed());
+    expect(r.overall.status).toBe('BLOCKED');
+    expect(r.overall.headline).toContain('CANNOT PROCEED');
+    expect(r.overall.headline).toContain('will not resolve by waiting');
+    expect(r.overall.ready).toBe(false);
+  });
+
+  it('is outranked BY a real failure', () => {
+    // A disarmed collector must not mask a broken schema.
+    const r = v({ ...disarmed(), version: { ...good().version, schemaLatest: '503_x.sql' } });
+    expect(r.overall.status).toBe('FAIL');
+    expect(r.overall.ok).toBe(false);
+  });
+
+  it('keeps ok=true, because nothing is BROKEN — and says so in the type', () => {
+    // The subtle one. A monitor keyed on `ok` stays green on a deployment that
+    // will never finish, which is why `status` is the field to alert on.
+    const r = v(disarmed());
+    expect(r.overall.ok).toBe(true);
+    expect(r.overall.ready).toBe(false);
+    expect(r.overall.status).toBe('BLOCKED');
+  });
+});
+
+describe('PENDING still means wait — and says which kind', () => {
+  const notRunYet = (arm: unknown) => withRun({
+    jobsStarted: 0, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 0,
+    completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
+    daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null,
+    arm: arm as any,
+  });
+
+  it('says the collector is armed, so the next window should produce a job', () => {
+    const c = find(v(notRunYet({ armed: true, source: 'flag', hint: '', cached: false })), 'runtime-job');
+    expect(c.status).toBe('PENDING');
+    expect(c.detail).toContain('collector is armed');
+    expect(c.remedy).toContain('Nothing is wrong yet');
+  });
+
+  it('admits when the arm state could not be read, instead of implying armed', () => {
+    // Absence of evidence again: an unreadable arm state cannot distinguish
+    // "the window has not come" from "the collector is disarmed", and the
+    // check must not quietly pick the reassuring one.
+    for (const arm of [null, { armed: null, source: null, hint: null, cached: false }]) {
+      const c = find(v(notRunYet(arm)), 'runtime-job');
+      expect(c.status).toBe('PENDING');
+      expect(c.detail).toContain('could not be read');
+      expect(c.remedy).toContain('check the boot log for "OBSERVE-ONLY"');
+    }
+  });
+
+  it('does not report BLOCKED once a job has actually started', () => {
+    // Disarming AFTER a run started is not a blocked deployment — the run
+    // happened, and the existing in-flight/failed logic owns it.
+    const c = find(v(withRun({
+      jobsStarted: 3, jobsRunning: 3, jobsCompleted: 0, jobsFailed: 0,
+      arm: { armed: false, source: 'none', hint: 'x', cached: false },
+    })), 'runtime-job');
+    expect(c.status).toBe('PENDING');
+    expect(c.detail).toContain('still running');
   });
 });
 
@@ -218,7 +332,9 @@ describe('day coverage — a sentinel is a belief, not a proof', () => {
     const r = v(withRun({
       jobsStarted: 0, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 0,
       completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
-      daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null,
+      daySentinels: 0, newestCompletedAt: null,
+      arm: { armed: true, source: 'flag', hint: '', cached: false },
+      coverage: null, timings: null,
     }));
     expect(find(r, 'day-coverage').status).toBe('PENDING');
     expect(r.overall.ok).toBe(true);
@@ -302,7 +418,9 @@ describe('the runtime chain stops where the evidence stops', () => {
     const r = v(withRun({
       jobsStarted: 0, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 0,
       completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
-      daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null,
+      daySentinels: 0, newestCompletedAt: null,
+      arm: { armed: true, source: 'flag', hint: '', cached: false },
+      coverage: null, timings: null,
     }));
     for (const id of chain) expect(find(r, id).status).toBe('PENDING');
     // Nothing broken, nothing proven.
@@ -314,7 +432,9 @@ describe('the runtime chain stops where the evidence stops', () => {
     const r = v(withRun({
       jobsStarted: 3, jobsRunning: 3, jobsFailed: 0, jobsCompleted: 0,
       completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
-      daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null,
+      daySentinels: 0, newestCompletedAt: null,
+      arm: { armed: true, source: 'flag', hint: '', cached: false },
+      coverage: null, timings: null,
     }));
     expect(find(r, 'runtime-job').status).toBe('PENDING');
     expect(find(r, 'runtime-job').detail).toContain('still running');
@@ -326,7 +446,9 @@ describe('the runtime chain stops where the evidence stops', () => {
     const r = v(withRun({
       jobsStarted: 4, jobsRunning: 0, jobsFailed: 4, jobsCompleted: 0,
       completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
-      daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null,
+      daySentinels: 0, newestCompletedAt: null,
+      arm: { armed: true, source: 'flag', hint: '', cached: false },
+      coverage: null, timings: null,
     }));
     const job = find(r, 'runtime-job');
     expect(job.status).toBe('FAIL');
@@ -344,7 +466,9 @@ describe('the runtime chain stops where the evidence stops', () => {
     const r = v(withRun({
       jobsStarted: 0, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 0,
       completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
-      daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null,
+      daySentinels: 0, newestCompletedAt: null,
+      arm: { armed: true, source: 'flag', hint: '', cached: false },
+      coverage: null, timings: null,
     }));
     expect(find(r, 'retry-telemetry').status).toBe('PENDING');
     expect(find(r, 'retry-telemetry').detail).toContain('Waiting on the first completed');
@@ -475,7 +599,9 @@ describe('overall — ok and ready are different questions', () => {
     const r = v(withRun({
       jobsStarted: 0, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 0,
       completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
-      daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null,
+      daySentinels: 0, newestCompletedAt: null,
+      arm: { armed: true, source: 'flag', hint: '', cached: false },
+      coverage: null, timings: null,
     }));
     expect(r.overall.ok).toBe(true);
     expect(r.overall.ready).toBe(false);
@@ -486,7 +612,9 @@ describe('overall — ok and ready are different questions', () => {
       pending: [...REQUIRED], ledger: [],
       run: { migrationAppliedAt: null, jobsStarted: 0, jobsRunning: 0, jobsFailed: 0,
              jobsCompleted: 0, completedWithRetryTelemetry: 0, completedWithWorkerMetadata: 0,
-             daySentinels: 0, newestCompletedAt: null, coverage: null, timings: null },
+             daySentinels: 0, newestCompletedAt: null,
+             arm: { armed: true, source: 'flag', hint: '', cached: false },
+             coverage: null, timings: null },
     }));
     expect(r.overall.status).toBe('FAIL');
     expect(r.overall.headline).not.toContain('Nothing is wrong');
