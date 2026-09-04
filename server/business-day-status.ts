@@ -374,6 +374,12 @@ export function assessBusinessDay(input: BusinessDayInput): BusinessDayStatus {
     // the same team the root cause does.
     const issueClass: IssueClass | undefined =
       state === 'complete' ? undefined
+      // `not_due` is not an issue. The day's window has not opened, nothing has
+      // been asked of anyone, and nobody can act. Classifying it put all eight
+      // stages under "Business — Finance operations" on a verdict whose own
+      // headline says collection starts tonight — eight action items for a
+      // night that has not happened.
+      : state === 'not_due' ? undefined
       : ev.issueClass ? ev.issueClass
       : state === 'awaiting_approval' ? 'human'
       : state === 'failed' ? 'technical'

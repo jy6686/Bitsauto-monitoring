@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   assessBudget, describeSpend, DEFAULT_BUDGET_MS, BACKOFF_SHARE_WARN,
+  MIN_SLICES_TO_ABORT,
 } from './collection-budget';
 
 const MIN = 60_000;
@@ -64,9 +65,14 @@ describe('a healthy run is left alone', () => {
   it('does not judge a pace from one slice', () => {
     // One slow slice at the start is not a pace, and aborting on it would
     // kill jobs for a single transient fault — the thing retries exist for.
+    //
+    // It does WARN: 1 of 48 slices in 10 minutes projects 8 hours against a
+    // one-hour budget, and the module used to call that "On pace". Not
+    // aborting is the guarantee; pretending the projection is fine is not.
     const d = assessBudget({ slicesDone: 1, slicesTotal: 48, elapsedMs: 10 * MIN,
                              backoffMs: 9 * MIN, retries: 2, budgetMs: HOUR });
-    expect(d.verdict).toBe('continue');
+    expect(d.verdict).not.toBe('abort');
+    expect(d.reason).not.toContain('On pace');
   });
 
   it('starts with no pace at all', () => {
@@ -126,3 +132,42 @@ describe('describeSpend separates work from sleep', () => {
     expect(s).not.toContain('backoff');
   });
 });
+
+describe('a projection must not contradict itself, and must not abort on a burst', () => {
+  it('never says "On pace" while projecting an overrun', () => {
+    // 2 of 48 slices in 20 minutes projects 8 hours against a 1-hour budget,
+    // and reported "On pace: ... projected 8.0h total".
+    const d = assessBudget({ slicesDone: 2, slicesTotal: 48, elapsedMs: 20 * MIN, budgetMs: HOUR });
+    expect(d.projectedTotalMs!).toBeGreaterThan(HOUR);
+    expect(d.reason).not.toContain('On pace');
+    expect(d.verdict).toBe('warn');
+    expect(d.reason).toContain('too few to act on');
+  });
+
+  it('still says "On pace" when the projection genuinely fits', () => {
+    const d = assessBudget({ slicesDone: 2, slicesTotal: 48, elapsedMs: 2_000, budgetMs: HOUR });
+    expect(d.verdict).toBe('continue');
+    expect(d.reason).toContain('On pace');
+  });
+
+  it('does not abort a job on a three-slice burst of heavy backoff', () => {
+    // Three auth-flavoured retries early (16.5 min of backoff each) projected
+    // 13 hours and killed a job whose remaining 45 slices might run in a
+    // minute. It must be loudly visible, but not fatal.
+    const burst = { slicesDone: 3, slicesTotal: 48, elapsedMs: 50 * MIN,
+                    backoffMs: 49 * MIN, retries: 6, budgetMs: 4 * HOUR };
+    const d = assessBudget(burst);
+    expect(d.verdict).not.toBe('abort');
+    expect(d.verdict).toBe('warn');
+  });
+
+  it('does abort once the bad pace is confirmed over more slices', () => {
+    const sustained = { slicesDone: MIN_SLICES_TO_ABORT, slicesTotal: 48,
+                        elapsedMs: 85 * MIN, backoffMs: 80 * MIN, retries: 10,
+                        budgetMs: 4 * HOUR };
+    const d = assessBudget(sustained);
+    expect(d.verdict).toBe('abort');
+    // And it states that the projection is an assumption, not a certainty.
+    expect(d.reason).toContain('assuming the observed rate continues');
+  });
+})

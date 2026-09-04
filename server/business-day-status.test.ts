@@ -407,3 +407,28 @@ describe('last SUCCESSFUL completion is not the last run', () => {
     expect(r.stages[0].lastSuccessAt).toBeUndefined();
   });
 });
+
+describe('a day that is not due yet gives nobody anything to do', () => {
+  it('leaves all three issue lists empty on a not_due verdict', () => {
+    // The board previously listed all eight stages under "Business — Finance
+    // operations" while its own headline said collection starts tonight.
+    const r = assessBusinessDay({
+      nowMs: at('2026-09-03T00:40:00Z'), scheduledHourUtc: 2,
+      targetDayOverride: '2026-09-02', evidence: {},
+    });
+    expect(r.verdict).toBe('not_due');
+    expect(r.businessIssues).toHaveLength(0);
+    expect(r.technicalIssues).toHaveLength(0);
+    expect(r.humanIssues).toHaveLength(0);
+    expect(r.stages.every(s => s.issueClass === undefined)).toBe(true);
+  });
+
+  it('still classifies a stage that IS waiting once the day is owed', () => {
+    // The narrow fix must not silence real waiting work.
+    const r = assessBusinessDay({
+      nowMs: at('2026-09-03T09:00:00Z'), scheduledHourUtc: 2, evidence: {},
+    });
+    expect(r.verdict).not.toBe('not_due');
+    expect(r.businessIssues.length + r.technicalIssues.length).toBeGreaterThan(0);
+  });
+});

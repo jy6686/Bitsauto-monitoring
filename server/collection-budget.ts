@@ -82,6 +82,18 @@ export interface BudgetDecision {
 export const DEFAULT_BUDGET_MS = 4 * 60 * 60 * 1000;   // the collection window
 /** Above this share of elapsed time spent sleeping, the run is mostly waiting. */
 export const BACKOFF_SHARE_WARN = 0.5;
+/**
+ * Slices needed before a PROJECTION may abort a run.
+ *
+ * Warnings still fire at 3. Aborting is the consequential call, and the
+ * projection assumes the observed rate continues — which is exactly what a
+ * transient burst violates. A single early cluster of auth-flavoured retries
+ * (16.5 minutes of backoff each) put three slices at 17 min apiece and
+ * projected 13 hours, aborting a job whose remaining 45 slices might have run
+ * in a minute. Five slices is cheap insurance against that, and a genuinely
+ * fatal pace is still visible from slice 3 as a warning.
+ */
+export const MIN_SLICES_TO_ABORT = 5;
 
 export function assessBudget(input: BudgetInput): BudgetDecision {
   const budgetMs  = input.budgetMs ?? DEFAULT_BUDGET_MS;
@@ -111,14 +123,28 @@ export function assessBudget(input: BudgetInput): BudgetDecision {
     };
   }
 
-  // Will not finish. Projection is only trustworthy once a few slices have
-  // reported — one slow slice at the start is not a pace.
-  if (done >= 3 && projectedTotalMs != null && projectedTotalMs > budgetMs) {
+  // Will not finish. The projection assumes the observed rate CONTINUES, so it
+  // needs a real sample before it may stop a run — see MIN_SLICES_TO_ABORT.
+  if (done >= MIN_SLICES_TO_ABORT && projectedTotalMs != null && projectedTotalMs > budgetMs) {
     return {
       verdict: 'abort', msPerSlice, projectedTotalMs, projectedOverrunMs, backoffShare, slowdownFactor,
       reason: `Cannot finish in budget: ${pct} slices in ${fmt(input.elapsedMs)} ` +
               `(${fmt(msPerSlice!)}/slice) projects ${fmt(projectedTotalMs)} for all ${total}, ` +
               `${fmt(projectedOverrunMs)} past the ${fmt(budgetMs)} limit` +
+              retryClause(retries, backoffMs) +
+              ' — assuming the observed rate continues.',
+    };
+  }
+
+  // Projecting an overrun but too early to act on it. Saying "On pace" here was
+  // a flat contradiction: 2 of 48 slices in 20 minutes projected 8 hours
+  // against a 1-hour budget and reported itself on pace.
+  if (projectedTotalMs != null && projectedTotalMs > budgetMs) {
+    return {
+      verdict: 'warn', msPerSlice, projectedTotalMs, projectedOverrunMs, backoffShare, slowdownFactor,
+      reason: `Projecting an overrun on ${done} slice(s) — too few to act on: ${pct} in ` +
+              `${fmt(input.elapsedMs)} projects ${fmt(projectedTotalMs)} against a ` +
+              `${fmt(budgetMs)} limit. Abort needs ${MIN_SLICES_TO_ABORT} slices` +
               retryClause(retries, backoffMs) + '.',
     };
   }
