@@ -41,8 +41,8 @@ const good = (over: Partial<DeployFacts> = {}): DeployFacts => ({
     jobsStarted: 25, jobsRunning: 0, jobsFailed: 0, jobsCompleted: 25,
     completedWithRetryTelemetry: 25, completedWithWorkerMetadata: 25,
     daySentinels: 1, newestCompletedAt: '2026-09-06T01:14:00Z',
-    coverage: { day: '2026-09-05', expectedAccounts: 25, collectedAccounts: 25,
-                sealedAt: '2026-09-06T01:14:00Z' },
+    coverage: { day: '2026-09-05', expectedAccounts: 25, collectedAccounts: 25, failedAccounts: 0,
+                  sealedAt: '2026-09-06T01:14:00Z' },
     timings: { sealDurationSeconds: 73, rowsWritten: 4154,
                maxQueueWaitMs: 182, totalBackoffMs: 0 },
   },
@@ -89,13 +89,15 @@ describe('day coverage — a sentinel is a belief, not a proof', () => {
     const c = find(v(good()), 'day-coverage');
     expect(c.status).toBe('PASS');
     expect(c.detail).toContain('all 25 expected account(s)');
-    expect(c.metrics).toMatchObject({ expectedAccounts: 25, collectedAccounts: 25 });
+    expect(c.metrics).toMatchObject({
+      expected: 25, completed: 25, failed: 0, notAttempted: 0, percentage: 100,
+    });
   });
 
   it('FAILS a day sealed short, and says the day is unrecoverable', () => {
     // The user's case: Expected 49, Collected 12, Sentinel YES.
     const c = find(v(withRun({
-      coverage: { day: '2026-09-05', expectedAccounts: 49, collectedAccounts: 12,
+      coverage: { day: '2026-09-05', expectedAccounts: 49, collectedAccounts: 12, failedAccounts: 0,
                   sealedAt: '2026-09-06T01:14:00Z' },
     })), 'day-coverage');
 
@@ -107,22 +109,82 @@ describe('day coverage — a sentinel is a belief, not a proof', () => {
     expect(c.remedy).toContain('permanently unbilled');
     expect(c.remedy).toContain('recon-2026-09-05-<account>');
     expect(v(withRun({
-      coverage: { day: '2026-09-05', expectedAccounts: 49, collectedAccounts: 12, sealedAt: null },
+      coverage: { day: '2026-09-05', expectedAccounts: 49, collectedAccounts: 12, failedAccounts: 0,
+                  sealedAt: null },
     })).overall.ok).toBe(false);
   });
 
   it('catches the historical shape — a run that died after 7 of 25', () => {
     const c = find(v(withRun({
-      coverage: { day: '2026-08-30', expectedAccounts: 25, collectedAccounts: 7, sealedAt: null },
+      coverage: { day: '2026-08-30', expectedAccounts: 25, collectedAccounts: 7, failedAccounts: 0,
+                  sealedAt: null },
     })), 'day-coverage');
     expect(c.status).toBe('FAIL');
-    expect(c.metrics).toMatchObject({ expectedAccounts: 25, collectedAccounts: 7 });
+    expect(c.metrics).toMatchObject({ expected: 25, completed: 7, percentage: 28 });
+  });
+
+  it('separates "ran and failed" from "never attempted"', () => {
+    // expected − completed cannot tell these apart, and they point at
+    // different code: one left a row and a reason, the other left nothing.
+    // The 2026-09-02 shape is the second, which is why it is measured.
+    const c = find(v(withRun({
+      coverage: { day: '2026-09-05', expectedAccounts: 25, collectedAccounts: 7,
+                  failedAccounts: 3, sealedAt: null },
+    })), 'day-coverage');
+
+    expect(c.metrics).toMatchObject({
+      expected: 25, completed: 7, failed: 3, notAttempted: 15, percentage: 28,
+    });
+    expect(c.detail).toContain('3 ran and failed, 15 never attempted');
+    // The remedy leads with the ones that left no evidence at all.
+    expect(c.remedy).toContain('15 account(s) left NO row at all');
+    expect(c.remedy).toContain('rather than with the ones that errored');
+  });
+
+  it('omits a shortfall clause that does not apply', () => {
+    const onlyFailed = find(v(withRun({
+      coverage: { day: '2026-09-05', expectedAccounts: 10, collectedAccounts: 7,
+                  failedAccounts: 3, sealedAt: null },
+    })), 'day-coverage');
+    expect(onlyFailed.metrics).toMatchObject({ failed: 3, notAttempted: 0 });
+    expect(onlyFailed.detail).toContain('3 ran and failed');
+    expect(onlyFailed.detail).not.toContain('never attempted');
+    expect(onlyFailed.remedy).not.toContain('left NO row at all');
+  });
+
+  it('clamps notAttempted at zero rather than reporting a negative', () => {
+    // More rows than the roster is already handled as a PASS, but the
+    // arithmetic must not produce a negative count on the way there.
+    const c = find(v(withRun({
+      coverage: { day: '2026-09-05', expectedAccounts: 5, collectedAccounts: 6,
+                  failedAccounts: 2, sealedAt: null },
+    })), 'day-coverage');
+    expect(c.metrics!.notAttempted).toBe(0);
+    expect(c.status).toBe('PASS');
+  });
+
+  it('reports percentage to one decimal, and null without a denominator', () => {
+    const partial = find(v(withRun({
+      coverage: { day: '2026-09-05', expectedAccounts: 49, collectedAccounts: 46,
+                  failedAccounts: 3, sealedAt: null },
+    })), 'day-coverage');
+    expect(partial.metrics!.percentage).toBe(93.9);      // 46/49 = 93.877…
+
+    // No roster means no denominator. null, never 0 — a coverage of "unknown"
+    // must not render as "nothing was collected".
+    const noDenominator = find(v(withRun({
+      coverage: { day: '2026-09-05', expectedAccounts: 0, collectedAccounts: 0,
+                  failedAccounts: 0, sealedAt: null },
+    })), 'day-coverage');
+    expect(noDenominator.status).toBe('UNKNOWN');
+    expect(noDenominator.metrics!.percentage).toBeNull();
   });
 
   it('does not fail when MORE was collected than planned', () => {
     // Not a completeness risk — the roster likely shrank mid-run. Reported.
     const c = find(v(withRun({
-      coverage: { day: '2026-09-05', expectedAccounts: 25, collectedAccounts: 26, sealedAt: null },
+      coverage: { day: '2026-09-05', expectedAccounts: 25, collectedAccounts: 26, failedAccounts: 0,
+                  sealedAt: null },
     })), 'day-coverage');
     expect(c.status).toBe('PASS');
     expect(c.detail).toContain('More than expected is not a completeness risk');
@@ -133,8 +195,10 @@ describe('day coverage — a sentinel is a belief, not a proof', () => {
     // is an absence of evidence, and must not read as evidence of absence.
     for (const coverage of [
       null,
-      { day: null, expectedAccounts: 0, collectedAccounts: 0, sealedAt: null },
-      { day: '2026-09-05', expectedAccounts: 0, collectedAccounts: 0, sealedAt: null },
+      { day: null, expectedAccounts: 0, collectedAccounts: 0, failedAccounts: 0,
+                  sealedAt: null },
+      { day: '2026-09-05', expectedAccounts: 0, collectedAccounts: 0, failedAccounts: 0,
+                  sealedAt: null },
     ]) {
       const c = find(v(withRun({ coverage: coverage as any })), 'day-coverage');
       expect(c.status).toBe('UNKNOWN');

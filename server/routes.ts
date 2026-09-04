@@ -36360,6 +36360,13 @@ ${footer}
                    (SELECT count(*)::int FROM seed_jobs a
                      WHERE a.job_id LIKE 'recon-' || nw.period_start || '-%'
                        AND a.status = 'done' AND a.last_error IS NULL) AS collected,
+                   -- Attempted and did not finish clean. MEASURED, never
+                   -- derived as expected − collected: that subtraction cannot
+                   -- separate an account that ran and errored from one the
+                   -- loop never reached, and only the second leaves no row.
+                   (SELECT count(*)::int FROM seed_jobs a
+                     WHERE a.job_id LIKE 'recon-' || nw.period_start || '-%'
+                       AND (a.status <> 'done' OR a.last_error IS NOT NULL)) AS failed_accounts,
                    (SELECT max(queue_wait_ms)::int FROM seed_jobs a
                      WHERE a.job_id LIKE 'recon-' || nw.period_start || '-%') AS max_queue_wait,
                    (SELECT sum(backoff_ms)::bigint FROM seed_jobs a
@@ -36384,6 +36391,7 @@ ${footer}
               day: c0.period_start == null ? null : String(c0.period_start),
               expectedAccounts:  n(c0.total_slices),
               collectedAccounts: n(c0.collected),
+              failedAccounts:    n(c0.failed_accounts),
               sealedAt: c0.finished_at ? new Date(c0.finished_at).toISOString() : null,
             } : null,
             timings: c0 ? {

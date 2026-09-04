@@ -160,6 +160,17 @@ export interface RunFacts {
     day: string | null;
     expectedAccounts: number;
     collectedAccounts: number;
+    /**
+     * Accounts that RAN and did not finish clean — a non-done status, or done
+     * with last_error set.
+     *
+     * Measured, never derived as expected − collected. Those two subtractions
+     * look identical and mean opposite things: an account that ran and errored
+     * left evidence and a reason, while an account the loop never reached left
+     * nothing at all. The second is the shape of the 2026-09-02 failure and
+     * would be invisible if it were folded into a single "failed" number.
+     */
+    failedAccounts: number;
     sealedAt: string | null;
   } | null;
   /** Already-recorded numbers, surfaced so a regression is visible early. */
@@ -527,9 +538,28 @@ function checkDayCoverage(
       metrics: { expectedAccounts: null, collectedAccounts: null } };
   }
 
+  // Three buckets, not two. Whatever is neither collected nor failed was never
+  // attempted — the loop did not reach it — and that is a different fault from
+  // an account that ran and errored. Clamped at zero so a roster smaller than
+  // the rows collected cannot produce a negative count.
+  const notAttempted = Math.max(0,
+    cov.expectedAccounts - cov.collectedAccounts - cov.failedAccounts);
+
+  // Convenience for dashboards. The counts above remain authoritative; this is
+  // null rather than 0 when there is no denominator, for the same reason an
+  // unreadable figure is never zero.
+  const percentage = cov.expectedAccounts > 0
+    ? Math.round((cov.collectedAccounts / cov.expectedAccounts) * 1000) / 10
+    : null;
+
   const m = {
-    day: cov.day, expectedAccounts: cov.expectedAccounts,
-    collectedAccounts: cov.collectedAccounts, sealedAt: cov.sealedAt,
+    day: cov.day,
+    expected:     cov.expectedAccounts,
+    completed:    cov.collectedAccounts,
+    failed:       cov.failedAccounts,
+    notAttempted,
+    percentage,
+    sealedAt: cov.sealedAt,
   };
 
   if (cov.expectedAccounts === 0) {
@@ -542,14 +572,26 @@ function checkDayCoverage(
   }
 
   if (cov.collectedAccounts < cov.expectedAccounts) {
+    // Name the two shortfalls separately — they point at different code.
+    const shortfall = [
+      cov.failedAccounts ? `${cov.failedAccounts} ran and failed` : null,
+      notAttempted ? `${notAttempted} never attempted` : null,
+    ].filter(Boolean).join(', ');
+
     return { id, step, title, status: 'FAIL',
       detail: `${cov.day} was SEALED with only ${cov.collectedAccounts} of ` +
-              `${cov.expectedAccounts} expected account(s) collected. The sentinel says the day ` +
-              'is finished; the per-account rows say it is not.',
+              `${cov.expectedAccounts} expected account(s) collected (${percentage}%)` +
+              (shortfall ? ` — ${shortfall}.` : '.') +
+              ' The sentinel says the day is finished; the per-account rows say it is not.',
       remedy: 'This is a day that will never be re-collected — nightly-ingest-due treats a done ' +
               'sentinel as collected forever, so the missing accounts are permanently ' +
-              'unbilled unless the seal is removed. Identify the accounts with no clean ' +
-              `recon-${cov.day}-<account> row before anything else.`,
+              'unbilled unless the seal is removed. ' +
+              (notAttempted
+                ? `${notAttempted} account(s) left NO row at all, so start with why the loop ` +
+                  'did not reach them rather than with the ones that errored. '
+                : '') +
+              `Identify the accounts with no clean recon-${cov.day}-<account> row before ` +
+              'anything else.',
       metrics: m };
   }
 
@@ -564,7 +606,7 @@ function checkDayCoverage(
   }
 
   return { id, step, title, status: 'PASS',
-    detail: `${cov.day} sealed with all ${cov.expectedAccounts} expected account(s) collected` +
+    detail: `${cov.day} sealed with all ${cov.expectedAccounts} expected account(s) collected (100%)` +
             (cov.sealedAt ? ` at ${cov.sealedAt}.` : '.'),
     remedy: '', metrics: m };
 }
