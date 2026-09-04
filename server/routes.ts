@@ -36248,6 +36248,100 @@ ${footer}
     } catch(e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/finance/deploy-verification — did the finance package land?
+  //
+  // The agreed post-deploy checklist, executable. A checklist in a document
+  // cannot fail; it gets read on the first deploy, skimmed on the second and
+  // skipped on the third — and the third is the one that needed it.
+  //
+  // Read-only. The fifth check is the point: a migration applying and the
+  // instrumentation WORKING are different claims, and only the first is
+  // provable at deploy time. Until a collection run has happened it reports
+  // `pending`, which is neither pass nor fail — hence `ok` (nothing broken)
+  // and `ready` (everything proven) being separate.
+  app.get('/api/finance/deploy-verification',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (_req: any, res: any) => {
+    try {
+      const { verifyDeployment } = await import('./deploy-verification');
+
+      const REQUIRED = [
+        '504_seed_job_retry_accounting.sql',
+        '505_seed_job_diagnostics.sql',
+        '506_company_lifecycle_changed_at.sql',
+        '507_seed_job_retry_columns_nullable.sql',
+      ];
+      // Nullability as drizzle declares it. A disagreement here is the
+      // 504-applied-without-507 case, which tests cannot catch because they do
+      // not run against production's schema.
+      const EXPECTED = [
+        { table: 'seed_jobs', column: 'retries_total',        mustBeNullable: true },
+        { table: 'seed_jobs', column: 'backoff_ms',           mustBeNullable: true },
+        { table: 'seed_jobs', column: 'pace_verdict',         mustBeNullable: true },
+        { table: 'seed_jobs', column: 'retry_causes',         mustBeNullable: true },
+        { table: 'seed_jobs', column: 'worker_id',            mustBeNullable: true },
+        { table: 'seed_jobs', column: 'queued_at',            mustBeNullable: true },
+        { table: 'seed_jobs', column: 'queue_wait_ms',        mustBeNullable: true },
+        { table: 'companies', column: 'lifecycle_changed_at', mustBeNullable: true },
+      ];
+
+      const ledgerData = await getMigrationLedger(pool);
+      const ledger = ledgerData.rows.map((r: any) => ({
+        filename: r.filename,
+        appliedAt: r.appliedAt ? new Date(r.appliedAt).toISOString() : null,
+        driftedTo: r.driftedTo ?? null,
+      }));
+
+      const colRows: any = await db.execute(sql`
+        SELECT table_name, column_name, is_nullable, column_default
+          FROM information_schema.columns
+         WHERE table_name IN ('seed_jobs','companies')`);
+      const columns = ((colRows.rows ?? []) as any[]).map(r => ({
+        table:  String(r.table_name),
+        column: String(r.column_name),
+        isNullable: String(r.is_nullable).toUpperCase() === 'YES',
+        hasDefault: r.column_default != null,
+      }));
+
+      // Step 5. Only rows created AFTER the migration count: 507 deliberately
+      // NULLs pre-instrumentation rows, so a NULL on an old row is correct.
+      const applied507 = ledger.find(e => e.filename === REQUIRED[3])?.appliedAt ?? null;
+      let telemetry = null, telemetryError: string | null = null;
+      try {
+        if (applied507) {
+          // started_at, not created_at — seed_jobs has no created_at column,
+          // and "a job RAN after the migration" is the question anyway.
+          const t: any = await db.execute(sql`
+            SELECT count(*)::int AS rows_since,
+                   count(retries_total)::int AS instrumented,
+                   max(started_at) AS newest
+              FROM seed_jobs
+             WHERE started_at > ${applied507}::timestamptz`);
+          const row = (t.rows ?? [])[0] ?? {};
+          telemetry = {
+            migrationAppliedAt: applied507,
+            rowsSince: Number(row.rows_since ?? 0),
+            rowsSinceInstrumented: Number(row.instrumented ?? 0),
+            newestRowAt: row.newest ? new Date(row.newest).toISOString() : null,
+          };
+        } else {
+          telemetry = { migrationAppliedAt: null, rowsSince: 0, rowsSinceInstrumented: 0, newestRowAt: null };
+        }
+      } catch (e: any) { telemetryError = e?.message ?? 'unknown error'; }
+
+      res.json({
+        readOnly: true,
+        ...verifyDeployment({
+          targetMigration: REQUIRED[3],
+          requiredMigrations: REQUIRED,
+          ledger, pending: ledgerData.pending ?? [],
+          columns, expectedColumns: EXPECTED,
+          telemetry, telemetryError,
+        }),
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+
   // GET /api/finance/invoice-restatement — what would regenerating change?
   //
   // STRICTLY READ-ONLY. It writes nothing, and is the thing to read BEFORE
