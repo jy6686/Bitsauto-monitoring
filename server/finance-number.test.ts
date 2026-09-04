@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   readNumber, requireNumber, checkFields, assertFields, numberOrDash, sumField,
-  FieldFaultCollector, MissingFinanceFieldError, reportFaults,
+  FieldFaultCollector, MissingFinanceFieldError, reportFaults, FAULT_POLICY,
 } from './finance-number';
 
 /**
@@ -24,8 +24,10 @@ describe('the distinction Number(x) || 0 erases', () => {
     expect(readNumber({ amount: null }, 'amount', T).fault).toBe('field-null');
     expect(readNumber({ amount: '' }, 'amount', T).fault).toBe('not-numeric');
     expect(readNumber({ amount: '  ' }, 'amount', T).fault).toBe('not-numeric');
-    expect(readNumber({ amount: [] }, 'amount', T).fault).toBe('not-numeric');
-    expect(readNumber({ amount: {} }, 'amount', T).fault).toBe('not-numeric');
+    // Structurally wrong is its own kind: an array where a number belongs is a
+    // payload defect, not a value that failed to parse. Different owner.
+    expect(readNumber({ amount: [] }, 'amount', T).fault).toBe('wrong-type');
+    expect(readNumber({ amount: {} }, 'amount', T).fault).toBe('wrong-type');
     expect(readNumber(null, 'amount', T).fault).toBe('row-missing');
     expect(readNumber(undefined, 'amount', T).fault).toBe('row-missing');
 
@@ -229,6 +231,82 @@ describe('reportFaults — one shape for APIs, banners, logs and health checks',
       expect(rep.groups.map(g => g.field)).toEqual(['minutes', 'ratePerMin', 'amount']);
       expect(rep.byFault).toEqual({ 'field-absent': 3 });
     }
+  });
+});
+
+describe('fault policy — alerting that does not become noise', () => {
+  it('separates the payload defect from the unparseable value', () => {
+    // Both silently became 0 before. They need different people: an array in
+    // a cost column is a shape defect; the string "abc" is a data-quality
+    // question that Finance has to answer.
+    expect(readNumber({ a: [] },    'a', 't').fault).toBe('wrong-type');
+    expect(readNumber({ a: {} },    'a', 't').fault).toBe('wrong-type');
+    expect(readNumber({ a: true },  'a', 't').fault).toBe('wrong-type');
+    expect(readNumber({ a: 'abc' }, 'a', 't').fault).toBe('not-numeric');
+    expect(readNumber({ a: '' },    'a', 't').fault).toBe('not-numeric');
+    expect(readNumber({ a: NaN },   'a', 't').fault).toBe('not-numeric');
+
+    expect(FAULT_POLICY['wrong-type'].owner).toBe('engineering');
+    expect(FAULT_POLICY['not-numeric'].owner).toBe('finance');
+  });
+
+  it('does NOT alert on a nullable column being null', () => {
+    // The whole point. A monitor that pages on field-null trains people to
+    // ignore the channel, and then a real field-absent arrives unread.
+    const rep = reportFaults([
+      readNumber({ actualCost: null }, 'actualCost', 't'),
+      readNumber({ actualCost: null }, 'actualCost', 't'),
+    ]);
+    expect(rep.ok).toBe(false);        // something WAS unreadable
+    expect(rep.faultCount).toBe(2);
+    expect(rep.alertable).toBe(0);     // but nothing worth waking anyone
+    expect(rep.quiet).toBe(true);
+    expect(rep.summary).toContain('none alertable');
+  });
+
+  it('alerts on every other kind', () => {
+    for (const row of [{}, { a: [] }, { a: 'abc' }] as const) {
+      expect(reportFaults([readNumber(row, 'a', 't')]).alertable).toBe(1);
+    }
+    expect(reportFaults([readNumber(null, 'a', 't')]).alertable).toBe(1);
+  });
+
+  it('routes by owner rather than making a dashboard triage', () => {
+    const rep = reportFaults([
+      readNumber({}, 'a', 't'),                    // field-absent  → engineering
+      readNumber({ b: [] }, 'b', 't'),             // wrong-type    → engineering
+      readNumber({ c: 'abc' }, 'c', 't'),          // not-numeric   → finance
+      readNumber({ d: null }, 'd', 't'),           // field-null    → none
+    ]);
+    expect(rep.byOwner).toEqual({ engineering: 2, finance: 1, none: 1 });
+    expect(rep.alertable).toBe(3);
+    expect(rep.quiet).toBe(false);
+  });
+
+  it('carries owner and alert onto each group, for routing without a lookup', () => {
+    const rep = reportFaults([readNumber({}, 'amount', 'invoice_line_items')]);
+    expect(rep.groups[0]).toMatchObject({ owner: 'engineering', alert: true });
+  });
+
+  it('sorts alertable groups above high-volume quiet ones', () => {
+    // One missing column outranks a thousand legitimate nulls, which is the
+    // order someone triaging needs — not the order by volume.
+    const rep = reportFaults([
+      ...Array.from({ length: 1000 }, () => readNumber({ q: null }, 'q', 't')),
+      readNumber({}, 'amount', 'invoice_line_items'),
+    ]);
+    expect(rep.groups[0].field).toBe('amount');
+    expect(rep.groups[0].occurrences).toBe(1);
+    expect(rep.groups[1].occurrences).toBe(1000);
+  });
+
+  it('every fault kind has a policy — no unrouted fault can exist', () => {
+    const kinds = ['row-missing', 'field-absent', 'field-null', 'wrong-type', 'not-numeric'] as const;
+    for (const k of kinds) {
+      expect(FAULT_POLICY[k]).toBeDefined();
+      expect(FAULT_POLICY[k].meaning.length).toBeGreaterThan(20);
+    }
+    expect(Object.keys(FAULT_POLICY).sort()).toEqual([...kinds].sort());
   });
 });
 

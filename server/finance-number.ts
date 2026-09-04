@@ -51,8 +51,57 @@ export type FieldFault =
   | 'field-absent'
   /** The key exists and is explicitly null — legitimately unknown. */
   | 'field-null'
-  /** The key exists and holds something that is not a number: "", " ", [], {}. */
+  /** The key holds an array, object or boolean — a number was never there. */
+  | 'wrong-type'
+  /** The key holds a scalar that will not parse: "", " ", "abc", NaN. */
   | 'not-numeric';
+
+/** Who fixes a fault of this kind, and whether it should wake anyone. */
+export type FaultOwner = 'engineering' | 'finance' | 'none';
+
+export interface FaultPolicy {
+  owner: FaultOwner;
+  /**
+   * Whether a health check should raise on this. False for `field-null`,
+   * which is a legitimate data state — a nullable column being null is not an
+   * incident, and alerting on it is how a finance alert becomes background
+   * noise that nobody reads when a real one arrives.
+   */
+  alert: boolean;
+  meaning: string;
+}
+
+/**
+ * The operational meaning of each fault, in one place.
+ *
+ * The four kinds are genuinely different severities and a single "N faults"
+ * number conflates them. This table is what lets a health endpoint alert on
+ * the code defects and stay quiet about the data states, without every caller
+ * reinventing that judgement.
+ */
+export const FAULT_POLICY: Record<FieldFault, FaultPolicy> = {
+  'row-missing': {
+    owner: 'engineering', alert: true,
+    meaning: 'A query returned nothing where a row was required. Code or query defect.',
+  },
+  'field-absent': {
+    owner: 'engineering', alert: true,
+    meaning: 'Producer and consumer disagree about the column name. Schema mismatch.',
+  },
+  'field-null': {
+    owner: 'none', alert: false,
+    meaning: 'A nullable column is null. Legitimate data state; usually no action.',
+  },
+  'wrong-type': {
+    owner: 'engineering', alert: true,
+    meaning: 'An array, object or boolean where a number belongs. Bad payload shape.',
+  },
+  'not-numeric': {
+    owner: 'finance', alert: true,
+    meaning: 'A value that should be numeric will not parse. Data quality; needs Finance ' +
+             'to say what the figure should be, and Engineering to find how it got there.',
+  },
+};
 
 /**
  * The verdict of one read — a structured diagnostic, not a message.
@@ -118,6 +167,10 @@ export interface FaultGroup {
   field: string;
   fault: FieldFault;
   occurrences: number;
+  /** From FAULT_POLICY — carried on the group so a dashboard can route it. */
+  owner: FaultOwner;
+  /** Whether this group should raise. False only for `field-null`. */
+  alert: boolean;
   availableFields: string[];
   suggestions: string[];
   /** One example of what was found. null when the field was simply absent. */
@@ -127,12 +180,25 @@ export interface FaultGroup {
 
 /** What an API response, a UI banner, a log line or a health check consumes. */
 export interface FaultReport {
+  /** True when nothing failed at all, including non-alerting faults. */
   ok: boolean;
   faultCount: number;
   /** Grouped by path so 362 identical faults are one row carrying a count. */
   groups: FaultGroup[];
-  /** Counts by fault kind, for a health check that alerts on `field-absent`. */
+  /** Counts by fault kind. */
   byFault: Record<string, number>;
+  /** Counts by who fixes it, for routing rather than triage. */
+  byOwner: Record<FaultOwner, number>;
+  /**
+   * Faults that should raise an alert — everything except `field-null`.
+   *
+   * THIS is the number a health check reads, not `faultCount`. A nullable
+   * column being null is not an incident, and a monitor that pages on it
+   * trains people to ignore the channel.
+   */
+  alertable: number;
+  /** True when nothing alertable happened. May be true while `ok` is false. */
+  quiet: boolean;
   summary: string;
 }
 
@@ -147,15 +213,23 @@ export function reportFaults(reads: readonly FieldRead[]): FaultReport {
   const bad = reads.filter(r => !r.ok);
   const groups = new Map<string, FaultGroup>();
   const byFault: Record<string, number> = {};
+  const byOwner: Record<FaultOwner, number> = { engineering: 0, finance: 0, none: 0 };
+  let alertable = 0;
 
   for (const r of bad) {
+    const policy = FAULT_POLICY[r.fault!];
     byFault[r.fault!] = (byFault[r.fault!] ?? 0) + 1;
+    byOwner[policy.owner]++;
+    if (policy.alert) alertable++;
+
     const key = `${r.path}|${r.fault}`;
     const existing = groups.get(key);
     if (existing) { existing.occurrences++; continue; }
     groups.set(key, {
       path: r.path, table: r.table, field: r.field, fault: r.fault!,
       occurrences: 1,
+      owner: policy.owner,
+      alert: policy.alert,
       availableFields: r.availableFields,
       suggestions: r.suggestions,
       received: r.received,
@@ -163,15 +237,23 @@ export function reportFaults(reads: readonly FieldRead[]): FaultReport {
     });
   }
 
-  const list = [...groups.values()].sort((a, b) => b.occurrences - a.occurrences);
+  // Alertable first, then by volume — so a single field-absent outranks a
+  // thousand nulls, which is the order someone triaging needs.
+  const list = [...groups.values()].sort((a, b) =>
+    Number(b.alert) - Number(a.alert) || b.occurrences - a.occurrences);
+
   return {
     ok: bad.length === 0,
     faultCount: bad.length,
     groups: list,
-    byFault,
+    byFault, byOwner, alertable,
+    quiet: alertable === 0,
     summary: bad.length === 0
       ? 'All fields read.'
-      : `${bad.length} unreadable field(s) across ${list.length} path(s): ` +
+      : `${bad.length} unreadable field(s) across ${list.length} path(s)` +
+        (alertable === 0
+          ? ' — all of them legitimate null data states, none alertable'
+          : `, ${alertable} alertable`) + ': ' +
         Object.entries(byFault).map(([k, n]) => `${n} ${k}`).join(', ') +
         `. Paths: ${list.map(g => g.path).join(', ')}.`,
   };
@@ -259,8 +341,12 @@ export function readNumber(row: unknown, field: string, table: string): FieldRea
     return fail('not-numeric', `${path} is an empty string, which coerces to 0 but means nothing.`,
       { received: typed(raw) });
   }
+  // Structurally wrong, as distinct from unparseable. An array where a number
+  // belongs is a payload defect and belongs to Engineering; the string "abc"
+  // in a cost column is a data-quality question and needs Finance to say what
+  // the figure should have been. Same silent zero, different people.
   if (typeof raw === 'boolean' || Array.isArray(raw) || typeof raw === 'object') {
-    return fail('not-numeric', `${path} holds ${describe(raw)}, not a number.`,
+    return fail('wrong-type', `${path} holds ${describe(raw)}, not a number.`,
       { received: typed(raw) });
   }
 
