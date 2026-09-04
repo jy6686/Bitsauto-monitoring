@@ -73,37 +73,52 @@ describe('DEFECT: reproduceCost charges per interval, not per minute', () => {
 });
 
 /**
- * WHERE THIS REACHES MONEY — measured 2026-09-04, and NOT where I first said.
+ * WHERE THIS REACHES MONEY — measured 2026-09-04, after getting it wrong twice.
  *
- * The platform's own policy audit reports, as MEASURED:
+ * There are TWO invoice documents and I conflated them.
  *
- *   "The stored html_content bills the rating engine's reproduction —
- *    currently up to 60x wrong — while the canonical PDF sums actual_cost."
+ *   invoices.html_content        frozen at generation. THIS is what the email
+ *                                attached and what a customer would read.
+ *   GET /api/invoices/:id/html   a LIVE re-render from invoice_cdr_snapshots,
+ *                                produced on request, today.
  *
- * I repeated that as "an invoice's stored HTML can carry the 60x figure" and
- * called it the finding with a customer at the end of it. Then I rendered a
- * real one. Invoice C-2608-0007 (asterisk, tariff 32 — the only invoice ever
- * marked sent that carries a divergence):
+ * I first repeated the platform's own audit — "the stored html_content bills
+ * the reproduction, up to 60x wrong". Then I rendered the LIVE endpoint, saw
+ * 362 rows of 0.00, and "corrected" myself to say the document bills nothing.
+ * That correction was wrong: I had tested the wrong document.
  *
- *     Sippy actual_cost       $0.275368
- *     reproduction engine    $16.522050   (60x — the defect above)
- *     rendered HTML document  $0.000000   <- all 362 lines
+ * The stored html_content of C-2608-0007, read verbatim:
  *
- * The document does not over-bill by 60x. It bills NOTHING: 362 rows of
- * 0.00 minutes, 0.00000 rate/min, 0.00 amount, country "Unknown", under a
- * total of 0.00. In the direction this platform actually cares about that is
- * worse, because under-billing is the failure it exists to prevent.
+ *     Country summary   Unknown        9.70 min        $16.52
+ *     1880                             2.55 min   @ $0.59100/min    $1.51
+ *     192                              7.15 min   @ $2.10000/min   $15.01
+ *     Total                            9.70 min        $16.52
  *
- * The renderer reads s.durationSecs and s.reproducedCost, and both columns
- * exist on invoice_cdr_snapshots (reproduced_cost is NOT NULL) — so the stored
- * rows carry zeros, while the invoice HEADER carries totalReproduced $16.52
- * over lineCount 362. Header and lines disagree about the same invoice. That
- * is a separate defect from this one and is not yet traced to its cause.
+ * The tariff-32 rates for those prefixes are $0.00985 and $0.035 per minute.
+ * 0.00985 x 60 = 0.591. 0.035 x 60 = 2.10. The printed RATE COLUMN is exactly
+ * 60x the tariff, so the defect is in per-line pricing and the total merely
+ * inherits it. Sippy's actual_cost for the same period is $0.275368.
  *
- * Two things follow for the rating fix:
- *   - It is not the customer-facing emergency I implied. Nobody has been
- *     over-billed: invoice email was in test mode and went to the operator,
- *     and invoiceEmailTestMode is still true.
- *   - Correcting the engine ALONE will not make the document right, because
- *     the document is not currently reading a non-zero cost from anywhere.
+ * So the original claim stands and my correction did not:
+ *   stored document   $16.52   (60x)
+ *   Sippy actual      $0.2754
+ *   live re-render    $0.00    <- a SEPARATE defect, in the re-render path
+ *
+ * Still true, and the reason none of this reached a customer: the delivery
+ * record shows testMode true, recipients [junaid@ichibaanlogic.com], subject
+ * prefixed [TEST]. invoiceEmailTestMode is still true.
+ *
+ * Two further things the stored document shows on its face:
+ *   - Its footer reads "DRAFT — NOT APPROVED FOR PAYMENT" while the invoice
+ *     row status is 'sent'. The HTML is frozen at generation and never
+ *     regenerated on approval, so the document that was emailed contradicts
+ *     the record that says it was sent.
+ *   - It prints "Due Date: 06-Sep-2026" while the row's due_date is NULL and
+ *     its terms read "Not configured" — the document computing its own due
+ *     date, which the platform's audit reports as a divergence and which is
+ *     confirmed here.
+ *
+ * For the rating fix: correcting the engine DOES fix the stored document,
+ * because that document reads the reproduction. It does not fix the live
+ * re-render, which is empty for its own unrelated reason.
  */
