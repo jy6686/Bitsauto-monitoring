@@ -33488,21 +33488,75 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
               importRunId:   jobId,
               payload:       c,
             }));
-            let stored = 0;
-            for (let i = 0; i < rows.length; i += 500) {
+            // ── Per-batch, with retry, and counting what actually committed ──
+            //
+            // This loop previously ran inside one try/catch that returned 0 on
+            // any failure — discarding every batch that had ALREADY COMMITTED.
+            // Job recon-2026-09-03-1 reported `fetched 1947 · stored 1241`
+            // with a pool timeout, and that 706 was read as 706 lost records.
+            // It could not be read that way: the gap conflated rows never
+            // written with rows written and not counted.
+            //
+            // The insert is onConflictDoNothing() against the repository's
+            // unique index, so a retry is a no-op for rows already present —
+            // which is what makes retrying free of side effects. The FETCH
+            // path already retries three times; the write path having none was
+            // an oversight rather than a decision.
+            const { summariseWrite, isRetryableWrite } =
+              await import('./write-accounting');
+            const WRITE_ATTEMPTS = 3;
+            const WRITE_BACKOFF_MS = [1_000, 4_000];
+            const outcomes: import('./write-accounting').BatchOutcome[] = [];
+
+            for (let i = 0, b = 0; i < rows.length; i += 500, b++) {
               const chunk = rows.slice(i, i + 500);
-              const res: any = await db.insert(rawSippyCdrs).values(chunk as any).onConflictDoNothing();
-              stored += res?.rowCount ?? chunk.length;
+              let attempts = 0, lastErr: string | null = null, rowCount: number | null = null;
+              for (; attempts < WRITE_ATTEMPTS; attempts++) {
+                try {
+                  const res: any = await db.insert(rawSippyCdrs)
+                    .values(chunk as any).onConflictDoNothing();
+                  // null, never chunk.length: `rowCount ?? chunk.length`
+                  // asserted a success the driver never claimed.
+                  rowCount = typeof res?.rowCount === 'number' ? res.rowCount : null;
+                  lastErr = null;
+                  break;
+                } catch (e: any) {
+                  lastErr = String(e?.message ?? e);
+                  if (attempts + 1 >= WRITE_ATTEMPTS || !isRetryableWrite(lastErr)) break;
+                  const waitMs = WRITE_BACKOFF_MS[attempts] ?? 4_000;
+                  console.warn(`[seed-job:${jobId}] repository write batch ${b} attempt ` +
+                    `${attempts + 1}/${WRITE_ATTEMPTS} failed, retrying in ${waitMs}ms — ${lastErr}`);
+                  await sleep(waitMs);
+                }
+              }
+              outcomes.push({ index: b, rows: chunk.length, rowCount,
+                              error: lastErr, attempts: attempts + 1 });
+              if (lastErr) break;   // stop the slice; the rest is re-collected
             }
-            return stored;
+
+            const w = summariseWrite(outcomes);
+            if (w.batchesFailed > 0) {
+              console.error(`[seed-job:${jobId}] CDR repository write PARTIAL — ${w.detail}`);
+              // The log viewer truncates long lines, and that truncation has
+              // already cost multiple investigation round-trips. The full
+              // account goes into seed_jobs.last_error, where the poll
+              // endpoint serves it untruncated. Status is NOT changed — the
+              // billing-continues contract holds, and last_error keeps the day
+              // from sealing so it is re-collected whole.
+              await progress({ lastError: `repository write: ${w.detail}`.slice(0, 4000) });
+              job.repositoryWriteError = w.detail;
+            } else if (w.unknown > 0) {
+              console.warn(`[seed-job:${jobId}] repository write: ${w.detail}`);
+            }
+            // Confirmed only. `unknown` rows are probably in the table and are
+            // deliberately not counted as stored — the same rule the money
+            // follows: a value the driver did not report is not a measurement.
+            return w.confirmed;
           } catch (e: any) {
+            // Reached only by a failure OUTSIDE the batch loop — building the
+            // row objects, or the dynamic import. Nothing was written.
             const err = String(e?.message ?? e);
-            console.error(`[seed-job:${jobId}] CDR repository write FAILED — billing continues but these rows have no stored evidence: ${err}`);
-            // The log viewer truncates long lines, and that truncation has
-            // already cost multiple investigation round-trips. The full
-            // database exception goes into seed_jobs.last_error, where the
-            // poll endpoint serves it untruncated to a browser. Status is NOT
-            // changed — the billing-continues contract holds.
+            console.error(`[seed-job:${jobId}] CDR repository write FAILED before any batch ran: ${err}`);
             await progress({ lastError: `repository write: ${err}`.slice(0, 4000) });
             job.repositoryWriteError = err;
             return 0;

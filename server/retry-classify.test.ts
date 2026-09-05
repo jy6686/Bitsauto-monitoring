@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  classifyRetry, summariseRetries, computeEfficiency, CAUSE_LABEL,
+  classifyRetry, summariseRetries, computeEfficiency, CAUSE_LABEL, CAUSE_OWNER,
   type RetryCause,
 } from './retry-classify';
 
@@ -21,8 +21,19 @@ describe('the order of the rules is the substance', () => {
   it('reads ETIMEDOUT as a timeout, not merely as a socket fault', () => {
     // Both readings are correct; only one tells an operator what happened.
     expect(classifyRetry('connect ETIMEDOUT 104.245.246.110:443')).toBe('timeout');
-    expect(classifyRetry('Connection terminated due to connection timeout')).toBe('timeout');
     expect(classifyRetry('AbortError: The operation was aborted')).toBe('timeout');
+  });
+
+  it('reads a pg message naming BOTH as the pool, not as a switch timeout', () => {
+    // This line previously asserted 'timeout' — contradicting the pg-connection
+    // test below, which states that "Connection terminated" points at our own
+    // pool and that filing it elsewhere sends someone to the wrong system.
+    // Production settled it on 2026-09-05: this exact string was the
+    // repository WRITE failure on job recon-2026-09-03-1, and it was owned by
+    // "Switch / network" when the pool is ours.
+    expect(classifyRetry('Connection terminated due to connection timeout')).toBe('database');
+    expect(CAUSE_OWNER[classifyRetry('Connection terminated due to connection timeout')])
+      .toBe('Platform');
   });
 
   it('reads a POOL timeout as database, not as a switch timeout', () => {
