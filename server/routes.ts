@@ -33307,6 +33307,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         // not converging on the data; it is sampling it, and nothing recorded
         // why. See server/fetch-telemetry.ts.
         const sliceTelemetry: import('./fetch-telemetry').SliceTelemetry[] = [];
+        // Declared BEFORE fetchWindow, which reads them: putting them after
+        // the function only worked because it is called later, which is a
+        // temporal-dead-zone hazard rather than a design.
+        /** Persist the page marker on the 1st page and every Nth after. */
+        const PAGE_MARK_EVERY = 5;
+        /** …and unconditionally for any page slower than this, which is the
+         *  case the marker exists to locate. */
+        const SLOW_PAGE_MS = 5_000;
         let pageLog: import('./fetch-telemetry').PageRecord[] = [];
         let endReason: import('./fetch-telemetry').SliceEnd = 'UNKNOWN';
         let endDecision: import('./fetch-telemetry').TerminationDecision | undefined;
@@ -33356,15 +33364,31 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                   portalUrl);
                 pageLog.push({ offset, rows: page.ok ? page.cdrs.length : 0, ok: page.ok,
                                ms: Date.now() - pageStartedMs });
-                // Persist WHICH page just returned. A slice that hangs stops
-                // updating, so the last recorded page is the one BEFORE the
-                // hang — which turns "stalled somewhere in slice 3" into
-                // "stalled requesting page 4 of slice 3". The write is the
-                // same progress() row update, and pages per slice are single
-                // digits, so this costs little.
-                await progress({ currentSlice:
-                  `${winStart.slice(0, 16)}Z page ${pageLog.length} (offset ${offset}, ` +
-                  `${page.ok ? page.cdrs.length : 0} rows, ${Date.now() - pageStartedMs}ms)` });
+                // Persist WHICH page just returned, so a slice that hangs
+                // leaves the page BEFORE the hang on the row — turning
+                // "stalled somewhere in slice 3" into "stalled requesting page
+                // 4 of slice 3".
+                //
+                // THROTTLED, because this is the highest-frequency write in
+                // the collector and the pool is the thing that has been timing
+                // out. A slice can carry twenty pages; unthrottled that is
+                // ~1000 row updates per account, added to a pool already
+                // failing to hand out connections.
+                //
+                // What survives the throttle is what the diagnostic actually
+                // needs: the first page of a slice, every fifth after it, and
+                // ALWAYS a page that was slow — a slow page is the thing being
+                // hunted, and writing after one costs nothing next to the page
+                // itself. A hang after a fast page is then located to within
+                // five pages instead of exactly, which is a trade worth making
+                // against a thousand writes.
+                const pageMs = Date.now() - pageStartedMs;
+                const n = pageLog.length;
+                if (n === 1 || n % PAGE_MARK_EVERY === 0 || pageMs >= SLOW_PAGE_MS) {
+                  await progress({ currentSlice:
+                    `${winStart.slice(0, 16)}Z page ${n} (offset ${offset}, ` +
+                    `${page.ok ? page.cdrs.length : 0} rows, ${pageMs}ms)` });
+                }
                 if (offset > 0 && page.ok) nextSucceeded = true;
                 if (page.ok && pinnedMethod !== null && page.method !== pinnedMethod) {
                   console.warn(`[seed-job:${jobId}] XML-RPC(${username}) method switched ${pinnedMethod} → ${page.method} at offset=${offset} — aborting this credential (${pagesAccum.length} partial CDRs discarded; a different method is a different result set)`);
