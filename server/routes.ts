@@ -40282,10 +40282,25 @@ ${footer}
         // exists, so any running row older than the stale window is certainly
         // dead. Marked error, not deleted: it is a failed attempt and the
         // decision counts it as one.
+        // finished_at = updated_at, NOT now(). `progress()` stamps updated_at
+        // at every slice boundary, so it holds the moment work last happened.
+        // Stamping now() here overwrote it with the sweep time, and every
+        // consumer then computed elapsed = sweep − start: recon-2026-09-03-685
+        // read as "2.0h elapsed, 2.0h working, 100% productive, 2/48 slices",
+        // which was taken (by me, 2026-09-05) as sixty minutes per slice. The
+        // job had not worked for two hours; the reaper had been running for
+        // two hours since the job's last write.
+        //
+        // Preserving it makes finished_at − started_at the REAL work window,
+        // which with completed_slices is the per-slice rate — the number this
+        // investigation has needed all week and kept destroying on its way to
+        // recording it.
         const reaped: any = await db.execute(sql`
           UPDATE seed_jobs
-             SET status = 'error', finished_at = now(), updated_at = now(),
-                 last_error = 'Run died mid-day (process restarted or recycled). The scheduler retries the whole day; already-stored CDRs dedup.'
+             SET status = 'error', finished_at = updated_at, updated_at = now(),
+                 last_error = 'Run died mid-day (process restarted or recycled). ' ||
+                              'finished_at is the last recorded progress, not the moment it died. ' ||
+                              'The scheduler retries the whole day; already-stored CDRs dedup.'
            WHERE status = 'running' AND started_at < now() - interval '90 minutes'`);
         if (Number(reaped?.rowCount ?? 0) > 0) {
           console.warn(`[recon-nightly] reaped ${reaped.rowCount} dead running job(s)`);
