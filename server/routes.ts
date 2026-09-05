@@ -33226,11 +33226,14 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             const resetFields = reset
               ? { ...descriptive, completedSlices: 0, fetchedTotal: 0, storedTotal: 0,
                   lastError: null, finishedAt: null, startedAt: dsql`now()`,
-                  // Migration 504/505 columns. Without this a clean re-run of a
-                  // jobId that previously failed inherits the earlier run's
-                  // retry-cause distribution and renders it beside "no retries".
+                  // Migration 504/505/508 columns. Without this a clean re-run
+                  // of a jobId that previously failed inherits the earlier
+                  // run's retry-cause distribution and renders it beside "no
+                  // retries" — and, with 508, the earlier run's slice timing
+                  // beside a fresh slice count, which is the same lie about a
+                  // different measurement.
                   retriesTotal: 0, backoffMs: 0, paceVerdict: null, retryCauses: null,
-                  queuedAt: null, queueWaitMs: null }
+                  queuedAt: null, queueWaitMs: null, sliceTiming: null }
               : {};
             await db.insert(seedJobs).values({
               jobId, ...descriptive, ...fields,
@@ -33440,6 +33443,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         // telemetry below, which otherwise subtracts them from `duplicate` —
         // reporting a real loss as the one number the panel calls harmless.
         let lastWriteFailed = 0;
+        // Per-slice wall-clock split, PERSISTED as the run goes. The existing
+        // fetch telemetry is summarised only after all 48 slices, so a job
+        // that dies part-way recorded nothing — and dying part-way is the
+        // failure mode being investigated.
+        const sliceTimes: import('./slice-timing').SliceSample[] = [];
         const storeSlice = async (batch: any[]): Promise<number> => {
           lastWriteFailed = 0;
           try {
@@ -33633,8 +33641,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           }
           const keptThisSlice = rows.length;
           let stored = 0;
+          let storeMs = 0;
           if (rows.length > 0) {
+            const storeStartedMs = Date.now();
             stored = await storeSlice(rows);
+            storeMs = Date.now() - storeStartedMs;
             storedTotal += stored;
             for (const c of rows) {
               const icdr = c.iCdr ?? c.i_cdr;
@@ -33690,7 +33701,20 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             `end=${endReason}${endDecision ? ` [${endDecision.comparison}]` : ''} ` +
             `nextAttempted=${nextAttempted} SUCCESS`);
           job.fetched = fetchedTotal;
+          // fetchMs comes from the page records the loop already keeps, so the
+          // XML-RPC time is measured rather than inferred. `other` is whatever
+          // is left, which is why no phase can go unaccounted.
+          sliceTimes.push({
+            label: slice.label,
+            totalMs: Date.now() - sliceStartedMs,
+            fetchMs: pageLog.reduce((a, pg) => a + (pg.ms ?? 0), 0),
+            storeMs,
+            pages: pageLog.length,
+            rows: keptThisSlice,
+          });
+          const { summariseSliceTiming } = await import('./slice-timing');
           await progress({
+            sliceTiming: summariseSliceTiming(sliceTimes) as any,
             completedSlices: slice.index,
             currentSlice: slices[slice.index]?.label ?? slice.label,
             fetchedTotal,

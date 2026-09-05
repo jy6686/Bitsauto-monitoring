@@ -2405,6 +2405,9 @@ export const seedJobs = pgTable("seed_jobs", {
   workerId:        varchar("worker_id", { length: 32 }),
   queuedAt:        timestamp("queued_at", { withTimezone: true }),
   queueWaitMs:     integer("queue_wait_ms"),
+  /** Rolling fetch/store/other split, rewritten each slice (migration 508).
+   *  NULL = this run recorded no timing, which is not the same as zero. */
+  sliceTiming:     jsonb("slice_timing"),
   startedAt:       timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt:       timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   finishedAt:      timestamp("finished_at", { withTimezone: true }),

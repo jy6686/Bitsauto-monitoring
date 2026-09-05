@@ -1,0 +1,108 @@
+import { describe, it, expect } from 'vitest';
+import { summariseSliceTiming, type SliceSample } from './slice-timing';
+
+const s = (label: string, totalMs: number, fetchMs: number, storeMs: number,
+           pages = 1, rows = 40): SliceSample =>
+  ({ label, totalMs, fetchMs, storeMs, pages, rows });
+
+describe('the three-way split answers what one number cannot', () => {
+  it('names the switch when the fetch dominates', () => {
+    // The hypothesis under test: waiting on an XML-RPC call that returns
+    // nothing. If true, this is the shape it produces.
+    const r = summariseSliceTiming([
+      s('01:00–01:30Z', 3_480_000, 3_479_000, 300, 1, 0),
+      s('01:30–02:00Z', 3_500_000, 3_499_100, 300, 1, 0),
+    ]);
+    expect(r.dominant).toBe('fetch');
+    expect(r.share!.fetch).toBeGreaterThan(0.99);
+    expect(r.rows).toBe(0);
+    expect(r.detail).toContain('fetching');
+  });
+
+  it('names our database when the write dominates', () => {
+    const r = summariseSliceTiming([s('00:00–00:30Z', 60_000, 2_000, 57_000)]);
+    expect(r.dominant).toBe('store');
+    expect(r.share!.store).toBeGreaterThan(0.9);
+  });
+
+  it('names our own code when neither does', () => {
+    // Dedup, filtering, the byICdr map — all land here.
+    const r = summariseSliceTiming([s('00:00–00:30Z', 60_000, 2_000, 1_000)]);
+    expect(r.dominant).toBe('other');
+    expect(r.otherMs).toBe(57_000);
+  });
+
+  it('makes `other` a remainder so no phase can escape measurement', () => {
+    // If a future phase is added and never timed, its cost appears here
+    // rather than vanishing. That is why it is subtracted, not measured.
+    const r = summariseSliceTiming([s('x', 10_000, 1_000, 1_000)]);
+    expect(r.fetchMs + r.storeMs + r.otherMs).toBe(r.totalMs);
+  });
+});
+
+describe('the ordinary case, from production', () => {
+  it('reads a healthy account as unremarkable', () => {
+    // PUSHTOTALK: 48 slices in 57m59s — about 72s a slice.
+    const samples = Array.from({ length: 48 }, (_, i) =>
+      s(`slice ${i}`, 72_000, 68_000, 2_500, 2, 41));
+    const r = summariseSliceTiming(samples);
+    expect(r.slices).toBe(48);
+    expect(r.meanMs).toBe(72_000);
+    expect(r.dominant).toBe('fetch');
+    expect(r.rows).toBe(48 * 41);
+  });
+
+  it('reports partial progress, which is the point', () => {
+    // A job that dies at slice 3 of 48 previously recorded nothing at all,
+    // because the summary only ran after all 48 completed.
+    const r = summariseSliceTiming([s('00:00–00:30Z', 900, 700, 120),
+                                    s('00:30–01:00Z', 1_100, 900, 130)]);
+    expect(r.slices).toBe(2);
+    expect(r.meanMs).toBe(1_000);
+    expect(r.detail).toContain('2 slice(s)');
+  });
+});
+
+describe('the slowest slice is the one worth looking at', () => {
+  it('keeps the worst, not the last', () => {
+    const r = summariseSliceTiming([
+      s('a', 1_000, 900, 50), s('b', 90_000, 89_000, 200), s('c', 1_200, 1_000, 60),
+    ]);
+    expect(r.slowest!.label).toBe('b');
+    expect(r.slowest!.totalMs).toBe(90_000);
+    expect(r.detail).toContain('Slowest b');
+  });
+
+  it('carries the slow slice\'s own split, so it can be read directly', () => {
+    const r = summariseSliceTiming([s('a', 1_000, 900, 50), s('b', 90_000, 200, 89_000)]);
+    expect(r.slowest).toMatchObject({ label: 'b', fetchMs: 200, storeMs: 89_000 });
+  });
+});
+
+describe('degenerate inputs', () => {
+  it('reports nothing rather than inventing a mean', () => {
+    const r = summariseSliceTiming([]);
+    expect(r).toMatchObject({ slices: 0, totalMs: 0, meanMs: null,
+                              slowest: null, share: null, dominant: null });
+    expect(r.detail).toBe('No slice has completed yet.');
+  });
+
+  it('clamps a negative remainder rather than reporting returned time', () => {
+    // A page timed across a slice boundary can exceed the slice's own clock.
+    // A negative `other` would read as a phase that gave time back.
+    const r = summariseSliceTiming([s('x', 1_000, 1_200, 50)]);
+    expect(r.otherMs).toBe(0);
+  });
+
+  it('survives a zero-duration slice without dividing by it', () => {
+    const r = summariseSliceTiming([s('x', 0, 0, 0, 0, 0)]);
+    expect(r.share).toBeNull();
+    expect(r.dominant).toBeNull();
+    expect(r.meanMs).toBe(0);
+  });
+
+  it('is JSON-safe — it is persisted on the job row', () => {
+    const r = summariseSliceTiming([s('a', 1_000, 900, 50)]);
+    expect(JSON.parse(JSON.stringify(r))).toEqual(r);
+  });
+});
