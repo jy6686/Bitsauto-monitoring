@@ -2408,6 +2408,12 @@ export const seedJobs = pgTable("seed_jobs", {
   /** Rolling fetch/store/other split, rewritten each slice (migration 508).
    *  NULL = this run recorded no timing, which is not the same as zero. */
   sliceTiming:     jsonb("slice_timing"),
+  /** The last slice that actually completed. Written by progress(),
+   *  never by the reaper — so it survives the sweep (migration 509). */
+  lastProgressAt:  timestamp("last_progress_at", { withTimezone: true }),
+  /** When the sweep declared this job dead. Its PRESENCE is the
+   *  "was killed" flag; a job that finished on its own has none. */
+  reapedAt:        timestamp("reaped_at", { withTimezone: true }),
   startedAt:       timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt:       timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   finishedAt:      timestamp("finished_at", { withTimezone: true }),

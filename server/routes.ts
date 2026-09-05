@@ -33233,13 +33233,19 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                   // beside a fresh slice count, which is the same lie about a
                   // different measurement.
                   retriesTotal: 0, backoffMs: 0, paceVerdict: null, retryCauses: null,
-                  queuedAt: null, queueWaitMs: null, sliceTiming: null }
+                  queuedAt: null, queueWaitMs: null, sliceTiming: null,
+                  lastProgressAt: null, reapedAt: null }
               : {};
             await db.insert(seedJobs).values({
               jobId, ...descriptive, ...fields,
             } as any).onConflictDoUpdate({
               target: seedJobs.jobId,
-              set: { ...resetFields, ...fields, updatedAt: dsql`now()` } as any,
+              // last_progress_at is stamped HERE and only here: it is the
+              // moment work actually happened, and the reaper must not be
+              // able to move it. updated_at remains the row's modification
+              // time, which the reaper does write.
+              set: { ...resetFields, ...fields,
+                     lastProgressAt: dsql`now()`, updatedAt: dsql`now()` } as any,
             });
           } catch (e: any) {
             console.warn(`[seed-job:${jobId}] progress write failed (non-fatal): ${String(e?.message ?? e)}`);
@@ -33350,6 +33356,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                   portalUrl);
                 pageLog.push({ offset, rows: page.ok ? page.cdrs.length : 0, ok: page.ok,
                                ms: Date.now() - pageStartedMs });
+                // Persist WHICH page just returned. A slice that hangs stops
+                // updating, so the last recorded page is the one BEFORE the
+                // hang — which turns "stalled somewhere in slice 3" into
+                // "stalled requesting page 4 of slice 3". The write is the
+                // same progress() row update, and pages per slice are single
+                // digits, so this costs little.
+                await progress({ currentSlice:
+                  `${winStart.slice(0, 16)}Z page ${pageLog.length} (offset ${offset}, ` +
+                  `${page.ok ? page.cdrs.length : 0} rows, ${Date.now() - pageStartedMs}ms)` });
                 if (offset > 0 && page.ok) nextSucceeded = true;
                 if (page.ok && pinnedMethod !== null && page.method !== pinnedMethod) {
                   console.warn(`[seed-job:${jobId}] XML-RPC(${username}) method switched ${pinnedMethod} → ${page.method} at offset=${offset} — aborting this credential (${pagesAccum.length} partial CDRs discarded; a different method is a different result set)`);
@@ -40321,9 +40336,17 @@ ${footer}
         // recording it.
         const reaped: any = await db.execute(sql`
           UPDATE seed_jobs
-             SET status = 'error', finished_at = updated_at, updated_at = now(),
+             SET status = 'error',
+                 -- Three facts, three columns. finished_at keeps the work
+                 -- window meaningful (elapsed = finished − started);
+                 -- reaped_at records when the sweep noticed; last_progress_at
+                 -- is NOT touched, because the reaper did no work.
+                 finished_at      = coalesce(last_progress_at, updated_at),
+                 reaped_at        = now(),
+                 updated_at       = now(),
                  last_error = 'Run died mid-day (process restarted or recycled). ' ||
-                              'finished_at is the last recorded progress, not the moment it died. ' ||
+                              'finished_at is the last recorded progress; reaped_at is when the ' ||
+                              'sweep noticed, up to 90 minutes later. ' ||
                               'The scheduler retries the whole day; already-stored CDRs dedup.'
            WHERE status = 'running' AND started_at < now() - interval '90 minutes'`);
         if (Number(reaped?.rowCount ?? 0) > 0) {
