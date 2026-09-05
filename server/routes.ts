@@ -36398,12 +36398,17 @@ ${footer}
     try {
       const { verifyDeployment } = await import('./deploy-verification');
 
-      const REQUIRED = [
-        '504_seed_job_retry_accounting.sql',
-        '505_seed_job_diagnostics.sql',
-        '506_company_lifecycle_changed_at.sql',
-        '507_seed_job_retry_columns_nullable.sql',
-      ];
+      // DERIVED, not listed. A hardcoded set silently falls behind: this
+      // endpoint checked 504-507 while 508 and 509 existed, so it would have
+      // reported PASS on a deployment missing both — the gate built to catch
+      // exactly that miss would have missed it. /api/build's schemaLatest
+      // caught the real one, which was luck rather than design.
+      //
+      // The ledger knows every migration the running build carries (applied
+      // rows plus pending files), so the package's own contents define the
+      // requirement and a new migration is covered the moment it exists.
+      const FIRST_REQUIRED = 504;
+      const migNum = (f: string) => Number(String(f).slice(0, 3)) || 0;
       // Nullability as drizzle declares it. A disagreement here is the
       // 504-applied-without-507 case, which tests cannot catch because they do
       // not run against production's schema.
@@ -36416,9 +36421,23 @@ ${footer}
         { table: 'seed_jobs', column: 'queued_at',            mustBeNullable: true },
         { table: 'seed_jobs', column: 'queue_wait_ms',        mustBeNullable: true },
         { table: 'companies', column: 'lifecycle_changed_at', mustBeNullable: true },
+        // 508 / 509 — nullable with no default, so a run that recorded nothing
+        // says so rather than reporting a zero or a borrowed timestamp.
+        { table: 'seed_jobs', column: 'slice_timing',      mustBeNullable: true },
+        { table: 'seed_jobs', column: 'last_progress_at',  mustBeNullable: true },
+        { table: 'seed_jobs', column: 'reaped_at',         mustBeNullable: true },
       ];
 
       const ledgerData = await getMigrationLedger(pool);
+      const knownMigrations = [...new Set([
+        ...ledgerData.rows.map((r: any) => String(r.filename)),
+        ...(ledgerData.pending ?? []).map(String),
+      ])].sort();
+      const REQUIRED = knownMigrations.filter(f => migNum(f) >= FIRST_REQUIRED);
+      // The newest migration the build carries — what schemaLatest should read
+      // once every one of them has applied.
+      const TARGET = REQUIRED.length ? REQUIRED[REQUIRED.length - 1]
+                                     : '507_seed_job_retry_columns_nullable.sql';
       const ledger = ledgerData.rows.map((r: any) => ({
         filename: r.filename,
         appliedAt: r.appliedAt ? new Date(r.appliedAt).toISOString() : null,
@@ -36442,7 +36461,7 @@ ${footer}
       //
       // started_at, not created_at — seed_jobs has no created_at column, and
       // "a job RAN after the migration" is the question anyway.
-      const applied507 = ledger.find(e => e.filename === REQUIRED[3])?.appliedAt ?? null;
+      const applied507 = ledger.find(e => e.filename === TARGET)?.appliedAt ?? null;
       let run = null, runError: string | null = null;
       try {
         if (applied507) {
@@ -36563,7 +36582,7 @@ ${footer}
       res.json({
         readOnly: true,
         ...verifyDeployment({
-          targetMigration: REQUIRED[3],
+          targetMigration: TARGET,
           requiredMigrations: REQUIRED,
           ledger, pending: ledgerData.pending ?? [],
           columns, expectedColumns: EXPECTED,
