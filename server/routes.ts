@@ -33436,7 +33436,12 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           return isNaN(d.getTime()) ? null : d;
         };
         const num = decimalOrNull;
+        // Rows the last storeSlice call could NOT write. Read by the slice
+        // telemetry below, which otherwise subtracts them from `duplicate` —
+        // reporting a real loss as the one number the panel calls harmless.
+        let lastWriteFailed = 0;
         const storeSlice = async (batch: any[]): Promise<number> => {
+          lastWriteFailed = 0;
           try {
             const rows = batch.map((c: any) => ({
               iCdr:        c.iCdr ? String(c.iCdr) : (c.i_cdr ? String(c.i_cdr) : null),
@@ -33535,6 +33540,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             }
 
             const w = summariseWrite(outcomes);
+            lastWriteFailed = w.failed;
             if (w.batchesFailed > 0) {
               console.error(`[seed-job:${jobId}] CDR repository write PARTIAL — ${w.detail}`);
               // The log viewer truncates long lines, and that truncation has
@@ -33556,6 +33562,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             // Reached only by a failure OUTSIDE the batch loop — building the
             // row objects, or the dynamic import. Nothing was written.
             const err = String(e?.message ?? e);
+            lastWriteFailed = batch.length;
             console.error(`[seed-job:${jobId}] CDR repository write FAILED before any batch ran: ${err}`);
             await progress({ lastError: `repository write: ${err}`.slice(0, 4000) });
             job.repositoryWriteError = err;
@@ -33641,13 +33648,16 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
               }
             }
           }
-          // Per-slice telemetry roll-up. `invalid` is 0 by construction on
-          // this path: storeSlice returns 0 for a whole failed chunk and
-          // records lastError, so a real write failure appears as an error
-          // rather than a silent row loss — and production shows zero of them
-          // across 50 jobs. The bucket exists so that if that ever changes, it
-          // shows up as a loss instead of vanishing into the difference
-          // between received and inserted.
+          // Per-slice telemetry roll-up. `invalid` was 0 by construction while
+          // storeSlice returned 0 for any failed write; the bucket existed so
+          // that if that ever changed, the loss would show up here instead of
+          // vanishing into the difference between received and inserted.
+          //
+          // It changed. storeSlice now returns only CONFIRMED rows, so rows it
+          // could not write are neither inserted nor duplicates — and without
+          // this subtraction they would land in `duplicate`, which the panel
+          // states outright is not a loss. They go in `invalid`, which is what
+          // the bucket was reserved for.
           sliceTelemetry.push({
             label: slice.label,
             pages: pageLog.slice(),
@@ -33658,8 +33668,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             received:  receivedThisSlice,
             kept:      keptThisSlice,
             inserted:  stored,
-            duplicate: Math.max(0, keptThisSlice - stored),
-            invalid:   0,
+            duplicate: Math.max(0, keptThisSlice - stored - lastWriteFailed),
+            invalid:   lastWriteFailed,
             ms: Date.now() - sliceStartedMs,
           });
 
@@ -33670,7 +33680,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           console.log(
             `[seed-job:${jobId}] slice ${slice.index}/${slices.length} (${slice.label}): ` +
             `fetched=${fetched} filtered=${rows.length} inserted=${stored} ` +
-            `duplicates=${Math.max(0, rows.length - stored)} duration=${secs}s ` +
+            `duplicates=${Math.max(0, rows.length - stored - lastWriteFailed)} ` +
+            `unwritten=${lastWriteFailed} duration=${secs}s ` +
             // The three fields that say WHY the fetch stopped, on the line an
             // operator already greps. `pages` and `lastPage` together are the
             // full-final-page test: a stop recorded as SHORT_PAGE on a page of
