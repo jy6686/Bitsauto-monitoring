@@ -69,6 +69,10 @@ export interface PageRecord {
   rows:   number;
   ok:     boolean;
   ms?:    number;
+  /** Username of the credential that made this request. The fetch loop tries
+   *  up to four on an empty window; which one is answering, and whether the
+   *  others ever add anything, is the question this field exists to settle. */
+  cred?:  string;
 }
 
 /**

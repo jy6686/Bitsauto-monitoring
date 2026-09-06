@@ -40,6 +40,26 @@ export interface SliceSample {
   storeMs: number;
   pages: number;
   rows: number;
+  /** Per-credential outcome for this slice, keyed by username. */
+  creds?: Record<string, CredTally>;
+}
+
+/**
+ * What one credential did across the pages it was asked for.
+ *
+ * The fetch loop tries up to four credentials before accepting an empty
+ * window, as a guard against a credential that silently returns nothing
+ * instead of an auth fault. That guard costs 4x on every empty slice, and
+ * nobody has measured whether credentials 2-4 have EVER returned a row that
+ * credential 1 did not. This tally is that measurement.
+ */
+export interface CredTally {
+  pages: number;
+  rows: number;
+  /** Pages that returned ok with zero rows. */
+  empty: number;
+  /** Pages that returned not-ok. */
+  failed: number;
 }
 
 export interface SliceTimingSummary {
@@ -59,6 +79,13 @@ export interface SliceTimingSummary {
   share: { fetch: number; store: number; other: number } | null;
   /** Which phase dominates, or null when there is nothing to dominate. */
   dominant: 'fetch' | 'store' | 'other' | null;
+  /**
+   * Per-credential totals across every slice so far. Read alongside
+   * `share`: a credential whose `rows` is 0 across the whole job has only
+   * ever confirmed emptiness, and the question is whether that confirmation
+   * is worth its pages.
+   */
+  byCredential: Record<string, CredTally>;
   /** One line naming the numbers that produced the verdict. */
   detail: string;
 }
@@ -68,8 +95,13 @@ const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 1000) / 1000
 export function summariseSliceTiming(samples: readonly SliceSample[]): SliceTimingSummary {
   let totalMs = 0, fetchMs = 0, storeMs = 0, pages = 0, rows = 0;
   let slowest: SliceTimingSummary['slowest'] = null;
+  const byCredential: Record<string, CredTally> = {};
 
   for (const s of samples) {
+    for (const [user, c] of Object.entries(s.creds ?? {})) {
+      const acc = byCredential[user] ?? (byCredential[user] = { pages: 0, rows: 0, empty: 0, failed: 0 });
+      acc.pages += c.pages; acc.rows += c.rows; acc.empty += c.empty; acc.failed += c.failed;
+    }
     totalMs += Math.max(0, s.totalMs);
     fetchMs += Math.max(0, s.fetchMs);
     storeMs += Math.max(0, s.storeMs);
@@ -107,5 +139,5 @@ export function summariseSliceTiming(samples: readonly SliceSample[]): SliceTimi
       `${pages} page(s), ${rows} row(s).`;
 
   return { slices: samples.length, totalMs, fetchMs, storeMs, otherMs, pages, rows,
-           meanMs, slowest, share, dominant, detail };
+           meanMs, slowest, share, dominant, byCredential, detail };
 }

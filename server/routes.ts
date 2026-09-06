@@ -33363,7 +33363,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                     type: cdrType, onlyMethod: pinnedMethod ?? undefined },
                   portalUrl);
                 pageLog.push({ offset, rows: page.ok ? page.cdrs.length : 0, ok: page.ok,
-                               ms: Date.now() - pageStartedMs });
+                               ms: Date.now() - pageStartedMs, cred: username });
                 // Persist WHICH page just returned, so a slice that hangs
                 // leaves the page BEFORE the hang on the row — turning
                 // "stalled somewhere in slice 3" into "stalled requesting page
@@ -33750,6 +33750,17 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             storeMs,
             pages: pageLog.length,
             rows: keptThisSlice,
+            // Which credential did what, this slice. Persisted via 508 so one
+            // night answers whether the 2nd-4th credentials ever add anything.
+            creds: pageLog.reduce((acc, pg) => {
+              const k = pg.cred ?? '(unknown)';
+              const c = acc[k] ?? (acc[k] = { pages: 0, rows: 0, empty: 0, failed: 0 });
+              c.pages++;
+              if (!pg.ok) c.failed++;
+              else if (pg.rows === 0) c.empty++;
+              else c.rows += pg.rows;
+              return acc;
+            }, {} as Record<string, import('./slice-timing').CredTally>),
           });
           const { summariseSliceTiming } = await import('./slice-timing');
           await progress({
@@ -43919,10 +43930,13 @@ ${footer}
         safeQuery(`SELECT count(*) FILTER (WHERE status = 'REVIEW')::int AS review, count(*) FILTER (WHERE status = 'FAILED')::int AS failed, count(*)::int AS total FROM invoice_jobs`),
         safeQuery(`SELECT count(*)::int AS total, count(*) FILTER (WHERE status = 'sent')::int AS sent, count(*) FILTER (WHERE status = 'failed')::int AS failed, count(*) FILTER (WHERE message_id IS NOT NULL)::int AS with_lineage FROM invoice_email_deliveries`),
         safeQuery(`SELECT count(*)::int AS total, count(*) FILTER (WHERE (invoice_email IS NOT NULL AND invoice_email <> '') OR EXISTS (SELECT 1 FROM company_contacts cc WHERE cc.company_id = c.id AND cc.contact_type ILIKE '%billing%'))::int AS covered FROM companies c WHERE c.sippy_i_account IS NOT NULL`),
-              // Collection coverage: how many accounts the nightly operational
-        // pass can actually price. An account with a Sippy id but no tariff is
-        // collected for by nobody, which is exactly how live traffic went
-        // uninvoiced without a single warning.
+              // RATING coverage: how many accounts the nightly pass can actually
+        // PRICE. The previous comment said an account without a tariff "is
+        // collected for by nobody" — true until 3879d3a1 removed the tariff
+        // gate from collection, false since. Every account with a Sippy id is
+        // collected; only these can be rated, certified and invoiced. The
+        // label said "collected nightly" for a week after that changed, and
+        // was read as the collection roster during the collector investigation.
         safeQuery(`SELECT count(*) FILTER (WHERE sippy_i_account IS NOT NULL)::int AS with_account,
                           count(*) FILTER (WHERE sippy_i_account IS NOT NULL AND sippy_i_tariff IS NOT NULL)::int AS collectable
                      FROM companies`),
@@ -43945,7 +43959,7 @@ ${footer}
         { key: 'snapshots', label: 'Rating Snapshots',  ok: (lockedSnapR.rows[0]?.total ?? 0) > 0, detail: lockedSnapR.missing ? 'snapshot table unavailable' : `${lockedSnapR.rows[0]?.total ?? 0} billable rows (${lockedSnapR.rows[0]?.locked ?? 0} locked by rating verification)` },
         { key: 'generator', label: 'Invoice Generator', ok: invoiceTotal > 0, detail: invoiceTotal > 0 ? `${invoiceTotal} invoices generated` : 'no invoice generated yet' },
         { key: 'review',    label: 'Review Queue',      ok: !jobsAggR.missing, detail: jobsAggR.missing ? 'jobs table unavailable' : `${jobsAggR.rows[0]?.review ?? 0} awaiting review · ${jobsAggR.rows[0]?.failed ?? 0} failed` },
-        { key: 'collection', label: 'CDR Collection', ok: (collectR.rows[0]?.collectable ?? 0) > 0 && (collectR.rows[0]?.collectable ?? 0) === (collectR.rows[0]?.with_account ?? 0), detail: collectR.missing ? 'companies table unavailable' : `${collectR.rows[0]?.collectable ?? 0}/${collectR.rows[0]?.with_account ?? 0} Sippy accounts have a tariff and are collected nightly` },
+        { key: 'collection', label: 'CDR Collection', ok: (collectR.rows[0]?.collectable ?? 0) > 0 && (collectR.rows[0]?.collectable ?? 0) === (collectR.rows[0]?.with_account ?? 0), detail: collectR.missing ? 'companies table unavailable' : `${collectR.rows[0]?.collectable ?? 0}/${collectR.rows[0]?.with_account ?? 0} Sippy accounts have a tariff and can be rated — every account with a Sippy id is collected regardless` },
         { key: 'contacts',  label: 'Billing Contacts',  ok: covTotal > 0 && covCovered === covTotal, detail: `${covCovered}/${covTotal} billed clients have a billing email` },
         // Name the sender identity, not just "configured": the transporter falls
         // back to the alert Gmail account when invoice SMTP is incomplete, and an

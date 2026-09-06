@@ -106,3 +106,60 @@ describe('degenerate inputs', () => {
     expect(JSON.parse(JSON.stringify(r))).toEqual(r);
   });
 });
+
+describe('byCredential — did credentials 2-4 ever add anything?', () => {
+  const tally = (pages: number, rows: number, empty: number, failed = 0) =>
+    ({ pages, rows, empty, failed });
+
+  it('shows the 4x pattern on an empty account exactly', () => {
+    // Account 76 tonight: 48 slices, 192 pages, 0 rows. Four credentials
+    // each asked once per slice, each answering empty.
+    const samples = Array.from({ length: 48 }, (_, i) =>
+      ({ ...s(`slice ${i}`, 60_000, 51_000, 0, 4, 0),
+         creds: { admin: tally(1, 0, 1), portal: tally(1, 0, 1),
+                  admin2: tally(1, 0, 1), portal2: tally(1, 0, 1) } }));
+    const r = summariseSliceTiming(samples);
+    expect(r.pages).toBe(192);
+    expect(Object.keys(r.byCredential)).toHaveLength(4);
+    for (const c of Object.values(r.byCredential)) {
+      expect(c).toEqual({ pages: 48, rows: 0, empty: 48, failed: 0 });
+    }
+  });
+
+  it('shows one credential doing all the work on an account with traffic', () => {
+    // PUSHTOTALK tonight: 51 pages across 48 slices. The first credential
+    // returned rows and the loop exited; the others were never reached.
+    const samples = Array.from({ length: 48 }, (_, i) =>
+      ({ ...s(`slice ${i}`, 60_000, 27_000, 23_000, 1, 41),
+         creds: { admin: tally(1, 41, 0) } }));
+    const r = summariseSliceTiming(samples);
+    expect(Object.keys(r.byCredential)).toEqual(['admin']);
+    expect(r.byCredential.admin.rows).toBe(48 * 41);
+    expect(r.byCredential.admin.empty).toBe(0);
+  });
+
+  it('is the measurement that decides the credential question', () => {
+    // A credential with rows > 0 has proven itself. A credential with only
+    // `empty` has only ever confirmed what another already said. That
+    // distinction is what the tally exists to make visible.
+    const r = summariseSliceTiming([
+      { ...s('a', 1, 1, 0, 2, 5), creds: { admin: tally(1, 5, 0), portal: tally(1, 0, 1) } },
+      { ...s('b', 1, 1, 0, 2, 0), creds: { admin: tally(1, 0, 1), portal: tally(1, 0, 1) } },
+    ]);
+    expect(r.byCredential.admin).toEqual({ pages: 2, rows: 5, empty: 1, failed: 0 });
+    expect(r.byCredential.portal).toEqual({ pages: 2, rows: 0, empty: 2, failed: 0 });
+  });
+
+  it('counts a failed page separately from an empty one', () => {
+    const r = summariseSliceTiming([
+      { ...s('a', 1, 1, 0, 1, 0), creds: { admin: tally(1, 0, 0, 1) } },
+    ]);
+    expect(r.byCredential.admin.failed).toBe(1);
+    expect(r.byCredential.admin.empty).toBe(0);
+  });
+
+  it('is empty, not absent, when no sample carried credentials', () => {
+    const r = summariseSliceTiming([s('a', 1, 1, 0)]);
+    expect(r.byCredential).toEqual({});
+  });
+});
