@@ -1,12 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveScheduleAccount, periodOutcomeFromChain, buildRunOutcome, stoppedRun, nextStepFor,
-  type PeriodOutcome,
+  isRetryable, nextRetryAt, retrySince, previousPeriod, periodKey,
+  MAX_RETRY_ATTEMPTS, RETRY_INTERVAL_HOURS, COLLECTION_WINDOW_UTC,
+  type PeriodOutcome, type ScheduleRunOutcome,
 } from './schedule-run-outcome';
 
 const WEEK = { start: '2026-09-01', end: '2026-09-06', accountingMonth: '2026-09', partial: true };
 const AUG  = { start: '2026-08-31', end: '2026-08-31', accountingMonth: '2026-08', partial: true };
 const at = '2026-09-07T06:00:00.000Z';
+
+const account = { iAccount: 96, source: 'company' as const, detail: 'Account 96, from the company record.' };
+const coverageFail = { ok: false, stage: 'coverage', error: 'Period 2026-09-01 – 2026-09-06 is missing 4 of 6 day(s).' };
 
 describe('resolveScheduleAccount — the input every data gate is scoped to', () => {
   it('takes the schedule’s own account first', () => {
@@ -45,6 +50,68 @@ describe('resolveScheduleAccount — the input every data gate is scoped to', ()
   });
 });
 
+describe('isRetryable — can waiting change this verdict?', () => {
+  it('is true for the gates whose data completes on its own', () => {
+    for (const s of ['seed', 'coverage', 'reconcile', 'certify', 'generate'] as const) {
+      expect(isRetryable(s)).toBe(true);
+    }
+  });
+
+  it('is false for a period that is ALREADY invoiced', () => {
+    // duplicate is the success case wearing a refusal's clothes.
+    expect(isRetryable('duplicate')).toBe(false);
+  });
+
+  it('is false at certify when the switch had no calls and the days were collected', () => {
+    // Coverage passed, so the days exist; the seed fetched nothing. There is
+    // nothing to bill, and no amount of waiting produces some. Retrying would
+    // re-fetch the whole period every six hours, forever.
+    expect(isRetryable('certify', { fetched: 0 })).toBe(false);
+    expect(isRetryable('certify', { fetched: 12 })).toBe(true);
+    expect(isRetryable('certify', null)).toBe(true);
+  });
+
+  it('does not put freeze on a retry slot — the ordinary cadence reaches it', () => {
+    expect(isRetryable('freeze')).toBe(false);
+  });
+});
+
+describe('nextRetryAt — never inside the collection window', () => {
+  const H = (d: Date) => d.getUTCHours();
+
+  it('is RETRY_INTERVAL_HOURS out when that lands outside the window', () => {
+    const now = new Date('2026-09-07T08:00:00Z');
+    expect(nextRetryAt(now).toISOString()).toBe('2026-09-07T14:00:00.000Z');
+  });
+
+  it('is pushed to the window’s end when it would land inside it', () => {
+    // 22:00 + 6h = 04:00, mid-collection. The collector owns the switch then.
+    const at4am = nextRetryAt(new Date('2026-09-07T22:00:00Z'));
+    expect(at4am.toISOString()).toBe('2026-09-08T06:00:00.000Z');
+    expect(H(at4am)).toBe(COLLECTION_WINDOW_UTC.endHour);
+  });
+
+  it('never returns an instant inside the window, from any hour of the day', () => {
+    for (let h = 0; h < 24; h++) {
+      const got = nextRetryAt(new Date(Date.UTC(2026, 8, 7, h, 30)));
+      const inWindow = H(got) >= COLLECTION_WINDOW_UTC.startHour && H(got) < COLLECTION_WINDOW_UTC.endHour;
+      expect(inWindow).toBe(false);
+    }
+  });
+
+  it('is always in the future', () => {
+    for (let h = 0; h < 24; h++) {
+      const now = new Date(Date.UTC(2026, 8, 7, h, 30));
+      expect(nextRetryAt(now).getTime()).toBeGreaterThan(now.getTime());
+    }
+  });
+
+  it('honours a caller-supplied interval', () => {
+    expect(nextRetryAt(new Date('2026-09-07T08:00:00Z'), 1).toISOString()).toBe('2026-09-07T09:00:00.000Z');
+    expect(RETRY_INTERVAL_HOURS).toBe(6);
+  });
+});
+
 describe('periodOutcomeFromChain — the chain’s words, not a paraphrase', () => {
   it('records a generated invoice', () => {
     const o = periodOutcomeFromChain(WEEK, { ok: true, invoice: { id: 12, invoiceNumber: 'C-2609-0012', lineCount: 312 } });
@@ -52,112 +119,193 @@ describe('periodOutcomeFromChain — the chain’s words, not a paraphrase', () 
     expect(o.stage).toBeUndefined();
   });
 
-  it('keeps the refusal verbatim and says what to do next', () => {
-    const error = 'Period 2026-09-01 – 2026-09-06 is missing 4 of 6 day(s): 2026-09-02, 2026-09-03, 2026-09-04, 2026-09-05 were never collected.';
-    const o = periodOutcomeFromChain(WEEK, { ok: false, stage: 'coverage', error });
-    expect(o.ok).toBe(false);
-    expect(o.stage).toBe('coverage');
-    expect(o.reason).toBe(error);
-    expect(o.next).toContain('Not retried by the scheduler');
-    expect(o.next).toContain('Run now');
+  it('keeps the refusal verbatim and promises the retry', () => {
+    const o = periodOutcomeFromChain(WEEK, coverageFail);
+    expect(o).toMatchObject({ ok: false, stage: 'coverage', retryable: true, attempt: 1 });
+    expect(o.reason).toBe(coverageFail.error);
+    expect(o.next).toContain('once the missing days are collected');
+    expect(o.next).toContain(`${MAX_RETRY_ATTEMPTS - 1} automatic attempt(s) left`);
   });
 
-  it('tells a zero-traffic customer the truth at certify, not "reconcile first"', () => {
-    // noman has no row in the Sippy P&L for the week. The chain seeds
-    // nothing, then certify says "no call has been verified" — true, but the
-    // fix it suggests is wrong for a customer who simply made no calls.
+  it('counts attempts across runs, from the previous outcome', () => {
+    let prev: PeriodOutcome | null = null;
+    for (let n = 1; n < MAX_RETRY_ATTEMPTS; n++) {
+      const o = periodOutcomeFromChain(WEEK, coverageFail, prev);
+      expect(o).toMatchObject({ attempt: n, retryable: true });
+      expect(o.exhausted).toBeUndefined();
+      prev = o;
+    }
+    const last = periodOutcomeFromChain(WEEK, coverageFail, prev);
+    expect(last).toMatchObject({ attempt: MAX_RETRY_ATTEMPTS, retryable: false, exhausted: true });
+    expect(last.next).toContain('stopped retrying');
+  });
+
+  it('resets the count after a success — a period billed later starts clean', () => {
+    const ok = periodOutcomeFromChain(WEEK, { ok: true, invoice: { id: 1, invoiceNumber: 'X', lineCount: 1 } });
+    expect(periodOutcomeFromChain(WEEK, coverageFail, ok).attempt).toBe(1);
+  });
+
+  it('marks a zero-traffic certify refusal terminal, not retryable', () => {
+    // noman: no reference row, no calls. Retrying re-fetches the week every
+    // six hours to learn the same thing.
     const o = periodOutcomeFromChain(WEEK, {
-      ok: false, stage: 'certify', error: 'No call has been verified for tariff 2 in 2026-09-01–2026-09-06. Reconcile the period before invoicing it.',
+      ok: false, stage: 'certify',
+      error: 'No call has been verified for tariff 2 in 2026-09-01–2026-09-06. Reconcile the period before invoicing it.',
       seed: { fetched: 0, created: 0, skipped: 0 },
     });
-    expect(o.next).toContain('returned no calls');
+    expect(o.retryable).toBe(false);
+    expect(o.exhausted).toBeUndefined();
+    expect(o.next).toContain('nothing to invoice');
     expect(o.reason).toContain('No call has been verified');   // still the chain's words
   });
 
   it('does not count a success without an invoice as generated', () => {
     const o = periodOutcomeFromChain(WEEK, { ok: true });
-    expect(o.ok).toBe(false);
-    expect(o.stage).toBe('generate');
+    expect(o).toMatchObject({ ok: false, stage: 'generate', retryable: true });
   });
 
   it('maps an unknown stage to error rather than inventing one', () => {
-    const o = periodOutcomeFromChain(WEEK, { ok: false, stage: 'teleport' as any, error: 'x' });
-    expect(o.stage).toBe('error');
+    expect(periodOutcomeFromChain(WEEK, { ok: false, stage: 'teleport' as any, error: 'x' }).stage).toBe('error');
   });
 
   it('never leaves a refusal without a reason', () => {
-    const o = periodOutcomeFromChain(WEEK, { ok: false, stage: 'seed', error: '   ' });
-    expect(o.reason).toMatch(/without giving a reason/);
+    expect(periodOutcomeFromChain(WEEK, { ok: false, stage: 'seed', error: '   ' }).reason)
+      .toMatch(/without giving a reason/);
+  });
+});
+
+describe('retrySince — what makes a refused period come back', () => {
+  const refused = (p: typeof WEEK) => periodOutcomeFromChain(p, coverageFail);
+
+  it('is the OLDEST still-retryable period, so nothing older is dropped', () => {
+    const prev = buildRunOutcome({ at, trigger: 'scheduler', account,
+      periods: [refused(WEEK), refused(AUG)], retryAt: new Date(at) });
+    expect(retrySince(prev)).toBe('2026-08-31');
+  });
+
+  it('is undefined when every period succeeded — the ordinary cadence applies', () => {
+    const prev = buildRunOutcome({ at, trigger: 'scheduler', account, periods: [
+      periodOutcomeFromChain(WEEK, { ok: true, invoice: { id: 1, invoiceNumber: 'X', lineCount: 3 } }),
+    ] });
+    expect(retrySince(prev)).toBeUndefined();
+  });
+
+  it('is undefined for a terminal refusal — it must not be re-fetched forever', () => {
+    const prev = buildRunOutcome({ at, trigger: 'scheduler', account, periods: [
+      periodOutcomeFromChain(WEEK, { ok: false, stage: 'certify', error: 'no calls', seed: { fetched: 0, created: 0, skipped: 0 } }),
+    ] });
+    expect(retrySince(prev)).toBeUndefined();
+  });
+
+  it('is undefined once the attempts are exhausted', () => {
+    let prev: PeriodOutcome | null = null;
+    for (let n = 0; n < MAX_RETRY_ATTEMPTS; n++) prev = periodOutcomeFromChain(WEEK, coverageFail, prev);
+    const run = buildRunOutcome({ at, trigger: 'scheduler', account, periods: [prev!] });
+    expect(prev!.exhausted).toBe(true);
+    expect(retrySince(run)).toBeUndefined();
+  });
+
+  it('is undefined with no previous run at all', () => {
+    expect(retrySince(null)).toBeUndefined();
+    expect(retrySince(undefined)).toBeUndefined();
+    expect(retrySince({ periods: [] } as any)).toBeUndefined();
+  });
+});
+
+describe('previousPeriod — matching a period across runs', () => {
+  it('matches on the exact span, not on overlap', () => {
+    const prev = buildRunOutcome({ at, trigger: 'scheduler', account,
+      periods: [periodOutcomeFromChain(WEEK, coverageFail)] });
+    expect(previousPeriod(prev, WEEK)?.attempt).toBe(1);
+    expect(previousPeriod(prev, AUG)).toBeNull();
+    expect(previousPeriod(prev, { start: '2026-09-01', end: '2026-09-07' })).toBeNull();
+    expect(previousPeriod(null, WEEK)).toBeNull();
+  });
+
+  it('keys a period by its inclusive span', () => {
+    expect(periodKey(WEEK)).toBe('2026-09-01..2026-09-06');
   });
 });
 
 describe('buildRunOutcome — tomorrow, as it would be recorded', () => {
-  const account = { iAccount: 96, source: 'company' as const, detail: 'Account 96, from the company record.' };
-
-  it('two periods, both refused — the 2026-09-07 06:00 run for schedule #2', () => {
+  it('two periods, both refused and both coming back', () => {
     const periods: PeriodOutcome[] = [
-      periodOutcomeFromChain(AUG,  { ok: false, stage: 'reconcile', error: 'FAIL: 1 of 1 account(s) do not agree with the switch. noman: platform $0.0000 vs switch $1.2000 (delta $-1.2000).' }),
-      periodOutcomeFromChain(WEEK, { ok: false, stage: 'coverage',  error: 'Period 2026-09-01 – 2026-09-06 is missing 4 of 6 day(s).' }),
+      periodOutcomeFromChain(AUG,  { ok: false, stage: 'reconcile', error: 'FAIL: noman: platform $0.0000 vs switch $1.2000.' }),
+      periodOutcomeFromChain(WEEK, coverageFail),
     ];
-    const r = buildRunOutcome({ at, trigger: 'scheduler', account, periods });
-    expect(r).toMatchObject({ generated: 0, refused: 2, trigger: 'scheduler' });
-    expect(r.headline).toMatch(/^Refused 2 period\(s\) — first: 2026-08-31 at reconcile:/);
-    expect(r.stopped).toBeUndefined();
+    const r = buildRunOutcome({ at, trigger: 'scheduler', account, periods, retryAt: new Date('2026-09-07T12:00:00Z') });
+    expect(r).toMatchObject({ status: 'refused', generated: 0, refused: 2, retryable: 2, exhausted: 0 });
+    expect(r.retryAt).toBe('2026-09-07T12:00:00.000Z');
+    expect(r.headline).toContain('will be re-attempted');
   });
 
-  it('one generated, one refused — a split week where only August was complete', () => {
-    const periods: PeriodOutcome[] = [
-      periodOutcomeFromChain(AUG,  { ok: true, invoice: { id: 1, invoiceNumber: 'C-2608-0010', lineCount: 40 } }),
-      periodOutcomeFromChain(WEEK, { ok: false, stage: 'coverage', error: 'missing days' }),
-    ];
-    const r = buildRunOutcome({ at, trigger: 'scheduler', account, periods });
-    expect(r).toMatchObject({ generated: 1, refused: 1 });
-    expect(r.headline).toBe('1 generated (C-2608-0010 (40 line(s), 2026-08-31)); 1 refused — 2026-09-01→2026-09-06 at coverage: missing days');
+  it('leads the headline with an exhausted period, not merely the first', () => {
+    let spent: PeriodOutcome | null = null;
+    for (let n = 0; n < MAX_RETRY_ATTEMPTS; n++) spent = periodOutcomeFromChain(AUG, coverageFail, spent);
+    const r = buildRunOutcome({ at, trigger: 'scheduler', account,
+      periods: [periodOutcomeFromChain(WEEK, coverageFail), spent!], retryAt: new Date(at) });
+    expect(r.exhausted).toBe(1);
+    expect(r.headline).toContain('2026-08-31');
+    expect(r.headline).toContain('needs attention, no automatic retry left');
   });
 
-  it('all generated', () => {
-    const r = buildRunOutcome({ at, trigger: 'manual', account, periods: [
+  it('reports no retry instant when nothing is waiting on one', () => {
+    // A retryAt beside zero retryable periods would show the schedule as
+    // pending work it does not have.
+    const r = buildRunOutcome({ at, trigger: 'scheduler', account, retryAt: new Date(at), periods: [
       periodOutcomeFromChain(WEEK, { ok: true, invoice: { id: 1, invoiceNumber: 'C-2609-0012', lineCount: 312 } }),
     ] });
+    expect(r).toMatchObject({ status: 'generated', retryAt: null, retryable: 0 });
     expect(r.headline).toBe('1 invoice(s) generated: C-2609-0012 (312 line(s), 2026-09-01→2026-09-06)');
+  });
+
+  it('reports partial when one of two periods billed', () => {
+    const r = buildRunOutcome({ at, trigger: 'scheduler', account, periods: [
+      periodOutcomeFromChain(AUG,  { ok: true, invoice: { id: 1, invoiceNumber: 'C-2608-0010', lineCount: 40 } }),
+      periodOutcomeFromChain(WEEK, coverageFail),
+    ], retryAt: new Date(at) });
+    expect(r.status).toBe('partial');
+    expect(r.headline).toMatch(/^1 generated \(C-2608-0010 \(40 line\(s\), 2026-08-31\)\); 1 refused/);
   });
 
   it('trims the headline but keeps the full reason on the period', () => {
     const long = 'x'.repeat(400);
     const r = buildRunOutcome({ at, trigger: 'scheduler', account, periods: [
       periodOutcomeFromChain(WEEK, { ok: false, stage: 'reconcile', error: long }),
-    ] });
-    expect(r.headline.length).toBeLessThan(220);
-    expect(r.headline.endsWith('…')).toBe(true);
+    ], retryAt: new Date(at) });
+    expect(r.headline.length).toBeLessThan(240);
     expect(r.periods[0].reason).toBe(long);
   });
 
-  it('is JSON-safe — it is persisted on the schedule row', () => {
-    const r = buildRunOutcome({ at, trigger: 'scheduler', account, periods: [
-      periodOutcomeFromChain(WEEK, { ok: false, stage: 'coverage', error: 'missing days' }),
-    ] });
-    expect(JSON.parse(JSON.stringify(r))).toEqual(r);
+  it('is JSON-safe — it is persisted on the schedule row and read back next run', () => {
+    const r = buildRunOutcome({ at, trigger: 'scheduler', account,
+      periods: [periodOutcomeFromChain(WEEK, coverageFail)], retryAt: new Date(at) });
+    const round: ScheduleRunOutcome = JSON.parse(JSON.stringify(r));
+    expect(round).toEqual(r);
+    // and the round-tripped copy still drives the next run's decisions
+    expect(retrySince(round)).toBe('2026-09-01');
+    expect(previousPeriod(round, WEEK)?.attempt).toBe(1);
   });
 });
 
 describe('stoppedRun — the run never reached a period', () => {
   it('no tariff: the row now says so instead of only the log', () => {
     const r = stoppedRun({ at, trigger: 'scheduler', stage: 'no-tariff', reason: 'Schedule #3 has no tariff.' });
-    expect(r).toMatchObject({ generated: 0, refused: 0, periods: [], headline: 'Schedule #3 has no tariff.' });
-    expect(r.stopped).toMatchObject({ stage: 'no-tariff' });
+    expect(r).toMatchObject({ status: 'stopped', generated: 0, refused: 0, retryAt: null, headline: 'Schedule #3 has no tariff.' });
+    expect(r.stopped).toMatchObject({ stage: 'no-tariff', retryable: false });
     expect(r.stopped!.next).toContain('Set a tariff');
     expect(r.account.source).toBe('none');
   });
 
-  it('error: says it will be retried, because the clock did not advance', () => {
+  it('error: retryable, because the clock did not advance', () => {
     const r = stoppedRun({ at, trigger: 'scheduler', stage: 'error', reason: 'timeout exceeded when trying to connect' });
-    expect(r.stopped!.next).toContain('retried automatically');
-    expect(r.headline).toBe('timeout exceeded when trying to connect');
+    expect(r.stopped).toMatchObject({ stage: 'error', retryable: true });
+    expect(r.stopped!.next).toContain('within 30 minutes');
   });
 
   it('keeps a resolved account when the caller had one', () => {
-    const account = { iAccount: 96, source: 'company' as const, detail: 'Account 96, from the company record.' };
-    expect(stoppedRun({ at, trigger: 'manual', account, stage: 'no-period', reason: 'No closed weekly period yet.' }).account).toEqual(account);
+    expect(stoppedRun({ at, trigger: 'manual', account, stage: 'no-period', reason: 'No closed weekly period yet.' }).account)
+      .toEqual(account);
   });
 });
 
@@ -167,12 +315,9 @@ describe('nextStepFor — every stage has an answer', () => {
     for (const s of stages) expect(nextStepFor(s).length).toBeGreaterThan(20);
   });
 
-  it('only duplicate and freeze are safe to ignore', () => {
-    // Everything else needs a person, and says so.
-    for (const s of ['seed','coverage','reconcile','certify','generate'] as const) {
-      expect(nextStepFor(s)).toContain('Not retried by the scheduler');
-    }
-    expect(nextStepFor('duplicate')).not.toContain('Not retried');
-    expect(nextStepFor('freeze')).not.toContain('Not retried');
+  it('promises the retry when one is coming, and asks for a person when it is not', () => {
+    expect(nextStepFor('coverage', { retryable: true, attempt: 1 })).toContain('automatic attempt(s) left');
+    expect(nextStepFor('coverage', { retryable: false, exhausted: true, attempt: 6 })).toContain('Run now');
+    expect(nextStepFor('duplicate')).toContain('Already invoiced');
   });
 });

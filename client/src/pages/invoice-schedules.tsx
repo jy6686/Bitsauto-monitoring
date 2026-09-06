@@ -22,12 +22,17 @@ interface PeriodOutcome {
   start: string; end: string; ok: boolean;
   invoiceNumber?: string; lineCount?: number;
   stage?: string; reason?: string; next?: string;
+  retryable?: boolean; attempt?: number; exhausted?: boolean;
 }
 interface ScheduleRunOutcome {
   at: string; trigger: "scheduler" | "manual";
+  status: "generated" | "partial" | "refused" | "stopped" | "nothing";
   account: { iAccount: number | null; source: string; detail: string };
-  periods: PeriodOutcome[]; generated: number; refused: number;
-  stopped?: { stage: string; reason: string; next: string };
+  periods: PeriodOutcome[];
+  generated: number; refused: number; retryable: number; exhausted: number;
+  /** When the scheduler re-attempts the refused periods. Null when none wait. */
+  retryAt: string | null;
+  stopped?: { stage: string; reason: string; retryable: boolean; next: string };
   headline: string;
 }
 
@@ -57,22 +62,32 @@ const EMPTY_FORM = {
   timezone: "Etc/UTC", autoApprove: false, active: true, notes: "",
 };
 
+const RED   = "bg-red-500/10 text-red-400 border-red-500/30";
+const AMBER = "bg-amber-500/10 text-amber-400 border-amber-500/30";
+const GREEN = "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+const SLATE = "bg-slate-500/10 text-slate-400 border-slate-500/30";
+
+/**
+ * A refusal that is coming back is amber, not red: the money is not lost, the
+ * period is waiting on data. Red is for what needs a person — a run that
+ * failed, a refusal whose automatic attempts are spent, or a terminal one.
+ */
 function outcomeBadge(o: ScheduleRunOutcome): { label: string; cls: string } {
-  const red   = "bg-red-500/10 text-red-400 border-red-500/30";
-  const amber = "bg-amber-500/10 text-amber-400 border-amber-500/30";
-  const green = "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
-  const slate = "bg-slate-500/10 text-slate-400 border-slate-500/30";
-  if (o.stopped?.stage === "error")     return { label: "Failed",       cls: red };
-  if (o.stopped?.stage === "no-tariff") return { label: "Needs tariff", cls: amber };
-  if (o.refused > 0)                    return { label: o.generated > 0 ? "Partly refused" : "Refused", cls: red };
-  if (o.generated > 0)                  return { label: "Generated",    cls: green };
-  return { label: "Nothing to do", cls: slate };
+  if (o.stopped?.stage === "error")     return { label: "Failed",       cls: RED };
+  if (o.stopped?.stage === "no-tariff") return { label: "Needs tariff", cls: AMBER };
+  if (o.exhausted > 0)                  return { label: "Needs attention", cls: RED };
+  if (o.refused > 0 && o.retryable === o.refused) {
+    return { label: o.generated > 0 ? "Partly retrying" : "Retrying", cls: AMBER };
+  }
+  if (o.refused > 0)                    return { label: o.generated > 0 ? "Partly refused" : "Refused", cls: RED };
+  if (o.generated > 0)                  return { label: "Generated",    cls: GREEN };
+  return { label: "Nothing to do", cls: SLATE };
 }
 
 /**
  * The verdict of the last run, in the chain's own words. The cell shows the
- * headline; the full reason and what to do next are in the tooltip, because a
- * refused period is not retried by the scheduler — someone has to act on it.
+ * headline and when the scheduler will try again; the full reason per period
+ * is in the tooltip.
  */
 function OutcomeCell({ o }: { o: ScheduleRunOutcome }) {
   const badge = outcomeBadge(o);
@@ -81,13 +96,20 @@ function OutcomeCell({ o }: { o: ScheduleRunOutcome }) {
     o.account.detail,
     ...o.periods.map(p => p.ok
       ? `${p.start} → ${p.end}: generated ${p.invoiceNumber}`
-      : `${p.start} → ${p.end}: refused at ${p.stage} — ${p.reason}\nNext: ${p.next ?? ""}`),
+      : `${p.start} → ${p.end}: refused at ${p.stage}` +
+        (p.attempt ? ` (attempt ${p.attempt})` : "") +
+        `\n${p.reason}\nNext: ${p.next ?? ""}`),
     ...(o.stopped ? [`${o.stopped.reason}\nNext: ${o.stopped.next}`] : []),
   ].join("\n\n");
   return (
     <div className="space-y-1 max-w-[24rem]" title={detail} data-testid="cell-last-outcome">
       <Badge variant="outline" className={`text-xs ${badge.cls}`}>{badge.label}</Badge>
       <p className="text-xs text-muted-foreground leading-snug line-clamp-2">{o.headline}</p>
+      {o.retryAt && (
+        <p className="text-xs text-amber-400/80 font-mono" data-testid="text-retry-at">
+          Retries {new Date(o.retryAt).toLocaleString()}
+        </p>
+      )}
     </div>
   );
 }
@@ -188,6 +210,9 @@ export default function InvoiceSchedulesPage() {
       // they decided rather than announce a draft that may not exist.
       if (o.generated > 0 && o.refused === 0) {
         toast({ title: "Draft invoice generated", description: o.headline });
+      } else if (o.refused > 0 && o.retryable === o.refused) {
+        // Not an error: the period is waiting on data and will come back.
+        toast({ title: "Not yet — will be re-attempted", description: o.headline });
       } else if (o.refused > 0 || o.stopped?.stage === "error") {
         toast({ title: "Not generated", description: o.headline, variant: "destructive" });
       } else {

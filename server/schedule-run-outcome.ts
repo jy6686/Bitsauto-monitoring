@@ -1,28 +1,36 @@
 /**
- * schedule-run-outcome.ts — what a scheduled invoice run decided, and why.
+ * schedule-run-outcome.ts — what a scheduled invoice run decided, why, and
+ * whether it will come back.
  *
  * WHY THIS EXISTS. Both live schedules ran on 2026-08-31 and produced no
  * invoice. The billing chain refused them — correctly — and said so in one
  * console.warn line that nobody reads. invoice_schedules recorded only
  * last_run_at, so Finance saw "ran" beside no invoice and could not answer
- * "why not?" without asking Engineering. The same was due to happen at 06:00
- * UTC on 2026-09-07, a week in which the collector failed to seal four days.
+ * "why not?" without asking Engineering.
  *
- * A refusal the chain has already worded belongs on the schedule row, in the
- * chain's own words, with what a person must do next — because the scheduler
- * does NOT retry a refused period: its clock advances once per run and the
- * next run asks only for the newest closed period. A refusal nobody sees is a
- * period nobody invoices.
+ * Worse than invisible: LOST. The runner advanced next_run_at by a full
+ * cadence on a refusal, and asked the next run for the newest closed period
+ * only. A week refused because 2026-09-05 had not finished collecting would
+ * never be invoiced again — one transient overnight failure silently skipping
+ * a week's revenue. The gates were right to refuse; the scheduler was wrong to
+ * treat a refusal as a decision that the period was not billable.
  *
- * The second thing here is the resolver for the one input every data gate
- * in the chain is scoped to. Coverage and reconciliation ask "was THIS
- * account's period collected, and does it agree with the switch?" — and both
- * were written as `if (opts.iAccount) { … }`. Neither live schedule carries
- * an account; the company record does. So the gates were not failing, they
- * were being skipped, on exactly the path they were written for.
+ * ── The two states a refusal can be in ─────────────────────────────────────
+ *   RETRYABLE   the data may complete on its own — days still being collected,
+ *               a shortfall against the switch, a period not yet rated. The
+ *               period comes back, on a cadence, bounded.
+ *   TERMINAL    retrying cannot change it — already invoiced, or the switch
+ *               itself has no calls for the period. It stays visible and stops
+ *               consuming fetches.
  *
- * Pure: no clock, no DB. The runner measures and persists; this decides and
- * words.
+ * Retry is BOUNDED (MAX_RETRY_ATTEMPTS) rather than indefinite, because each
+ * attempt re-fetches the period from Sippy: the seed re-runs every slice, so a
+ * six-day period for one account is ~288 XML-RPC windows. An unbounded retry
+ * of a period that will never pass is a standing load on the switch. When the
+ * attempts are spent the period does not vanish — it becomes `exhausted`,
+ * which says a person has to act, on the row where they are already looking.
+ *
+ * Pure: no clock, no DB, no I/O. Callers pass `now`; this decides and words.
  */
 
 export type RunTrigger = 'scheduler' | 'manual';
@@ -32,8 +40,38 @@ export type PeriodStage =
   | 'duplicate' | 'seed' | 'freeze' | 'coverage' | 'reconcile' | 'certify' | 'generate'
   | 'no-tariff' | 'no-period' | 'error';
 
+/** The run as a whole, for filtering and future automation. */
+export type RunStatus = 'generated' | 'partial' | 'refused' | 'stopped' | 'nothing';
+
 const CHAIN_STAGES: ReadonlySet<string> =
   new Set(['duplicate', 'seed', 'freeze', 'coverage', 'reconcile', 'certify', 'generate']);
+
+/**
+ * How many times a retryable refusal is re-attempted before it needs a person.
+ * Six at six hours apart is ~36 hours — long enough for the collector to clear
+ * a multi-day backlog, short enough that a period which will never pass stops
+ * re-fetching within two days.
+ */
+export const MAX_RETRY_ATTEMPTS = 6;
+
+/** Hours between retries of a refused period. */
+export const RETRY_INTERVAL_HOURS = 6;
+
+/**
+ * Most periods one run will attempt. Each costs a full seed — every slice of
+ * the period re-fetched from Sippy — so a run that fanned out over a long
+ * backlog would hold the switch for hours. The remainder is not lost: it is
+ * attempted on the next run, oldest first.
+ */
+export const MAX_PERIODS_PER_RUN = 4;
+
+/**
+ * The nightly collection window, UTC. A retry inside it would send the invoice
+ * chain's seed at the switch while the collector is already fetching from it —
+ * the two would contend for the same XML-RPC endpoint during the only hours
+ * the switch is quiet. Retries are pushed past the window's end.
+ */
+export const COLLECTION_WINDOW_UTC = { startHour: 2, endHour: 6 } as const;
 
 export interface PeriodOutcome {
   /** Inclusive, YYYY-MM-DD — what the invoice would print. */
@@ -48,7 +86,13 @@ export interface PeriodOutcome {
   stage?: PeriodStage;
   /** The chain's own wording, verbatim — never paraphrased here. */
   reason?: string;
-  /** What a reader must do. The scheduler will not do it for them. */
+  /** Will the scheduler bring this period back by itself? */
+  retryable?: boolean;
+  /** How many times this period has now been attempted. 1 on the first. */
+  attempt?: number;
+  /** True when the attempts are spent: still visible, no longer automatic. */
+  exhausted?: boolean;
+  /** What a reader must do — or what the scheduler will do for them. */
   next?: string;
 }
 
@@ -64,6 +108,7 @@ export interface ResolvedAccount {
 export interface RunStop {
   stage: 'no-tariff' | 'no-period' | 'error';
   reason: string;
+  retryable: boolean;
   next: string;
 }
 
@@ -71,10 +116,20 @@ export interface ScheduleRunOutcome {
   /** ISO instant of the run. */
   at: string;
   trigger: RunTrigger;
+  status: RunStatus;
   account: ResolvedAccount;
   periods: PeriodOutcome[];
   generated: number;
   refused: number;
+  /** Refused periods the scheduler will bring back by itself. */
+  retryable: number;
+  /** Refused periods whose automatic attempts are spent. */
+  exhausted: number;
+  /**
+   * When the scheduler will next re-attempt the retryable periods, ISO.
+   * Null when nothing is waiting on a retry — the ordinary cadence applies.
+   */
+  retryAt: string | null;
   /** Present when the run stopped before any period was attempted. */
   stopped?: RunStop;
   /** One line for the schedules page. Full wording stays in `periods`. */
@@ -130,39 +185,89 @@ export function resolveScheduleAccount(
   };
 }
 
-const PIPELINE = 'Billing Certification → Pipeline run';
-
 /**
- * What a person does about a stop at this stage. "Not retried by the
- * scheduler" is a fact about the runner, not a policy chosen here: the next
- * run asks for the newest closed period only, so an older refused period
- * comes back only by hand.
+ * Can waiting change this verdict?
+ *
+ * Retryable, because the underlying data completes on its own or by ordinary
+ * operations: `seed` (the switch was unreachable), `coverage` (days still
+ * being collected), `reconcile` (a shortfall being worked), `certify` and
+ * `generate` (the period has calls but is not yet rated).
+ *
+ * Terminal: `duplicate` — the period IS invoiced, which is the success case
+ * wearing a refusal's clothes. And `certify` when the seed fetched nothing on
+ * a period whose coverage already passed: the days were collected and the
+ * switch has no calls, so there is nothing to bill and no amount of waiting
+ * produces some. `freeze` is neither — the period simply has not ended, and
+ * the ordinary cadence reaches it without a retry slot.
  */
-export function nextStepFor(stage: PeriodStage, seed?: { fetched: number } | null): string {
-  const later = (when: string) =>
-    `Not retried by the scheduler. ${when}, press Run now on this schedule for the latest period, ` +
-    `or use ${PIPELINE} with the dates for an older one.`;
+export function isRetryable(stage: PeriodStage, seed?: { fetched: number } | null): boolean {
+  if (stage === 'certify' && seed && seed.fetched === 0) return false;
   switch (stage) {
-    case 'duplicate': return 'Already invoiced — nothing to do.';
-    case 'freeze':    return 'Attempted again on the next run, once the period has closed.';
-    case 'seed':      return later('The CDR fetch from the switch failed. Once the switch is reachable');
-    case 'coverage':  return later('Collect the missing days first (Finance → Health lists what is outstanding); then');
-    case 'reconcile': return later('The platform and the switch disagree for this customer. Once the shortfall is resolved');
-    case 'certify':
-      return seed && seed.fetched === 0
-        ? 'The switch returned no calls for this account in the period — there may be nothing to invoice.'
-        : later('Run rating verification for this tariff and period; then');
-    case 'generate':  return later('Once the period has rated snapshots');
-    case 'no-tariff': return 'Set a tariff on the schedule; it is re-checked every 30 minutes.';
-    case 'no-period': return 'Nothing to do until the next billing period closes.';
-    case 'error':     return 'The run itself failed; it is retried automatically within 30 minutes.';
+    case 'seed': case 'coverage': case 'reconcile': case 'certify': case 'generate':
+      return true;
+    case 'error':
+      return true;   // the runner itself failed; the clock does not advance
+    case 'duplicate': case 'freeze': case 'no-tariff': case 'no-period':
+      return false;
   }
 }
 
-/** One period's verdict, from the chain's result. Wording is the chain's. */
+const PIPELINE = 'Billing Certification → Pipeline run';
+
+/** What happens next — by the scheduler, or by a person. */
+export function nextStepFor(
+  stage: PeriodStage,
+  opts?: { retryable?: boolean; exhausted?: boolean; attempt?: number; seed?: { fetched: number } | null },
+): string {
+  const seed = opts?.seed ?? null;
+  const attempt = opts?.attempt ?? 1;
+  const exhausted = opts?.exhausted === true;
+  const retryable = opts?.retryable ?? isRetryable(stage, seed);
+
+  const byHand = `Run now on this schedule for the latest period, or ${PIPELINE} with the dates for an older one.`;
+
+  if (exhausted) {
+    return `Re-attempted ${attempt} time(s) without passing; the scheduler has stopped retrying it. ` +
+           `Resolve the cause, then ${byHand}`;
+  }
+  if (retryable) {
+    const left = Math.max(0, MAX_RETRY_ATTEMPTS - attempt);
+    const cause =
+      stage === 'coverage'  ? 'The scheduler re-attempts it once the missing days are collected'
+      : stage === 'reconcile' ? 'The scheduler re-attempts it once the platform agrees with the switch'
+      : stage === 'seed'      ? 'The scheduler re-attempts it once the switch answers'
+      : stage === 'error'     ? 'The runner retries within 30 minutes'
+      : 'The scheduler re-attempts it once the period is rated';
+    return `${cause} — attempt ${attempt}, ${left} automatic attempt(s) left. No invoice is sent meanwhile.`;
+  }
+  switch (stage) {
+    case 'duplicate': return 'Already invoiced — nothing to do.';
+    case 'freeze':    return 'Attempted again on the next run, once the period has closed.';
+    case 'certify':
+      return seed && seed.fetched === 0
+        ? 'The switch returned no calls for this account in the period, and its days were collected — ' +
+          'there is nothing to invoice. Not retried.'
+        : byHand;
+    case 'no-tariff': return 'Set a tariff on the schedule; it is re-checked every 30 minutes.';
+    case 'no-period': return 'Nothing to do until the next billing period closes.';
+    default:          return byHand;
+  }
+}
+
+/** Identity of a period within a schedule, for matching across runs. */
+export const periodKey = (p: { start: string; end: string }) => `${p.start}..${p.end}`;
+
+/**
+ * One period's verdict, from the chain's result.
+ *
+ * `previous` is the same period's outcome on the last run, when there was one:
+ * it carries the attempt count, which is what makes retry bounded rather than
+ * perpetual. Wording of the failure itself is always the chain's.
+ */
 export function periodOutcomeFromChain(
   period: { start: string; end: string; accountingMonth?: string; partial?: boolean },
   chain: ChainResultLike,
+  previous?: PeriodOutcome | null,
 ): PeriodOutcome {
   const base = {
     start: period.start, end: period.end,
@@ -179,7 +284,60 @@ export function periodOutcomeFromChain(
   const reason = chain.ok
     ? 'The billing chain reported success but produced no invoice.'
     : (chain.error?.trim() || 'The billing chain refused without giving a reason.');
-  return { ...base, ok: false, stage, reason, next: nextStepFor(stage, chain.seed) };
+
+  const attempt = (previous && !previous.ok ? (previous.attempt ?? 1) : 0) + 1;
+  const couldRetry = isRetryable(stage, chain.seed);
+  const exhausted  = couldRetry && attempt >= MAX_RETRY_ATTEMPTS;
+  const retryable  = couldRetry && !exhausted;
+
+  return {
+    ...base, ok: false, stage, reason, retryable, attempt,
+    ...(exhausted ? { exhausted: true } : {}),
+    next: nextStepFor(stage, { retryable, exhausted, attempt, seed: chain.seed }),
+  };
+}
+
+/**
+ * When to re-attempt, given the moment a run finished.
+ *
+ * Two rules: at least RETRY_INTERVAL_HOURS away, and never inside the nightly
+ * collection window — a retry there would put the invoice chain's seed on the
+ * same switch the collector is fetching from, during the only quiet hours it
+ * gets. A candidate landing in the window is pushed to its end.
+ */
+export function nextRetryAt(now: Date, hours: number = RETRY_INTERVAL_HOURS): Date {
+  const at = new Date(now.getTime() + hours * 3_600_000);
+  const { startHour, endHour } = COLLECTION_WINDOW_UTC;
+  if (at.getUTCHours() >= startHour && at.getUTCHours() < endHour) {
+    at.setUTCHours(endHour, 0, 0, 0);
+  }
+  return at;
+}
+
+/**
+ * The earliest period the next run must ask for again, as YYYY-MM-DD — the
+ * oldest refused period that is still retryable. Undefined when nothing is
+ * waiting, and the ordinary "latest closed period" applies.
+ *
+ * This is the half of the fix that scheduling alone cannot do: an earlier
+ * next_run_at is useless if the run then asks only for the newest closed
+ * period. `closedPeriods(term, asOf, since)` returns them all, and the chain's
+ * duplicate guard — which runs BEFORE the seed — skips the ones already
+ * invoiced at the cost of one query.
+ */
+export function retrySince(previous: ScheduleRunOutcome | null | undefined): string | undefined {
+  const waiting = (previous?.periods ?? []).filter(p => !p.ok && p.retryable === true);
+  if (waiting.length === 0) return undefined;
+  return waiting.reduce((min, p) => (p.start < min ? p.start : min), waiting[0].start);
+}
+
+/** The same period on the previous run, for the attempt count. */
+export function previousPeriod(
+  previous: ScheduleRunOutcome | null | undefined,
+  period: { start: string; end: string },
+): PeriodOutcome | null {
+  const k = periodKey(period);
+  return (previous?.periods ?? []).find(p => periodKey(p) === k) ?? null;
 }
 
 const trim = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
@@ -190,8 +348,10 @@ function headlineFor(periods: readonly PeriodOutcome[]): string {
   const gen = periods.filter(p => p.ok);
   const ref = periods.filter(p => !p.ok);
   const genText = gen.map(p => `${p.invoiceNumber} (${p.lineCount ?? 0} line(s), ${span(p)})`).join(', ');
-  const first = ref[0];
-  const refText = first ? `${span(first)} at ${first.stage}: ${trim(first.reason ?? '', 140)}` : '';
+  const first = ref.find(p => p.exhausted) ?? ref[0];
+  const tail  = first?.exhausted ? ' — needs attention, no automatic retry left'
+              : first?.retryable ? ' — will be re-attempted' : '';
+  const refText = first ? `${span(first)} at ${first.stage}: ${trim(first.reason ?? '', 130)}${tail}` : '';
   if (ref.length === 0) return `${gen.length} invoice(s) generated: ${genText}`;
   if (gen.length === 0) {
     return ref.length === 1 ? `Refused — ${refText}` : `Refused ${ref.length} period(s) — first: ${refText}`;
@@ -199,16 +359,36 @@ function headlineFor(periods: readonly PeriodOutcome[]): string {
   return `${gen.length} generated (${genText}); ${ref.length} refused — ${refText}`;
 }
 
+function statusFor(periods: readonly PeriodOutcome[]): RunStatus {
+  if (periods.length === 0) return 'nothing';
+  const gen = periods.filter(p => p.ok).length;
+  if (gen === periods.length) return 'generated';
+  return gen > 0 ? 'partial' : 'refused';
+}
+
 /** The record for a run that attempted its periods. */
 export function buildRunOutcome(opts: {
-  at: string; trigger: RunTrigger; account: ResolvedAccount; periods: readonly PeriodOutcome[];
+  at: string; trigger: RunTrigger; account: ResolvedAccount;
+  periods: readonly PeriodOutcome[];
+  /** From nextRetryAt(), when any period is retryable. */
+  retryAt?: Date | string | null;
 }): ScheduleRunOutcome {
   const periods = [...opts.periods];
+  const retryable = periods.filter(p => !p.ok && p.retryable === true).length;
+  const retryAtIso = opts.retryAt == null
+    ? null
+    : (typeof opts.retryAt === 'string' ? opts.retryAt : opts.retryAt.toISOString());
   return {
-    at: opts.at, trigger: opts.trigger, account: opts.account, periods,
+    at: opts.at, trigger: opts.trigger, status: statusFor(periods),
+    account: opts.account, periods,
     generated: periods.filter(p => p.ok).length,
     refused:   periods.filter(p => !p.ok).length,
-    headline:  headlineFor(periods),
+    retryable,
+    exhausted: periods.filter(p => p.exhausted === true).length,
+    // A retry instant without a period waiting on it would misreport the
+    // schedule as pending work it has none of.
+    retryAt: retryable > 0 ? retryAtIso : null,
+    headline: headlineFor(periods),
   };
 }
 
@@ -218,10 +398,12 @@ export function stoppedRun(opts: {
   stage: RunStop['stage']; reason: string;
 }): ScheduleRunOutcome {
   const reason = opts.reason.trim() || 'The run stopped without giving a reason.';
+  const retryable = isRetryable(opts.stage);
   return {
-    at: opts.at, trigger: opts.trigger, account: opts.account ?? UNRESOLVED,
-    periods: [], generated: 0, refused: 0,
-    stopped: { stage: opts.stage, reason, next: nextStepFor(opts.stage) },
+    at: opts.at, trigger: opts.trigger, status: 'stopped',
+    account: opts.account ?? UNRESOLVED,
+    periods: [], generated: 0, refused: 0, retryable: 0, exhausted: 0, retryAt: null,
+    stopped: { stage: opts.stage, reason, retryable, next: nextStepFor(opts.stage) },
     headline: reason,
   };
 }
