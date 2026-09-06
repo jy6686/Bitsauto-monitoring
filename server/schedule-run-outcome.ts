@@ -38,7 +38,7 @@ export type RunTrigger = 'scheduler' | 'manual';
 /** Where a period stopped: the chain's own stages, plus the runner's. */
 export type PeriodStage =
   | 'duplicate' | 'seed' | 'freeze' | 'coverage' | 'reconcile' | 'certify' | 'generate'
-  | 'no-tariff' | 'no-period' | 'error';
+  | 'no-tariff' | 'no-account' | 'no-period' | 'error';
 
 /** The run as a whole, for filtering and future automation. */
 export type RunStatus = 'generated' | 'partial' | 'refused' | 'stopped' | 'nothing';
@@ -106,7 +106,7 @@ export interface ResolvedAccount {
 }
 
 export interface RunStop {
-  stage: 'no-tariff' | 'no-period' | 'error';
+  stage: 'no-tariff' | 'no-account' | 'no-period' | 'error';
   reason: string;
   retryable: boolean;
   next: string;
@@ -207,7 +207,10 @@ export function isRetryable(stage: PeriodStage, seed?: { fetched: number } | nul
       return true;
     case 'error':
       return true;   // the runner itself failed; the clock does not advance
-    case 'duplicate': case 'freeze': case 'no-tariff': case 'no-period':
+    // Configuration faults. Not retryable, because waiting changes nothing —
+    // but they do NOT advance the clock either, so they are re-checked on
+    // every tick and clear themselves the moment the record is fixed.
+    case 'duplicate': case 'freeze': case 'no-tariff': case 'no-account': case 'no-period':
       return false;
   }
 }
@@ -249,6 +252,10 @@ export function nextStepFor(
           'there is nothing to invoice. Not retried.'
         : byHand;
     case 'no-tariff': return 'Set a tariff on the schedule; it is re-checked every 30 minutes.';
+    case 'no-account':
+      return 'Set the Sippy account on the company record, or on the schedule. Coverage and ' +
+             'reconciliation cannot be checked without it, so no invoice can be generated. ' +
+             'Re-checked every 30 minutes — the billing period is not lost.';
     case 'no-period': return 'Nothing to do until the next billing period closes.';
     default:          return byHand;
   }

@@ -73,8 +73,9 @@ const SLATE = "bg-slate-500/10 text-slate-400 border-slate-500/30";
  * failed, a refusal whose automatic attempts are spent, or a terminal one.
  */
 function outcomeBadge(o: ScheduleRunOutcome): { label: string; cls: string } {
-  if (o.stopped?.stage === "error")     return { label: "Failed",       cls: RED };
-  if (o.stopped?.stage === "no-tariff") return { label: "Needs tariff", cls: AMBER };
+  if (o.stopped?.stage === "error")      return { label: "Failed",        cls: RED };
+  if (o.stopped?.stage === "no-account") return { label: "Needs account", cls: RED };
+  if (o.stopped?.stage === "no-tariff")  return { label: "Needs tariff",  cls: AMBER };
   if (o.exhausted > 0)                  return { label: "Needs attention", cls: RED };
   if (o.refused > 0 && o.retryable === o.refused) {
     return { label: o.generated > 0 ? "Partly retrying" : "Retrying", cls: AMBER };

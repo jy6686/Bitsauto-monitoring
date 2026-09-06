@@ -39701,6 +39701,23 @@ ${footer}
       return outcome;
     }
 
+    // No account, no run. Every data gate in the chain is scoped to one Sippy
+    // account, so without it nothing below can be checked — and this is a
+    // CONFIGURATION fault, not a data one. Reaching it through the chain
+    // instead would report it as a coverage refusal, which is classified
+    // retryable: a missing company record would pull the next run forward to
+    // tonight and spend six automatic attempts over 36 hours waiting for a
+    // record to appear on its own. Stopping here treats it like a missing
+    // tariff — re-checked on every tick, clock untouched, so the moment the
+    // record is fixed the ordinary run proceeds and the period is not lost.
+    if (account.iAccount === null) {
+      const outcome = stoppedRun({ at, trigger, account, stage: 'no-account',
+        reason: `No Sippy account is known for ${schedule.companyName ?? `schedule #${schedule.id}`}. ${account.detail}` });
+      console.warn(`[invoice-scheduler] schedule #${schedule.id}: ${outcome.headline}`);
+      await storage.updateInvoiceSchedule(schedule.id, { lastRunOutcome: outcome });
+      return outcome;
+    }
+
     // Billing periods from the customer's term, under the owner's rule: no
     // invoice may span two accounting months. A week straddling month-end
     // therefore yields TWO periods — the short one closes the month in the

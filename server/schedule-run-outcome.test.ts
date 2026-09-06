@@ -424,6 +424,22 @@ describe('stoppedRun — the run never reached a period', () => {
     expect(r.account.source).toBe('none');
   });
 
+  it('no account: a configuration fault, NOT a retryable coverage refusal', () => {
+    // Schedule #1 (Internal-PTCL) in production: companyId 1, and company 1
+    // does not exist. Reaching this through the chain would report stage
+    // 'coverage', which is retryable — so a missing record would pull the
+    // next run forward and burn six automatic attempts waiting for a company
+    // to appear by itself.
+    const noAccount = resolveScheduleAccount({ iAccount: null, companyId: 1 }, null);
+    const r = stoppedRun({ at, trigger: 'manual', account: noAccount, stage: 'no-account',
+      reason: `No Sippy account is known for Internal-PTCL. ${noAccount.detail}` });
+    expect(r).toMatchObject({ status: 'stopped', retryAt: null, generated: 0, refused: 0 });
+    expect(r.stopped).toMatchObject({ stage: 'no-account', retryable: false });
+    expect(r.stopped!.next).toContain('Set the Sippy account');
+    expect(r.stopped!.next).toContain('not lost');
+    expect(r.headline).toContain('Company #1 was not found');
+  });
+
   it('error: retryable, because the clock did not advance', () => {
     const r = stoppedRun({ at, trigger: 'scheduler', stage: 'error', reason: 'timeout exceeded when trying to connect' });
     expect(r.stopped).toMatchObject({ stage: 'error', retryable: true });
@@ -438,8 +454,16 @@ describe('stoppedRun — the run never reached a period', () => {
 
 describe('nextStepFor — every stage has an answer', () => {
   it('covers each stage with non-empty guidance', () => {
-    const stages = ['duplicate','seed','freeze','coverage','reconcile','certify','generate','no-tariff','no-period','error'] as const;
+    const stages = ['duplicate','seed','freeze','coverage','reconcile','certify','generate',
+                    'no-tariff','no-account','no-period','error'] as const;
     for (const s of stages) expect(nextStepFor(s).length).toBeGreaterThan(20);
+  });
+
+  it('does not offer a fast retry for a configuration fault', () => {
+    for (const s of ['no-tariff', 'no-account'] as const) {
+      expect(isRetryable(s)).toBe(false);
+      expect(nextStepFor(s)).not.toContain('automatic attempt(s) left');
+    }
   });
 
   it('promises the retry when one is coming, and asks for a person when it is not', () => {
