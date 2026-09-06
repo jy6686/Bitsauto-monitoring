@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolveScheduleAccount, periodOutcomeFromChain, buildRunOutcome, stoppedRun, nextStepFor,
-  isRetryable, nextRetryAt, retrySince, previousPeriod, periodKey,
+  isRetryable, nextRetryAt, retrySince, previousPeriod, periodKey, selectPeriodsToAttempt,
   MAX_RETRY_ATTEMPTS, RETRY_INTERVAL_HOURS, COLLECTION_WINDOW_UTC,
   type PeriodOutcome, type ScheduleRunOutcome,
 } from './schedule-run-outcome';
@@ -110,6 +110,33 @@ describe('nextRetryAt — never inside the collection window', () => {
     expect(nextRetryAt(new Date('2026-09-07T08:00:00Z'), 1).toISOString()).toBe('2026-09-07T09:00:00.000Z');
     expect(RETRY_INTERVAL_HOURS).toBe(6);
   });
+
+  it('treats the window as [02:00, 06:00) — exactly on each boundary', () => {
+    // 20:00 + 6h = 02:00 exactly: inside, pushed out.
+    expect(nextRetryAt(new Date('2026-09-07T20:00:00Z')).toISOString()).toBe('2026-09-08T06:00:00.000Z');
+    // 00:00 + 6h = 06:00 exactly: the window has ENDED, so it stands.
+    expect(nextRetryAt(new Date('2026-09-08T00:00:00Z')).toISOString()).toBe('2026-09-08T06:00:00.000Z');
+    // 19:59:59 + 6h = 01:59:59: before the window, untouched.
+    expect(nextRetryAt(new Date('2026-09-07T19:59:59Z')).toISOString()).toBe('2026-09-08T01:59:59.000Z');
+  });
+
+  it('uses UTC only, so a DST shift cannot move the window', () => {
+    // Europe/London springs forward 2026-03-29 01:00 UTC. A local-time
+    // implementation would slide the window by an hour on this date; UTC
+    // arithmetic cannot. Both sides of the transition behave identically.
+    for (const iso of ['2026-03-28T20:00:00Z', '2026-03-29T20:00:00Z', '2026-10-24T20:00:00Z']) {
+      expect(nextRetryAt(new Date(iso)).getUTCHours()).toBe(COLLECTION_WINDOW_UTC.endHour);
+    }
+  });
+
+  it('is minute-exact inside the window, not just hour-exact', () => {
+    // 02:30 and 05:59 are both inside; both land on the window's end.
+    for (const iso of ['2026-09-07T20:30:00Z', '2026-09-07T23:59:00Z']) {
+      const got = nextRetryAt(new Date(iso));
+      expect(got.getUTCHours()).toBe(COLLECTION_WINDOW_UTC.endHour);
+      expect(got.getUTCMinutes()).toBe(0);
+    }
+  });
 });
 
 describe('periodOutcomeFromChain — the chain’s words, not a paraphrase', () => {
@@ -209,6 +236,106 @@ describe('retrySince — what makes a refused period come back', () => {
     expect(retrySince(null)).toBeUndefined();
     expect(retrySince(undefined)).toBeUndefined();
     expect(retrySince({ periods: [] } as any)).toBeUndefined();
+  });
+});
+
+describe('selectPeriodsToAttempt — a backlog must not starve this week', () => {
+  const wk = (n: number) => ({ start: `2026-0${n < 5 ? 8 : 9}-${String(n * 7 - 4).padStart(2, '0')}`,
+                               end:   `2026-0${n < 5 ? 8 : 9}-${String(n * 7 + 2).padStart(2, '0')}` });
+  const W1 = { start: '2026-08-03', end: '2026-08-09' };
+  const W2 = { start: '2026-08-10', end: '2026-08-16' };
+  const W3 = { start: '2026-08-17', end: '2026-08-23' };
+  const W4 = { start: '2026-08-24', end: '2026-08-30' };
+  const W5 = { start: '2026-09-01', end: '2026-09-06' };
+  const ALL = [W1, W2, W3, W4, W5];
+
+  const runWith = (periods: PeriodOutcome[]): ScheduleRunOutcome =>
+    buildRunOutcome({ at, trigger: 'scheduler', account, periods, retryAt: new Date(at) });
+
+  it('attempts everything when it fits', () => {
+    expect(selectPeriodsToAttempt([W4, W5], null)).toEqual([W4, W5]);
+  });
+
+  it('ALWAYS keeps the newest — week 1 cannot block weeks 2-5', () => {
+    // The owner's scenario: an old period that keeps failing, newer ones ready.
+    const got = selectPeriodsToAttempt(ALL, null, 4);
+    expect(got).toHaveLength(4);
+    expect(got[got.length - 1]).toEqual(W5);        // this week is attempted
+    expect(got).toEqual([W1, W2, W3, W5]);          // and the backlog drains oldest-first
+  });
+
+  it('gives the single slot to the newest, not the oldest', () => {
+    expect(selectPeriodsToAttempt(ALL, null, 1)).toEqual([W5]);
+  });
+
+  it('does not re-seed a period whose retries are spent', () => {
+    let spent: PeriodOutcome | null = null;
+    for (let n = 0; n < MAX_RETRY_ATTEMPTS; n++) spent = periodOutcomeFromChain(W1, coverageFail, spent);
+    expect(spent!.exhausted).toBe(true);
+    const got = selectPeriodsToAttempt(ALL, runWith([spent!]), 4);
+    expect(got).not.toContainEqual(W1);
+    expect(got).toEqual([W2, W3, W4, W5]);
+  });
+
+  it('does not re-seed a terminal refusal', () => {
+    const terminal = periodOutcomeFromChain(W1, {
+      ok: false, stage: 'certify', error: 'no calls', seed: { fetched: 0, created: 0, skipped: 0 },
+    });
+    expect(selectPeriodsToAttempt(ALL, runWith([terminal]), 4)).not.toContainEqual(W1);
+  });
+
+  it('does not spend a slot on a period already invoiced', () => {
+    const done = periodOutcomeFromChain(W1, { ok: true, invoice: { id: 1, invoiceNumber: 'C-1', lineCount: 5 } });
+    const got = selectPeriodsToAttempt(ALL, runWith([done]), 4);
+    expect(got).toEqual([W2, W3, W4, W5]);
+  });
+
+  it('keeps re-attempting a period that is still retryable', () => {
+    const pending = periodOutcomeFromChain(W1, coverageFail);
+    expect(selectPeriodsToAttempt(ALL, runWith([pending]), 4)).toContainEqual(W1);
+  });
+
+  it('reaches the newest week on EVERY run while it is still retryable', () => {
+    // Five open weeks, four slots, everything failing at coverage. The
+    // starvation bug this guards: the oldest four fill the cap and the week
+    // the customer is waiting on is never attempted.
+    let prev: ScheduleRunOutcome | null = null;
+    for (let run = 0; run < MAX_RETRY_ATTEMPTS; run++) {
+      const chosen = selectPeriodsToAttempt(ALL, prev, 4);
+      expect(chosen).toContainEqual(W5);
+      prev = runWith(chosen.map(p => periodOutcomeFromChain(p, coverageFail, previousPeriod(prev, p))));
+    }
+    // Its attempts are now spent — it stops being re-fetched, which is the
+    // bounded-retry contract, and it is still on the record as needing a person.
+    const w5 = previousPeriod(prev, W5)!;
+    expect(w5).toMatchObject({ attempt: MAX_RETRY_ATTEMPTS, exhausted: true, retryable: false });
+    expect(selectPeriodsToAttempt(ALL, prev, 4)).not.toContainEqual(W5);
+  });
+
+  it('drains a backlog rather than stalling on it', () => {
+    // W4 is squeezed out while three older weeks hold slots; once they spend
+    // their attempts it gets its turn, so nothing is permanently skipped.
+    let prev: ScheduleRunOutcome | null = null;
+    let everChose4 = false;
+    for (let run = 0; run < MAX_RETRY_ATTEMPTS + 2; run++) {
+      const chosen = selectPeriodsToAttempt(ALL, prev, 4);
+      if (chosen.some(p => p.start === W4.start)) everChose4 = true;
+      prev = runWith(chosen.map(p => periodOutcomeFromChain(p, coverageFail, previousPeriod(prev, p))));
+    }
+    expect(everChose4).toBe(true);
+    // And a run that keeps failing eventually stops costing fetches entirely.
+    expect(selectPeriodsToAttempt(ALL, prev, 4).length).toBeLessThan(ALL.length);
+  });
+
+  it('returns nothing rather than something when given no slots', () => {
+    expect(selectPeriodsToAttempt(ALL, null, 0)).toEqual([]);
+    expect(selectPeriodsToAttempt([], null)).toEqual([]);
+  });
+
+  it('preserves chronological order', () => {
+    const got = selectPeriodsToAttempt(ALL, null, 3);
+    expect(got.map(p => p.start)).toEqual([...got.map(p => p.start)].sort());
+    expect(wk(1).start < wk(2).start).toBe(true);   // the helper orders as assumed
   });
 });
 

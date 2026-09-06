@@ -340,6 +340,42 @@ export function previousPeriod(
   return (previous?.periods ?? []).find(p => periodKey(p) === k) ?? null;
 }
 
+/**
+ * Which of the closed periods this run will actually attempt.
+ *
+ * `closedPeriods(term, asOf, since)` filters by DATE ONLY — it returns every
+ * closed period in the range, including ones already invoiced and ones whose
+ * retries are spent. Two things go wrong if a run simply takes the oldest N:
+ *
+ *   1. A period we deliberately STOPPED retrying is re-seeded anyway, which
+ *      is the standing switch load the attempt limit exists to end.
+ *   2. Current billing starves behind a backlog. With four slots and five
+ *      open periods, the newest — the week the customer is actually waiting
+ *      on — is never reached while the older four keep failing.
+ *
+ * So: drop what must not be re-attempted, then ALWAYS keep the newest period
+ * and fill the remaining slots oldest-first. A backlog still drains in the
+ * order the revenue was earned, but it can never hold this week's invoice
+ * hostage. With a single slot, the newest wins.
+ */
+export function selectPeriodsToAttempt<T extends { start: string; end: string }>(
+  all: readonly T[],
+  previous: ScheduleRunOutcome | null | undefined,
+  max: number = MAX_PERIODS_PER_RUN,
+): T[] {
+  const attemptable = all.filter(p => {
+    const prev = previousPeriod(previous, p);
+    if (!prev) return true;            // never attempted
+    if (prev.ok) return false;         // already invoiced — the duplicate guard's job, not a slot
+    return prev.retryable !== false;   // terminal or exhausted — do not re-seed
+  });
+  if (max <= 0) return [];
+  if (attemptable.length <= max) return [...attemptable];
+  // `all` arrives chronological (closedPeriods sorts), so the last is newest.
+  const newest = attemptable[attemptable.length - 1];
+  return [...attemptable.slice(0, max - 1), newest];
+}
+
 const trim = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const span = (p: PeriodOutcome) => (p.start === p.end ? p.start : `${p.start}→${p.end}`);
 

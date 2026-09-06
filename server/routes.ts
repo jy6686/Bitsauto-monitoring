@@ -40,7 +40,7 @@ import { seedWorkspacesIfEmpty } from "./workspace-seed";
 import { billingPolicyFor, calculateClosedBillingPeriods } from "./billing-periods";
 import {
   resolveScheduleAccount, periodOutcomeFromChain, buildRunOutcome, stoppedRun,
-  nextRetryAt, retrySince, previousPeriod, MAX_PERIODS_PER_RUN,
+  nextRetryAt, retrySince, previousPeriod, selectPeriodsToAttempt,
   type RunTrigger, type ScheduleRunOutcome, type PeriodOutcome,
 } from "./schedule-run-outcome";
 import type { InvoiceSchedule } from "@shared/schema";
@@ -39719,12 +39719,13 @@ ${footer}
     const previous = (schedule.lastRunOutcome as ScheduleRunOutcome | null) ?? null;
     const since    = retrySince(previous);
     const allPeriods = calculateClosedBillingPeriods(policy, now, since);
-    // Safety valve: each period costs a full seed (every slice re-fetched), so
-    // a run must not fan out without limit if `since` ever reaches far back.
-    // Oldest first — a backlog drains in the order the revenue was earned.
-    const periods = allPeriods.slice(0, MAX_PERIODS_PER_RUN);
+    // Each period costs a full seed (every slice re-fetched), so a run is
+    // capped. The selector also drops periods already invoiced or no longer
+    // retryable, and always keeps the NEWEST — a backlog drains oldest-first
+    // but can never starve the week the customer is waiting on.
+    const periods = selectPeriodsToAttempt(allPeriods, previous);
     if (allPeriods.length > periods.length) {
-      console.log(`[invoice-scheduler] schedule #${schedule.id}: ${allPeriods.length} period(s) open, attempting the oldest ${periods.length} this run`);
+      console.log(`[invoice-scheduler] schedule #${schedule.id}: ${allPeriods.length} closed period(s) in range, attempting ${periods.length} this run (${periods.map(p => p.start).join(', ')})`);
     }
     if (periods.length === 0) {
       const outcome = stoppedRun({ at, trigger, account, stage: 'no-period',
@@ -39802,14 +39803,22 @@ ${footer}
    * refusals make short next_run_at values ordinary, so overlap stops being
    * hypothetical.
    */
-  let invoiceRunnerBusy = false;
+  // Held as the START INSTANT rather than a boolean, so a stuck run is
+  // diagnosable: every skipped tick reports how long the lock has been held.
+  // It is deliberately NOT broken automatically. One period's seed may legally
+  // run for the whole SEED_JOB_BUDGET_MIN (4h by default), so any threshold
+  // short enough to rescue a hang is also short enough to start the second
+  // concurrent seed this guard exists to prevent. A genuinely hung run is
+  // cleared by the process restart that this deployment does anyway.
+  let invoiceRunnerStartedAt: number | null = null;
 
   async function _runDueInvoiceSchedules() {
-    if (invoiceRunnerBusy) {
-      console.log('[invoice-scheduler] previous run still in progress — skipping this tick');
+    if (invoiceRunnerStartedAt !== null) {
+      const heldMin = Math.round((Date.now() - invoiceRunnerStartedAt) / 60_000);
+      console.log(`[invoice-scheduler] previous run still in progress (${heldMin} min) — skipping this tick`);
       return;
     }
-    invoiceRunnerBusy = true;
+    invoiceRunnerStartedAt = Date.now();
     try {
       const schedules = await storage.listInvoiceSchedules();
       const now       = new Date();
@@ -39841,7 +39850,9 @@ ${footer}
     } catch (err: any) {
       console.error('[invoice-scheduler] runner error:', err.message);
     } finally {
-      invoiceRunnerBusy = false;
+      // finally, not the try's tail: a throw anywhere above must not leave the
+      // scheduler permanently blocked.
+      invoiceRunnerStartedAt = null;
     }
   }
 
