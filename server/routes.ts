@@ -36484,10 +36484,17 @@ ${footer}
         driftedTo: r.driftedTo ?? null,
       }));
 
+      // Tables come FROM the expected set, never from a second hand-kept list.
+      // They were hardcoded as ('seed_jobs','companies'), so adding
+      // invoice_schedules.last_run_outcome to EXPECTED produced a check that
+      // could not see the column it was asked about: 510 applied, the ORM
+      // selected the column happily, and the gate reported it missing. A
+      // verification that maintains two lists eventually disagrees with itself.
+      const EXPECTED_TABLES = [...new Set(EXPECTED.map(e => e.table))];
       const colRows: any = await db.execute(sql`
         SELECT table_name, column_name, is_nullable, column_default
           FROM information_schema.columns
-         WHERE table_name IN ('seed_jobs','companies')`);
+         WHERE table_name = ANY(${EXPECTED_TABLES})`);
       const columns = ((colRows.rows ?? []) as any[]).map(r => ({
         table:  String(r.table_name),
         column: String(r.column_name),

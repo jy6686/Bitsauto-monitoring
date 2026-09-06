@@ -382,10 +382,16 @@ function checkOrmAgreement(f: DeployFacts): DeployCheck {
   const byKey = new Map(f.columns.map(c => [`${c.table}.${c.column}`, c]));
   const disagreements: string[] = [];
 
+  // Counted, not assumed. Reporting expectedColumns.length as "agree" claimed
+  // agreement about columns this check never saw — the same absence-as-evidence
+  // fault the rest of this file exists to prevent.
+  let verified = 0;
+
   for (const e of f.expectedColumns) {
     const key = `${e.table}.${e.column}`;
     const actual = byKey.get(key);
     if (!actual) continue;                      // check 3 owns absence
+    verified++;
     if (actual.isNullable !== e.mustBeNullable) {
       disagreements.push(
         `${key}: database ${actual.isNullable ? 'nullable' : 'NOT NULL'}, ` +
@@ -399,8 +405,10 @@ function checkOrmAgreement(f: DeployFacts): DeployCheck {
   }
 
   if (!disagreements.length) {
+    const unseen = f.expectedColumns.length - verified;
     return pass(id, step, title,
-      `${f.expectedColumns.length} column(s) agree, defaults included.`);
+      `${verified} of ${f.expectedColumns.length} column(s) agree, defaults included.` +
+      (unseen > 0 ? ` ${unseen} not present to compare — see “Diagnostic columns exist”.` : ''));
   }
   return fail(id, step, title, disagreements.join('; ') + '.',
     'This is the 504-applied-without-507 case. Tests cannot catch it because they do not run ' +

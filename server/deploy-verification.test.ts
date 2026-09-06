@@ -544,6 +544,32 @@ describe('the 504-without-507 case', () => {
     expect(find(r, 'columns-exist').detail).toContain('retry_causes');
     expect(find(r, 'orm-agreement').detail).not.toContain('retry_causes');
   });
+
+  it('never claims agreement about a column it could not see', () => {
+    // Production 2026-09-06: the columns query was scoped to a hand-kept table
+    // list, so invoice_schedules.last_run_outcome was invisible to it. The
+    // gate reported the column missing while this check reported "12 columns
+    // agree" — agreement asserted about a column nobody had looked at.
+    const c = find(v(halfApplied), 'orm-agreement');
+    // 3 columns present out of the full expected set; the count must be the
+    // number examined, never the number hoped for.
+    expect(c.detail).not.toMatch(new RegExp(`^${ALL_COLUMNS.length} column\\(s\\) agree`));
+  });
+
+  it('counts what it verified and says what it could not', () => {
+    const seen = ALL_COLUMNS.slice(0, 2);
+    const c = find(v(good({ columns: seen })), 'orm-agreement');
+    expect(c.status).toBe('PASS');
+    expect(c.detail).toContain(`${seen.length} of ${ALL_COLUMNS.length} column(s) agree`);
+    expect(c.detail).toContain(`${ALL_COLUMNS.length - seen.length} not present to compare`);
+  });
+
+  it('says nothing about absences when every column was seen', () => {
+    const c = find(v(good()), 'orm-agreement');
+    expect(c.status).toBe('PASS');
+    expect(c.detail).toContain(`${ALL_COLUMNS.length} of ${ALL_COLUMNS.length} column(s) agree`);
+    expect(c.detail).not.toContain('not present to compare');
+  });
 });
 
 describe('a surviving DEFAULT on a nullable column', () => {
