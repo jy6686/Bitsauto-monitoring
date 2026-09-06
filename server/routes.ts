@@ -33754,8 +33754,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             // night answers whether the 2nd-4th credentials ever add anything.
             creds: pageLog.reduce((acc, pg) => {
               const k = pg.cred ?? '(unknown)';
-              const c = acc[k] ?? (acc[k] = { pages: 0, rows: 0, empty: 0, failed: 0 });
+              const c = acc[k] ?? (acc[k] = { pages: 0, rows: 0, empty: 0, failed: 0, ms: 0, maxMs: 0 });
               c.pages++;
+              c.ms += pg.ms ?? 0; c.maxMs = Math.max(c.maxMs, pg.ms ?? 0);
               if (!pg.ok) c.failed++;
               else if (pg.rows === 0) c.empty++;
               else c.rows += pg.rows;

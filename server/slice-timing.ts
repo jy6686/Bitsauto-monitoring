@@ -60,6 +60,21 @@ export interface CredTally {
   empty: number;
   /** Pages that returned not-ok. */
   failed: number;
+  /** Total wall clock across this credential's pages. */
+  ms: number;
+  /** The single slowest page. Route-Inspector's was 237 seconds, for nothing. */
+  maxMs: number;
+}
+
+/**
+ * Mean page duration per credential, derived at read time so it is never a
+ * stored figure that can drift from the counts it came from. Answers whether
+ * credentials 2-4 are slow because of fallback, or whether every empty
+ * XML-RPC request is inherently expensive — which decides whether the 4x
+ * loop is the cost or the switch's empty query is.
+ */
+export function meanPageMs(c: CredTally): number | null {
+  return c.pages > 0 ? Math.round(c.ms / c.pages) : null;
 }
 
 export interface SliceTimingSummary {
@@ -99,8 +114,10 @@ export function summariseSliceTiming(samples: readonly SliceSample[]): SliceTimi
 
   for (const s of samples) {
     for (const [user, c] of Object.entries(s.creds ?? {})) {
-      const acc = byCredential[user] ?? (byCredential[user] = { pages: 0, rows: 0, empty: 0, failed: 0 });
+      const acc = byCredential[user] ??
+        (byCredential[user] = { pages: 0, rows: 0, empty: 0, failed: 0, ms: 0, maxMs: 0 });
       acc.pages += c.pages; acc.rows += c.rows; acc.empty += c.empty; acc.failed += c.failed;
+      acc.ms += c.ms ?? 0; acc.maxMs = Math.max(acc.maxMs, c.maxMs ?? 0);
     }
     totalMs += Math.max(0, s.totalMs);
     fetchMs += Math.max(0, s.fetchMs);

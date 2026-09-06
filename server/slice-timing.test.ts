@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { summariseSliceTiming, type SliceSample } from './slice-timing';
+import { summariseSliceTiming, meanPageMs, type SliceSample } from './slice-timing';
 
 const s = (label: string, totalMs: number, fetchMs: number, storeMs: number,
            pages = 1, rows = 40): SliceSample =>
@@ -108,8 +108,8 @@ describe('degenerate inputs', () => {
 });
 
 describe('byCredential — did credentials 2-4 ever add anything?', () => {
-  const tally = (pages: number, rows: number, empty: number, failed = 0) =>
-    ({ pages, rows, empty, failed });
+  const tally = (pages: number, rows: number, empty: number, failed = 0, ms = 0, maxMs = 0) =>
+    ({ pages, rows, empty, failed, ms, maxMs });
 
   it('shows the 4x pattern on an empty account exactly', () => {
     // Account 76 tonight: 48 slices, 192 pages, 0 rows. Four credentials
@@ -122,7 +122,7 @@ describe('byCredential — did credentials 2-4 ever add anything?', () => {
     expect(r.pages).toBe(192);
     expect(Object.keys(r.byCredential)).toHaveLength(4);
     for (const c of Object.values(r.byCredential)) {
-      expect(c).toEqual({ pages: 48, rows: 0, empty: 48, failed: 0 });
+      expect(c).toMatchObject({ pages: 48, rows: 0, empty: 48, failed: 0 });
     }
   });
 
@@ -146,8 +146,8 @@ describe('byCredential — did credentials 2-4 ever add anything?', () => {
       { ...s('a', 1, 1, 0, 2, 5), creds: { admin: tally(1, 5, 0), portal: tally(1, 0, 1) } },
       { ...s('b', 1, 1, 0, 2, 0), creds: { admin: tally(1, 0, 1), portal: tally(1, 0, 1) } },
     ]);
-    expect(r.byCredential.admin).toEqual({ pages: 2, rows: 5, empty: 1, failed: 0 });
-    expect(r.byCredential.portal).toEqual({ pages: 2, rows: 0, empty: 2, failed: 0 });
+    expect(r.byCredential.admin).toMatchObject({ pages: 2, rows: 5, empty: 1, failed: 0 });
+    expect(r.byCredential.portal).toMatchObject({ pages: 2, rows: 0, empty: 2, failed: 0 });
   });
 
   it('counts a failed page separately from an empty one', () => {
@@ -161,5 +161,45 @@ describe('byCredential — did credentials 2-4 ever add anything?', () => {
   it('is empty, not absent, when no sample carried credentials', () => {
     const r = summariseSliceTiming([s('a', 1, 1, 0)]);
     expect(r.byCredential).toEqual({});
+  });
+});
+
+describe('page duration by credential — fallback cost, or the switch itself?', () => {
+  const tally = (pages: number, rows: number, empty: number, ms: number, maxMs: number) =>
+    ({ pages, rows, empty, failed: 0, ms, maxMs });
+
+  it('sums duration and keeps the single slowest page across slices', () => {
+    const r = summariseSliceTiming([
+      { ...s('a', 1, 1, 0, 2, 0), creds: { admin: tally(1, 0, 1, 400, 400), portal: tally(1, 0, 1, 237_598, 237_598) } },
+      { ...s('b', 1, 1, 0, 2, 0), creds: { admin: tally(1, 0, 1, 360, 360), portal: tally(1, 0, 1, 4_100, 4_100) } },
+    ]);
+    expect(r.byCredential.admin).toMatchObject({ pages: 2, ms: 760, maxMs: 400 });
+    expect(r.byCredential.portal).toMatchObject({ pages: 2, ms: 241_698, maxMs: 237_598 });
+  });
+
+  it('derives the mean at read time rather than storing it', () => {
+    // A stored mean drifts from its counts; a derived one cannot.
+    expect(meanPageMs(tally(2, 0, 2, 760, 400))).toBe(380);
+    expect(meanPageMs(tally(0, 0, 0, 0, 0))).toBeNull();     // no pages, no mean
+  });
+
+  it('distinguishes the two readings the owner named', () => {
+    // Reading 1: credentials 2-4 are slow because of fallback — credential 1
+    // is fast and the rest are not. Reading 2: EVERY empty request is
+    // expensive, so the 4x loop multiplies a cost the switch imposes anyway.
+    const fallbackSlow = summariseSliceTiming([
+      { ...s('a', 1, 1, 0, 4, 0), creds: {
+          c1: tally(1, 0, 1, 380, 380), c2: tally(1, 0, 1, 4_100, 4_100),
+          c3: tally(1, 0, 1, 3_900, 3_900), c4: tally(1, 0, 1, 4_000, 4_000) } },
+    ]).byCredential;
+    expect(meanPageMs(fallbackSlow.c1)).toBeLessThan(1_000);
+    expect(meanPageMs(fallbackSlow.c2)).toBeGreaterThan(3_000);
+
+    const switchSlow = summariseSliceTiming([
+      { ...s('a', 1, 1, 0, 4, 0), creds: {
+          c1: tally(1, 0, 1, 12_000, 12_000), c2: tally(1, 0, 1, 12_400, 12_400),
+          c3: tally(1, 0, 1, 11_900, 11_900), c4: tally(1, 0, 1, 12_100, 12_100) } },
+    ]).byCredential;
+    for (const c of Object.values(switchSlow)) expect(meanPageMs(c)).toBeGreaterThan(10_000);
   });
 });
