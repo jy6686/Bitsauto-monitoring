@@ -38,6 +38,11 @@ import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
 import { billingPolicyFor, calculateClosedBillingPeriods } from "./billing-periods";
+import {
+  resolveScheduleAccount, periodOutcomeFromChain, buildRunOutcome, stoppedRun,
+  type RunTrigger, type ScheduleRunOutcome, type PeriodOutcome,
+} from "./schedule-run-outcome";
+import type { InvoiceSchedule } from "@shared/schema";
 import * as net from "net";
 import * as https from "https";
 import { createHash, randomBytes } from "crypto";
@@ -34269,7 +34274,25 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     // Sunday is a legitimate zero, and refusing to invoice them would be its
     // own defect. seed_jobs is the discriminator: absence of DATA is not
     // evidence, absence of COLLECTION is.
-    if (opts.iAccount) {
+    //
+    // Every data gate from here on is scoped to ONE Sippy account — coverage
+    // asks whether that account's days were collected, reconciliation whether
+    // that account agrees with the switch. This block and the next used to
+    // read `if (opts.iAccount) { … }`, which on 2026-08-31 meant both live
+    // schedules (neither carries an account; the company record does) walked
+    // past both gates untested and were refused later, at certification, for
+    // a reason that had nothing to do with the four uncollected days. A gate
+    // that cannot run must not wave the invoice through — the same rule the
+    // catch below already states.
+    if (!opts.iAccount) {
+      return {
+        ok: false, stage: 'coverage', seed,
+        error: `No Sippy account is known for "${opts.customerName}", so period coverage and ` +
+               'reconciliation against the switch cannot be checked. Set the account on the company ' +
+               'record or on the schedule. Refusing to invoice a period whose completeness is unknown.',
+      };
+    }
+    {
       try {
         const { assessPeriodCoverage } = await import('./period-coverage');
         const [rowDays, runs] = await Promise.all([
@@ -34333,7 +34356,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     // Scoped to the customer being invoiced. Another customer missing from the
     // platform is a real problem, but it is the disposition report's problem —
     // blocking THIS invoice for it would refuse work that is correct.
-    if (opts.iAccount) {
+    //
+    // Unconditional: the account was required at the coverage stage above.
+    {
       try {
         const { dmrReferenceFor } = await import('./services/finance/dmr-reference.service');
         const { reconcileAccounts }            = await import('./account-reconciliation');
@@ -36438,6 +36463,8 @@ ${footer}
         { table: 'seed_jobs', column: 'slice_timing',      mustBeNullable: true },
         { table: 'seed_jobs', column: 'last_progress_at',  mustBeNullable: true },
         { table: 'seed_jobs', column: 'reaped_at',         mustBeNullable: true },
+        // 510 — a scheduled invoice run leaves its verdict on the schedule row.
+        { table: 'invoice_schedules', column: 'last_run_outcome', mustBeNullable: true },
       ];
 
       const ledgerData = await getMigrationLedger(pool);
@@ -39316,69 +39343,20 @@ ${footer}
     catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // POST /api/invoice-schedules/:id/run — manually trigger a schedule run
+  // POST /api/invoice-schedules/:id/run — run one schedule now.
+  //
+  // This used to be its own path: it computed the period with local-time
+  // date getters (the drift billing-periods.ts was written to remove), summed
+  // whatever locked snapshots existed for the tariff and inserted a draft —
+  // with no duplicate guard, no freeze, no coverage, no reconciliation and no
+  // certification. It was the ungated route Finance would reach for on seeing
+  // that the scheduled run had produced nothing. Now it IS the scheduled run,
+  // triggered by hand, and it answers with what the gates decided.
   app.post('/api/invoice-schedules/:id/run', (req: any, res: any, next: any) => requireRole(['admin','management'], req, res, next), async (req: any, res: any) => {
     try {
       const schedule = await storage.getInvoiceSchedule(Number(req.params.id));
       if (!schedule) return res.status(404).json({ error: 'Schedule not found.' });
-      if (!schedule.iTariff) return res.status(400).json({ error: 'Schedule has no tariff configured.' });
-
-      // Compute period based on frequency
-      const now     = new Date();
-      const tz      = schedule.timezone ?? 'Etc/UTC';
-      let periodStart: string, periodEnd: string;
-      if (schedule.frequency === 'monthly') {
-        const y = now.getFullYear(); const m = now.getMonth();
-        periodStart = new Date(y, m - 1, 1).toISOString().slice(0, 10);
-        periodEnd   = new Date(y, m, 0).toISOString().slice(0, 10);
-      } else {
-        const dow     = now.getDay();
-        const fromMon = dow === 0 ? 6 : dow - 1;
-        const thisMon = new Date(now); thisMon.setDate(now.getDate() - fromMon); thisMon.setHours(0,0,0,0);
-        const lastMon = new Date(thisMon); lastMon.setDate(thisMon.getDate() - 7);
-        const lastSun = new Date(thisMon); lastSun.setDate(thisMon.getDate() - 1);
-        periodStart = lastMon.toISOString().slice(0, 10);
-        periodEnd   = lastSun.toISOString().slice(0, 10);
-      }
-
-      // Aggregate snapshots
-      const snapshots = await storage.listInvoiceCdrSnapshots({
-        iTariff: schedule.iTariff,
-        verificationStatus: 'locked',
-      });
-      const inPeriod = snapshots.filter(s => {
-        const d = (s.cdrStartTime ?? '').slice(0, 10);
-        return d >= periodStart && d <= periodEnd;
-      });
-
-      const totalReproduced = inPeriod.reduce((sum, s) => sum + (s.reproducedCost ?? 0), 0);
-      const totalActual     = inPeriod.reduce((sum, s) => sum + (s.actualCost     ?? 0), 0);
-      const totalDelta      = totalReproduced - totalActual;
-
-      // Number from the configured series (this site previously minted its own
-      // INV-NNNNN format off the same shared counter — unified by 076); due
-      // date stamped from the shared terms rule.
-      const schedCustomer = schedule.companyName ?? `Account ${schedule.iAccount ?? '?'}`;
-      const schedTerms = await invoiceTermsForCustomer(schedCustomer, now.toISOString().slice(0, 10));
-      const invoice = await createWithUniqueInvoiceNumber((invoiceNumber) => storage.createInvoice({
-        invoiceNumber, iTariff: schedule.iTariff,
-        customerName: schedCustomer,
-        periodStart, periodEnd,
-        totalReproduced, totalActual, totalDelta,
-        lineCount: inPeriod.length, status: 'draft',
-        generatedAt: new Date(), notes: `Auto-generated by schedule #${schedule.id}`,
-        htmlContent: null,
-        dueDate:           schedTerms.dueDate,
-        paymentTermsLabel: schedTerms.termLabel,
-      }), now);
-
-      // Mark last/next run
-      const nextRunAt = new Date(now);
-      if (schedule.frequency === 'monthly') nextRunAt.setMonth(nextRunAt.getMonth() + 1);
-      else nextRunAt.setDate(nextRunAt.getDate() + 7);
-      await storage.updateInvoiceSchedule(schedule.id, { lastRunAt: now, nextRunAt });
-
-      res.json({ ok: true, invoiceNumber: invoice.invoiceNumber, invoiceId: invoice.id, lineCount: inPeriod.length });
+      res.json(await _runInvoiceSchedule(schedule, new Date(), 'manual'));
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
@@ -39681,6 +39659,111 @@ ${footer}
   }
 
   // Runs any invoice schedules whose nextRunAt has passed. Fires every 30 min.
+  /**
+   * One schedule, one run: the full billing chain for each closed period,
+   * and the verdict written back onto the schedule row in the chain's own
+   * words (server/schedule-run-outcome.ts, migration 510).
+   *
+   * Shared by the 30-minute runner and the Run now button. On 2026-08-31 both
+   * live schedules ran, were refused, and left one console.warn line each;
+   * the row said only "ran". A refused period is NOT retried by this runner —
+   * the clock advances once per run and the next run asks for the newest
+   * closed period only — so the refusal has to be legible enough for a person
+   * to act on, where they look for it.
+   */
+  async function _runInvoiceSchedule(
+    schedule: InvoiceSchedule, now: Date, trigger: RunTrigger,
+  ): Promise<ScheduleRunOutcome> {
+    const at = now.toISOString();
+
+    // Policy comes from the COMPANY — the billing cycle is a commercial term,
+    // and those live on the company profile beside payment terms and
+    // currency. The schedule's own frequency is the fallback for records that
+    // predate that. The same record carries the Sippy account every data gate
+    // in the chain is scoped to; the resolver says which link supplied it, or
+    // which is broken.
+    let company: any = null;
+    try {
+      company = schedule.companyId
+        ? await storage.getCompany(schedule.companyId)
+        : (schedule.iAccount ? await storage.getCompanyBySippyAccount(schedule.iAccount) : null);
+    } catch { /* fall back to the schedule's own frequency; the resolver records the gap */ }
+    const account = resolveScheduleAccount(schedule, company);
+
+    if (!schedule.iTariff) {
+      // Re-checked every 30 minutes until a tariff is set — the clock does not
+      // advance — but the reason is now on the row, not only in the log.
+      const outcome = stoppedRun({ at, trigger, account, stage: 'no-tariff',
+        reason: `Schedule #${schedule.id} has no tariff.` });
+      console.warn(`[invoice-scheduler] ${outcome.headline}`);
+      await storage.updateInvoiceSchedule(schedule.id, { lastRunOutcome: outcome });
+      return outcome;
+    }
+
+    // Billing periods from the customer's term, under the owner's rule: no
+    // invoice may span two accounting months. A week straddling month-end
+    // therefore yields TWO periods — the short one closes the month in the
+    // month. The scheduler asks for closed periods and never learns how weeks
+    // split or when February ends.
+    const policy  = billingPolicyFor(company, schedule.frequency);
+    const periods = calculateClosedBillingPeriods(policy, now);
+    if (periods.length === 0) {
+      const outcome = stoppedRun({ at, trigger, account, stage: 'no-period',
+        reason: `No closed ${policy.frequency} period yet — nothing to invoice.` });
+      console.log(`[invoice-scheduler] schedule #${schedule.id}: ${outcome.headline}`);
+      await storage.updateInvoiceSchedule(schedule.id, {
+        nextRunAt: _computeNextScheduleRun(schedule), lastRunOutcome: outcome,
+      });
+      return outcome;
+    }
+
+    // Each period is invoiced independently; the chain's duplicate guard skips
+    // any already billed. Run the FULL chain — seed rating snapshots from the
+    // Sippy Admin API, then the gates, then the certified generator — so the
+    // scheduled path is unattended: no manual seeding, no browser console.
+    const outcomes: PeriodOutcome[] = [];
+    for (const period of periods) {
+      const chain = await _runBillingChain({
+        iAccount:     account.iAccount,
+        iTariff:      String(schedule.iTariff),
+        periodStart:  period.start,
+        periodEnd:    period.end,
+        customerName: schedule.companyName ?? `Account ${account.iAccount ?? '?'}`,
+        notes:        `Auto-generated by schedule #${schedule.id} (${schedule.frequency})`,
+      });
+      const o = periodOutcomeFromChain(period, chain);
+      outcomes.push(o);
+
+      if (!o.ok || !chain.invoice) {
+        console.warn(`[invoice-scheduler] schedule #${schedule.id} ${period.start}–${period.end}: refused at ${o.stage} — ${o.reason}`);
+        continue;   // next period — the schedule's own clock advances below
+      }
+      if (chain.seed) {
+        console.log(`[invoice-scheduler] schedule #${schedule.id}: ${chain.seed.created} billable snapshot(s), ${chain.seed.skipped} already present`);
+        // An exclusion means calls the rating engine could not price. They are
+        // NOT on the invoice — surfaced rather than silently under-billed.
+        if (chain.seed.message) console.warn(`[invoice-scheduler] schedule #${schedule.id}: ${chain.seed.message}`);
+      }
+
+      // Review-ready by default: Finance approves before anything sends.
+      // autoApprove schedules opt out of review, but never auto-SEND —
+      // dispatch stays an explicit operator action (R1 split).
+      if (schedule.autoApprove) {
+        await storage.updateInvoice(chain.invoice.id, { status: 'approved' } as any);
+      }
+
+      console.log(`[invoice-scheduler] schedule #${schedule.id} → ${chain.invoice.invoiceNumber} (${chain.invoice.lineCount} line item(s), ${period.start}–${period.end}, ${period.accountingMonth}${period.partial ? ', month-boundary split' : ''})${schedule.autoApprove ? ' [auto-approved]' : ' [awaiting review]'}`);
+    }
+
+    const outcome = buildRunOutcome({ at, trigger, account, periods: outcomes });
+    // The schedule's clock advances once per RUN, not per period — a
+    // straddling week produces two invoices from one run.
+    await storage.updateInvoiceSchedule(schedule.id, {
+      lastRunAt: now, nextRunAt: _computeNextScheduleRun(schedule), lastRunOutcome: outcome,
+    });
+    return outcome;
+  }
+
   async function _runDueInvoiceSchedules() {
     try {
       const schedules = await storage.listInvoiceSchedules();
@@ -39694,83 +39777,20 @@ ${footer}
 
       for (const schedule of due) {
         try {
-          if (!schedule.iTariff) { console.warn(`[invoice-scheduler] schedule #${schedule.id} has no tariff — skipped`); continue; }
-
-          // Billing periods from the customer's term, under the owner's rule:
-          // no invoice may span two accounting months. A week straddling
-          // month-end therefore yields TWO periods — the short one closes the
-          // month in the month. The previous computation here used local-time
-          // date getters, so period boundaries drifted by a day on any server
-          // outside UTC, and it could not express a split at all.
-          // Policy comes from the COMPANY — the billing cycle is a commercial
-          // term, and those live on the company profile beside payment terms
-          // and currency. The schedule's own frequency is the fallback for
-          // records that predate that. The scheduler asks for closed periods
-          // and never learns how weeks split or when February ends.
-          let policyCompany: any = null;
-          try {
-            policyCompany = schedule.companyId
-              ? await storage.getCompany(schedule.companyId)
-              : (schedule.iAccount ? await storage.getCompanyBySippyAccount(schedule.iAccount) : null);
-          } catch { /* fall back to the schedule's own frequency */ }
-          const policy = billingPolicyFor(policyCompany, schedule.frequency);
-          const term = policy.frequency;
-          const periods = calculateClosedBillingPeriods(policy, now);
-          if (periods.length === 0) {
-            console.log(`[invoice-scheduler] schedule #${schedule.id}: no closed ${term} period yet — nothing to invoice`);
-            await storage.updateInvoiceSchedule(schedule.id, { nextRunAt: _computeNextScheduleRun(schedule) } as any);
-            continue;
-          }
-          // Each period is invoiced independently; the chain's duplicate guard
-          // skips any already billed, which is also what makes a late-created
-          // schedule recover its missed periods rather than lose the revenue.
-          for (const period of periods) {
-            const periodStart = period.start, periodEnd = period.end;
-
-          // Run the FULL billing chain — seed rating snapshots from the Sippy
-          // Admin API, then the certified generator. This is what makes the
-          // scheduled path unattended: no manual snapshot seeding, no browser
-          // console. A chain failure (duplicate / nothing to seed / generator
-          // refusal) is the skip case: logged with its stage, nextRunAt
-          // advanced so this period is not retried endlessly.
-          const chain = await _runBillingChain({
-            iAccount:     schedule.iAccount ?? null,
-            iTariff:      String(schedule.iTariff),
-            periodStart,
-            periodEnd,
-            customerName: schedule.companyName ?? `Account ${schedule.iAccount ?? '?'}`,
-            notes:        `Auto-generated by schedule #${schedule.id} (${schedule.frequency})`,
-          });
-          if (!chain.ok || !chain.invoice) {
-            console.warn(`[invoice-scheduler] schedule #${schedule.id} ${periodStart}–${periodEnd}: skipped at ${chain.stage} — ${chain.error}`);
-            continue;   // next period — the schedule's own clock advances below
-          }
-          if (chain.seed) {
-            console.log(`[invoice-scheduler] schedule #${schedule.id}: ${chain.seed.created} billable snapshot(s), ${chain.seed.skipped} already present`);
-            // An exclusion means calls the rating engine could not price. They are
-            // NOT on the invoice — surfaced rather than silently under-billed.
-            if (chain.seed.message) console.warn(`[invoice-scheduler] schedule #${schedule.id}: ${chain.seed.message}`);
-          }
-          const genInvoice   = chain.invoice;
-          const genLineCount = chain.invoice.lineCount;
-
-          // Review-ready by default: Finance approves before anything sends.
-          // autoApprove schedules opt out of review, but never auto-SEND —
-          // dispatch stays an explicit operator action (R1 split).
-          if (schedule.autoApprove) {
-            await storage.updateInvoice(genInvoice.id, { status: 'approved' } as any);
-          }
-
-          console.log(`[invoice-scheduler] schedule #${schedule.id} → ${genInvoice.invoiceNumber} (${genLineCount} line item(s), ${periodStart}–${periodEnd}, ${period.accountingMonth}${period.partial ? ', month-boundary split' : ''})${schedule.autoApprove ? ' [auto-approved]' : ' [awaiting review]'}`);
-          }
-
-          // The schedule's clock advances once per RUN, not per period — a
-          // straddling week produces two invoices from one run.
-          await storage.updateInvoiceSchedule(schedule.id, {
-            lastRunAt: now, nextRunAt: _computeNextScheduleRun(schedule),
-          });
+          await _runInvoiceSchedule(schedule, now, 'scheduler');
         } catch (err: any) {
           console.error(`[invoice-scheduler] schedule #${schedule.id} error:`, err.message);
+          // The clock does not advance on a thrown error — the runner is back
+          // in 30 minutes — but the failure goes where Finance looks. If even
+          // that write fails there is nothing left to say.
+          try {
+            await storage.updateInvoiceSchedule(schedule.id, {
+              lastRunOutcome: stoppedRun({
+                at: now.toISOString(), trigger: 'scheduler', stage: 'error',
+                reason: String(err?.message ?? err),
+              }),
+            });
+          } catch { /* nothing left to say */ }
         }
       }
     } catch (err: any) {

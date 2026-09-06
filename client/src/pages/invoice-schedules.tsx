@@ -17,12 +17,28 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { CalendarClock, Plus, Pencil, Trash2, Play, CheckCircle, XCircle, RefreshCw } from "lucide-react";
 
+/** What the last run decided — server/schedule-run-outcome.ts, verbatim. */
+interface PeriodOutcome {
+  start: string; end: string; ok: boolean;
+  invoiceNumber?: string; lineCount?: number;
+  stage?: string; reason?: string; next?: string;
+}
+interface ScheduleRunOutcome {
+  at: string; trigger: "scheduler" | "manual";
+  account: { iAccount: number | null; source: string; detail: string };
+  periods: PeriodOutcome[]; generated: number; refused: number;
+  stopped?: { stage: string; reason: string; next: string };
+  headline: string;
+}
+
 interface InvoiceSchedule {
   id: number; companyId: number | null; companyName: string | null;
   iAccount: number | null; iTariff: string | null;
   frequency: string; dayOfWeek: number | null; dayOfMonth: number | null;
   timezone: string | null; autoApprove: boolean | null; active: boolean;
   lastRunAt: string | null; nextRunAt: string | null; notes: string | null;
+  /** Null until the schedule has run since migration 510 — never an empty success. */
+  lastRunOutcome: ScheduleRunOutcome | null;
   createdAt: string;
 }
 
@@ -40,6 +56,41 @@ const EMPTY_FORM = {
   frequency: "monthly", dayOfWeek: "1", dayOfMonth: "1",
   timezone: "Etc/UTC", autoApprove: false, active: true, notes: "",
 };
+
+function outcomeBadge(o: ScheduleRunOutcome): { label: string; cls: string } {
+  const red   = "bg-red-500/10 text-red-400 border-red-500/30";
+  const amber = "bg-amber-500/10 text-amber-400 border-amber-500/30";
+  const green = "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+  const slate = "bg-slate-500/10 text-slate-400 border-slate-500/30";
+  if (o.stopped?.stage === "error")     return { label: "Failed",       cls: red };
+  if (o.stopped?.stage === "no-tariff") return { label: "Needs tariff", cls: amber };
+  if (o.refused > 0)                    return { label: o.generated > 0 ? "Partly refused" : "Refused", cls: red };
+  if (o.generated > 0)                  return { label: "Generated",    cls: green };
+  return { label: "Nothing to do", cls: slate };
+}
+
+/**
+ * The verdict of the last run, in the chain's own words. The cell shows the
+ * headline; the full reason and what to do next are in the tooltip, because a
+ * refused period is not retried by the scheduler — someone has to act on it.
+ */
+function OutcomeCell({ o }: { o: ScheduleRunOutcome }) {
+  const badge = outcomeBadge(o);
+  const detail = [
+    `${new Date(o.at).toLocaleString()} · ${o.trigger}`,
+    o.account.detail,
+    ...o.periods.map(p => p.ok
+      ? `${p.start} → ${p.end}: generated ${p.invoiceNumber}`
+      : `${p.start} → ${p.end}: refused at ${p.stage} — ${p.reason}\nNext: ${p.next ?? ""}`),
+    ...(o.stopped ? [`${o.stopped.reason}\nNext: ${o.stopped.next}`] : []),
+  ].join("\n\n");
+  return (
+    <div className="space-y-1 max-w-[24rem]" title={detail} data-testid="cell-last-outcome">
+      <Badge variant="outline" className={`text-xs ${badge.cls}`}>{badge.label}</Badge>
+      <p className="text-xs text-muted-foreground leading-snug line-clamp-2">{o.headline}</p>
+    </div>
+  );
+}
 
 export default function InvoiceSchedulesPage() {
   const { toast }   = useToast();
@@ -130,10 +181,18 @@ export default function InvoiceSchedulesPage() {
   async function runNow(id: number) {
     setRunning(r => ({ ...r, [id]: true }));
     try {
-      const res = await apiRequest("POST", `/api/invoice-schedules/${id}/run`).then(r => r.json());
+      const o: ScheduleRunOutcome = await apiRequest("POST", `/api/invoice-schedules/${id}/run`).then(r => r.json());
       queryClient.invalidateQueries({ queryKey: ["/api/invoice-schedules"] });
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      toast({ title: "Schedule run", description: `Invoice ${res.invoiceNumber ?? ""} created as draft.` });
+      // The run went through the same gates as the scheduled one. Say what
+      // they decided rather than announce a draft that may not exist.
+      if (o.generated > 0 && o.refused === 0) {
+        toast({ title: "Draft invoice generated", description: o.headline });
+      } else if (o.refused > 0 || o.stopped?.stage === "error") {
+        toast({ title: "Not generated", description: o.headline, variant: "destructive" });
+      } else {
+        toast({ title: "Nothing to invoice", description: o.headline });
+      }
     } catch (e: any) {
       toast({ title: "Run failed", description: e.message, variant: "destructive" });
     } finally {
@@ -205,6 +264,7 @@ export default function InvoiceSchedulesPage() {
                     <TableHead>Timezone</TableHead>
                     <TableHead>Auto-Approve</TableHead>
                     <TableHead>Last Run</TableHead>
+                    <TableHead>Last Outcome</TableHead>
                     <TableHead>Next Run</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Actions</TableHead>
@@ -226,6 +286,11 @@ export default function InvoiceSchedulesPage() {
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground font-mono">
                         {s.lastRunAt ? new Date(s.lastRunAt).toLocaleDateString() : "Never"}
+                      </TableCell>
+                      <TableCell>
+                        {s.lastRunOutcome
+                          ? <OutcomeCell o={s.lastRunOutcome} />
+                          : <span className="text-xs text-muted-foreground">No run recorded yet</span>}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground font-mono">
                         {s.nextRunAt ? new Date(s.nextRunAt).toLocaleDateString() : "—"}
@@ -382,7 +447,9 @@ export default function InvoiceSchedulesPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Run Schedule Now?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will generate a DRAFT invoice for the current billing period. You can review and approve it afterward.
+              Runs this schedule now for its latest closed billing period, through the same gates as the scheduled run —
+              duplicate, coverage, reconciliation against the switch, certification. A DRAFT is created only if every
+              gate passes; otherwise the reason is recorded on the schedule.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

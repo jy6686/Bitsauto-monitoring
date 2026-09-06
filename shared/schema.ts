@@ -3121,6 +3121,10 @@ export const invoiceSchedules = pgTable("invoice_schedules", {
   active:      boolean("active").notNull().default(true),
   lastRunAt:   timestamp("last_run_at"),
   nextRunAt:   timestamp("next_run_at"),
+  /** What the last run decided and why, in the billing chain's own words
+   *  (migration 510, server/schedule-run-outcome.ts). Null until a run has
+   *  happened since the column existed — never an empty success. */
+  lastRunOutcome: jsonb("last_run_outcome"),
   notes:       text("notes"),
   createdAt:   timestamp("created_at").defaultNow().notNull(),
 });
