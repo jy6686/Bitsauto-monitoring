@@ -118,6 +118,7 @@ import CarrierReconciliationPage from "@/pages/carrier-reconciliation";
 import UnbilledUsagePage from "@/pages/unbilled-usage";
 import AccountStatementPage from "@/pages/account-statement";
 import InvoiceSchedulesPage from "@/pages/invoice-schedules";
+import FinanceReadinessPage from "@/pages/finance-readiness";
 import PaymentRemindersPage from "@/pages/payment-reminders";
 import { CdrRerateWS } from "@/pages/cdr-rerate";
 import CDRReconciliationPage from "@/pages/cdr-reconciliation";
@@ -279,6 +280,7 @@ const RevenueHeatmapWS  = withWorkspace('revenue-assurance', RevenueHeatmapPage)
 const UnbilledUsageWS    = withWorkspace('billing-ops', UnbilledUsagePage);
 const AccountStatementWS = withWorkspace('billing-ops', AccountStatementPage);
 const InvoiceSchedulesWS = withWorkspace('billing-ops', InvoiceSchedulesPage);
+const FinanceReadinessWS = withWorkspace('billing-ops', FinanceReadinessPage);
 const PaymentRemindersWS = withWorkspace('billing-ops', PaymentRemindersPage);
 const PaymentTermsWS     = withWorkspace('billing-ops', PaymentTermsPage);
 const NumberingPrefixesWS = withWorkspace('billing-ops', NumberingPrefixesPage);
@@ -672,6 +674,9 @@ function Router() {
       </Route>
       <Route path="/invoice-schedules">
         {() => <ProtectedRoute component={InvoiceSchedulesWS} requiredRoles={['admin', 'management']} />}
+      </Route>
+      <Route path="/finance-readiness">
+        {() => <ProtectedRoute component={FinanceReadinessWS} requiredRoles={['admin', 'management']} />}
       </Route>
       <Route path="/payment-reminders">
         {() => <ProtectedRoute component={PaymentRemindersWS} requiredRoles={['admin', 'management']} />}

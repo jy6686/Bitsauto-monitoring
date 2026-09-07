@@ -298,6 +298,7 @@ const DOMAINS: Domain[] = [
       ]},
       { label: 'Finance Settings', desc: 'Invoice templates, schedules and billing configuration', icon: FileSpreadsheet, items: [
         { href: '/invoice-templates',   label: 'Invoice Templates',    desc: 'Reusable invoice layout templates',             icon: FileSpreadsheet },
+        { href: '/finance-readiness',   label: 'Invoice Readiness',    desc: 'Who can be invoiced today, and what blocks the rest', icon: ClipboardList },
         { href: '/invoice-schedules',   label: 'Invoice Schedules',    desc: 'Automated billing cycle scheduling',            icon: History },
         { href: '/payment-terms',       label: 'Payment Terms',        desc: 'Due-date rules and early-payment discounts',    icon: ClockIcon },
         { href: '/numbering-prefixes',  label: 'Numbering & Prefixes', desc: 'Invoice number sequences and reference formats', icon: Hash },
@@ -773,7 +774,7 @@ export function AppNavShell() {
     'analytics-hub':      '/analytics',
   };
   const WORKSPACE_ROUTES: Record<string, string[]> = {
-    'billing-ops':        ['/billing', '/invoices', '/invoice-jobs', '/invoice-templates', '/credit-notes', '/credit-control', '/products', '/rate-cards', '/tariff-versions', '/unbilled-usage', '/account-statement', '/invoice-schedules', '/payment-reminders'],
+    'billing-ops':        ['/billing', '/invoices', '/invoice-jobs', '/invoice-templates', '/credit-notes', '/credit-control', '/products', '/rate-cards', '/tariff-versions', '/unbilled-usage', '/account-statement', '/invoice-schedules', '/finance-readiness', '/payment-reminders'],
     'revenue-assurance':  ['/dmr', '/client-reconciliation', '/carrier-reconciliation', '/cdr-reconciliation', '/ai-assurance', '/margin-intelligence', '/traffic-forecast', '/revenue-heatmap'],
     'dispute-governance': ['/billing-disputes', '/dispute-cases', '/dispute-defense', '/commercial-notifications'],
     'noc-ops':            ['/calls', '/live-traffic', '/noc-dashboard', '/noc-incidents', '/alerts', '/server-monitoring', '/noc-command', '/sip-trace'],

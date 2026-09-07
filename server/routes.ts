@@ -35204,6 +35204,149 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     }
   });
 
+  // GET /api/finance/readiness?periodStart=YYYY-MM-DD&periodEnd=YYYY-MM-DD (inclusive)
+  //
+  // Every customer with a Sippy account, for one billing period: the six
+  // stages Finance reads, the ordered blockers, the one action that unblocks
+  // first, and the three numbers management asks for. Read-only, and every
+  // fact is one the platform already computes — pipeline-trace, the coverage
+  // gate, the reconciliation report, certification — assembled once instead
+  // of found one dashboard at a time. See server/finance-readiness.ts.
+  app.get('/api/finance/readiness', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const periodStart = String(req.query.periodStart ?? '').slice(0, 10);
+      const periodEnd   = String(req.query.periodEnd ?? '').slice(0, 10);
+      const ISO = /^\d{4}-\d{2}-\d{2}$/;
+      if (!ISO.test(periodStart) || !ISO.test(periodEnd) || periodEnd < periodStart) {
+        return res.status(400).json({ error: 'periodStart and periodEnd are required, YYYY-MM-DD, periodEnd >= periodStart (inclusive)' });
+      }
+      const { assessCustomer, summariseReadiness } = await import('./finance-readiness');
+      const { assessPeriodCoverage } = await import('./period-coverage');
+      const { reconciliationReport }  = await import('./services/finance/reconciliation-report.service');
+
+      // Exclusive end for the reconciliation report; inclusive for everything else.
+      const endExclusive = new Date(`${periodEnd}T00:00:00Z`); endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+      const periodEndExcl = endExclusive.toISOString().slice(0, 10);
+
+      const [companies, schedules, invoices, recon] = await Promise.all([
+        storage.getCompanies(),
+        storage.listInvoiceSchedules(),
+        storage.listInvoices({ limit: 5000 }),
+        reconciliationReport({ periodStart, periodEnd: periodEndExcl }).catch((e: any) => ({ recon: { accounts: [] }, error: e?.message })),
+      ]);
+      const norm = (s: string) => String(s ?? '').trim().toLowerCase();
+      const reconRows = new Map<string, any>(((recon as any).recon?.accounts ?? []).map((a: any) => [norm(a.customer), a]));
+
+      const rows: any[] = [];
+      const coverageByCustomer = new Map<number, { days: string[]; uncovered: string[] }>();
+      let periodDays: string[] = [];
+
+      for (const c of companies.filter((x: any) => Number.isInteger(x.sippyIAccount) && x.sippyIAccount > 0)) {
+        const acct = Number(c.sippyIAccount);
+        const startTs = `${periodStart}T00:00:00Z`, endTs = `${periodEnd}T00:00:00Z`;
+
+        const [rowDays, runs, repo, cert] = await Promise.all([
+          db.execute(sql`
+            SELECT DISTINCT to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS d
+              FROM raw_sippy_cdrs
+             WHERE i_account = ${acct}
+               AND started_at >= ${startTs}::timestamptz
+               AND started_at <  (${endTs}::timestamptz + interval '1 day')`),
+          db.execute(sql`
+            SELECT period_start, period_end FROM seed_jobs
+             WHERE i_account = ${acct} AND status = 'done'`),
+          db.execute(sql`
+            SELECT count(*)::int AS calls,
+                   coalesce(sum(coalesce(billed_secs, 0)::numeric), 0) AS billed_sec,
+                   coalesce(sum(coalesce(cost, 0)::numeric), 0)        AS cost
+              FROM raw_sippy_cdrs
+             WHERE i_account = ${acct}
+               AND started_at >= ${startTs}::timestamptz
+               AND started_at <  (${endTs}::timestamptz + interval '1 day')`),
+          c.sippyITariff != null
+            ? _certificationFor(String(c.sippyITariff), periodStart, periodEnd).catch(() => null)
+            : Promise.resolve(null),
+        ]);
+
+        // Verified / snapshotted, scoped to THIS account's calls — tariffs are
+        // shared between customers (2 is on both noman and PUSHTOTALK), so a
+        // per-tariff count would credit one customer with another's rating.
+        let verified = 0, snapshotted = 0;
+        if (c.sippyITariff != null) {
+          const [v, s] = await Promise.all([
+            db.execute(sql`
+              SELECT count(DISTINCT rv.cdr_call_id)::int AS n
+                FROM rating_verifications rv
+               WHERE rv.i_tariff = ${String(c.sippyITariff)}
+                 AND left(rv.cdr_start_time, 10) BETWEEN ${periodStart} AND ${periodEnd}
+                 AND rv.cdr_call_id IN (
+                   SELECT cdr_call_id FROM raw_sippy_cdrs
+                    WHERE i_account = ${acct} AND cdr_call_id IS NOT NULL
+                      AND started_at >= ${startTs}::timestamptz
+                      AND started_at <  (${endTs}::timestamptz + interval '1 day'))`),
+            db.execute(sql`
+              SELECT count(DISTINCT s.cdr_id)::int AS n
+                FROM invoice_cdr_snapshots s
+               WHERE s.i_tariff = ${String(c.sippyITariff)}
+                 AND left(s.cdr_start_time, 10) BETWEEN ${periodStart} AND ${periodEnd}
+                 AND s.cdr_id IN (
+                   SELECT cdr_call_id FROM raw_sippy_cdrs
+                    WHERE i_account = ${acct} AND cdr_call_id IS NOT NULL
+                      AND started_at >= ${startTs}::timestamptz
+                      AND started_at <  (${endTs}::timestamptz + interval '1 day'))`),
+          ]);
+          verified    = Number(((v as any).rows ?? [])[0]?.n ?? 0);
+          snapshotted = Number(((s as any).rows ?? [])[0]?.n ?? 0);
+        }
+
+        const cov = assessPeriodCoverage({
+          periodStart, periodEnd,
+          daysWithRows:    (((rowDays as any).rows ?? []) as any[]).map(r => String(r.d)),
+          collectedRanges: (((runs as any).rows ?? []) as any[]).map(r => ({
+            periodStart: String(r.period_start ?? ''), periodEnd: String(r.period_end ?? ''),
+          })),
+        });
+        if (periodDays.length === 0) periodDays = cov.days;
+        coverageByCustomer.set(c.id, { days: cov.days, uncovered: cov.uncovered });
+
+        const rr = reconRows.get(norm(c.name));
+        const repoRow = ((repo as any).rows ?? [])[0] ?? {};
+        const inv = invoices.find((i: any) =>
+          norm(i.customerName) === norm(c.name) && i.periodStart === periodStart && i.periodEnd === periodEnd && i.status !== 'void');
+
+        rows.push(assessCustomer({
+          companyId: c.id, name: c.name, iAccount: acct,
+          iTariff: c.sippyITariff ?? null, invoiceEmail: c.invoiceEmail ?? null,
+          hasSchedule: schedules.some((s: any) => s.companyId === c.id || s.iAccount === acct),
+          coverage: { days: cov.days, uncovered: cov.uncovered, emptyButCollected: cov.emptyButCollected },
+          repository: {
+            calls: Number(repoRow.calls ?? 0),
+            minutes: Math.round((Number(repoRow.billed_sec ?? 0) / 60) * 1e6) / 1e6,
+            cost: Number(repoRow.cost ?? 0),
+          },
+          verified, snapshotted,
+          certification: cert ? { state: cert.state, reasons: cert.reasons } : null,
+          reconciliation: rr ? {
+            status: String(rr.status), referenceAmount: Number(rr.reference?.amount ?? 0),
+            platformAmount: Number(rr.platform?.amount ?? 0), amountDelta: Number(rr.amountDelta ?? 0),
+          } : null,
+          invoice: inv ? { invoiceNumber: inv.invoiceNumber, status: inv.status } : null,
+        }));
+      }
+
+      rows.sort((a, b) => Number(b.ready) - Number(a.ready) || (b.amounts.reference ?? 0) - (a.amounts.reference ?? 0));
+      const summary = summariseReadiness(rows, periodDays, coverageByCustomer);
+      res.json({
+        periodStart, periodEnd, days: periodDays, summary, customers: rows,
+        reconciliation: { outcome: (recon as any).recon?.outcome ?? null, error: (recon as any).error ?? null },
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (e: any) {
+      console.error('[finance-readiness] error:', e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   /**
    * Finance freeze — is this period safe to turn into money?
    *

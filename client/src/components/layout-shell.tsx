@@ -308,6 +308,7 @@ export const SIDEBAR_GROUPS: NavGroup[] = [
       { href: "/dispute-defense",        label: "Dispute Defense",        icon: ShieldCheck,      roles: ['admin','management']                           },
       // Finance Settings
       { href: "/invoice-templates",      label: "Invoice Templates",      icon: FileCode2,        roles: ['admin','management']                           },
+      { href: "/finance-readiness",      label: "Invoice Readiness",      icon: ClipboardList,    roles: ['admin','management']                           },
       { href: "/invoice-schedules",      label: "Invoice Schedules",      icon: History,          roles: ['admin','management']                           },
       { href: "/executive-reports",      label: "Executive Reports",      icon: BarChart3,        roles: ['admin','management']                           },
     ],
