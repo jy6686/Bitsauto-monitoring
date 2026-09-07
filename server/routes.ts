@@ -33498,6 +33498,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           }
           const contradicted = sawCleanEmpty && rowsSeenBeforeError > 0;
           if (fetchErrors.length > 0 && (!sawCleanEmpty || contradicted)) {
+            // No credential produced a clean answer for this window. Retirement
+            // counts failures without knowing WHY a page failed, so a network
+            // blip looks the same as a wrong password — and two blips would
+            // retire the one pair that actually authenticates, for the rest of
+            // the run. A window that nobody could answer is the signal that
+            // this may have happened, so the retirements are dropped and the
+            // next slice reconsiders every rung. Retiring can then only ever
+            // cost a repeat of the ladder, never the loss of a live credential.
+            credFailures.clear();
             return { ok: false, failed: 'error',
               msg: contradicted
                 ? `CDR fetch FAILED — a credential retrieved ${rowsSeenBeforeError} CDR(s) before erroring, so the window is NOT empty; a later credential's empty answer is contradicted evidence. ${fetchErrors.join(' · ')}`
