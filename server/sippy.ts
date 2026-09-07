@@ -9966,11 +9966,17 @@ function parseXlsxForRateEdit(
 function tariffLockedMessage(html: string): string | null {
   if (!html) return null;
   const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-  if (/tariff is locked/i.test(text) || (/locked for making changes/i.test(text))) {
-    const m = text.match(/[^.]*locked[^.]*\./i);
-    return (m ? m[0] : 'Tariff is locked for making changes').trim();
-  }
-  return null;
+  if (!/tariff is locked/i.test(text) && !/locked for making changes/i.test(text)) return null;
+
+  // Sippy delivers this as a JavaScript alert(), not as page text, so stripping tags leaves
+  // the surrounding script behind. Read the alert's own argument first — that is the sentence
+  // Sippy wrote — and only fall back to sentence-scraping, which drags in fragments of source
+  // that an operator then has to read past to find the cause.
+  const alertM = html.match(/alert\(\s*['"]([^'"]*locked[^'"]*)['"]/i);
+  if (alertM) return alertM[1].trim();
+
+  const m = text.match(/(Tariff is locked[^.]*\.)/i) ?? text.match(/([^.]*locked for making changes[^.]*\.)/i);
+  return (m ? m[1] : 'Tariff is locked for making changes').trim();
 }
 
 async function pushRateViaPortalUpload(
