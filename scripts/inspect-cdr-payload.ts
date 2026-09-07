@@ -40,6 +40,13 @@ if (!process.env.DATABASE_URL) {
   console.error('DATABASE_URL is not set. Export the PRODUCTION connection string for this one command.');
   process.exit(2);
 }
+// Twice in a row the placeholder text was exported literally, and pg then
+// tried to resolve a host called "base". Say what happened in words.
+if (/[<>]/.test(process.env.DATABASE_URL) || !/^postgres(ql)?:\/\//.test(process.env.DATABASE_URL)) {
+  console.error('DATABASE_URL looks like placeholder text, not a connection string. It must start with postgresql:// —');
+  console.error('copy the real value from Replit: Database tool → switch to Production → DATABASE_URL, or Deployments → your deployment → Secrets.');
+  process.exit(2);
+}
 if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(account) || account <= 0) {
   console.error('Usage: --account <positive int> --date YYYY-MM-DD [--limit n] [--allow-dev]');
   process.exit(2);
