@@ -12,6 +12,16 @@ The XML-RPC Tariff Rates API (Sippy 2025) is read-only:
 
 There is no addRate, setRate, updateRate, or equivalent write method.
 
+**Single-rate pushes must try the portal `action=change` form before requesting an upload token.**
+
+**Why:** An upload-token job can reach `FILE_UPLOADED` and then `FAIL` while leaving
+the tariff locked for hours. Falling back to portal editing after starting that job
+only reports the lock created by the same request, and retries can lock more tariffs.
+
+**How to apply:** Reserve upload tokens for compatibility fallback or genuine bulk
+imports. If the direct portal response says the tariff is locked, stop immediately;
+do not enqueue another upload behind the existing lock.
+
 ## CONFIRMED WORKING: action=change GET (individual rate edit)
 
 The ONLY reliable write path is Sippy's single-rate edit form submitted as a GET request:
@@ -79,4 +89,4 @@ Dates in column 10/11 are stored as Excel serial floats (raw:true mode), not str
 `server/sippy.ts`:
 - `excelSerialToDateStr()` — Excel serial float → "YYYY-MM-DD HH:MM:SS"
 - `parseXlsxForRateEdit()` — extract iRate + field values from tariff XLSX
-- `pushRateViaPortalUpload()` — called as final fallback in `setSippyRateEntry()`
+- `pushRateViaPortalUpload()` — direct single-rate edit attempted first by `setSippyRateEntry()`

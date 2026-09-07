@@ -9361,7 +9361,7 @@ export async function uploadRatesWorkbook(
  * the code is now guessing at write methods via system.listMethods. That is both the
  * slow path and the one that leaves a tariff empty while still reporting progress.
  */
-export type RatePushStep = 'token' | 'uploading' | 'polling' | 'verifying' | 'fallback';
+export type RatePushStep = 'editing' | 'token' | 'uploading' | 'polling' | 'verifying' | 'fallback';
 export type RatePushProgress = (step: RatePushStep, detail?: string) => void;
 
 export async function setSippyRateEntry(
@@ -9386,6 +9386,61 @@ export async function setSippyRateEntry(
 
   // ── Phase A: structured diagnostic logging ──────────────────────────────────
   console.log(`[RateManager] Push — tariff=${tariffId} prefix=${entry.prefix} rate=${entry.rate} effective=${entry.effectiveFrom ?? 'immediate'} till=${entry.effectiveTill ?? 'never'}`);
+
+  // A single-rate change must use the portal's individual edit form first.
+  //
+  // The upload-token path below creates a real Sippy import job. If that job reaches
+  // FILE_UPLOADED and then FAIL, Sippy can keep the tariff locked while its importer
+  // cleans up. Falling through to the portal edit at that point guarantees a second
+  // failure ("Tariff is locked") and repeated retries can lock more client tariffs.
+  //
+  // The individual action=change form is the confirmed write path for one rate and
+  // does not enqueue a bulk import. Keep token upload only as a compatibility fallback
+  // when no rate-admin portal session can perform the direct edit.
+  if (adminCreds) {
+    step('editing', `tariff ${tariffId}`);
+    const directResult = await pushRateViaPortalUpload(
+      base, Number(tariffId), entry.prefix, entry.rate,
+      entry.effectiveFrom, entry.effectiveTill, adminCreds, entry.iRate,
+      username, password,
+    );
+
+    if (directResult.success) {
+      step('verifying', `tariff ${tariffId}`);
+      const verifyResult = await verifySippyRate(
+        username, password, tariffId, entry.prefix, entry.rate, base,
+      );
+      console.log(`[RateManager] Verification (portal_edit): ${verifyResult.message}`);
+      if (verifyResult.confirmed) {
+        return {
+          ...directResult,
+          method: 'portal_edit',
+          verificationResult: 'confirmed',
+        };
+      }
+      return {
+        success: false,
+        message: `Portal edit returned success but rate is unchanged: ${verifyResult.message} — no bulk upload was started`,
+        method: 'portal_edit',
+        verificationResult: 'mismatch',
+      };
+    }
+
+    // A locked tariff cannot accept either path. Most importantly, do not create
+    // another upload job behind the one that already owns the lock.
+    if (/locked/i.test(directResult.message)) {
+      console.log(`[RateManager] Direct edit blocked by tariff lock — bulk upload suppressed`);
+      return {
+        success: false,
+        message: directResult.message,
+        method: 'portal_edit',
+        verificationResult: 'skip',
+      };
+    }
+
+    console.log(`[RateManager] Direct portal edit unavailable: ${directResult.message} — trying compatibility fallbacks`);
+    lastErrors.push(`portal_edit: ${directResult.message}`);
+  }
 
   // ── Phase C: getUploadToken (official Sippy bulk upload API, docs 3000073011) ─
   // Uses buildGetUploadTokenXml + sippyPost directly with base URL (multi-switch safe).

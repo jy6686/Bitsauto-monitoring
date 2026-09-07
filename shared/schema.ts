@@ -4555,7 +4555,7 @@ export const ratePushJobs = pgTable("rate_push_jobs", {
   startedAt:          timestamp("started_at"),
   lastClient:         varchar("last_client",        { length: 160 }),
   lastPrefix:         varchar("last_prefix",        { length: 32  }),
-  // queued|token|uploading|polling|verifying|fallback|completed|failed — emitted from
+  // queued|editing|token|uploading|polling|verifying|fallback|completed|failed — emitted from
   // inside the Sippy client at real phase boundaries, so it cannot claim a step it is not in.
   lastStep:           varchar("last_step",          { length: 24  }),
   lastStepAt:         timestamp("last_step_at"),

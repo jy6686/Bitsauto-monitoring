@@ -1,0 +1,91 @@
+Ran page script
+Conclusive. Cache-busted with cache: 'reload', after your second UPDATE 1344:
+
+approved: 1344 · pending: 0 · picker: 244 countries
+Two successful updates on $PROD_URL, zero effect on the live app. These are different databases.
+
+Also visible: build d0b25f0c · migrationsApplied 94. Migration 504 hasn't run, so b04c76c7 is pulled but not published — the Catalogue Versions menu entry isn't live yet.
+
+What I need
+Replit → Deployments → your deployment → Settings / Secrets → DATABASE_URL.
+
+Send me only the host — the part that looks like ep-something-1234.region.aws.neon.tech. No username, no password, no connection string.
+
+Then compare it against your shell's:
+
+echo "$PROD_URL" | sed -E 's#.*@([^/?]+).*#\1#'
+That prints the host from $PROD_URL and nothing else. If they differ, we have the answer and one statement against the right database finishes the job.
+
+Why I won't work around it
+There's no bulk-unapprove through the API — the bulk endpoint requires a namePrefix, and no single prefix matches all 244 countries. Approving or unapproving through the app one destination at a time is 1,344 calls.
+
+So the right fix is one UPDATE against the correct database, not a workaround that hides which database is which. That confusion is precisely how migrations 038–047 landed in the wrong place and stayed missing for weeks — the failure runFileMigrations() exists to prevent.
+
+Nothing further from me until we know the host.
+
+Exactly. We should not do anything else until the deployment database is identified.
+The facts are now conclusive:
+
+$PROD_URL → two UPDATE 1344 operations succeeded.
+Live application → still 1,344 approved / 0 pending.
+Cache-busting ruled out caching.
+Therefore they are different databases.
+Live deployment is currently build d0b25f0c / 94 migrations.
+b04c76c7 has not been published, so migration 504 and the Catalogue Versions navigation are not live yet.
+Your next step
+In Replit:
+Deployments → active deployment → Settings / Secrets → DATABASE_URL
+Send me only the hostname, e.g.:
+
+ep-xxxxx.us-east-2.aws.neon.tech
+Then we compare it with:
+
+echo "$PROD_URL" | sed -E 's#.*@([^/?]+).*#\1#'
+Do not send the connection string, username, password, or query parameters.
+Once the hosts are compared, we can identify the correct DB and perform the single intended reset there.
+I see the current screen. One important thing stands out:
+
+Product: First Class
+Client: asterisk
+Result: Rate Push — 0/1 succeeded
+1 destination × 1 client
+The destination picker is currently empty because the catalogue approval state is still an issue.
+The effective date shown is 2026-09-07 16:30.
+This is not the PUSHTOTALK / Special Charlie test we were discussing.
+Also, because we established that the live app is using a different database from $PROD_URL, I would not interpret this failure as evidence about the catalogue reset or the A fix yet.
+Before doing another push
+Let's first establish the live deployment database and get the catalogue approval state correct there.
+Once the correct live DB is identified, we can deliberately approve one clean test destination, then test:
+
+First Class / asterisk
+        ↓
+one approved destination
+        ↓
+future effective rate
+        ↓
+Rate Manager
+        ↓
+verify Push History
+For the Charlie A test, we should continue using Aura / tariff 66 / 79230 or 79232, separately.
+So don't retry this failed asterisk push yet. It isn't the controlled test we want.
+
+Ran page script
+That push is informative despite not being the controlled test:
+
+job-1788798672107 · asterisk · First Class · iTariff 32 · failed 0/1
+"Tariff 32 is locked — Sippy is still processing an earlier upload"
+Tariff 32 is locked too. That's ASTERISK-TARIFF, a different tariff from PUSHTOTALK's 2. So this isn't one stuck upload — at least two tariffs are locked, and tariff 2 has been that way for over three hours.
+
+That changes the picture, and there's a risk in continuing
+Every push uploads a file, and Sippy locks the target tariff while it processes. If the switch's upload processor is stalled, each push we make adds another stuck upload behind the first — and locks another tariff.
+
+Tariff 66 completed normally at 15:33, so processing isn't dead everywhere. But 2 and 32 are both held, and the only thing we know touched them is our own pushes.
+
+I'd stop pushing entirely — to any tariff, any client — until the switch's upload queue is understood. Not because a push might apply a wrong rate (the guard prevents that now), but because it may be adding to a backlog we can't see.
+
+Two things now, in this order
+1. On Sippy, check the upload queue. The Upload Rates panel had a Get report. link on completed uploads. On tariffs 2 and 32 that report should say what's processing and when it started. If Sippy has a global uploads view (System Management or Reports), that's better still — it would show whether there's a queue of stalled jobs and how many.
+
+2. The deployment's DATABASE_URL host, still outstanding. Nothing about the catalogue approval state can be fixed until we know which database the app reads.
+
+The guard is doing its job — three pushes now, all correctly refused, no wrong rates applied, each naming its tariff. That's the system working. But it's telling us the switch has a problem that no amount of code will fix.
