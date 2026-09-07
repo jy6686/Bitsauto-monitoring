@@ -35013,6 +35013,189 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   });
 
   /**
+   * Rate a period from the CDRs the repository ALREADY HOLDS. No Sippy fetch.
+   *
+   * Production 2026-09-07, asterisk #315, 2 September: 2,941 calls collected
+   * and stored, job marked done, then the process died 635 calls into
+   * verification. Zero snapshots, so zero invoice — and the only path that
+   * rates a call was the seed, which rates the array it just fetched. Getting
+   * the day's invoice meant fetching all 48 slices again, from Sippy, during
+   * business hours. The data was in our own database the whole time.
+   *
+   * Same stages as the seed's tail — dedup → verifyBatch → lockBatch → run row
+   * — fed from raw_sippy_cdrs instead of a live fetch, so a call is rated
+   * identically whichever path it takes. Idempotent: dedup is against existing
+   * snapshots, and a re-verified call supersedes its earlier row (the
+   * certification reads DISTINCT ON cdr_call_id, newest first).
+   *
+   * Progress is PERSISTED on a seed_jobs row as it goes, for the same reason
+   * slice timing is: a death mid-verify must read as "running — verifying
+   * 635/2941" on the row, not as a job that never happened.
+   */
+  async function _rateFromRepository(opts: {
+    iAccount: number; iTariff: string; periodStart: string; periodEnd: string; triggeredBy?: string;
+  }): Promise<{
+    status: 'rated' | 'nothing' | 'unusable';
+    jobId: string;
+    repository: { rows: number; usable: number; unusable: Record<string, number>; costMissing: number };
+    skippedAlreadySnapshotted: number;
+    verification?: { verified: number; discrepancies: number; unrated: number; missingRate: number; excluded: number; totalDelta: number };
+    snapshots?: { created: number; skipped: number; errors: number; truncated: boolean };
+    runId?: number | null;
+    certification?: Awaited<ReturnType<typeof _certificationFor>>;
+    message: string;
+  }> {
+    const { mapRepositoryRows } = await import('./repository-rating');
+    const { seedJobs } = await import('@shared/schema');
+    const jobId = `repo-${opts.periodStart}-${opts.iAccount}`;
+    const startedAt = new Date();
+
+    // The progress row. Written FIRST, so the run exists on disk before any
+    // work — a death anywhere after this line is visible as a running row
+    // with its last phase, exactly like a killed collection slice.
+    const progress = async (fields: Record<string, unknown>) => {
+      try {
+        await db.insert(seedJobs).values({
+          jobId, iAccount: opts.iAccount, iTariff: opts.iTariff,
+          periodStart: opts.periodStart, periodEnd: opts.periodEnd,
+          sliceMinutes: 0, totalSlices: 1, completedSlices: 0,
+          status: 'running', startedAt, lastProgressAt: new Date(), ...fields,
+        } as any).onConflictDoUpdate({
+          target: seedJobs.jobId,
+          set: { status: 'running', startedAt, finishedAt: null, lastError: null, reapedAt: null,
+                 lastProgressAt: new Date(), ...fields } as any,
+        });
+      } catch (e: any) {
+        console.warn(`[${jobId}] progress not recorded: ${e.message}`);
+      }
+    };
+    await progress({ currentSlice: 'Reading repository' });
+
+    // Same window arithmetic as the coverage gate: periodEnd is inclusive.
+    const rowsRes: any = await db.execute(sql`
+      SELECT i_cdr, cdr_call_id, callee, started_at, billed_secs, cost, payload
+        FROM raw_sippy_cdrs
+       WHERE i_account = ${Number(opts.iAccount)}
+         AND started_at >= ${`${opts.periodStart}T00:00:00Z`}::timestamptz
+         AND started_at <  (${`${opts.periodEnd}T00:00:00Z`}::timestamptz + interval '1 day')
+       ORDER BY started_at`);
+    const mapped = mapRepositoryRows((rowsRes.rows ?? []) as any[], String(opts.iTariff));
+    const repository = { rows: mapped.rows, usable: mapped.usable, unusable: mapped.unusable, costMissing: mapped.costMissing };
+
+    if (mapped.rows === 0) {
+      const message = `The repository holds no CDRs for account ${opts.iAccount} in ${opts.periodStart} → ${opts.periodEnd}. Nothing to rate — collect the period first.`;
+      await progress({ status: 'done', finishedAt: new Date(), fetchedTotal: 0, storedTotal: 0, currentSlice: message });
+      return { status: 'nothing', jobId, repository, skippedAlreadySnapshotted: 0, message };
+    }
+    if (mapped.usable === 0) {
+      const message = `${mapped.rows} row(s) in the repository but none can be rated: ${JSON.stringify(mapped.unusable)}. A row without a dialled number or start time cannot be priced.`;
+      await progress({ status: 'error', finishedAt: new Date(), fetchedTotal: mapped.rows, storedTotal: 0, lastError: message });
+      return { status: 'unusable', jobId, repository, skippedAlreadySnapshotted: 0, message };
+    }
+
+    // Dedup against snapshots that already exist — the seed's own rule.
+    const existingIds = await storage.getExistingCdrIdsForTariff(String(opts.iTariff));
+    const toVerify = mapped.inputs.filter(c => !(c.callId && existingIds.has(c.callId)));
+    const skippedAlreadySnapshotted = mapped.inputs.length - toVerify.length;
+
+    const { verifyBatch, lockBatch, RATING_ENGINE_VERSION } = await import('./services/sippy/index');
+    await progress({ fetchedTotal: mapped.rows, currentSlice: `Verifying 0/${toVerify.length} against tariff ${opts.iTariff}` });
+    let lastMark = 0;
+    const vr = await verifyBatch(toVerify, {
+      concurrency: 8,
+      onProgress: (done, total) => {
+        // Throttled like the collector's page marker: every 100 calls is the
+        // resolution a death needs, and 3,000 row updates is not.
+        if (done - lastMark >= 100 || done === total) {
+          lastMark = done;
+          void progress({ currentSlice: `Verifying ${done}/${total} against tariff ${opts.iTariff}` });
+        }
+      },
+    });
+    const excluded = vr.unrated + vr.missing;
+    const verification = {
+      verified: vr.verified, discrepancies: vr.discrepancies, unrated: vr.unrated,
+      missingRate: vr.missing, excluded, totalDelta: +vr.totalDelta.toFixed(6),
+    };
+
+    await progress({ currentSlice: 'Locking verified CDRs into billing snapshots' });
+    const lock = await lockBatch({ iTariff: String(opts.iTariff), limit: Math.max(toVerify.length * 2, 1000) });
+    if (lock.truncated) {
+      console.warn(`[${jobId}] SNAPSHOT BATCH TRUNCATED — created ${lock.created} of a ${lock.limit}-row limit; re-run to drain.`);
+    }
+
+    // The run row — the same record the seed writes, so certification,
+    // pipeline-trace and the verification-runs list see this path as a run.
+    let runId: number | null = null;
+    try {
+      const { snapshotVerificationRuns } = await import('@shared/schema');
+      const detail = await db.execute(sql`
+        SELECT max(abs(delta_amount))::numeric AS max_delta,
+               array_agg(DISTINCT tariff_version_id) FILTER (WHERE tariff_version_id IS NOT NULL) AS versions
+          FROM rating_verifications
+         WHERE i_tariff = ${String(opts.iTariff)} AND created_at >= ${startedAt.toISOString()}`);
+      const d = ((detail as any).rows ?? [])[0] ?? {};
+      const ins = await db.insert(snapshotVerificationRuns).values({
+        iTariff: String(opts.iTariff), iAccount: opts.iAccount,
+        customerName: accountNameCache.get(String(opts.iAccount)) ?? null,
+        periodStart: opts.periodStart, periodEnd: opts.periodEnd,
+        startedAt, completedAt: new Date(), durationMs: Date.now() - startedAt.getTime(),
+        triggeredBy: opts.triggeredBy ?? jobId,
+        cdrsFetched: mapped.rows, cdrsSkipped: skippedAlreadySnapshotted,
+        verified: vr.verified, discrepancies: vr.discrepancies, unrated: vr.unrated, missingRate: vr.missing,
+        excluded, snapshotsCreated: lock.created,
+        totalDelta: String(vr.totalDelta.toFixed(6)),
+        maxDelta: d.max_delta != null ? String(Number(d.max_delta).toFixed(6)) : null,
+        tariffVersions: d.versions ? JSON.stringify(d.versions) : null,
+        status: (excluded > 0 || vr.discrepancies > 0) ? 'warning' : 'ok',
+        engineVersion: RATING_ENGINE_VERSION,
+      } as any).returning({ id: snapshotVerificationRuns.id });
+      runId = ((ins as any)[0]?.id) ?? null;
+    } catch (e: any) {
+      console.error(`[${jobId}] verification run NOT recorded: ${e.message}`);
+    }
+
+    const message = `Rated ${toVerify.length} call(s) from the repository (${skippedAlreadySnapshotted} already snapshotted): ` +
+      `${vr.verified} exact, ${vr.discrepancies} differing, ${excluded} excluded; ${lock.created} snapshot(s) created` +
+      (mapped.costMissing ? `; ${mapped.costMissing} row(s) had no cost and were read as 0` : '') + '.';
+    await progress({ status: 'done', finishedAt: new Date(), completedSlices: 1,
+                     fetchedTotal: mapped.rows, storedTotal: lock.created, currentSlice: message });
+    console.log(`[${jobId}] ${message}`);
+
+    const certification = await _certificationFor(String(opts.iTariff), opts.periodStart, opts.periodEnd);
+    return {
+      status: 'rated', jobId, repository, skippedAlreadySnapshotted, verification,
+      snapshots: { created: lock.created, skipped: lock.skipped, errors: lock.errors, truncated: !!lock.truncated },
+      runId, certification, message,
+    };
+  }
+
+  // POST /api/finance/rate-from-repository — { iAccount, iTariff, periodStart, periodEnd }
+  // Rates a period from stored CDRs. Read-only toward Sippy: no fetch, no
+  // XML-RPC. Refuses nothing it can rate; reports precisely what it could not.
+  app.post('/api/finance/rate-from-repository', (req: any, res: any, next: any) => requireRole(['admin', 'management', 'finance'], req, res, next), async (req: any, res: any) => {
+    try {
+      const { iAccount, iTariff, periodStart, periodEnd } = req.body ?? {};
+      const acct = Number(iAccount);
+      if (!Number.isInteger(acct) || acct <= 0 || !iTariff || !periodStart || !periodEnd) {
+        return res.status(400).json({ error: 'iAccount (positive integer), iTariff, periodStart and periodEnd are required' });
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(periodStart)) || !/^\d{4}-\d{2}-\d{2}$/.test(String(periodEnd)) || String(periodEnd) < String(periodStart)) {
+        return res.status(400).json({ error: 'periodStart and periodEnd must be YYYY-MM-DD with periodEnd >= periodStart (inclusive)' });
+      }
+      const by = (req as any).user?.username ?? 'operator';
+      const result = await _rateFromRepository({
+        iAccount: acct, iTariff: String(iTariff), periodStart: String(periodStart), periodEnd: String(periodEnd),
+        triggeredBy: `repo-${periodStart}-${acct}:${by}`,
+      });
+      res.status(result.status === 'unusable' ? 422 : 200).json(result);
+    } catch (e: any) {
+      console.error('[rate-from-repository] error:', e.message);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /**
    * Finance freeze — is this period safe to turn into money?
    *
    * Certification answers "was every call priced correctly". It does NOT
