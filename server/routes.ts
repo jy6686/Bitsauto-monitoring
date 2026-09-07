@@ -35049,7 +35049,10 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     repository: { rows: number; usable: number; unusable: Record<string, number>; costMissing: number };
     skippedAlreadySnapshotted: number;
     verification?: { verified: number; discrepancies: number; unrated: number; missingRate: number; excluded: number; totalDelta: number };
-    snapshots?: { created: number; skipped: number; errors: number; truncated: boolean };
+    snapshots?: {
+      created: number; skipped: number; errors: number; truncated: boolean;
+      seconds: number; rowsPerSecond: number; chunks: number; fallbackChunks: number; fallbackRows: number;
+    };
     runId?: number | null;
     certification?: Awaited<ReturnType<typeof _certificationFor>>;
     message: string;
@@ -35197,7 +35200,16 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     const certification = await _certificationFor(String(opts.iTariff), opts.periodStart, opts.periodEnd);
     return {
       status: 'rated', jobId, repository, skippedAlreadySnapshotted, verification,
-      snapshots: { created: lock.created, skipped: lock.skipped, errors: lock.errors, truncated: !!lock.truncated },
+      snapshots: {
+        created: lock.created, skipped: lock.skipped, errors: lock.errors, truncated: !!lock.truncated,
+        // The locking baseline: seconds, rows/second, and whether any chunk
+        // had to fall back to row-by-row. Batching only pays if it is
+        // measured, and a recovery that quietly reverts to the old rate
+        // should be visible in its own result, not inferred from the clock.
+        seconds: +((lock.durationMs ?? 0) / 1000).toFixed(1),
+        rowsPerSecond: lock.rowsPerSecond, chunks: lock.chunks,
+        fallbackChunks: lock.fallbackChunks, fallbackRows: lock.fallbackRows,
+      },
       runId, certification, message,
     };
   }

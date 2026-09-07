@@ -240,6 +240,21 @@ export interface SnapshotBatchResult {
   truncated: boolean;
   /** The limit that produced `truncated`, so the report can name it. */
   limit:     number;
+  /**
+   * Batched-write telemetry, so the gain from batching is measured rather
+   * than assumed, and so a silent degradation is visible.
+   *
+   * `chunks` is how many multi-row inserts were issued; `fallbackChunks` and
+   * `fallbackRows` count what had to be retried one row at a time because a
+   * whole chunk failed. A healthy run has fallbackChunks 0 — anything else
+   * means a row in that chunk was malformed and the runtime is no longer the
+   * batched runtime.
+   */
+  chunks:         number;
+  fallbackChunks: number;
+  fallbackRows:   number;
+  /** Rows written per second across the whole batch, for comparison runs. */
+  rowsPerSecond:  number;
 }
 
 /**
@@ -274,6 +289,7 @@ export async function lockBatch(opts: {
   const result: SnapshotBatchResult = {
     total: 0, created: 0, skipped: 0, errors: 0, durationMs: 0,
     truncated: false, limit: effectiveLimit,
+    chunks: 0, fallbackChunks: 0, fallbackRows: 0, rowsPerSecond: 0,
   };
 
   // Load verified rating records that don't yet have snapshots
@@ -314,11 +330,14 @@ export async function lockBatch(opts: {
   const CHUNK = 500;
   for (let i = 0; i < actionable.length; i += CHUNK) {
     const slice = actionable.slice(i, i + CHUNK);
+    result.chunks++;
     try {
       const inserted = await storage.createInvoiceCdrSnapshotsBatch(slice.map(buildSnapshotRow));
       result.created += inserted;
       result.skipped += slice.length - inserted;
     } catch (err: any) {
+      result.fallbackChunks++;
+      result.fallbackRows += slice.length;
       // One malformed row must not cost the other 499. Fall back to the
       // per-row path for this chunk only, so the failure is attributed to the
       // verification that caused it.
@@ -339,7 +358,21 @@ export async function lockBatch(opts: {
     }
   }
 
-  result.durationMs = Date.now() - t0;
+  result.durationMs   = Date.now() - t0;
+  result.rowsPerSecond = result.durationMs > 0
+    ? +((result.total / (result.durationMs / 1000)).toFixed(1))
+    : 0;
+  // One line per lock, so a recovery's throughput is on the record without
+  // anyone having to reconstruct it from timestamps afterwards. The per-row
+  // path measured 3-4 rows/second on 2026-09-07; this is the comparison.
+  console.log(
+    `[rating-snapshot] locked ${result.total} row(s) in ${(result.durationMs / 1000).toFixed(1)}s ` +
+    `(${result.rowsPerSecond}/s) — ${result.created} created, ${result.skipped} already present, ` +
+    `${result.errors} error(s), ${result.chunks} chunk(s)` +
+    (result.fallbackChunks > 0
+      ? `, ${result.fallbackChunks} chunk(s) fell back to row-by-row covering ${result.fallbackRows} row(s)`
+      : ', no fallback'),
+  );
   return result;
 }
 
