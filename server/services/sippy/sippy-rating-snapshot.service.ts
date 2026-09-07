@@ -241,6 +241,19 @@ export async function lockBatch(opts: {
   iTariff?:              string;
   excludeExactMatch?:    boolean;
   includeStatuses?:      string[];
+  /**
+   * Calendar bounds of the CALLS to lock, inclusive at both ends.
+   *
+   * WHY THIS EXISTS. Until 2026-09-07 this function selected by TARIFF ALONE.
+   * A caller recovering one day therefore locked every unsnapshotted
+   * verification row for that tariff — the 27 Aug recovery reported 11,624
+   * snapshots created for a 5,812-call day, because it had reached into
+   * neighbouring days whose rows still came from the superseded 60x engine.
+   * A single-day recovery must never touch a row outside its day, so callers
+   * that know their period pass it and the batch is bounded by it.
+   */
+  periodStart?:          string;
+  periodEnd?:            string;
   limit?:                number;
 }): Promise<SnapshotBatchResult> {
   const t0 = Date.now();
@@ -252,8 +265,10 @@ export async function lockBatch(opts: {
 
   // Load verified rating records that don't yet have snapshots
   const verifications = await storage.listRatingVerifications({
-    iTariff: opts.iTariff,
-    limit:   effectiveLimit,
+    iTariff:     opts.iTariff,
+    periodStart: opts.periodStart,
+    periodEnd:   opts.periodEnd,
+    limit:       effectiveLimit,
   });
   // A full page means the query was cut off, not that the queue is empty.
   result.truncated = verifications.length >= effectiveLimit;

@@ -624,6 +624,8 @@ export interface IStorage {
     severity?: string;
     verificationStatus?: string;
     since?: Date;
+    periodStart?: string;
+    periodEnd?: string;
     limit?: number;
   }): Promise<RatingVerification[]>;
   updateRatingVerificationStatus(id: number, status: string, notes?: string): Promise<RatingVerification>;
@@ -3359,6 +3361,15 @@ export class DatabaseStorage implements IStorage {
     severity?: string;
     verificationStatus?: string;
     since?: Date;
+    /**
+     * Calendar day of the CALL (not of the row's creation), inclusive at both
+     * ends — the same convention recertify and rate-from-repository use, so a
+     * one-day recovery selects exactly the rows that day's clear removed.
+     * `cdr_start_time` is an ISO string, so the first 10 characters are the
+     * UTC date and compare correctly as text.
+     */
+    periodStart?: string;
+    periodEnd?: string;
     limit?: number;
   } = {}): Promise<RatingVerification[]> {
     const conditions = [];
@@ -3367,6 +3378,8 @@ export class DatabaseStorage implements IStorage {
     if (opts.severity)           conditions.push(eq(ratingVerifications.severity, opts.severity));
     if (opts.verificationStatus) conditions.push(eq(ratingVerifications.verificationStatus, opts.verificationStatus));
     if (opts.since)              conditions.push(gte(ratingVerifications.createdAt, opts.since));
+    if (opts.periodStart)        conditions.push(sql`left(${ratingVerifications.cdrStartTime}, 10) >= ${opts.periodStart}`);
+    if (opts.periodEnd)          conditions.push(sql`left(${ratingVerifications.cdrStartTime}, 10) <= ${opts.periodEnd}`);
 
     const q = db.select().from(ratingVerifications);
     const filtered = conditions.length > 0 ? q.where(and(...conditions)) : q;

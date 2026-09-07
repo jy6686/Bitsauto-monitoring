@@ -35143,13 +35143,21 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     // verification did. Awaited AFTER the chain, so no late verify write can
     // overtake it.
     await progress({ currentSlice: `Locking ${vr.total} verified CDR(s) into billing snapshots — no progress is reported inside this step` });
-    const lock = await lockBatch({ iTariff: String(opts.iTariff), limit: Math.max(toVerify.length * 2, 1000) });
+    // Bounded by the PERIOD as well as the tariff. Without the dates this
+    // locks the tariff's other days too, and `created` then counts rows this
+    // recovery never rated — 27 Aug reported 11,624 for 5,812 calls.
+    const lock = await lockBatch({
+      iTariff: String(opts.iTariff),
+      periodStart: opts.periodStart, periodEnd: opts.periodEnd,
+      limit: Math.max(toVerify.length * 2, 1000),
+    });
     if (lock.truncated) {
       console.warn(`[${jobId}] SNAPSHOT BATCH TRUNCATED — created ${lock.created} of a ${lock.limit}-row limit; re-run to drain.`);
     }
 
     // The run row — the same record the seed writes, so certification,
     // pipeline-trace and the verification-runs list see this path as a run.
+    await progress({ currentSlice: `Recording the run for ${lock.created} snapshot(s)` });
     let runId: number | null = null;
     try {
       const { snapshotVerificationRuns } = await import('@shared/schema');
@@ -40946,6 +40954,29 @@ ${footer}
         // which with completed_slices is the per-slice rate — the number this
         // investigation has needed all week and kept destroying on its way to
         // recording it.
+        // FINISHED, NOT DEAD. A repository recovery writes its run row and
+        // only then stamps the job done. If the process is killed between the
+        // two — 27 Aug 2026 was killed by a deployment switching traffic
+        // mid-run — the job is left saying "running / Verifying N/N" for a run
+        // that completed, verified and certified. The reaper below then calls
+        // it "died mid-day", which is the opposite of what happened, and
+        // invites a re-run of a day that is already correct. A completed run
+        // row is proof of completion, so settle those FIRST and let the reaper
+        // see only jobs with no such proof.
+        const settled: any = await db.execute(sql`
+          UPDATE seed_jobs j
+             SET status      = 'done',
+                 finished_at = coalesce(j.finished_at, r.completed_at),
+                 updated_at  = now(),
+                 last_error  = NULL
+            FROM snapshot_verification_runs r
+           WHERE j.status = 'running'
+             AND r.completed_at IS NOT NULL
+             AND (r.triggered_by = j.job_id OR r.triggered_by LIKE j.job_id || ':%')`);
+        if (Number(settled?.rowCount ?? 0) > 0) {
+          console.log(`[recon-nightly] settled ${settled.rowCount} job(s) whose run row proves they completed`);
+        }
+
         const reaped: any = await db.execute(sql`
           UPDATE seed_jobs
              SET status = 'error',
