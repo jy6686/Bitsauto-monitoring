@@ -171,6 +171,19 @@ export async function createSnapshot(
     if (existing) return existing;
   }
 
+  return storage.createInvoiceCdrSnapshot(buildSnapshotRow(verification));
+}
+
+/**
+ * The snapshot row for one verification — pure, no database access.
+ *
+ * Split out of createSnapshot so a batch can build thousands of rows without
+ * a round trip each. The hash is computed from the same fields in the same
+ * order, so a batched row is byte-identical to a singly-created one.
+ */
+export function buildSnapshotRow(
+  verification: RatingVerification,
+): InsertInvoiceCdrSnapshot {
   const rateFields = parseRateSnapshot(verification.rateSnapshot);
 
   const fields: Parameters<typeof computeSnapshotHash>[0] = {
@@ -203,7 +216,7 @@ export async function createSnapshot(
     ...rateFields,
   };
 
-  return storage.createInvoiceCdrSnapshot(row);
+  return row;
 }
 
 // ── Batch snapshot creation ───────────────────────────────────────────────────
@@ -281,17 +294,47 @@ export async function lockBatch(opts: {
 
   result.total = actionable.length;
 
-  for (const v of actionable) {
+  // WRITTEN IN CHUNKS, NOT ROW BY ROW.
+  //
+  // This loop used to call createSnapshot(v.id) per verification, which cost
+  // three round trips each — re-read the verification this function already
+  // holds, look up an existing snapshot, insert. Measured in production on
+  // 2026-09-07 that ran at 3-4 rows/second: 5,812 calls took ~25 minutes, and
+  // every one of those minutes was a window in which a deployment could kill
+  // the run. At that rate 500 customers of average size would need over a
+  // week for a single day's billing, so the manual-recovery cost the owner
+  // asked about was real and lived here.
+  //
+  // Idempotence does NOT weaken. It moves from a read-then-write race to the
+  // partial unique index on cdr_id (migrations/006, idx_ics_cdr_id): a row
+  // that already has a snapshot conflicts and is skipped by the database, in
+  // the same statement, without a prior SELECT. RETURNING counts what was
+  // actually inserted, so `created` stays exact and `skipped` is the
+  // remainder rather than a guess.
+  const CHUNK = 500;
+  for (let i = 0; i < actionable.length; i += CHUNK) {
+    const slice = actionable.slice(i, i + CHUNK);
     try {
-      await createSnapshot(v.id);
-      result.created++;
+      const inserted = await storage.createInvoiceCdrSnapshotsBatch(slice.map(buildSnapshotRow));
+      result.created += inserted;
+      result.skipped += slice.length - inserted;
     } catch (err: any) {
-      // Unique index violation = already exists → skip
-      if (err.code === '23505') {
-        result.skipped++;
-      } else {
-        result.errors++;
-        console.error(`[rating-snapshot] lockBatch error for verification #${v.id}:`, err.message);
+      // One malformed row must not cost the other 499. Fall back to the
+      // per-row path for this chunk only, so the failure is attributed to the
+      // verification that caused it.
+      console.error(`[rating-snapshot] lockBatch chunk of ${slice.length} failed (${err.message}); retrying row by row`);
+      for (const v of slice) {
+        try {
+          await createSnapshot(v.id);
+          result.created++;
+        } catch (e: any) {
+          if (e.code === '23505') {
+            result.skipped++;
+          } else {
+            result.errors++;
+            console.error(`[rating-snapshot] lockBatch error for verification #${v.id}:`, e.message);
+          }
+        }
       }
     }
   }

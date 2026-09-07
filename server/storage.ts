@@ -604,6 +604,7 @@ export interface IStorage {
 
   // ── Immutable Rating Snapshots (Layer 4C) ─────────────────────────────────
   createInvoiceCdrSnapshot(data: InsertInvoiceCdrSnapshot): Promise<InvoiceCdrSnapshot>;
+  createInvoiceCdrSnapshotsBatch(rows: InsertInvoiceCdrSnapshot[]): Promise<number>;
   getInvoiceCdrSnapshot(id: number): Promise<InvoiceCdrSnapshot | null>;
   getInvoiceCdrSnapshotByCdrId(cdrId: string): Promise<InvoiceCdrSnapshot | null>;
   listInvoiceCdrSnapshots(opts?: {
@@ -3291,6 +3292,25 @@ export class DatabaseStorage implements IStorage {
   async createInvoiceCdrSnapshot(data: InsertInvoiceCdrSnapshot): Promise<InvoiceCdrSnapshot> {
     const [row] = await db.insert(invoiceCdrSnapshots).values(data).returning();
     return row;
+  }
+
+  /**
+   * Insert many snapshots in ONE statement, skipping any CDR that already has
+   * one. Returns how many rows were actually inserted.
+   *
+   * The skip is the partial unique index on cdr_id (migrations/006,
+   * idx_ics_cdr_id), so a re-run of a completed period inserts nothing and
+   * reports 0 — the same answer the per-row path gave by catching 23505, at a
+   * fraction of the cost. RETURNING yields only inserted rows, which is what
+   * makes the count exact rather than assumed.
+   */
+  async createInvoiceCdrSnapshotsBatch(rows: InsertInvoiceCdrSnapshot[]): Promise<number> {
+    if (rows.length === 0) return 0;
+    const inserted = await db.insert(invoiceCdrSnapshots)
+      .values(rows)
+      .onConflictDoNothing()
+      .returning({ id: invoiceCdrSnapshots.id });
+    return inserted.length;
   }
 
   async getInvoiceCdrSnapshot(id: number): Promise<InvoiceCdrSnapshot | null> {
