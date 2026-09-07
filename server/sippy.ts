@@ -9387,6 +9387,15 @@ export async function setSippyRateEntry(
   // ── Phase A: structured diagnostic logging ──────────────────────────────────
   console.log(`[RateManager] Push — tariff=${tariffId} prefix=${entry.prefix} rate=${entry.rate} effective=${entry.effectiveFrom ?? 'immediate'} till=${entry.effectiveTill ?? 'never'}`);
 
+  const normaliseEntryDate = (raw?: string): string => {
+    if (!raw) return '';
+    const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return `${s}:00`;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))     return `${raw.trim()} 00:00:00`;
+    return '';
+  };
+  const requestedAction = rateUploadAction(normaliseEntryDate(entry.effectiveFrom));
+
   // A single-rate change must use the portal's individual edit form first.
   //
   // The upload-token path below creates a real Sippy import job. If that job reaches
@@ -9397,7 +9406,11 @@ export async function setSippyRateEntry(
   // The individual action=change form is the confirmed write path for one rate and
   // does not enqueue a bulk import. Keep token upload only as a compatibility fallback
   // when no rate-admin portal session can perform the direct edit.
-  if (adminCreds) {
+  // `action=change` is intentionally limited to immediate changes. Sippy has been
+  // observed accepting a future activation on that form while silently retaining the
+  // old activation date, which applies the new price now. Future-dated rates must stay
+  // on the A-upload path because that is the path proven to schedule them correctly.
+  if (adminCreds && requestedAction === 'SA') {
     step('editing', `tariff ${tariffId}`);
     const directResult = await pushRateViaPortalUpload(
       base, Number(tariffId), entry.prefix, entry.rate,
@@ -9446,13 +9459,6 @@ export async function setSippyRateEntry(
   // Uses buildGetUploadTokenXml + sippyPost directly with base URL (multi-switch safe).
   // Falls through on any failure so XML-RPC / portal fallbacks still run.
   try {
-    const normDateLocal = (raw?: string): string => {
-      if (!raw) return '';
-      const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
-      if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return `${s}:00`;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))     return `${raw.trim()} 00:00:00`;
-      return '';
-    };
   // process_on RESTORED, now that buildGetUploadTokenXml sends it as <string>. It faulted
   // 500 only because it was typed <dateTime.iso8601>; the same value as a string is
   // accepted. Without it some builds schedule processing far out and the status sits at
@@ -9473,8 +9479,8 @@ export async function setSippyRateEntry(
       if (uploadToken && uploadUrl) {
         console.log(`[RateManager] Upload token: ${uploadToken} | URL: ${uploadUrl}`);
 
-        const normFrom = normDateLocal(entry.effectiveFrom);
-        const normTill = normDateLocal(entry.effectiveTill);
+        const normFrom = normaliseEntryDate(entry.effectiveFrom);
+        const normTill = normaliseEntryDate(entry.effectiveTill);
         // A to schedule, SA to apply now. Sending SA for a future date is how a rate meant
         // for next week goes live today, which is a different commercial commitment from the
         // one on the rate sheet.
@@ -9486,7 +9492,7 @@ export async function setSippyRateEntry(
           normFrom,
           normTill,
         );
-        console.log(`[RateManager] Upload XLSX: prefix=${entry.prefix} rate=${entry.rate} effective=${normDateLocal(entry.effectiveFrom) || 'immediate'} till=${normDateLocal(entry.effectiveTill) || 'never'} bytes=${xlsxBuffer.length}`);
+        console.log(`[RateManager] Upload XLSX: prefix=${entry.prefix} rate=${entry.rate} effective=${normaliseEntryDate(entry.effectiveFrom) || 'immediate'} till=${normaliseEntryDate(entry.effectiveTill) || 'never'} bytes=${xlsxBuffer.length}`);
 
         step('uploading', `${xlsxBuffer.length} bytes`);
         const uploadResult = await uploadBinaryFile(uploadUrl, xlsxBuffer, 'rates.xlsx');

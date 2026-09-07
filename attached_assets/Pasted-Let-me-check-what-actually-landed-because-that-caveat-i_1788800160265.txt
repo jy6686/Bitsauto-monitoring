@@ -1,0 +1,51 @@
+Let me check what actually landed, because that caveat is a real regression risk.
+
+Checked for new commits from the other agent
+
+My local HEAD is 2a788827 — commits I didn't make. Another agent is working in this same repo. Let me see what landed and whether it guards future dates.
+
+Ran 2 commands
+
+2a788827 is finance recovery timing — rating/lock phases. It doesn't touch the rate push path.
+
+So the reordering described to you is not in this repository. No commit implements "direct edit first". Let me check what's actually running.
+
+vo-ip-watcher--junaid70.replit.app/api/commercial/health
+vo-ip-watcher--junaid70.replit.app · Opened in Browser
+Ran a command, used 3 tools (1 failed)
+
+Two things you need to know before anything else runs.
+
+The deployed code is not in version control
+deployed build   1c657716   ← not in this repository, not on origin
+my HEAD          2a788827
+
+That commit exists only in the Replit workspace. The reordering described to you — "single-rate pushes use direct edit first" — is not in any commit here. 2a788827 is finance recovery timing and doesn't touch the rate path.
+
+So the change is live, unreviewed, and unpushed. If that workspace is reset or rebased, it's gone.
+
+Your caveat is the right one, and it's now live and untested
+
+The reorder makes action=change the primary path for single-rate pushes. We proved that SA on an existing prefix updates the price and discards the activation date — and action=change is the portal's equivalent of an update. There is no evidence it schedules.
+
+So a tomorrow-dated rate may now apply today, silently — the exact 3-Sept bug, reintroduced by the fix for a different problem, and on the path that now runs first.
+
+The A verb fix I made lives in the upload_token path. If that path is no longer tried first, the fix is bypassed for exactly the case it was written for.
+
+What I'd do, in order
+
+1. Don't push a future-dated rate. Immediate rates are fine — that's what the reorder is good at, and it genuinely does prevent creating new locks.
+
+2. Get 1c657716 pushed to origin. Live code that isn't in git can't be reviewed, diffed, or recovered.
+
+3. Then the split you described is the correct end state, and I agree with it:
+
+immediate + existing  →  action=change   (no lock created)
+future    + existing  →  A upload        (proven scheduling)
+new prefix            →  A upload
+
+rateUploadAction() already computes A vs SA per rate. The routing decision should read that same value rather than deciding separately — one place decides, both paths obey.
+
+I can make that change once the workspace commit is on origin. Until then I'd be editing a file whose deployed version I can't see, which is how two people end up overwriting each other.
+
+Still outstanding and unrelated: the deployment's DATABASE_URL host. approved: 1344 even after two UPDATE 1344s — that hasn't moved.

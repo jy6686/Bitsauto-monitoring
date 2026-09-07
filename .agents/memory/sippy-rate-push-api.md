@@ -12,15 +12,16 @@ The XML-RPC Tariff Rates API (Sippy 2025) is read-only:
 
 There is no addRate, setRate, updateRate, or equivalent write method.
 
-**Single-rate pushes must try the portal `action=change` form before requesting an upload token.**
+**Immediate single-rate pushes should try the portal `action=change` form before requesting an upload token. Future-dated rates must use an `A` upload.**
 
 **Why:** An upload-token job can reach `FILE_UPLOADED` and then `FAIL` while leaving
 the tariff locked for hours. Falling back to portal editing after starting that job
 only reports the lock created by the same request, and retries can lock more tariffs.
 
-**How to apply:** Reserve upload tokens for compatibility fallback or genuine bulk
-imports. If the direct portal response says the tariff is locked, stop immediately;
-do not enqueue another upload behind the existing lock.
+**How to apply:** Use the same `rateUploadAction()` decision everywhere. `SA`
+(immediate) may use direct portal editing; `A` (future activation) must use upload
+because direct editing can silently retain the old activation date and apply the new
+price immediately. If direct edit reports a lock, do not enqueue another upload.
 
 ## CONFIRMED WORKING: action=change GET (individual rate edit)
 
