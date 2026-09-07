@@ -725,12 +725,13 @@ async function checkTariffChanges(creds: {
       }]).catch(e => console.warn('[sippy-watcher:tariff] persist change event error:', e.message));
 
       // ── CGE-011: Auto-rollback ────────────────────────────────────────────────
-      // Enabled by default (CGE-003 detection verified 2026-07-17).
-      // Disable by setting tariffAutoRollbackEnabled = false in the settings table.
+      // Safety rule: rollback is opt-in. Detection/alerting must never mutate a live
+      // tariff merely because an older settings row has no value for this flag.
+      // Enable only by setting tariffAutoRollbackEnabled = true explicitly.
       // Morocco-workflow changes are safe: runIntervalChangeWorkflow() creates a
       // post_change snapshot, so the watcher's next diff sees zero delta and skips rollback.
       const rbSettings = await storage.getSettings().catch(() => null);
-      const rollbackEnabled = (rbSettings as any)?.tariffAutoRollbackEnabled !== false;
+      const rollbackEnabled = (rbSettings as any)?.tariffAutoRollbackEnabled === true;
 
       if (rollbackEnabled) {
         try {

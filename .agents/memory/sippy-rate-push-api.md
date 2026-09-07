@@ -23,6 +23,11 @@ only reports the lock created by the same request, and retries can lock more tar
 because direct editing can silently retain the old activation date and apply the new
 price immediately. If direct edit reports a lock, do not enqueue another upload.
 
+Tariff drift monitoring is alert-only by default. Auto-rollback must be explicitly
+enabled, and no rollback path may call the rate writer without a finite price. An
+interval-only rollback routed through the legacy rate writer becomes an undefined-rate
+upload that can lock an otherwise unrelated customer tariff.
+
 ## CONFIRMED WORKING: action=change GET (individual rate edit)
 
 The ONLY reliable write path is Sippy's single-rate edit form submitted as a GET request:
