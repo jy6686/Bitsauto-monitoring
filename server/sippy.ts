@@ -8982,6 +8982,36 @@ async function verifySippyRate(
 // Build a Sippy-compatible XLSX workbook for a single rate row.
 // Column layout matches Sippy's own export template exactly (confirmed from
 // internal tariff XLSX: internal-ptcl_Rates.xlsx).
+/**
+ * Which Sippy upload verb a rate change needs.
+ *
+ * SA and A are not interchangeable, and the difference is invisible at push time. SA on an
+ * EXISTING prefix updates the price and silently keeps the original activation date — proven
+ * on this switch: 19232 carried the pushed 0.038 with its activation still reading 1 August,
+ * a month after the change. A future date sent with SA is discarded without complaint.
+ *
+ * A schedules. Uploading `A 79231 0.0299 activation 2026-09-20` produced two rows: the new
+ * rate at that activation, and the existing row closed with a matching expiration — set by
+ * SIPPY, not by us. We send one row and it maintains both sides, so no paired-expiration
+ * protocol is needed here.
+ *
+ * The skew allowance exists because the operator's "now" and this process's "now" are
+ * different clocks. The UI seeds the field from platform time, so an immediate push arrives
+ * a second or two stale; without tolerance it would read as the past — harmless — but a
+ * slow request or a clock a minute fast would flip an immediate change into a scheduled one
+ * and the rate would not apply today. A minute of grace is well below any activation an
+ * operator would deliberately set.
+ */
+export function rateUploadAction(normalisedActivation: string | undefined, skewMs = 60_000): 'A' | 'SA' {
+  if (!normalisedActivation) return 'SA';
+  // Platform time is Etc/UTC (see /api/platform/time), and the string is already normalised
+  // to "YYYY-MM-DD HH:MM:SS". Parsed explicitly as UTC rather than relying on the server's
+  // local zone, which would shift the comparison by the deployment's offset.
+  const t = Date.parse(normalisedActivation.replace(' ', 'T') + 'Z');
+  if (!Number.isFinite(t)) return 'SA';
+  return t - Date.now() > skewMs ? 'A' : 'SA';
+}
+
 export function buildRateXlsx(
   action: string,
   iRateId: number | null,
@@ -9388,11 +9418,18 @@ export async function setSippyRateEntry(
       if (uploadToken && uploadUrl) {
         console.log(`[RateManager] Upload token: ${uploadToken} | URL: ${uploadUrl}`);
 
+        const normFrom = normDateLocal(entry.effectiveFrom);
+        const normTill = normDateLocal(entry.effectiveTill);
+        // A to schedule, SA to apply now. Sending SA for a future date is how a rate meant
+        // for next week goes live today, which is a different commercial commitment from the
+        // one on the rate sheet.
+        const action = rateUploadAction(normFrom);
+        console.log(`[RateManager] action=${action} for prefix=${entry.prefix} activation=${normFrom || 'immediate'}`);
         const xlsxBuffer = buildRateXlsx(
-          'SA', null, entry.prefix, '',
+          action, null, entry.prefix, '',
           entry.rate,
-          normDateLocal(entry.effectiveFrom),
-          normDateLocal(entry.effectiveTill),
+          normFrom,
+          normTill,
         );
         console.log(`[RateManager] Upload XLSX: prefix=${entry.prefix} rate=${entry.rate} effective=${normDateLocal(entry.effectiveFrom) || 'immediate'} till=${normDateLocal(entry.effectiveTill) || 'never'} bytes=${xlsxBuffer.length}`);
 
