@@ -9402,24 +9402,46 @@ export async function setSippyRateEntry(
 
         if (uploadResult.success) {
           let finalStatus = 'FILE_UPLOADED';
-          // Up to 15 × 2s, and the sleep comes FIRST — so this loop costs 30s per prefix
-          // even when Sippy finished instantly. That is the floor under every batch.
+          // The status poll, bounded by whether Sippy is actually answering it.
+          //
+          // This used to sleep 2s BEFORE each of 15 checks and break only on DONE/FAIL. When
+          // getUploadStatus faults — which it does on builds that do not implement it — the
+          // status never changes, so the loop logged the failure on the first attempt and
+          // then asked fourteen more times. Thirty seconds per prefix, spent learning nothing,
+          // on every push. Six destinations became a five-minute request and the platform
+          // returned 504 before the work finished.
+          //
+          // A method that faults on the first call does not start working on the fifteenth.
+          // The FILE_UPLOADED path below already handles this case by verifying the tariff
+          // directly, and that is how these pushes have been succeeding all along.
           step('polling');
           for (let poll = 1; poll <= 15; poll++) {
-            await new Promise(res => setTimeout(res, 2000));
+            let answering = false;
             try {
               const statusXml  = xmlRpcCall('getUploadStatus', { token: uploadToken });
               const statusResp = await sippyPost(apiUrl, statusXml, username, password, 8000);
               if (statusResp.statusCode === 200 && !statusResp.body.includes('faultCode')) {
+                answering = true;
                 const sm = extractStructMembers(extractAllTags(statusResp.body, 'struct')[0] ?? '');
                 if (sm['status']) finalStatus = sm['status'];
               } else if (poll === 1) {
-                // Log once so we know whether getUploadStatus itself is unsupported
                 console.log(`[RateManager] getUploadStatus poll#1: HTTP ${statusResp.statusCode} body=${statusResp.body.substring(0, 200)}`);
               }
-            } catch { /* keep polling */ }
+            } catch (e: any) {
+              if (poll === 1) console.log(`[RateManager] getUploadStatus poll#1 threw: ${e?.message}`);
+            }
+
+            // Not implemented here. Stop asking and let verification decide.
+            if (!answering && poll === 1) {
+              console.log('[RateManager] getUploadStatus unsupported on this build — skipping the poll loop and verifying the tariff directly');
+              break;
+            }
+
             console.log(`[RateManager] Upload status poll #${poll}: ${finalStatus}`);
             if (finalStatus === 'DONE' || finalStatus === 'FAIL') break;
+            // Sleep AFTER the check, so a build that answers immediately is not made to wait
+            // 2s for its first answer, and one that never answers costs nothing at all.
+            await new Promise(res => setTimeout(res, 2000));
           }
 
           if (finalStatus === 'DONE') {
