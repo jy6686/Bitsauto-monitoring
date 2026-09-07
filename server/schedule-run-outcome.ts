@@ -40,8 +40,15 @@ export type PeriodStage =
   | 'duplicate' | 'seed' | 'freeze' | 'coverage' | 'reconcile' | 'certify' | 'generate'
   | 'no-tariff' | 'no-account' | 'no-period' | 'error';
 
-/** The run as a whole, for filtering and future automation. */
-export type RunStatus = 'generated' | 'partial' | 'refused' | 'stopped' | 'nothing';
+/**
+ * The run as a whole, for filtering and future automation. `running` is
+ * written BEFORE any period is attempted and overwritten at the end — so a
+ * process death mid-run leaves "running since 06:41" on the row instead of
+ * the row of a run that never happened. On 2026-09-07 the first real run
+ * died inside the chain and last_run_outcome stayed null; the only evidence
+ * it had ever run was a seed job named chain-96.
+ */
+export type RunStatus = 'running' | 'generated' | 'partial' | 'refused' | 'stopped' | 'nothing';
 
 const CHAIN_STAGES: ReadonlySet<string> =
   new Set(['duplicate', 'seed', 'freeze', 'coverage', 'reconcile', 'certify', 'generate']);
@@ -312,6 +319,22 @@ export function periodOutcomeFromChain(
  * same switch the collector is fetching from, during the only quiet hours it
  * gets. A candidate landing in the window is pushed to its end.
  */
+/**
+ * Is this instant inside the nightly collection window?
+ *
+ * The billing chain's seed is a full Sippy fetch of the period — six days is
+ * ~288 XML-RPC windows. Forward capture has always deferred to this window;
+ * the chain's seed never did, and the moment a schedule resolved an account
+ * (2026-09-07 06:41 UTC) it began a 288-slice fetch during business hours.
+ * Outside the window the chain must not fetch: it rates what the repository
+ * holds and lets coverage say honestly which days are missing. Inside it,
+ * the seed runs as before. UTC only, [start, end).
+ */
+export function insideCollectionWindow(now: Date): boolean {
+  const h = now.getUTCHours();
+  return h >= COLLECTION_WINDOW_UTC.startHour && h < COLLECTION_WINDOW_UTC.endHour;
+}
+
 export function nextRetryAt(now: Date, hours: number = RETRY_INTERVAL_HOURS): Date {
   const at = new Date(now.getTime() + hours * 3_600_000);
   const { startHour, endHour } = COLLECTION_WINDOW_UTC;
@@ -432,6 +455,40 @@ export function buildRunOutcome(opts: {
     // schedule as pending work it has none of.
     retryAt: retryable > 0 ? retryAtIso : null,
     headline: headlineFor(periods),
+  };
+}
+
+/**
+ * The record written at the START of a run, before any period is attempted.
+ *
+ * Each period carries the attempt count it had on the last COMPLETED outcome
+ * (0 when never attempted), so the real verdict that follows increments it
+ * exactly once. A run that dies and is re-run therefore counts as one
+ * attempt, not two — a death is not a decision about the period.
+ */
+export function runningRun(opts: {
+  at: string; trigger: RunTrigger; account: ResolvedAccount;
+  periods: readonly { start: string; end: string; accountingMonth?: string; partial?: boolean }[];
+  previous?: ScheduleRunOutcome | null;
+  /** Whether this run may fetch from Sippy. False outside the collection window. */
+  seed: boolean;
+}): ScheduleRunOutcome {
+  const periods: PeriodOutcome[] = opts.periods.map(p => {
+    const prior = previousPeriod(opts.previous, p);
+    return {
+      start: p.start, end: p.end, accountingMonth: p.accountingMonth, partial: p.partial,
+      ok: false,
+      attempt: prior && !prior.ok ? (prior.attempt ?? 1) : 0,
+      next: 'In progress.',
+    };
+  });
+  const list = periods.map(span).join(', ');
+  const fetch = opts.seed ? 'fetching from the switch' : 'from the repository only — outside the collection window, no fetch';
+  return {
+    at: opts.at, trigger: opts.trigger, status: 'running',
+    account: opts.account, periods,
+    generated: 0, refused: 0, retryable: 0, exhausted: 0, retryAt: null,
+    headline: `Running since ${opts.at} — attempting ${periods.length} period(s) ${fetch}: ${list}`,
   };
 }
 

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   resolveScheduleAccount, periodOutcomeFromChain, buildRunOutcome, stoppedRun, nextStepFor,
   isRetryable, nextRetryAt, retrySince, previousPeriod, periodKey, selectPeriodsToAttempt,
+  insideCollectionWindow, runningRun,
   MAX_RETRY_ATTEMPTS, RETRY_INTERVAL_HOURS, COLLECTION_WINDOW_UTC,
   type PeriodOutcome, type ScheduleRunOutcome,
 } from './schedule-run-outcome';
@@ -470,5 +471,74 @@ describe('nextStepFor — every stage has an answer', () => {
     expect(nextStepFor('coverage', { retryable: true, attempt: 1 })).toContain('automatic attempt(s) left');
     expect(nextStepFor('coverage', { retryable: false, exhausted: true, attempt: 6 })).toContain('Run now');
     expect(nextStepFor('duplicate')).toContain('Already invoiced');
+  });
+});
+
+describe('insideCollectionWindow — the chain may only fetch when the collector does', () => {
+  it('is [02:00, 06:00) UTC, exactly on each boundary', () => {
+    expect(insideCollectionWindow(new Date('2026-09-07T01:59:59Z'))).toBe(false);
+    expect(insideCollectionWindow(new Date('2026-09-07T02:00:00Z'))).toBe(true);
+    expect(insideCollectionWindow(new Date('2026-09-07T05:59:59Z'))).toBe(true);
+    expect(insideCollectionWindow(new Date('2026-09-07T06:00:00Z'))).toBe(false);
+  });
+
+  it('says no at 06:41 UTC — the instant the first real run started a 288-slice fetch', () => {
+    expect(insideCollectionWindow(new Date('2026-09-07T06:41:02.700Z'))).toBe(false);
+  });
+
+  it('is UTC only, so the host zone cannot move it', () => {
+    for (const iso of ['2026-03-29T03:00:00Z', '2026-10-25T03:00:00Z']) {
+      expect(insideCollectionWindow(new Date(iso))).toBe(true);
+    }
+  });
+});
+
+describe('runningRun — the row says "running" before anything slow begins', () => {
+  const account = { iAccount: 96, source: 'company' as const, detail: 'Account 96, from the company record.' };
+  const AUG  = { start: '2026-08-31', end: '2026-08-31' };
+  const WEEK = { start: '2026-09-01', end: '2026-09-06' };
+
+  it('has status running, no verdict, and names what it is attempting', () => {
+    const r = runningRun({ at, trigger: 'scheduler', account, periods: [AUG, WEEK], seed: false });
+    expect(r.status).toBe('running');
+    expect(r).toMatchObject({ generated: 0, refused: 0, retryable: 0, exhausted: 0, retryAt: null });
+    expect(r.periods.map(p => p.ok)).toEqual([false, false]);
+    expect(r.headline).toContain('Running since');
+    expect(r.headline).toContain('2026-08-31');
+    expect(r.headline).toContain('2026-09-01→2026-09-06');
+  });
+
+  it('says whether it will fetch — outside the window it must not', () => {
+    expect(runningRun({ at, trigger: 'manual', account, periods: [WEEK], seed: false }).headline)
+      .toContain('no fetch');
+    expect(runningRun({ at, trigger: 'manual', account, periods: [WEEK], seed: true }).headline)
+      .toContain('fetching from the switch');
+  });
+
+  it('a run that dies and re-runs counts ONE attempt, not two', () => {
+    // First ever attempt: the running stub carries 0, the real verdict makes it 1.
+    const stub = runningRun({ at, trigger: 'scheduler', account, periods: [WEEK], seed: true });
+    expect(stub.periods[0].attempt).toBe(0);
+    const verdict = periodOutcomeFromChain(WEEK, coverageFail, previousPeriod(stub, WEEK));
+    expect(verdict.attempt).toBe(1);
+
+    // Third attempt in flight: stub carries 2, the verdict makes it 3 — not 4.
+    const prior = buildRunOutcome({ at, trigger: 'scheduler', account, periods: [
+      { ...periodOutcomeFromChain(WEEK, coverageFail), attempt: 2 },
+    ], retryAt: new Date(at) });
+    const stub3 = runningRun({ at, trigger: 'scheduler', account, periods: [WEEK], previous: prior, seed: true });
+    expect(stub3.periods[0].attempt).toBe(2);
+    expect(periodOutcomeFromChain(WEEK, coverageFail, previousPeriod(stub3, WEEK)).attempt).toBe(3);
+  });
+
+  it('is not mistaken for a retry, and its periods are re-attempted next run', () => {
+    const stub = runningRun({ at, trigger: 'scheduler', account, periods: [AUG, WEEK], seed: true });
+    expect(retrySince(stub)).toBeUndefined();                     // nothing is waiting on a retry slot
+    expect(selectPeriodsToAttempt([AUG, WEEK], stub)).toEqual([AUG, WEEK]);   // both come back
+  });
+
+  it('is JSON-safe — it is persisted on the schedule row', () => {
+    const r = runningRun({ at, trigger: 'scheduler', account, periods: [WEEK], seed: false });
+    expect(JSON.parse(JSON.stringify(r))).toEqual(r);
   });
 });

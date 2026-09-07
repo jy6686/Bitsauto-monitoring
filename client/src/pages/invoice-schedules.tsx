@@ -26,7 +26,7 @@ interface PeriodOutcome {
 }
 interface ScheduleRunOutcome {
   at: string; trigger: "scheduler" | "manual";
-  status: "generated" | "partial" | "refused" | "stopped" | "nothing";
+  status: "running" | "generated" | "partial" | "refused" | "stopped" | "nothing";
   account: { iAccount: number | null; source: string; detail: string };
   periods: PeriodOutcome[];
   generated: number; refused: number; retryable: number; exhausted: number;
@@ -73,6 +73,9 @@ const SLATE = "bg-slate-500/10 text-slate-400 border-slate-500/30";
  * failed, a refusal whose automatic attempts are spent, or a terminal one.
  */
 function outcomeBadge(o: ScheduleRunOutcome): { label: string; cls: string } {
+  // Stamped before any period is attempted. If it is still here long after
+  // `at`, the process died mid-run — that is the evidence, not an absence.
+  if (o.status === "running")            return { label: "Running",       cls: AMBER };
   if (o.stopped?.stage === "error")      return { label: "Failed",        cls: RED };
   if (o.stopped?.stage === "no-account") return { label: "Needs account", cls: RED };
   if (o.stopped?.stage === "no-tariff")  return { label: "Needs tariff",  cls: AMBER };
