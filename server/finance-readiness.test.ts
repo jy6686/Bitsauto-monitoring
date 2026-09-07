@@ -37,10 +37,31 @@ describe('the four production customers, as they stood on 2026-09-07', () => {
       reconciliation: { status: 'amount_differs', referenceAmount: 104.048, platformAmount: 13.294261, amountDelta: -90.753739 },
     }));
     expect(r.columns).toMatchObject({ collection: 'warn', repository: 'warn', rating: 'warn', snapshots: 'fail', reconciliation: 'warn' });
-    // Config first (no schedule), then the missing days, then rating.
+    // Config first (no schedule — advisory), then the missing days, then rating.
     expect(r.blockers.map(b => b.code)).toEqual(['no-schedule', 'days-uncollected', 'rating-pending', 'snapshot-pending', 'amount-differs', 'not-generated']);
-    expect(r.action).toBe('configure');
+    // The ACTION is the first thing that blocks, and a missing schedule does not.
+    expect(r.action).toBe('collect');
     expect(r.blockers[1].detail).toContain('2026-09-03');
+  });
+
+  it('asterisk after the repository recovery: certified, no email, no schedule → READY, generate', () => {
+    // Production 2026-09-07 11:31, run 17: 2941 verified, 0 discrepancies.
+    // The owner's rule: a missing email sends a review copy to the fallback;
+    // it does not hold a certified period back.
+    const r = assessCustomer(facts({
+      companyId: 15, name: 'asterisk', iAccount: 315, iTariff: 32, invoiceEmail: null, hasSchedule: false,
+      coverage: { days: ['2026-09-02'], uncovered: [], emptyButCollected: [] },
+      repository: { calls: 2941, minutes: 559.8, cost: 13.294261 },
+      verified: 2941, snapshotted: 2941,
+      certification: { state: 'certified', reasons: [] },
+      reconciliation: { status: 'certified', referenceAmount: 13.2943, platformAmount: 13.294261, amountDelta: -0.00004 },
+    }));
+    expect(r.blockers.map(b => [b.code, b.severity])).toEqual([
+      ['no-email', 'advisory'], ['no-schedule', 'advisory'], ['not-generated', 'blocks'],
+    ]);
+    expect(r.ready).toBe(true);
+    expect(r.action).toBe('generate');
+    expect(r.blockers[0].detail).toContain('REVIEW COPY');
   });
 
   it('internal-ptcl: never reached by the collector → collect', () => {
@@ -54,8 +75,10 @@ describe('the four production customers, as they stood on 2026-09-07', () => {
     expect(r.columns.collection).toBe('fail');
     expect(r.columns.repository).toBe('fail');
     expect(r.blockers.map(b => b.code)).toEqual(['no-email', 'days-uncollected', 'missing-from-platform', 'not-generated']);
-    // The email is config and outranks collection, but it does not stop a draft.
-    expect(r.action).toBe('configure');
+    // The email is listed first (config), but it is advisory: the first thing
+    // that BLOCKS is collection, and that is the action.
+    expect(r.blockers[0].severity).toBe('advisory');
+    expect(r.action).toBe('collect');
   });
 
   it('noman: collected, no traffic, not in the switch reference → nothing to bill, no false alarms', () => {

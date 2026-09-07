@@ -36268,20 +36268,30 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             results.push({ id, ok: false, error: `Invoice ${invoice.invoiceNumber} is ${invoice.status.toUpperCase()} — approve it before sending` });
             continue;
           }
-          const { recipients, source } = await resolveBillingRecipients(invoice.customerName ?? '');
+          const { recipients: own, source } = await resolveBillingRecipients(invoice.customerName ?? '');
+          // Owner rule (2026-09-07): no billing email is not a reason to hold
+          // the invoice. It goes to the finance fallback as a REVIEW COPY —
+          // marked as such, and the invoice stays `approved` — so it can be
+          // sent to the customer properly once their address is on file.
+          const { planDelivery, fallbackRecipient } = await import('./billing-fallback');
+          const plan = planDelivery({ recipients: own, source, fallback: fallbackRecipient() });
+          const { recipients } = plan;
           if (recipients.length === 0) {
-            results.push({ id, ok: false, error: `No billing recipient on file (${source})` });
+            results.push({ id, ok: false, error: `No billing recipient on file (${source}), and no ${'BILLING_FALLBACK_RECIPIENT'} is configured` });
             continue;
           }
           const r = await sendInvoiceEmail({
             invoiceId:  id,
             recipients,
+            reviewCopy: plan.reviewCopy ?? undefined,
             cc:         [],
             subject:    `Invoice ${invoice.invoiceNumber} — ${invoice.customerName ?? ''}`,
             body:       `Dear ${invoice.customerName ?? 'Customer'},\n\nPlease find attached invoice ${invoice.invoiceNumber} for period ${invoice.periodStart} to ${invoice.periodEnd}.\n\nIchibaan Logic Billing`,
             sentBy,
           });
-          results.push(r.ok ? { id, ok: true, recipients } : { id, ok: false, error: r.error });
+          results.push(r.ok
+            ? { id, ok: true, recipients, reviewCopy: plan.reviewCopy?.reason ?? null }
+            : { id, ok: false, error: r.error });
         } catch (e: any) { results.push({ id, ok: false, error: e.message }); }
       }
       res.json({ sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });

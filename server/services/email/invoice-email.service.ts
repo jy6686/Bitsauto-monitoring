@@ -47,6 +47,13 @@ export interface SendInvoiceEmailOpts {
    * fills this in itself when the caller does not.
    */
   intendedRecipients?: string[];
+  /**
+   * Set when the customer has no billing email and the send is going to the
+   * finance fallback instead (owner rule, 2026-09-07). Marks subject, body and
+   * the delivery row, and — the part that matters — the invoice is NOT moved
+   * to `sent`: a copy to Finance is not delivery to the customer.
+   */
+  reviewCopy?: { reason: string; fallbackTo: string };
 }
 
 export interface SendInvoiceEmailResult {
@@ -228,12 +235,25 @@ export async function sendInvoiceEmail(
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+  // ── Review copy ─────────────────────────────────────────────────────────
+  // Applied BEFORE test mode, so the two stack ("[TEST] [REVIEW COPY] …")
+  // and a test-mode send of a review copy is labelled as both.
+  if (opts.reviewCopy) {
+    const { markReviewCopy } = await import('../../billing-fallback');
+    const m = markReviewCopy(subject, body, opts.reviewCopy);
+    subject = m.subject; body = m.body;
+    console.log(`[invoice-email] REVIEW COPY: invoice #${invoiceId} → ${opts.reviewCopy.fallbackTo} (${opts.reviewCopy.reason})`);
+  }
+
   let testMode = false;
   // "Who should this have gone to" — the client-master addresses when the
   // operator overrode them, otherwise filled in by Test Mode below with the
-  // recipients that would have been used. One meaning, either way.
+  // recipients that would have been used. One meaning, either way. For a
+  // review copy there is no such address: the reason says so on the row.
   let intendedRecipients: string | null =
-    opts.intendedRecipients?.length ? opts.intendedRecipients.join(', ') : null;
+    opts.intendedRecipients?.length ? opts.intendedRecipients.join(', ')
+    : opts.reviewCopy ? `(no customer billing email on file) — ${opts.reviewCopy.reason}`
+    : null;
 
   // ── Test mode ───────────────────────────────────────────────────────────────
   // Every invoice email — manual and job dispatch alike — funnels through this
@@ -425,13 +445,18 @@ export async function sendInvoiceEmail(
     console.warn('[invoice-email] Failed to log delivery:', logErr.message);
   }
 
-  // Update invoice status to sent on first successful delivery
-  if (status === 'sent' && invoice.status !== 'sent') {
+  // Update invoice status to sent on first successful delivery — to the
+  // CUSTOMER. A review copy to the finance fallback leaves the invoice
+  // `approved`, so the register never shows as delivered something the
+  // customer has not received, and the real send is still to come.
+  if (status === 'sent' && invoice.status !== 'sent' && !opts.reviewCopy) {
     try {
       await storage.updateInvoice(invoiceId, { status: 'sent', sentAt: new Date() });
     } catch (updateErr: any) {
       console.warn('[invoice-email] Failed to update invoice status:', updateErr.message);
     }
+  } else if (status === 'sent' && opts.reviewCopy) {
+    console.log(`[invoice-email] ${invoice.invoiceNumber} review copy delivered; invoice stays ${invoice.status} until sent to the customer`);
   }
 
   return status === 'sent' ? { ok: true } : { ok: false, error: errorMessage ?? 'Send failed' };

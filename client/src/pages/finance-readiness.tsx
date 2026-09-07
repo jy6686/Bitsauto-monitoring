@@ -20,7 +20,7 @@ import { ClipboardList, RefreshCw, Play, FileText, ChevronDown, ChevronRight } f
 type Mark = "ok" | "warn" | "fail" | "none";
 type Action = "configure" | "collect" | "rate" | "review" | "generate" | "done";
 
-interface Blocker { stage: string; code: string; detail: string }
+interface Blocker { stage: string; code: string; detail: string; severity: "blocks" | "advisory" }
 interface CustomerReadiness {
   companyId: number; name: string; iAccount: number; iTariff: number | null;
   columns: { collection: Mark; repository: Mark; rating: Mark; snapshots: Mark; reconciliation: Mark; invoice: Mark };
@@ -263,12 +263,17 @@ export default function FinanceReadinessPage() {
                                 <p className="text-sm text-emerald-400">Nothing blocks this customer.</p>
                               ) : (
                                 <ol className="space-y-1.5">
-                                  {c.blockers.map((b, i) => (
-                                    <li key={b.code} className="flex gap-2 text-sm">
-                                      <Badge variant="outline" className="text-[10px] shrink-0 h-5">{i === 0 ? "first" : STAGE_LABEL[b.stage] ?? b.stage}</Badge>
-                                      <span><span className="font-medium">{STAGE_LABEL[b.stage] ?? b.stage}:</span> {b.detail}</span>
-                                    </li>
-                                  ))}
+                                  {c.blockers.map(b => {
+                                    const isFirstBlocking = c.blockers.find(x => x.severity === "blocks") === b;
+                                    return (
+                                      <li key={b.code} className={`flex gap-2 text-sm ${b.severity === "advisory" ? "text-muted-foreground" : ""}`}>
+                                        <Badge variant="outline" className={`text-[10px] shrink-0 h-5 ${isFirstBlocking ? "border-red-500/40 text-red-400" : b.severity === "advisory" ? "border-slate-500/30 text-slate-400" : ""}`}>
+                                          {isFirstBlocking ? "first" : b.severity === "advisory" ? "advisory" : STAGE_LABEL[b.stage] ?? b.stage}
+                                        </Badge>
+                                        <span><span className="font-medium">{STAGE_LABEL[b.stage] ?? b.stage}:</span> {b.detail}</span>
+                                      </li>
+                                    );
+                                  })}
                                 </ol>
                               )}
                             </div>

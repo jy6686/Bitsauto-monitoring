@@ -322,9 +322,15 @@ async function dispatchJob(job: InvoiceJob, sentBy = 'dispatcher'): Promise<Invo
       throw new Error('Job has no linked invoice — generate the invoice before dispatch.');
     }
 
-    const { recipients, source } = await resolveBillingRecipients(job.clientName);
+    const { recipients: own, source } = await resolveBillingRecipients(job.clientName);
+    // Owner rule (2026-09-07): no billing email → review copy to the finance
+    // fallback, marked as such; never a silent failure and never a customer
+    // delivery. Same planner as bulk-send, so the two paths cannot drift.
+    const { planDelivery, fallbackRecipient } = await import('../../billing-fallback');
+    const plan = planDelivery({ recipients: own, source, fallback: fallbackRecipient() });
+    const { recipients } = plan;
     if (recipients.length === 0) {
-      throw new Error(`No billing recipient on file (${source}). Set the company's Invoice Email or add a billing contact.`);
+      throw new Error(`No billing recipient on file (${source}), and no BILLING_FALLBACK_RECIPIENT is configured. Set the company's Invoice Email or add a billing contact.`);
     }
 
     const invoice = await storage.getInvoice(job.invoiceId);
@@ -335,6 +341,7 @@ async function dispatchJob(job: InvoiceJob, sentBy = 'dispatcher'): Promise<Invo
     const result = await sendInvoiceEmail({
       invoiceId:  job.invoiceId,
       recipients,
+      reviewCopy: plan.reviewCopy ?? undefined,
       cc:         [],
       subject:    `Invoice ${job.billingPeriod} — ${job.clientName}`,
       body:       `Dear ${job.clientName},\n\nPlease find attached your invoice for billing period ${job.billingPeriod}.${amountLine}\n\nIchibaan Logic Billing`,
