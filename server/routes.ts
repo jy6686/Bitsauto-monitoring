@@ -35240,6 +35240,16 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const rows: any[] = [];
       const coverageByCustomer = new Map<number, { days: string[]; uncovered: string[] }>();
       let periodDays: string[] = [];
+      // A switch row is attributed to ONE company. On the first production
+      // run "internal-ptcl" matched two companies by name — #2 (on account 76)
+      // and #18 (on account 588) — and the switch's $282.76 was counted twice,
+      // putting the period's reference at $1,046 instead of $764. The switch
+      // names ACCOUNTS, so the match key is the Sippy username of the
+      // company's account where the cache has it; a second claimant is left
+      // unattributed and reported, never summed.
+      const claimed = new Map<string, number>();
+      const accountsSeen = new Map<number, number>();
+      const identityWarnings: Array<{ companyId: number; name: string; iAccount: number; reason: string }> = [];
 
       for (const c of companies.filter((x: any) => Number.isInteger(x.sippyIAccount) && x.sippyIAccount > 0)) {
         const acct = Number(c.sippyIAccount);
@@ -35309,7 +35319,21 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         if (periodDays.length === 0) periodDays = cov.days;
         coverageByCustomer.set(c.id, { days: cov.days, uncovered: cov.uncovered });
 
-        const rr = reconRows.get(norm(c.name));
+        if (accountsSeen.has(acct)) {
+          identityWarnings.push({ companyId: c.id, name: c.name, iAccount: acct,
+            reason: `Sippy account ${acct} is also mapped to company #${accountsSeen.get(acct)}. Two company records on one account will double-count it.` });
+        } else accountsSeen.set(acct, c.id);
+
+        const sippyName = accountNameCache.get(String(acct)) ?? c.name;
+        let rr: any = reconRows.get(norm(sippyName)) ?? reconRows.get(norm(c.name));
+        if (rr) {
+          const key = norm(rr.customer);
+          if (claimed.has(key)) {
+            identityWarnings.push({ companyId: c.id, name: c.name, iAccount: acct,
+              reason: `Switch row "${rr.customer}" is already attributed to company #${claimed.get(key)}; left unattributed here so its total is not counted twice.` });
+            rr = undefined;
+          } else claimed.set(key, c.id);
+        }
         const repoRow = ((repo as any).rows ?? [])[0] ?? {};
         const inv = invoices.find((i: any) =>
           norm(i.customerName) === norm(c.name) && i.periodStart === periodStart && i.periodEnd === periodEnd && i.status !== 'void');
@@ -35339,6 +35363,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       res.json({
         periodStart, periodEnd, days: periodDays, summary, customers: rows,
         reconciliation: { outcome: (recon as any).recon?.outcome ?? null, error: (recon as any).error ?? null },
+        identityWarnings,
         generatedAt: new Date().toISOString(),
       });
     } catch (e: any) {
@@ -36876,10 +36901,16 @@ ${footer}
       // selected the column happily, and the gate reported it missing. A
       // verification that maintains two lists eventually disagrees with itself.
       const EXPECTED_TABLES = [...new Set(EXPECTED.map(e => e.table))];
+      // An IN-list via sql.join, the idiom this file already uses (see the
+      // sippy_i_account lookup). `= ANY(${jsArray})` shipped in 142ab4b6 and
+      // failed in production with "op ANY/ALL (array) requires array on right
+      // side": the template binds a JS array as a scalar parameter, not a
+      // Postgres array. The fix for the checker was itself broken on its
+      // first real run.
       const colRows: any = await db.execute(sql`
         SELECT table_name, column_name, is_nullable, column_default
           FROM information_schema.columns
-         WHERE table_name = ANY(${EXPECTED_TABLES})`);
+         WHERE table_name IN (${sql.join(EXPECTED_TABLES.map(t => sql`${t}`), sql`, `)})`);
       const columns = ((colRows.rows ?? []) as any[]).map(r => ({
         table:  String(r.table_name),
         column: String(r.column_name),

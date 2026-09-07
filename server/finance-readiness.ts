@@ -209,20 +209,28 @@ export interface ReadinessSummary {
   headline: string;
 }
 
+/**
+ * A day is covered when EVERY billable customer has it — one whose period
+ * has calls or a row on the switch. The first production run scored 6/6 on
+ * a week with four days uncollected for every real customer, because a test
+ * account carried a completed collection range for the whole week and the
+ * union counted it. "At least one customer" is not the question Finance is
+ * asking; "can I invoice this day" is, and that needs everyone who bills.
+ */
 export function summariseReadiness(
   rows: readonly CustomerReadiness[],
   periodDays: readonly string[],
   coverageByCustomer: ReadonlyMap<number, { days: string[]; uncovered: string[] }>,
 ): ReadinessSummary {
   const ready = rows.filter(r => r.ready);
-  const collected = new Set<string>();
-  for (const c of coverageByCustomer.values()) {
-    const un = new Set(c.uncovered);
-    for (const d of c.days) if (!un.has(d)) collected.add(d);
-  }
+  const billable = rows.filter(r => r.counts.calls > 0 || r.amounts.reference != null);
+  const coveredByAll = (d: string) => billable.length > 0 && billable.every(r => {
+    const c = coverageByCustomer.get(r.companyId);
+    return !!c && c.days.includes(d) && !c.uncovered.includes(d);
+  });
   const revenueReady     = round(ready.reduce((s, r) => s + r.amounts.platform, 0));
   const revenueReference = round(rows.reduce((s, r) => s + (r.amounts.reference ?? 0), 0));
-  const coverageDays = periodDays.filter(d => collected.has(d)).length;
+  const coverageDays = periodDays.filter(coveredByAll).length;
   return {
     customersReady: ready.length, customersTotal: rows.length,
     revenueReady, revenueReference,

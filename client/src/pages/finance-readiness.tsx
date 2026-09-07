@@ -35,6 +35,8 @@ interface Readiness {
              coverageDays: number; periodDays: number; headline: string };
   customers: CustomerReadiness[];
   reconciliation: { outcome: string | null; error: string | null };
+  /** Two companies claiming one switch row or one Sippy account. Never summed twice. */
+  identityWarnings: Array<{ companyId: number; name: string; iAccount: number; reason: string }>;
   generatedAt: string;
 }
 
@@ -157,7 +159,7 @@ export default function FinanceReadinessPage() {
         {[
           { label: "Customers ready", value: s ? `${s.customersReady} / ${s.customersTotal}` : "—", sub: "every gate passed, configuration complete" },
           { label: "Revenue ready",   value: s ? `${usd(s.revenueReady)} / ${usd(s.revenueReference)}` : "—", sub: "invoiceable now / what the switch billed" },
-          { label: "Historical coverage", value: s ? `${s.coverageDays} / ${s.periodDays} days` : "—", sub: "days with at least one customer collected" },
+          { label: "Historical coverage", value: s ? `${s.coverageDays} / ${s.periodDays} days` : "—", sub: "days every billable customer has collected" },
         ].map(t => (
           <Card key={t.label}>
             <CardContent className="pt-4">
@@ -175,6 +177,9 @@ export default function FinanceReadinessPage() {
           <CardDescription className="text-xs">
             {s?.headline ?? (isLoading ? "Assessing…" : "")}
             {data?.reconciliation?.error ? ` · Reconciliation reference unavailable: ${data.reconciliation.error}` : ""}
+            {data?.identityWarnings?.length
+              ? <span className="block text-amber-400 mt-1">{data.identityWarnings.length} identity warning(s): {data.identityWarnings.map(w => `${w.name} (#${w.companyId}, acct ${w.iAccount}) — ${w.reason}`).join(" · ")}</span>
+              : null}
           </CardDescription>
         </CardHeader>
         <CardContent>

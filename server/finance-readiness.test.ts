@@ -128,15 +128,32 @@ describe('the three numbers at the top of the page', () => {
       reconciliation: { status: 'amount_differs', referenceAmount: 104.05, platformAmount: 13.29, amountDelta: -90.76 } }));
     const cov = new Map([[17, { days: DAYS, uncovered: [] }], [15, { days: DAYS, uncovered: DAYS.slice(2) }]]);
     const s = summariseReadiness([ready, blocked], DAYS, cov);
-    expect(s).toMatchObject({ customersReady: 1, customersTotal: 2, coverageDays: 6, periodDays: 6 });
+    // Both are billable; asterisk only has 09-01 and 09-02, so only those two
+    // days are covered for EVERYONE who bills.
+    expect(s).toMatchObject({ customersReady: 1, customersTotal: 2, coverageDays: 2, periodDays: 6 });
     expect(s.revenueReady).toBeCloseTo(32.34229, 5);
     expect(s.revenueReference).toBeCloseTo(32.3423 + 104.05, 5);
     expect(s.headline).toContain('1 of 2 customer(s) ready');
   });
 
-  it('coverage is the union across customers — one collected customer makes the day covered', () => {
-    const cov = new Map([[1, { days: DAYS, uncovered: DAYS.slice(2) }], [2, { days: DAYS, uncovered: DAYS.slice(0, 2) }]]);
-    expect(summariseReadiness([], DAYS, cov).coverageDays).toBe(6);
+  it('a day is covered only when EVERY billable customer has it', () => {
+    // Production 2026-09-07: a test account with a done range for the whole
+    // week made the union read 6/6 while every real customer was missing
+    // four days. The intersection over billable customers is the honest number.
+    const a = assessCustomer(facts({ companyId: 1, name: 'a', coverage: { days: DAYS, uncovered: DAYS.slice(2), emptyButCollected: [] } }));
+    const b = assessCustomer(facts({ companyId: 2, name: 'b', coverage: { days: DAYS, uncovered: DAYS.slice(0, 1), emptyButCollected: [] } }));
+    const testAcct = assessCustomer(facts({ companyId: 3, name: 'test9', iTariff: null, certification: null, reconciliation: null,
+      repository: { calls: 0, minutes: 0, cost: 0 }, verified: 0, snapshotted: 0,
+      coverage: { days: DAYS, uncovered: [], emptyButCollected: DAYS } }));
+    const cov = new Map([
+      [1, { days: DAYS, uncovered: DAYS.slice(2) }],     // has 09-01, 09-02
+      [2, { days: DAYS, uncovered: DAYS.slice(0, 1) }],  // has 09-02..09-06
+      [3, { days: DAYS, uncovered: [] }],                // test account, no traffic, fully "collected"
+    ]);
+    // a ∩ b = {09-02}; the test account is not billable and must not count.
+    expect(summariseReadiness([a, b, testAcct], DAYS, cov).coverageDays).toBe(1);
+    // With no billable customer at all there is nothing to cover.
+    expect(summariseReadiness([testAcct], DAYS, cov).coverageDays).toBe(0);
   });
 
   it('says plainly when nobody can be invoiced', () => {
