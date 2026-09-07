@@ -33327,6 +33327,35 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         let nextAttempted = false;
         let nextSucceeded = false;
 
+        // ── Credential memory, for the life of THIS account's job ────────────
+        //
+        // MEASURED 2026-09-07, four accounts, one night: every empty slice cost
+        // exactly 4 XML-RPC pages — 3 failed, 1 returned cleanly empty — and
+        // the same 3 failed on all 48 slices. asif #55: 192 pages, 144 failed,
+        // 0 rows, 18 minutes. The credential ladder is rebuilt inside
+        // fetchWindow, so the same wrong passwords were re-tried 48 times, each
+        // costing a timeout (slowest single page: 69.6s).
+        //
+        // What is NOT changed: the silent-auth guard. A credential that answers
+        // cleanly EMPTY does not end the loop — the remaining credentials are
+        // still asked, because a credential silently returning zero rows
+        // instead of an auth fault is exactly what that guard exists to catch.
+        // Every pair that has not PROVEN itself broken is still tried on every
+        // slice.
+        //
+        // What is changed: a pair that has failed twice in this run stops being
+        // asked. A wrong password does not become right on the 3rd slice, and
+        // two failures separate a persistent fault from one transient blip.
+        // Recovery is preserved twice over — a pair that has ever succeeded is
+        // never retired, and if retiring leaves nothing the full ladder comes
+        // back.
+        // Selection lives in server/credential-memory.ts, pure and tested —
+        // the arithmetic of the saving is pinned there against last night's
+        // numbers rather than asserted here.
+        const { selectCredentials } = await import('./credential-memory');
+        const credFailures = new Map<string, number>();
+        const credProven   = new Set<string>();
+
         const fetchWindow = async (winStart: string, winEnd: string): Promise<WindowResult> => {
           const fetchErrors: string[] = [];
           let sawCleanEmpty = false;
@@ -33340,8 +33369,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             return { ok: false, failed: 'never_ran',
               msg: 'CDR fetch DID NOT RUN — the XML-RPC circuit breaker is open. Reset via Settings → Sippy Connection → Reset Circuit Breaker. A fetch that never happened is not an empty period.' };
           }
+          const usable = selectCredentials(sippyXmlCredsPairs(settings),
+            { proven: credProven, failures: credFailures });
+
           credLoop:
-          for (const { username, password } of sippyXmlCredsPairs(settings)) {
+          for (const { username, password, key, label } of usable) {
             xmlRpcAttempted = true;
             const pagesAccum: Awaited<ReturnType<typeof sippy.getSippyCDRs>> = [];
             let offset = 0;
@@ -33368,8 +33400,12 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                   { iAccount: Number(iAccount), startDate: winStart, endDate: winEnd, offset,
                     type: cdrType, onlyMethod: pinnedMethod ?? undefined },
                   portalUrl);
+                // `label`, not `username`: every surviving pair carries the SAME
+                // admin username and differs only by password, so keying the
+                // tally by username collapsed four distinct pairs into one row
+                // and hid which of them actually authenticates.
                 pageLog.push({ offset, rows: page.ok ? page.cdrs.length : 0, ok: page.ok,
-                               ms: Date.now() - pageStartedMs, cred: username });
+                               ms: Date.now() - pageStartedMs, cred: label });
                 // Persist WHICH page just returned, so a slice that hangs
                 // leaves the page BEFORE the hang on the row — turning
                 // "stalled somewhere in slice 3" into "stalled requesting page
@@ -33397,8 +33433,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                 }
                 if (offset > 0 && page.ok) nextSucceeded = true;
                 if (page.ok && pinnedMethod !== null && page.method !== pinnedMethod) {
-                  console.warn(`[seed-job:${jobId}] XML-RPC(${username}) method switched ${pinnedMethod} → ${page.method} at offset=${offset} — aborting this credential (${pagesAccum.length} partial CDRs discarded; a different method is a different result set)`);
-                  fetchErrors.push(`${username} @ offset ${offset}: method switched ${pinnedMethod} → ${page.method} mid-pagination`);
+                  console.warn(`[seed-job:${jobId}] XML-RPC(${label}) method switched ${pinnedMethod} → ${page.method} at offset=${offset} — aborting this credential (${pagesAccum.length} partial CDRs discarded; a different method is a different result set)`);
+                  fetchErrors.push(`${label} @ offset ${offset}: method switched ${pinnedMethod} → ${page.method} mid-pagination`);
                   credFailed = true;
                   break pageLoop;
                 }
@@ -33407,8 +33443,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                 switch (outcome) {
                   case 'error': {
                     const why = page.ok ? 'unknown' : page.error;
-                    console.warn(`[seed-job:${jobId}] XML-RPC(${username}) ERROR at offset=${offset}: ${why} — aborting this credential (${pagesAccum.length} partial CDRs discarded; an error is not end-of-data)`);
-                    fetchErrors.push(`${username} @ offset ${offset}: ${why}`);
+                    console.warn(`[seed-job:${jobId}] XML-RPC(${label}) ERROR at offset=${offset}: ${why} — aborting this credential (${pagesAccum.length} partial CDRs discarded; an error is not end-of-data)`);
+                    fetchErrors.push(`${label} @ offset ${offset}: ${why}`);
                     endReason = 'ERROR';
                     endDecision = { inputs: { offset, ok: false, error: String(why).slice(0, 120) },
                                     comparison: 'page.ok === false → stop' };
@@ -33444,14 +33480,19 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
                 // The breaker learns from credentials that completed, not from
                 // pages later discarded.
                 xmlRpcRecordSuccess();
+                // This pair authenticates. It is never retired afterwards, and
+                // it is tried first on every later slice.
+                credProven.add(key); credFailures.delete(key);
                 if (pagesAccum.length > 0) return { ok: true, cdrs: pagesAccum };
                 sawCleanEmpty = true; // a method answered and the window is genuinely empty
               } else {
+                credFailures.set(key, (credFailures.get(key) ?? 0) + 1);
                 rowsSeenBeforeError = Math.max(rowsSeenBeforeError, pagesAccum.length);
               }
             } catch (e: any) {
-              console.warn(`[seed-job:${jobId}] XML-RPC(${username}) error: ${e.message}`);
-              fetchErrors.push(`${username}: ${e.message}`);
+              credFailures.set(key, (credFailures.get(key) ?? 0) + 1);
+              console.warn(`[seed-job:${jobId}] XML-RPC(${label}) error: ${e.message}`);
+              fetchErrors.push(`${label}: ${e.message}`);
               rowsSeenBeforeError = Math.max(rowsSeenBeforeError, pagesAccum.length);
             }
           }
