@@ -6453,7 +6453,8 @@ export async function pushRatesBulkXlsx(
   // FILE_UPLOADED, which is why it was here originally.
   const processOn = sippyUploadTimestamp(10_000);
   const tokenXml  = buildGetUploadTokenXml(
-    await resolveUploadType(username, password, base, 'rates'), processOn, undefined, { i_tariff: iTariff });
+    await resolveUploadType(username, password, base, 'rates'), processOn,
+    sippyUploadTimestamp(UPLOAD_TOKEN_TTL_MS), { i_tariff: iTariff });
   const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10_000);
 
   if (tokenResp.statusCode !== 200 || tokenResp.body.includes('faultCode')) {
@@ -9151,6 +9152,25 @@ export function buildFullTariffXlsx(
  * anything else with 402 "Unrecognized date format". Sent as a <string>, never as
  * <dateTime.iso8601>; see buildGetUploadTokenXml.
  */
+/**
+ * How long an upload token stays valid.
+ *
+ * Every rate upload this codebase has ever created passed `undefined` for expires_on, so no
+ * token has ever had one. Sippy locks a tariff while an upload is pending, and a pending
+ * upload with no expiry is pending forever — which is how tariffs 2, 32 and 67 came to be
+ * held for hours with no way to release them: Sippy exposes getUploadToken, the upload, and
+ * getUploadStatus, and no cancel.
+ *
+ * An expiry makes that self-correcting. An upload that never reaches DONE stops being
+ * pending on its own and the tariff releases, with no operator action and no support ticket.
+ *
+ * Fifteen minutes is chosen against observed behaviour, not a guess: a healthy upload on
+ * this switch processes within the push itself, tens of seconds, and process_on schedules it
+ * ten seconds out. Fifteen minutes leaves a slow queue enormous headroom while capping a
+ * stuck one at something an operator can wait through.
+ */
+const UPLOAD_TOKEN_TTL_MS = 15 * 60_000;
+
 function sippyUploadTimestamp(offsetMs: number): string {
   const s = new Date(Date.now() + offsetMs).toISOString();
   return `${s.slice(0, 4)}${s.slice(5, 7)}${s.slice(8, 10)}T${s.slice(11, 19)}`;
@@ -9245,7 +9265,7 @@ export async function probeUploadToken(
       apiUrl,
       buildGetUploadTokenXml(
         await resolveUploadType(username, password, portalUrl, 'rates'),
-        undefined, undefined, { i_tariff: iTariff }),
+        undefined, sippyUploadTimestamp(UPLOAD_TOKEN_TTL_MS), { i_tariff: iTariff }),
       username, password, 15000,
     );
     if (resp.statusCode !== 200) {
@@ -9304,7 +9324,7 @@ export async function uploadRatesWorkbook(
 
   const tokenXml = buildGetUploadTokenXml(
     await resolveUploadType(username, password, base, 'rates'),
-    sippyUploadTimestamp(10_000), undefined, { i_tariff: iTariff },
+    sippyUploadTimestamp(10_000), sippyUploadTimestamp(UPLOAD_TOKEN_TTL_MS), { i_tariff: iTariff },
   );
   const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 15000);
   console.log(`[RateManager] bulk getUploadToken: HTTP ${tokenResp.statusCode} ${tokenResp.body.slice(0, 200)}`);
@@ -9406,7 +9426,7 @@ export async function setSippyRateEntry(
     step('token');
     const tokenXml  = buildGetUploadTokenXml(
       await resolveUploadType(username, password, base, 'rates'),
-      processOn, undefined, { i_tariff: Number(tariffId) });
+      processOn, sippyUploadTimestamp(UPLOAD_TOKEN_TTL_MS), { i_tariff: Number(tariffId) });
     const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10000);
     console.log(`[RateManager] getUploadToken: HTTP ${tokenResp.statusCode} body=${tokenResp.body.substring(0, 300)}`);
 
