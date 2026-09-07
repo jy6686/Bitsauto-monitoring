@@ -35053,6 +35053,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       created: number; skipped: number; errors: number; truncated: boolean;
       seconds: number; rowsPerSecond: number; chunks: number; fallbackChunks: number; fallbackRows: number;
     };
+    timing?: { readSeconds: number; rateSeconds: number; lockSeconds: number; totalSeconds: number };
     runId?: number | null;
     certification?: Awaited<ReturnType<typeof _certificationFor>>;
     message: string;
@@ -35093,6 +35094,9 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       return chain;
     };
     await progress({ currentSlice: 'Reading repository' });
+    // Each phase is timed at its own boundaries, not derived by subtraction,
+    // so the report can say where a slow recovery spent its time.
+    const readStartedAt = Date.now();
 
     // Same window arithmetic as the coverage gate: periodEnd is inclusive.
     const rowsRes: any = await db.execute(sql`
@@ -35124,6 +35128,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     const { verifyBatch, lockBatch, RATING_ENGINE_VERSION } = await import('./services/sippy/index');
     await progress({ fetchedTotal: mapped.rows, currentSlice: `Verifying 0/${toVerify.length} against tariff ${opts.iTariff}` });
     let lastMark = 0;
+    const readMs = Date.now() - readStartedAt;
+    const verifyStartedAt = Date.now();
     const vr = await verifyBatch(toVerify, {
       concurrency: 8,
       onProgress: (done, total) => {
@@ -35135,6 +35141,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         }
       },
     });
+    const verifyMs = Date.now() - verifyStartedAt;
     const excluded = vr.unrated + vr.missing;
     const verification = {
       verified: vr.verified, discrepancies: vr.discrepancies, unrated: vr.unrated,
@@ -35160,6 +35167,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
     // The run row — the same record the seed writes, so certification,
     // pipeline-trace and the verification-runs list see this path as a run.
+    console.log(`[${jobId}] phases — read ${(readMs / 1000).toFixed(1)}s, rate ${(verifyMs / 1000).toFixed(1)}s, lock ${(lock.durationMs / 1000).toFixed(1)}s`);
     await progress({ currentSlice: `Recording the run for ${lock.created} snapshot(s)` });
     let runId: number | null = null;
     try {
@@ -35209,6 +35217,12 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         seconds: +((lock.durationMs ?? 0) / 1000).toFixed(1),
         rowsPerSecond: lock.rowsPerSecond, chunks: lock.chunks,
         fallbackChunks: lock.fallbackChunks, fallbackRows: lock.fallbackRows,
+      },
+      timing: {
+        readSeconds:   +(readMs / 1000).toFixed(1),
+        rateSeconds:   +(verifyMs / 1000).toFixed(1),
+        lockSeconds:   +(lock.durationMs / 1000).toFixed(1),
+        totalSeconds:  +((Date.now() - startedAt.getTime()) / 1000).toFixed(1),
       },
       runId, certification, message,
     };
