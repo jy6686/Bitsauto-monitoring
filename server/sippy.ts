@@ -9913,6 +9913,29 @@ function parseXlsxForRateEdit(
 //   3. If XLSX parse fails: scrape HTML rates table for iRate link
 //   4. GET rates_tariff.php?action=change&i_rate=N&price_1=NEW&... (form submission)
 //   5. Verify: HTTP 200 + full HTML rates page (not login page, not error)
+/**
+ * Does this rates page say the tariff is locked?
+ *
+ * Sippy refuses changes while it is processing an uploaded file, and it says so ON the
+ * rates page — then serves that page with HTTP 200 and full markup. The portal write path
+ * tested success as `statusCode === 200 && body.length > 5000`, which a locked page passes,
+ * so a write that Sippy had declined was reported as applied. Only the read-back afterwards
+ * noticed, and it could not say why.
+ *
+ * Matched loosely on purpose: the wording varies across builds and the banner is wrapped in
+ * markup, so anchoring on "locked" near "tariff" survives cosmetic differences that an exact
+ * string would not.
+ */
+function tariffLockedMessage(html: string): string | null {
+  if (!html) return null;
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  if (/tariff is locked/i.test(text) || (/locked for making changes/i.test(text))) {
+    const m = text.match(/[^.]*locked[^.]*\./i);
+    return (m ? m[0] : 'Tariff is locked for making changes').trim();
+  }
+  return null;
+}
+
 async function pushRateViaPortalUpload(
   base: string,
   iTariff: number,
@@ -10041,6 +10064,11 @@ async function pushRateViaPortalUpload(
         const errM = addResp.body.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
         return { success: false, message: `Rate add error: ${errM ? errM[1].trim() : 'Sippy error on action=add'}` };
       }
+      const addLocked = tariffLockedMessage(addResp.body);
+      if (addLocked) {
+        console.log(`[Sippy] action=add: tariff ${iTariff} LOCKED — "${addLocked}"`);
+        return { success: false, message: `Tariff ${iTariff} is locked — Sippy is still processing an earlier upload, so this rate was not applied. ${addLocked}` };
+      }
       if (addResp.statusCode === 200 && addResp.body.length > 5000) {
         return { success: true, message: `New destination: prefix ${prefix} added to tariff ${iTariff} at ${rate} (iRate=${newIRate})` };
       }
@@ -10094,6 +10122,11 @@ async function pushRateViaPortalUpload(
     if (hasError) {
       const errM = body.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
       return { success: false, message: `Rate edit error: ${errM ? errM[1].trim() : 'Sippy returned error response'}` };
+    }
+    const changeLocked = tariffLockedMessage(body);
+    if (changeLocked) {
+      console.log(`[Sippy] action=change: tariff ${iTariff} LOCKED — "${changeLocked}"`);
+      return { success: false, message: `Tariff ${iTariff} is locked — Sippy is still processing an earlier upload, so this rate was not applied. ${changeLocked}` };
     }
     if (resp.statusCode === 200 && body.length > 5000) {
       return { success: true, message: `Rate pushed via portal edit (action=change, iRate=${targetIRate}, prefix=${prefix}, rate=${rate})` };
