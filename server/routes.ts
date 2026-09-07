@@ -35062,21 +35062,32 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
     // The progress row. Written FIRST, so the run exists on disk before any
     // work — a death anywhere after this line is visible as a running row
     // with its last phase, exactly like a killed collection slice.
-    const progress = async (fields: Record<string, unknown>) => {
-      try {
-        await db.insert(seedJobs).values({
-          jobId, iAccount: opts.iAccount, iTariff: opts.iTariff,
-          periodStart: opts.periodStart, periodEnd: opts.periodEnd,
-          sliceMinutes: 0, totalSlices: 1, completedSlices: 0,
-          status: 'running', startedAt, lastProgressAt: new Date(), ...fields,
-        } as any).onConflictDoUpdate({
-          target: seedJobs.jobId,
-          set: { status: 'running', startedAt, finishedAt: null, lastError: null, reapedAt: null,
-                 lastProgressAt: new Date(), ...fields } as any,
-        });
-      } catch (e: any) {
-        console.warn(`[${jobId}] progress not recorded: ${e.message}`);
-      }
+    // Writes are SERIALISED through one promise chain. The first production
+    // run showed the row stuck at "Verifying 2941/2941" for the whole
+    // snapshot phase: the fire-and-forget write from the last verify
+    // callback landed AFTER the awaited "Locking…" write and put the older
+    // phase back. A phase on the row must never run backwards, so every
+    // write queues behind the one before it, and the caller awaits the
+    // chain before moving on.
+    let chain: Promise<void> = Promise.resolve();
+    const progress = (fields: Record<string, unknown>): Promise<void> => {
+      chain = chain.then(async () => {
+        try {
+          await db.insert(seedJobs).values({
+            jobId, iAccount: opts.iAccount, iTariff: opts.iTariff,
+            periodStart: opts.periodStart, periodEnd: opts.periodEnd,
+            sliceMinutes: 0, totalSlices: 1, completedSlices: 0,
+            status: 'running', startedAt, lastProgressAt: new Date(), ...fields,
+          } as any).onConflictDoUpdate({
+            target: seedJobs.jobId,
+            set: { status: 'running', startedAt, finishedAt: null, lastError: null, reapedAt: null,
+                   lastProgressAt: new Date(), ...fields } as any,
+          });
+        } catch (e: any) {
+          console.warn(`[${jobId}] progress not recorded: ${e.message}`);
+        }
+      });
+      return chain;
     };
     await progress({ currentSlice: 'Reading repository' });
 
@@ -35127,7 +35138,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       missingRate: vr.missing, excluded, totalDelta: +vr.totalDelta.toFixed(6),
     };
 
-    await progress({ currentSlice: 'Locking verified CDRs into billing snapshots' });
+    // lockBatch offers no progress callback, so this is the last word on the
+    // row until it returns — which on 2 September took longer than the
+    // verification did. Awaited AFTER the chain, so no late verify write can
+    // overtake it.
+    await progress({ currentSlice: `Locking ${vr.total} verified CDR(s) into billing snapshots — no progress is reported inside this step` });
     const lock = await lockBatch({ iTariff: String(opts.iTariff), limit: Math.max(toVerify.length * 2, 1000) });
     if (lock.truncated) {
       console.warn(`[${jobId}] SNAPSHOT BATCH TRUNCATED — created ${lock.created} of a ${lock.limit}-row limit; re-run to drain.`);
