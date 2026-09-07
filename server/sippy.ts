@@ -6454,7 +6454,7 @@ export async function pushRatesBulkXlsx(
   const processOn = sippyUploadTimestamp(10_000);
   const tokenXml  = buildGetUploadTokenXml(
     await resolveUploadType(username, password, base, 'rates'), processOn,
-    sippyUploadTimestamp(UPLOAD_TOKEN_TTL_MS), { i_tariff: iTariff });
+    uploadExpiresOn(processOn), { i_tariff: iTariff });
   const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10_000);
 
   if (tokenResp.statusCode !== 200 || tokenResp.body.includes('faultCode')) {
@@ -9153,26 +9153,43 @@ export function buildFullTariffXlsx(
  * <dateTime.iso8601>; see buildGetUploadTokenXml.
  */
 /**
- * How long the upload URL stays valid.
+ * How long Sippy keeps trying to process an upload, measured from when processing starts.
  *
- * NOT a fix for stuck tariff locks. An earlier version of this comment claimed it was, and
- * that was wrong. Sippy's documentation is specific: expires_on is the "date and time until
- * the URL for upload is valid", defaulting to now plus one day. It bounds how long a file
- * may be POSTed to that URL. Once the file is uploaded the URL no longer matters — the job
- * is queued, and the tariff stays locked "when the uploaded file is being processed" until
- * processing completes.
+ * getUploadStatus defines expires_on as "date and time when the system stops any attempts to
+ * process the file" — the processing job, not merely the upload URL. getUploadToken describes
+ * the same field from the other side ("until the URL for upload is valid"), which is what an
+ * earlier version of this comment read and got wrong in both directions before landing here.
  *
- * So an upload that never reaches DONE is not released by this. Sippy documents no timeout,
- * no expiry of a pending job, and no cancel; clearing a genuinely stuck upload is a
- * switch-side action. Locks are avoided by not creating uploads unnecessarily and by
- * refusing to write to a tariff already reporting one — not by this constant.
+ * Sippy already drops a job that has been PROCESSING for more than a day, setting it to FAIL.
+ * So a stuck upload is bounded at one day by default; this shortens that bound to something
+ * an operator can wait through instead of a working day. Tariffs 2, 32 and 67 were created
+ * under the default and will clear on their own within a day — not never, as first thought.
  *
- * It is kept because a one-day upload window is longer than any legitimate use here: a
- * healthy upload completes inside the push, tens of seconds, and process_on schedules
- * processing ten seconds out. Fifteen minutes is ample for that and closes an upload URL
- * that would otherwise stay open for a day.
+ * Fifteen minutes is measured: a healthy upload here completes inside the push itself, tens
+ * of seconds.
+ *
+ * NOT proven on this switch. That an expired job transitions to FAIL and releases the tariff
+ * is the documented reading, not an observed one, and the two are different until a
+ * deliberately non-completing upload is watched through it.
  */
 const UPLOAD_TOKEN_TTL_MS = 15 * 60_000;
+
+/**
+ * The expiry for an upload whose processing starts at `processOn`.
+ *
+ * Relative to PROCESSING, not to now. An upload scheduled to process an hour out with an
+ * expiry fifteen minutes from now would stop being attempted before it ever ran — the window
+ * has to open after processing begins, or it is not a window at all.
+ */
+function uploadExpiresOn(processOn?: string): string {
+  const m = processOn?.match(/^(\d{4})(\d{2})(\d{2})T(\d{2}):(\d{2}):(\d{2})$/);
+  const base = m
+    ? Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`)
+    : Date.now();
+  // An unparseable process_on falls back to now rather than to NaN, which would render
+  // "NaNaNaNTNaN:NaN:NaN" and be rejected by the switch as a malformed date.
+  return sippyUploadTimestamp((Number.isFinite(base) ? base : Date.now()) - Date.now() + UPLOAD_TOKEN_TTL_MS);
+}
 
 function sippyUploadTimestamp(offsetMs: number): string {
   const s = new Date(Date.now() + offsetMs).toISOString();
@@ -9268,7 +9285,7 @@ export async function probeUploadToken(
       apiUrl,
       buildGetUploadTokenXml(
         await resolveUploadType(username, password, portalUrl, 'rates'),
-        undefined, sippyUploadTimestamp(UPLOAD_TOKEN_TTL_MS), { i_tariff: iTariff }),
+        undefined, uploadExpiresOn(undefined), { i_tariff: iTariff }),
       username, password, 15000,
     );
     if (resp.statusCode !== 200) {
@@ -9327,7 +9344,7 @@ export async function uploadRatesWorkbook(
 
   const tokenXml = buildGetUploadTokenXml(
     await resolveUploadType(username, password, base, 'rates'),
-    sippyUploadTimestamp(10_000), sippyUploadTimestamp(UPLOAD_TOKEN_TTL_MS), { i_tariff: iTariff },
+    sippyUploadTimestamp(10_000), uploadExpiresOn(sippyUploadTimestamp(10_000)), { i_tariff: iTariff },
   );
   const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 15000);
   console.log(`[RateManager] bulk getUploadToken: HTTP ${tokenResp.statusCode} ${tokenResp.body.slice(0, 200)}`);
@@ -9429,7 +9446,7 @@ export async function setSippyRateEntry(
     step('token');
     const tokenXml  = buildGetUploadTokenXml(
       await resolveUploadType(username, password, base, 'rates'),
-      processOn, sippyUploadTimestamp(UPLOAD_TOKEN_TTL_MS), { i_tariff: Number(tariffId) });
+      processOn, uploadExpiresOn(processOn), { i_tariff: Number(tariffId) });
     const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10000);
     console.log(`[RateManager] getUploadToken: HTTP ${tokenResp.statusCode} body=${tokenResp.body.substring(0, 300)}`);
 
