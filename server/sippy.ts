@@ -9153,21 +9153,24 @@ export function buildFullTariffXlsx(
  * <dateTime.iso8601>; see buildGetUploadTokenXml.
  */
 /**
- * How long an upload token stays valid.
+ * How long the upload URL stays valid.
  *
- * Every rate upload this codebase has ever created passed `undefined` for expires_on, so no
- * token has ever had one. Sippy locks a tariff while an upload is pending, and a pending
- * upload with no expiry is pending forever — which is how tariffs 2, 32 and 67 came to be
- * held for hours with no way to release them: Sippy exposes getUploadToken, the upload, and
- * getUploadStatus, and no cancel.
+ * NOT a fix for stuck tariff locks. An earlier version of this comment claimed it was, and
+ * that was wrong. Sippy's documentation is specific: expires_on is the "date and time until
+ * the URL for upload is valid", defaulting to now plus one day. It bounds how long a file
+ * may be POSTed to that URL. Once the file is uploaded the URL no longer matters — the job
+ * is queued, and the tariff stays locked "when the uploaded file is being processed" until
+ * processing completes.
  *
- * An expiry makes that self-correcting. An upload that never reaches DONE stops being
- * pending on its own and the tariff releases, with no operator action and no support ticket.
+ * So an upload that never reaches DONE is not released by this. Sippy documents no timeout,
+ * no expiry of a pending job, and no cancel; clearing a genuinely stuck upload is a
+ * switch-side action. Locks are avoided by not creating uploads unnecessarily and by
+ * refusing to write to a tariff already reporting one — not by this constant.
  *
- * Fifteen minutes is chosen against observed behaviour, not a guess: a healthy upload on
- * this switch processes within the push itself, tens of seconds, and process_on schedules it
- * ten seconds out. Fifteen minutes leaves a slow queue enormous headroom while capping a
- * stuck one at something an operator can wait through.
+ * It is kept because a one-day upload window is longer than any legitimate use here: a
+ * healthy upload completes inside the push, tens of seconds, and process_on schedules
+ * processing ten seconds out. Fifteen minutes is ample for that and closes an upload URL
+ * that would otherwise stay open for a day.
  */
 const UPLOAD_TOKEN_TTL_MS = 15 * 60_000;
 
