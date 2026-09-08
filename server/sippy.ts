@@ -6923,6 +6923,9 @@ export async function pushRateToSippy(opts: {
   effectiveFrom?: string | Date;
   effectiveTo?: string | Date;
   format?: 'full' | 'partial' | 'default';
+  /** Billing increment from the commercial catalogue for this prefix. Omitted means 1/1. */
+  interval1?: number;
+  intervalN?: number;
 }, credentials: { username: string; password: string }, targetUrl?: string, adminCreds?: RateAdminCreds, onProgress?: RatePushProgress): Promise<SippyPushResult> {
   const baseUrl = targetUrl ?? activeSession?.portalUrl;
   if (!baseUrl) return { success: false, message: 'Not connected to Sippy.' };
@@ -6970,7 +6973,8 @@ export async function pushRateToSippy(opts: {
     return setSippyRateEntry(
       credentials.username, credentials.password,
       customer.i_tariff,
-      { prefix: opts.prefix, rate: opts.ratePerMin, effectiveFrom: toStr(opts.effectiveFrom), effectiveTill: toStr(opts.effectiveTo) },
+      { prefix: opts.prefix, rate: opts.ratePerMin, effectiveFrom: toStr(opts.effectiveFrom), effectiveTill: toStr(opts.effectiveTo),
+        interval1: opts.interval1, intervalN: opts.intervalN },
       baseUrl,
       adminCreds,
       onProgress,
@@ -9021,6 +9025,15 @@ export function buildRateXlsx(
   rate: number,
   effectiveFrom?: string,
   effectiveTill?: string,
+  /**
+   * Billing increment, from the commercial catalogue's `billing_increment` for this prefix.
+   * Omitted means 1/1 — per-second from the first second — which is what this builder always
+   * emitted before. A workbook row built from the wrong increment is not incomplete, it is
+   * WRONG: it asserts per-second billing on a contract that says 60/60, and the customer is
+   * billed on that assertion until someone reads a CDR.
+   */
+  interval1?: number,
+  intervalN?: number,
 ): Buffer {
   const headers = [
     'Action [A|D|U|S|SA]', 'Id', 'Prefix', 'Country',
@@ -9032,7 +9045,7 @@ export function buildRateXlsx(
     iRateId ?? null,
     prefix,
     country || null,
-    1, 1,
+    interval1 ?? 1, intervalN ?? 1,
     rate, rate,
     0, 1,
     effectiveFrom  || null,
@@ -9408,7 +9421,13 @@ export async function setSippyRateEntry(
   username: string,
   password: string,
   tariffId: string,
-  entry: { prefix: string; rate: number; effectiveFrom?: string; effectiveTill?: string; iRate?: number },
+  /**
+   * `interval1`/`intervalN` come from the commercial catalogue's `billing_increment` for this
+   * prefix. Omitted keeps the historical 1/1. They are authoritative: on the portal path they
+   * OVERRIDE whatever the tariff currently holds, because the catalogue is the commercial
+   * record and the tariff is a copy of it.
+   */
+  entry: { prefix: string; rate: number; effectiveFrom?: string; effectiveTill?: string; iRate?: number; interval1?: number; intervalN?: number },
   portalUrl?: string,
   adminCreds?: RateAdminCreds,
   onProgress?: RatePushProgress,
@@ -9531,8 +9550,10 @@ export async function setSippyRateEntry(
           entry.rate,
           normFrom,
           normTill,
+          entry.interval1,
+          entry.intervalN,
         );
-        console.log(`[RateManager] Upload XLSX: prefix=${entry.prefix} rate=${entry.rate} effective=${normaliseEntryDate(entry.effectiveFrom) || 'immediate'} till=${normaliseEntryDate(entry.effectiveTill) || 'never'} bytes=${xlsxBuffer.length}`);
+        console.log(`[RateManager] Upload XLSX: prefix=${entry.prefix} rate=${entry.rate} interval=${entry.interval1 ?? 1}/${entry.intervalN ?? 1} effective=${normaliseEntryDate(entry.effectiveFrom) || 'immediate'} till=${normaliseEntryDate(entry.effectiveTill) || 'never'} bytes=${xlsxBuffer.length}`);
 
         step('uploading', `${xlsxBuffer.length} bytes`);
         const uploadResult = await uploadBinaryFile(uploadUrl, xlsxBuffer, 'rates.xlsx');
@@ -9745,6 +9766,7 @@ export async function setSippyRateEntry(
     base, Number(tariffId), entry.prefix, entry.rate,
     entry.effectiveFrom, entry.effectiveTill, adminCreds, entry.iRate,
     username, password,
+    entry.interval1, entry.intervalN,
   );
   if (portalResult.success) {
     // Phase E: verify the rate actually changed in Sippy.
@@ -10091,6 +10113,14 @@ async function pushRateViaPortalUpload(
   iRate?: number,
   xmlUsername?: string,
   xmlPassword?: string,
+  /**
+   * Catalogue increment for this prefix. When supplied it OVERRIDES the value read back from
+   * the tariff below: the commercial catalogue is the record of what was agreed, and the
+   * tariff is a copy that may predate it. Omitted preserves the existing behaviour — keep
+   * whatever the tariff holds, defaulting to 1/1 for a prefix that is not there yet.
+   */
+  suppliedInterval1?: number,
+  suppliedIntervalN?: number,
 ): Promise<{ success: boolean; message: string }> {
 
   function normDate(raw?: string): string {
@@ -10139,6 +10169,10 @@ async function pushRateViaPortalUpload(
         targetIRate       = parsed.iRate;
         interval1         = parsed.interval1;
         intervalN         = parsed.intervalN;
+        if (suppliedInterval1 !== undefined && suppliedIntervalN !== undefined
+            && (parsed.interval1 !== suppliedInterval1 || parsed.intervalN !== suppliedIntervalN)) {
+          console.log(`[Sippy] pushRateViaPortalUpload: prefix ${prefix} tariff holds ${parsed.interval1}/${parsed.intervalN}, catalogue says ${suppliedInterval1}/${suppliedIntervalN} — writing the catalogue value`);
+        }
         forbidden         = parsed.forbidden;
         gracePeriodEnable = parsed.gracePeriodEnable;
         activationDateStr = parsed.activationDate;
@@ -10151,6 +10185,12 @@ async function pushRateViaPortalUpload(
   } catch (de: any) {
     console.log(`[Sippy] pushRateViaPortalUpload: XLSX download/parse failed: ${de?.message}`);
   }
+
+  // Applied after the read-back so it wins over the tariff's current value, and applied even
+  // when the download failed entirely — a prefix we could not read still gets the increment
+  // the catalogue says it has, rather than a silent 1/1.
+  if (suppliedInterval1 !== undefined) interval1 = suppliedInterval1;
+  if (suppliedIntervalN !== undefined) intervalN = suppliedIntervalN;
 
   // ── Step 3: fallback — scrape HTML rates table for iRate link ─────────────
   if (!targetIRate) {
