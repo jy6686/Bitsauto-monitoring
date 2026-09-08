@@ -35,6 +35,9 @@ import { registerVendorProbeRoutes, initVendorProbeScheduler } from './routes-ve
 import { registerRouteTestRoutes } from './routes-route-tester';
 import { registerProductMappingRoutes } from './routes-product-mapping';
 import { resolveDealDialPrefix } from './services/rates/deal-prefix';
+// composePrefix, NOT sippy.resolveSippyPrefix — the latter STRIPS a trunk digit, which is the
+// opposite of what a push needs under the full-prefix tariff design (see the trunk block below).
+import { composePrefix } from './services/rates/rate-matrix';
 import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
@@ -43549,6 +43552,25 @@ ${footer}
             const settings  = await storage.getSettings();
             const { username, password } = sippyXmlCreds(settings as any);
             const portalUrl = sippyPortalUrl(settings as any);
+
+            // ── Product trunk identity ──────────────────────────────────────
+            // Sippy tariffs store FULL prefixes: the product's trunk digit prepended to the
+            // dial prefix. Verified in production 2026-09-08 — tariff 66 holds 19231 (FC),
+            // 2880 (BC), 691 (SB) and 79230 (SC) side by side. A bare prefix would land with
+            // no product identity at all, so a deal whose product has no trunk pushes nothing
+            // rather than pushing something unattributable.
+            const [dealProduct] = await db.select({ code: productRegistry.code, trunkPrefix: productRegistry.trunkPrefix })
+              .from(productRegistry).where(eq(productRegistry.id, deal.productId)).limit(1);
+            const trunkPrefix = String(dealProduct?.trunkPrefix ?? '').trim();
+
+            // Without a trunk, composePrefix('', '9230') returns the bare '9230' — silently
+            // reintroducing the very defect this block exists to prevent. Refuse the whole
+            // push instead: one named reason beats a tariff full of unattributable rates.
+            if (!/^\d+$/.test(trunkPrefix)) {
+              ratePushResult = { pushed: 0, failed: 0, skipped: `Product ${dealProduct?.code ?? deal.productId} has no usable trunk prefix (${JSON.stringify(dealProduct?.trunkPrefix ?? null)}) — no rates pushed, because a bare prefix carries no product identity` };
+              console.warn(`[deal-approve] Deal #${id} rate push REFUSED: product ${dealProduct?.code ?? deal.productId} trunk_prefix=${JSON.stringify(dealProduct?.trunkPrefix ?? null)} → tariff=${tariffId}`);
+            } else {
+
             let pushed = 0, failed = 0;
             const unresolvedDestinations: string[] = [];
             for (const d of dests) {
@@ -43559,7 +43581,8 @@ ${footer}
               // A destination whose lookup yields no dial prefix is reported, never pushed.
               // This used to fall back to d.destinationName, which wrote the NAME into the
               // tariff as a prefix — a rate no call could ever match, on a live customer.
-              const prefix = resolveDealDialPrefix(gd?.dialPrefix);
+              const dialPrefix = resolveDealDialPrefix(gd?.dialPrefix);
+              const prefix = dialPrefix ? composePrefix(trunkPrefix, dialPrefix) : null;
               if (!prefix) {
                 unresolvedDestinations.push(d.destinationName);
                 console.warn(`[deal-approve] Rate NOT pushed for "${d.destinationName}" (destinationId=${d.destinationId ?? 'none'}): no dial prefix resolved — raw=${JSON.stringify(gd?.dialPrefix ?? null)}`);
@@ -43575,10 +43598,11 @@ ${footer}
                 rateAdminPass: (settings as any).sippyRateAdminPass ?? undefined,
               });
               r.success ? pushed++ : failed++;
-              console.log(`[deal-approve] Rate push ${prefix}=${rate}: ${r.success ? 'OK' : r.message}`);
+              console.log(`[deal-approve] Rate push ${prefix} (${dealProduct?.code ?? '?'} trunk ${trunkPrefix} + dial ${dialPrefix})=${rate}: ${r.success ? 'OK' : r.message}`);
             }
             ratePushResult = { pushed, failed, unresolved: unresolvedDestinations.length, unresolvedDestinations };
             console.log(`[deal-approve] Deal #${id} rate push complete: ${pushed} pushed, ${failed} failed, ${unresolvedDestinations.length} unresolved → tariff=${tariffId}`);
+            }
           } else {
             ratePushResult = { pushed: 0, failed: 0, skipped: 'No destinations on deal' };
           }
