@@ -39,6 +39,7 @@ import { resolveDealDialPrefix } from './services/rates/deal-prefix';
 // opposite of what a push needs under the full-prefix tariff design (see the trunk block below).
 import { composePrefix } from './services/rates/rate-matrix';
 import { validateTrunkPrefix } from './services/rates/product-trunk';
+import { parseBillingIncrement } from './services/rates/billing-increment';
 import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
@@ -43898,7 +43899,7 @@ ${footer}
         // destination. The difference is that the prefixes now arrive grouped, so the
         // destination name and its effective time survive the expansion instead of being
         // reconstructed from whichever row happened to be first.
-        const destList: Array<{ fullPrefix: string; dialPrefix: string; rate: number; destinationName: string | null; effectiveFrom?: string }> =
+        const destList: Array<{ fullPrefix: string; dialPrefix: string; rate: number; destinationName: string | null; effectiveFrom?: string; interval1?: number; intervalN?: number }> =
           Array.isArray(destinations) && destinations.length > 0
             ? destinations.flatMap((d: any) => {
                 const prefixes: string[] = Array.isArray(d.dialPrefixes) && d.dialPrefixes.length
@@ -43921,6 +43922,48 @@ ${footer}
         if (destList.length === 0) {
           return res.status(400).json({ error: 'destinations or dialPrefix+rate required' });
         }
+
+        // ── Billing increment, read from the catalogue, not from the caller ───
+        // `commercial_destination_prefixes.billing_increment` is the commercial record of what
+        // was agreed — '1/1', '60/1', '60/60', '30/6', '6/6' as the supplier supplied it. Every
+        // row shipped 1/1 regardless, so a 60/60 contract was billed per-second on the switch.
+        //
+        // Looked up server-side for the same reason the trunk is: it is a billing term, and a
+        // caller that can set it can bill a customer differently. One query for the batch.
+        const catalogueIncrements = new Map<string, string | null>();
+        try {
+          const incResult = await db.execute(sql`
+            SELECT p.prefix, p.billing_increment
+              FROM commercial_destination_prefixes p
+              JOIN catalogue_versions v ON v.id = p.version_id AND v.status = 'active'
+             WHERE p.prefix = ANY(${destList.map(d => d.dialPrefix)})`);
+          for (const r of ((incResult as any).rows ?? []) as any[]) {
+            catalogueIncrements.set(String(r.prefix), r.billing_increment ?? null);
+          }
+        } catch (e: any) {
+          return res.status(500).json({ error: `Could not read billing increments from the catalogue: ${e.message}` });
+        }
+
+        // A prefix the catalogue carries but cannot be read is refused, never defaulted — that
+        // is the difference between "we do not know" and "we billed you per second". A prefix
+        // absent from the catalogue keeps 1/1: that is the legacy single-prefix path, which
+        // predates the catalogue and has no commercial row to consult.
+        const unreadable: string[] = [];
+        for (const d of destList as any[]) {
+          const raw = catalogueIncrements.get(d.dialPrefix);
+          if (raw === undefined) {
+            console.warn(`[push-batch] ${d.dialPrefix} is not in the active catalogue — keeping 1/1`);
+            continue;
+          }
+          const parsed = parseBillingIncrement(raw);
+          if (!parsed) { unreadable.push(`${d.dialPrefix}=${JSON.stringify(raw)}`); continue; }
+          d.interval1 = parsed.interval1;
+          d.intervalN = parsed.intervalN;
+        }
+        if (unreadable.length) {
+          return res.status(400).json({ error: `Unreadable billing increment for ${unreadable.length} prefix(es): ${unreadable.slice(0, 5).join(', ')} — refusing to push rather than billing them per-second by default` });
+        }
+        console.log(`[push-batch] increments: ${destList.map((d: any) => `${d.dialPrefix}=${d.interval1 ?? 1}/${d.intervalN ?? 1}`).join(' ')}`);
 
         const { username, password } = sippyXmlCreds(settings);
         const portalUrl = sippyPortalUrl(settings);
@@ -44062,6 +44105,10 @@ ${footer}
                   // now, Zong tomorrow at 01:40" and quietly gave every row the same one.
                   effectiveFrom: dest.effectiveFrom || effectiveFrom || undefined,
                   effectiveTo:   effectiveTill || undefined,
+                  // The catalogue's billing increment for this prefix. Undefined only where the
+                  // prefix is not in the active catalogue, which keeps the historical 1/1.
+                  interval1:     dest.interval1,
+                  intervalN:     dest.intervalN,
                   format: format ?? 'full',
                 },
                 { username, password },
