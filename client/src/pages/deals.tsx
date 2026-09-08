@@ -1292,7 +1292,17 @@ function ApprovalsTab({ deals, products }: { deals: Deal[]; products: Product[] 
       qc.invalidateQueries({ queryKey: ["/api/deals"] });
       const rp = data?.ratePushResult;
       if (rp && !rp.skipped) {
-        toast({ title: `Deal approved ✓ — Rates pushed to Sippy`, description: `${rp.pushed} rate(s) pushed${rp.failed ? `, ${rp.failed} failed` : ''}` });
+        // An unresolved destination was deliberately NOT pushed (no dial prefix could be
+        // resolved for it). The operator must see this: the deal is approved but the
+        // customer's tariff is missing a rate they were quoted.
+        const unresolvedNote = rp.unresolved
+          ? `, ${rp.unresolved} NOT pushed (no dial prefix): ${(rp.unresolvedDestinations ?? []).join(', ')}`
+          : '';
+        toast({
+          title: rp.unresolved ? `Deal approved — ${rp.unresolved} rate(s) need attention` : `Deal approved ✓ — Rates pushed to Sippy`,
+          description: `${rp.pushed} rate(s) pushed${rp.failed ? `, ${rp.failed} failed` : ''}${unresolvedNote}`,
+          ...(rp.unresolved ? { variant: 'destructive' as const } : {}),
+        });
       } else if (rp?.skipped) {
         toast({ title: "Deal approved ✓", description: `Rates not pushed: ${rp.skipped}` });
       } else {
