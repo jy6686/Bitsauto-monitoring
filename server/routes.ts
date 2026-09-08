@@ -38,6 +38,7 @@ import { resolveDealDialPrefix } from './services/rates/deal-prefix';
 // composePrefix, NOT sippy.resolveSippyPrefix — the latter STRIPS a trunk digit, which is the
 // opposite of what a push needs under the full-prefix tariff design (see the trunk block below).
 import { composePrefix } from './services/rates/rate-matrix';
+import { validateTrunkPrefix } from './services/rates/product-trunk';
 import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
@@ -43833,14 +43834,17 @@ ${footer}
       try {
         const settings = await storage.getSettings();
         const {
-          accountNames, accounts, trunkPrefix,
+          accountNames, accounts, trunkPrefix: clientTrunkPrefix,
+          productId,
           destinations,
           dialPrefix, rate,
           effectiveFrom, effectiveTill, format,
         } = req.body as {
           accountNames: string[];
           accounts?: Array<{ username: string; iAccount?: number }>;
-          trunkPrefix: string;
+          /** ADVISORY ONLY — the server derives the authoritative trunk from productId. */
+          trunkPrefix?: string;
+          productId?: number;
           // A destination is a COMMERCIAL identity that may carry several prefixes — Zong is
           // one destination with two. `dialPrefixes` carries them together so the caller does
           // not have to flatten them into separate destinations, which is what made one
@@ -43862,6 +43866,33 @@ ${footer}
           return res.status(400).json({ error: 'accountNames array required' });
         }
 
+        // ── The trunk digit is the server's to decide ─────────────────────────
+        // It used to be whatever the browser sent, composed as `(trunkPrefix ?? '') + prefix`.
+        // An empty or wrong value put BARE prefixes into a live customer tariff — a rate with
+        // no product identity, indistinguishable between First Class and Special Charlie.
+        // Production stores FULL prefixes (tariff 66 holds 19231/2880/691/79230 side by side),
+        // so the trunk is not decoration: it IS which product the rate belongs to.
+        //
+        // productId already arrives in the body. Deriving from it makes the browser advisory.
+        if (!Number.isInteger(Number(productId))) {
+          return res.status(400).json({ error: 'productId is required — the server derives the product trunk prefix from it and will not trust a client-supplied trunk' });
+        }
+        const [pushProduct] = await db.select({ code: productRegistry.code, name: productRegistry.name, trunkPrefix: productRegistry.trunkPrefix })
+          .from(productRegistry).where(eq(productRegistry.id, Number(productId))).limit(1);
+        if (!pushProduct) {
+          return res.status(400).json({ error: `Product ${productId} not found — no trunk prefix can be derived, so no rate can carry a product identity` });
+        }
+        const trunkPrefix = validateTrunkPrefix(pushProduct.trunkPrefix);
+        if (!trunkPrefix) {
+          return res.status(400).json({ error: `Product ${pushProduct.code ?? productId} has no usable trunk prefix (${JSON.stringify(pushProduct.trunkPrefix ?? null)}) — refusing to push, because a bare prefix carries no product identity` });
+        }
+        // A disagreement means the UI is out of step with the registry. The push proceeds on
+        // the server's value; the log is what makes the divergence findable afterwards.
+        if (clientTrunkPrefix !== undefined && String(clientTrunkPrefix) !== trunkPrefix) {
+          console.warn(`[push-batch] client sent trunkPrefix=${JSON.stringify(clientTrunkPrefix)} but product ${pushProduct.code ?? productId} is ${JSON.stringify(trunkPrefix)} — using the server value`);
+        }
+        console.log(`[push-batch] product ${pushProduct.code ?? productId} → trunk ${trunkPrefix}`);
+
         const stripPlus = (s: string) => s.replace(/^\+/, '');
         // One Sippy operation per PREFIX, still — Sippy has no concept of a commercial
         // destination. The difference is that the prefixes now arrive grouped, so the
@@ -43875,7 +43906,7 @@ ${footer}
                   : d.dialPrefix ? [d.dialPrefix] : [];
                 return prefixes.map((raw: string) => ({
                   dialPrefix:      stripPlus(String(raw)),
-                  fullPrefix:      (trunkPrefix ?? '') + stripPlus(String(raw)),
+                  fullPrefix:      composePrefix(trunkPrefix, stripPlus(String(raw))),
                   rate:            Number(d.rate),
                   destinationName: d.destinationName ?? null,
                   // Falls back to the batch value only when the caller sent none, which is
@@ -43884,7 +43915,7 @@ ${footer}
                 }));
               })
             : dialPrefix
-              ? [{ dialPrefix: stripPlus(dialPrefix), fullPrefix: (trunkPrefix ?? '') + stripPlus(dialPrefix), rate: Number(rate), destinationName: null, effectiveFrom: undefined }]
+              ? [{ dialPrefix: stripPlus(dialPrefix), fullPrefix: composePrefix(trunkPrefix, stripPlus(dialPrefix)), rate: Number(rate), destinationName: null, effectiveFrom: undefined }]
               : [];
 
         if (destList.length === 0) {
