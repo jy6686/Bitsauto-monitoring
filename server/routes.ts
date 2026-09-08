@@ -34,6 +34,7 @@ import { registerAiCopilotRoutes } from './routes-ai-copilot';
 import { registerVendorProbeRoutes, initVendorProbeScheduler } from './routes-vendor-probe';
 import { registerRouteTestRoutes } from './routes-route-tester';
 import { registerProductMappingRoutes } from './routes-product-mapping';
+import { resolveDealDialPrefix } from './services/rates/deal-prefix';
 import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
@@ -43536,7 +43537,7 @@ ${footer}
       await db.insert(dealApprovals).values({ dealId: id, action: 'approved', performedBy: req.user?.claims?.sub ?? 'system', notes: req.body.notes ?? null });
 
       // ── Auto push deal rates to client's Sippy tariff ─────────────────────
-      let ratePushResult: { pushed: number; failed: number; skipped?: string } | undefined;
+      let ratePushResult: { pushed: number; failed: number; unresolved?: number; unresolvedDestinations?: string[]; skipped?: string } | undefined;
       try {
         // Find the company by sippyIAccount
         const allCompanies = await storage.getCompanies();
@@ -43549,13 +43550,21 @@ ${footer}
             const { username, password } = sippyXmlCreds(settings as any);
             const portalUrl = sippyPortalUrl(settings as any);
             let pushed = 0, failed = 0;
+            const unresolvedDestinations: string[] = [];
             for (const d of dests) {
               const rate = parseFloat(d.offerRate ?? '0');
               if (!d.destinationName || rate <= 0) continue;
-              // Derive dial prefix from destination name (use numeric prefix from globalDestinations)
               const [gd] = await db.select({ dialPrefix: destinationsView.dialPrefix })
                 .from(destinationsView).where(eq(destinationsView.id, d.destinationId ?? 0)).limit(1);
-              const prefix = gd?.dialPrefix ?? d.destinationName;
+              // A destination whose lookup yields no dial prefix is reported, never pushed.
+              // This used to fall back to d.destinationName, which wrote the NAME into the
+              // tariff as a prefix — a rate no call could ever match, on a live customer.
+              const prefix = resolveDealDialPrefix(gd?.dialPrefix);
+              if (!prefix) {
+                unresolvedDestinations.push(d.destinationName);
+                console.warn(`[deal-approve] Rate NOT pushed for "${d.destinationName}" (destinationId=${d.destinationId ?? 'none'}): no dial prefix resolved — raw=${JSON.stringify(gd?.dialPrefix ?? null)}`);
+                continue;
+              }
               const r = await sippy.setSippyRateEntry(username, password, String(tariffId), { prefix, rate }, portalUrl, {
                 adminUser: (settings as any).apiAdminUsername ?? '',
                 adminPass: (settings as any).apiAdminPassword ?? '',
@@ -43568,8 +43577,8 @@ ${footer}
               r.success ? pushed++ : failed++;
               console.log(`[deal-approve] Rate push ${prefix}=${rate}: ${r.success ? 'OK' : r.message}`);
             }
-            ratePushResult = { pushed, failed };
-            console.log(`[deal-approve] Deal #${id} rate push complete: ${pushed} pushed, ${failed} failed → tariff=${tariffId}`);
+            ratePushResult = { pushed, failed, unresolved: unresolvedDestinations.length, unresolvedDestinations };
+            console.log(`[deal-approve] Deal #${id} rate push complete: ${pushed} pushed, ${failed} failed, ${unresolvedDestinations.length} unresolved → tariff=${tariffId}`);
           } else {
             ratePushResult = { pushed: 0, failed: 0, skipped: 'No destinations on deal' };
           }
