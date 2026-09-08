@@ -40,6 +40,7 @@ import { resolveDealDialPrefix } from './services/rates/deal-prefix';
 import { composePrefix } from './services/rates/rate-matrix';
 import { validateTrunkPrefix } from './services/rates/product-trunk';
 import { parseBillingIncrement } from './services/rates/billing-increment';
+import { lookupCatalogueIncrements } from './services/rates/catalogue-increments';
 import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
@@ -43930,16 +43931,9 @@ ${footer}
         //
         // Looked up server-side for the same reason the trunk is: it is a billing term, and a
         // caller that can set it can bill a customer differently. One query for the batch.
-        const catalogueIncrements = new Map<string, string | null>();
+        let catalogueIncrements = new Map<string, string | null>();
         try {
-          const incResult = await db.execute(sql`
-            SELECT p.prefix, p.billing_increment
-              FROM commercial_destination_prefixes p
-              JOIN catalogue_versions v ON v.id = p.version_id AND v.status = 'active'
-             WHERE p.prefix = ANY(${destList.map(d => d.dialPrefix)})`);
-          for (const r of ((incResult as any).rows ?? []) as any[]) {
-            catalogueIncrements.set(String(r.prefix), r.billing_increment ?? null);
-          }
+          catalogueIncrements = await lookupCatalogueIncrements(db, destList.map(d => d.dialPrefix));
         } catch (e: any) {
           return res.status(500).json({ error: `Could not read billing increments from the catalogue: ${e.message}` });
         }
