@@ -5118,7 +5118,7 @@ export interface SippyUploadStatusResult {
  * @param uploadParams  Nested struct — { i_tariff: N } for rates, { i_destination_set: N } for routes
  * @param iCustomer     Customer ID for trusted-mode access (optional)
  */
-function buildGetUploadTokenXml(
+export function buildGetUploadTokenXml(
   iUploadType: number,
   processOn?: string,
   expiresOn?: string,
@@ -6456,7 +6456,8 @@ export async function pushRatesBulkXlsx(
   const processOn = sippyUploadTimestamp(10_000);
   const tokenXml  = buildGetUploadTokenXml(
     await resolveUploadType(username, password, base, 'rates'), processOn,
-    uploadExpiresOn(processOn), { i_tariff: iTariff });
+    // expires_on deliberately OMITTED — see setSippyRateEntry for why.
+    undefined, { i_tariff: iTariff });
   const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10_000);
 
   if (tokenResp.statusCode !== 200 || tokenResp.body.includes('faultCode')) {
@@ -9338,7 +9339,7 @@ export async function probeUploadToken(
       apiUrl,
       buildGetUploadTokenXml(
         await resolveUploadType(username, password, portalUrl, 'rates'),
-        undefined, uploadExpiresOn(undefined), { i_tariff: iTariff }),
+        undefined, undefined, { i_tariff: iTariff }),
       username, password, 15000,
     );
     if (resp.statusCode !== 200) {
@@ -9397,7 +9398,8 @@ export async function uploadRatesWorkbook(
 
   const tokenXml = buildGetUploadTokenXml(
     await resolveUploadType(username, password, base, 'rates'),
-    sippyUploadTimestamp(10_000), uploadExpiresOn(sippyUploadTimestamp(10_000)), { i_tariff: iTariff },
+    // expires_on deliberately OMITTED — see setSippyRateEntry for why.
+    sippyUploadTimestamp(10_000), undefined, { i_tariff: iTariff },
   );
   const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 15000);
   console.log(`[RateManager] bulk getUploadToken: HTTP ${tokenResp.statusCode} ${tokenResp.body.slice(0, 200)}`);
@@ -9566,7 +9568,16 @@ export async function setSippyRateEntry(
     step('token');
     const tokenXml  = buildGetUploadTokenXml(
       await resolveUploadType(username, password, base, 'rates'),
-      processOn, uploadExpiresOn(processOn), { i_tariff: Number(tariffId) });
+      // ── expires_on is DELIBERATELY NOT SENT ──────────────────────────────
+      // The last two successful upload_token pushes on this switch — jobs #33 and #34,
+      // 2026-09-02, tariff 66 — were made with expires_on undefined, which is how every
+      // upload this codebase had ever created was built. 8a5974aa started sending it on
+      // 2026-09-07 and it was corrected twice more; since then no upload has produced a
+      // rate. Sippy documents expires_on as "when the system stops any attempts to process
+      // the file", so a value it dislikes could plausibly make it accept an upload and then
+      // decline to process it — exactly the observed symptom. Restoring the contract that
+      // provably worked. Do not re-add without a successful push to point at.
+      processOn, undefined, { i_tariff: Number(tariffId) });
     const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10000);
     console.log(`[RateManager] getUploadToken: HTTP ${tokenResp.statusCode} body=${tokenResp.body.substring(0, 300)}`);
 
