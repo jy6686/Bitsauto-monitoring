@@ -44,6 +44,7 @@ import { lookupCatalogueIncrements } from './services/rates/catalogue-increments
 import { checkTariffIntegrity } from './services/rates/tariff-integrity';
 import { runRateBatch, type RunnerOperation, type InjectedPush } from './services/rates/batch-runner';
 import { createPostgresTariffLock } from './services/rates/tariff-lock';
+import { getJobOperations } from './services/rates/operation-store';
 import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
@@ -44416,6 +44417,53 @@ ${footer}
     },
   );
   // GET /api/rate-manager/jobs — rate push job history (business-enriched)
+  /**
+   * GET /api/rate-manager/jobs/:jobId/operations — READ-ONLY.
+   *
+   * The engine writes one durable row per operation and, until this existed, nothing showed them.
+   * During the 2026-09-09 acceptance the per-operation status and refused_before_write were asked
+   * for and could not be produced without opening Postgres by hand.
+   *
+   * `:jobId` accepts either the business key (job-1788973684344) or the numeric id the UI shows.
+   * The parent status is DERIVED from the rows on every read, so it cannot drift from them.
+   */
+  app.get('/api/rate-manager/jobs/:jobId/operations',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const raw = String(req.params.jobId);
+        let jobKey = raw;
+        let parent: any = null;
+
+        if (/^\d+$/.test(raw)) {
+          [parent] = await db.select().from(ratePushJobs).where(eq(ratePushJobs.id, Number(raw))).limit(1);
+          if (!parent) return res.status(404).json({ error: `No push job with id ${raw}` });
+          jobKey = parent.jobId;
+        } else {
+          [parent] = await db.select().from(ratePushJobs).where(eq(ratePushJobs.jobId, raw)).limit(1);
+          if (!parent) return res.status(404).json({ error: `No push job ${raw}` });
+        }
+
+        const { operations, summary } = await getJobOperations(db, jobKey);
+        res.json({
+          job: {
+            id: parent.id, jobId: parent.jobId, status: parent.status,
+            productName: parent.productName, trunkPrefix: parent.trunkPrefix,
+            clientNames: parent.clientNames, totalClients: parent.totalClients,
+            pushedClients: parent.pushedClients, failedClients: parent.failedClients,
+            pushMethod: parent.pushMethod, uploadToken: parent.uploadToken,
+            uploadStatus: parent.uploadStatus, verificationResult: parent.verificationResult,
+            errorMessage: parent.errorMessage, notes: parent.notes,
+            createdAt: parent.createdAt, startedAt: parent.startedAt, completedAt: parent.completedAt,
+          },
+          operations,
+          // Derived from the operation rows, which is why it can disagree with job.status on a row
+          // written before this engine existed — and that disagreement is worth seeing.
+          derived: summary,
+        });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    });
+
   app.get('/api/rate-manager/jobs', async (_req, res) => {
     try {
       const jobs = await db.select().from(ratePushJobs).orderBy(desc(ratePushJobs.createdAt)).limit(100);
