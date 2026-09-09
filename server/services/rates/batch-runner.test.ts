@@ -51,6 +51,7 @@ beforeAll(async () => {
       status VARCHAR(16) NOT NULL DEFAULT 'pending'
     );`);
   await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '511_rate_push_operations.sql'), 'utf8'));
+  await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '512_operation_resolution.sql'), 'utf8'));
 });
 afterAll(async () => { await client?.close(); });
 beforeEach(async () => {
