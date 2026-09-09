@@ -37,6 +37,7 @@ beforeAll(async () => {
   db = drizzle(client);
   await client.exec(`CREATE TABLE rate_push_jobs (id SERIAL PRIMARY KEY, job_id VARCHAR(64) UNIQUE NOT NULL, status VARCHAR(16) NOT NULL DEFAULT 'pending');`);
   await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '511_rate_push_operations.sql'), 'utf8'));
+  await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '512_operation_resolution.sql'), 'utf8'));
 });
 afterAll(async () => { await client?.close(); });
 beforeEach(async () => {
@@ -201,6 +202,26 @@ describe("tariffHasUnresolvedOperations — reports the fact, imposes no policy"
     const r = await tariffHasUnresolvedOperations(db, 65, sql);
     expect(r.unresolved).toBe(true);
     expect(r.operationKeys).toEqual(['job-46/a']);
+  });
+
+  it("stops counting an operation once a person has resolved it", async () => {
+    // This is the unblock half of the chain: unknown -> block -> inspect -> resolve -> eligible.
+    await db.execute(sql`
+      INSERT INTO rate_push_operations (job_id, operation_key, sequence, account_name, full_prefix, i_tariff, status)
+      VALUES ('job-46', 'a', 0, 'acct', '19370', 65, 'indeterminate')`);
+    expect((await tariffHasUnresolvedOperations(db, 65, sql)).unresolved).toBe(true);
+
+    await db.execute(sql`
+      UPDATE rate_push_operations
+         SET resolution = 'not_applied', resolved_by = 'junaid', resolved_at = NOW(),
+             resolution_note = 'Read tariff 65 in Sippy; 19370 is absent.'
+       WHERE job_id = 'job-46' AND operation_key = 'a'`);
+
+    const after = await tariffHasUnresolvedOperations(db, 65, sql);
+    expect(after.unresolved).toBe(false);
+    // The original verdict is still on the row — resolution did not erase it.
+    const st: any = await db.execute(sql`SELECT status FROM rate_push_operations WHERE operation_key = 'a'`);
+    expect((Array.isArray(st) ? st : st.rows)[0].status).toBe('indeterminate');
   });
 
   it("is clean for a tariff whose operations all settled", async () => {

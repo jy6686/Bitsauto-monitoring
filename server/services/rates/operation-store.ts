@@ -295,6 +295,12 @@ export interface OperationRecord {
   createdAt: string | null;
   startedAt: string | null;
   completedAt: string | null;
+  /** 'not_applied' | 'applied' | null. Beside `status`, never replacing it. */
+  resolution: OperationResolution | null;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+  observedState: string | null;
 }
 
 /**
@@ -314,7 +320,8 @@ export async function getJobOperations(
            product_name, trunk_prefix, dial_prefix, full_prefix, destination_name,
            requested_rate, interval_1, interval_n, effective_from, effective_till,
            status, attempts, i_rate, push_method, verification_result, refused_before_write,
-           message, created_at, started_at, completed_at
+           message, created_at, started_at, completed_at,
+           resolution, resolved_by, resolved_at, resolution_note, observed_state
       FROM rate_push_operations
      WHERE job_id = ${jobId}
      ORDER BY sequence`));
@@ -351,7 +358,111 @@ export async function getJobOperations(
     createdAt:          asStr(r.created_at),
     startedAt:          asStr(r.started_at),
     completedAt:        asStr(r.completed_at),
+    resolution:         (asStr(r.resolution) as OperationResolution | null),
+    resolvedBy:         asStr(r.resolved_by),
+    resolvedAt:         asStr(r.resolved_at),
+    resolutionNote:     asStr(r.resolution_note),
+    observedState:      asStr(r.observed_state),
   }));
 
   return { jobId, operations, summary: await deriveJobStatus(db, jobId) };
+}
+
+// ── Operator resolution of an unknown outcome ────────────────────────────────
+
+export type OperationResolution = 'not_applied' | 'applied';
+
+/** The DB enforces this too; checking here lets the caller get a usable message. */
+export const MIN_RESOLUTION_NOTE = 10;
+
+export type ResolveOutcome =
+  | { ok: true;  operation: OperationRecord }
+  | { ok: false; code: 'not_found' | 'not_indeterminate' | 'already_resolved' | 'note_too_short'; message: string };
+
+/**
+ * Records what a person found when they read Sippy for an operation whose outcome was never
+ * established.
+ *
+ * `status` is NOT touched. The operation remains `indeterminate` because that is what was true at
+ * the time, and erasing it would erase the evidence that the system was once unable to tell. The
+ * resolution sits beside it as a later, attributable fact.
+ *
+ * This writes to OUR database only. It never contacts Sippy and never re-runs the operation — the
+ * operator has already looked, and an automatic retry of a possible mutation is the exact thing the
+ * whole engine refuses to do.
+ */
+export async function resolveOperation(
+  db: OperationQueryable,
+  jobId: string,
+  operationKey: string,
+  input: { resolution: OperationResolution; resolvedBy: string; note: string; observedState?: string | null },
+): Promise<ResolveOutcome> {
+  const note = String(input.note ?? '').trim();
+  if (note.length < MIN_RESOLUTION_NOTE) {
+    return {
+      ok: false, code: 'note_too_short',
+      message: `A resolution needs a note of at least ${MIN_RESOLUTION_NOTE} characters saying what was found in Sippy. Resolving without reading the tariff is the one thing this workflow exists to prevent.`,
+    };
+  }
+
+  const [existing] = rows(await db.execute(sql`
+    SELECT status, resolution, resolved_by, i_tariff
+      FROM rate_push_operations
+     WHERE job_id = ${jobId} AND operation_key = ${operationKey}`));
+
+  if (!existing) {
+    return { ok: false, code: 'not_found', message: `No operation ${operationKey} on job ${jobId}.` };
+  }
+  if (String(existing.status) !== 'indeterminate') {
+    return {
+      ok: false, code: 'not_indeterminate',
+      message: `Operation ${operationKey} is '${existing.status}', not 'indeterminate'. Only an outcome nobody could establish is open to resolution; an established one is already the record.`,
+    };
+  }
+  if (existing.resolution !== null && existing.resolution !== undefined) {
+    return {
+      ok: false, code: 'already_resolved',
+      message: `Operation ${operationKey} was already resolved as '${existing.resolution}' by ${existing.resolved_by ?? 'unknown'}. Re-resolving would overwrite one person's finding with another's; record a new observation instead.`,
+    };
+  }
+
+  await db.execute(sql`
+    UPDATE rate_push_operations
+       SET resolution      = ${input.resolution},
+           resolved_by     = ${input.resolvedBy},
+           resolved_at     = NOW(),
+           resolution_note = ${note},
+           observed_state  = ${input.observedState ?? null}
+     WHERE job_id = ${jobId} AND operation_key = ${operationKey}`);
+
+  const { operations } = await getJobOperations(db, jobId);
+  const operation = operations.find(o => o.operationKey === operationKey)!;
+  return { ok: true, operation };
+}
+
+/**
+ * Every operation still awaiting a person, newest first. This is what an operator opens to find the
+ * work, and what the tariff-blocking predicate will consult once that policy is turned on.
+ */
+export async function listUnresolvedOperations(
+  db: OperationQueryable,
+  opts: { iTariff?: number } = {},
+): Promise<Array<{ jobId: string; operationKey: string; iTariff: number | null; fullPrefix: string; accountName: string; message: string | null; completedAt: string | null }>> {
+  const res = await db.execute(
+    opts.iTariff === undefined
+      ? sql`SELECT job_id, operation_key, i_tariff, full_prefix, account_name, message, completed_at
+              FROM rate_push_operations
+             WHERE status = 'indeterminate' AND resolution IS NULL
+             ORDER BY id DESC`
+      : sql`SELECT job_id, operation_key, i_tariff, full_prefix, account_name, message, completed_at
+              FROM rate_push_operations
+             WHERE status = 'indeterminate' AND resolution IS NULL AND i_tariff = ${opts.iTariff}
+             ORDER BY id DESC`);
+  return rows(res).map((r: any) => ({
+    jobId: String(r.job_id), operationKey: String(r.operation_key),
+    iTariff: r.i_tariff === null ? null : num(r.i_tariff),
+    fullPrefix: String(r.full_prefix), accountName: String(r.account_name),
+    message: r.message === null ? null : String(r.message),
+    completedAt: r.completed_at === null ? null : String(r.completed_at),
+  }));
 }

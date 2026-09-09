@@ -44,7 +44,7 @@ import { lookupCatalogueIncrements } from './services/rates/catalogue-increments
 import { checkTariffIntegrity } from './services/rates/tariff-integrity';
 import { runRateBatch, type RunnerOperation, type InjectedPush } from './services/rates/batch-runner';
 import { createPostgresTariffLock } from './services/rates/tariff-lock';
-import { getJobOperations } from './services/rates/operation-store';
+import { getJobOperations, resolveOperation, listUnresolvedOperations } from './services/rates/operation-store';
 import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
@@ -44461,6 +44461,76 @@ ${footer}
           // written before this engine existed — and that disagreement is worth seeing.
           derived: summary,
         });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    });
+
+  /**
+   * GET /api/rate-manager/operations/unresolved — READ-ONLY.
+   * Every operation whose outcome nobody could establish and nobody has since settled.
+   */
+  app.get('/api/rate-manager/operations/unresolved',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const iTariff = req.query.iTariff !== undefined ? Number(req.query.iTariff) : undefined;
+        const operations = await listUnresolvedOperations(db, { iTariff });
+        res.json({ operations, count: operations.length });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    });
+
+  /**
+   * POST /api/rate-manager/jobs/:jobId/operations/:operationKey/resolve
+   *
+   * Records what a PERSON found when they read Sippy for an operation whose outcome was never
+   * established. Writes to this database only — it never contacts Sippy and never re-runs the
+   * operation. The operator has already looked; an automatic retry of a possible mutation is
+   * exactly what the engine refuses to do.
+   *
+   * `status` is left at 'indeterminate' on purpose. That is the historical fact — at the time,
+   * nobody could tell. The resolution is a later, attributable fact recorded beside it.
+   */
+  app.post('/api/rate-manager/jobs/:jobId/operations/:operationKey/resolve',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const { resolution, note, observedState } = req.body ?? {};
+        if (resolution !== 'not_applied' && resolution !== 'applied') {
+          return res.status(400).json({
+            error: "resolution must be 'not_applied' (you read the tariff and the rate is absent) or 'applied' (you read the tariff and it is there)",
+          });
+        }
+        const actor = req.user?.claims?.sub ?? req.user?.id ?? null;
+        if (!actor) return res.status(401).json({ error: 'A resolution must be attributable to a person.' });
+
+        const outcome = await resolveOperation(db, String(req.params.jobId), String(req.params.operationKey), {
+          resolution, resolvedBy: String(actor), note: String(note ?? ''), observedState: observedState ?? null,
+        });
+
+        if (!outcome.ok) {
+          const status = outcome.code === 'not_found' ? 404
+                       : outcome.code === 'already_resolved' ? 409 : 400;
+          return res.status(status).json({ error: outcome.message, code: outcome.code });
+        }
+
+        await writeAudit({
+          category: 'operational',
+          action: 'RATE_OPERATION_RESOLVED',
+          actor: String(actor),
+          actorType: 'user',
+          targetType: 'rate_push_operation',
+          targetId: `${req.params.jobId}/${req.params.operationKey}`,
+          targetName: `${outcome.operation.fullPrefix} → tariff ${outcome.operation.iTariff}`,
+          // A tariff someone declared already mutated is worth more than an info line.
+          severity: resolution === 'applied' ? 'warning' : 'info',
+          metadata: {
+            resolution, note: outcome.operation.resolutionNote, observedState: outcome.operation.observedState,
+            iTariff: outcome.operation.iTariff, prefix: outcome.operation.fullPrefix,
+            originalStatus: outcome.operation.status, originalMessage: outcome.operation.message,
+          },
+          ip: req.ip,
+        });
+
+        res.json({ operation: outcome.operation });
       } catch (e: any) { res.status(500).json({ error: e.message }); }
     });
 

@@ -23,6 +23,7 @@ import type { OperationResult } from "./batch-execute";
 import {
   persistPlan, markOperationRunning, recordOperationResult,
   deriveJobStatus, reconcileInterruptedOperations, getJobOperations,
+  resolveOperation, listUnresolvedOperations,
 } from "./operation-store";
 
 let client: PGlite;
@@ -61,6 +62,7 @@ beforeAll(async () => {
 
   // Migration 511 verbatim. If it cannot apply here it cannot apply in production.
   await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '511_rate_push_operations.sql'), 'utf8'));
+  await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '512_operation_resolution.sql'), 'utf8'));
 });
 
 afterAll(async () => { await client?.close(); });
@@ -414,5 +416,134 @@ describe("the operations endpoint is read-only and gated", () => {
   it("reports the DERIVED status alongside the stored one, so a disagreement is visible", () => {
     expect(handler).toContain('derived: summary');
     expect(handler).toContain('status: parent.status');
+  });
+});
+
+describe("resolveOperation — a person settles an unknown outcome", () => {
+  beforeEach(async () => {
+    await persistPlan(db, JOB, planRateBatch([op('unknown', 65, '19370'), op('done', 65, '192'), op('nope', 65, '193')]));
+    await recordOperationResult(db, JOB, result('unknown', 'indeterminate', { iTariff: 65 }));
+    await recordOperationResult(db, JOB, result('done', 'success', { iTariff: 65 }));
+    await recordOperationResult(db, JOB, result('nope', 'failure', { iTariff: 65 }));
+  });
+
+  const NOTE = 'Read tariff 65 in the Sippy panel; 19370 is not present.';
+
+  it("records the finding WITHOUT rewriting the original verdict", async () => {
+    // The operation was indeterminate at the time and that remains the historical fact.
+    const r = await resolveOperation(db, JOB, 'unknown', { resolution: 'not_applied', resolvedBy: 'junaid', note: NOTE });
+    expect(r.ok).toBe(true);
+    const o = (r as any).operation;
+    expect(o.status).toBe('indeterminate');          // untouched
+    expect(o.resolution).toBe('not_applied');
+    expect(o.resolvedBy).toBe('junaid');
+    expect(o.resolvedAt).toBeTruthy();
+    expect(o.resolutionNote).toBe(NOTE);
+  });
+
+  it("records 'applied' with the observed state, for a mutation that DID land", async () => {
+    const r = await resolveOperation(db, JOB, 'unknown', {
+      resolution: 'applied', resolvedBy: 'junaid',
+      note: 'Tariff 65 shows 19370 @ 0.133 on a new iRate.', observedState: '19370 @ 0.133 / 60/1 / iRate 9200',
+    });
+    expect((r as any).operation.resolution).toBe('applied');
+    expect((r as any).operation.observedState).toContain('iRate 9200');
+  });
+
+  it("REFUSES a note too short to be a real observation", async () => {
+    // "resolve" must not come to mean "I did not check".
+    const r = await resolveOperation(db, JOB, 'unknown', { resolution: 'not_applied', resolvedBy: 'junaid', note: 'ok' });
+    expect(r).toMatchObject({ ok: false, code: 'note_too_short' });
+    expect((await getJobOperations(db, JOB)).operations.find(o => o.operationKey === 'unknown')!.resolution).toBeNull();
+  });
+
+  it("REFUSES to resolve an outcome that was already established", async () => {
+    for (const key of ['done', 'nope']) {
+      const r = await resolveOperation(db, JOB, key, { resolution: 'not_applied', resolvedBy: 'junaid', note: NOTE });
+      expect(r).toMatchObject({ ok: false, code: 'not_indeterminate' });
+    }
+  });
+
+  it("REFUSES a second resolution rather than overwriting the first person's finding", async () => {
+    await resolveOperation(db, JOB, 'unknown', { resolution: 'not_applied', resolvedBy: 'junaid', note: NOTE });
+    const second = await resolveOperation(db, JOB, 'unknown', { resolution: 'applied', resolvedBy: 'someone-else', note: 'I think it did apply after all.' });
+    expect(second).toMatchObject({ ok: false, code: 'already_resolved' });
+    expect((second as any).message).toContain('junaid');
+    expect((await getJobOperations(db, JOB)).operations.find(o => o.operationKey === 'unknown')!.resolution).toBe('not_applied');
+  });
+
+  it("reports a missing operation rather than silently doing nothing", async () => {
+    expect(await resolveOperation(db, JOB, 'ghost', { resolution: 'applied', resolvedBy: 'j', note: NOTE }))
+      .toMatchObject({ ok: false, code: 'not_found' });
+  });
+
+  it("the DATABASE refuses an unattributed or unexplained resolution, not just the code path", async () => {
+    // Belt and braces: the CHECK is the last line of defence if a future writer bypasses the helper.
+    await expect(db.execute(sql`
+      UPDATE rate_push_operations SET resolution = 'not_applied'
+       WHERE job_id = ${JOB} AND operation_key = 'unknown'`)).rejects.toThrow(/resolution_ck|check constraint/i);
+  });
+
+  it("the DATABASE refuses resolving a non-indeterminate operation", async () => {
+    await expect(db.execute(sql`
+      UPDATE rate_push_operations
+         SET resolution='not_applied', resolved_by='j', resolved_at=NOW(), resolution_note=${'x'.repeat(20)}
+       WHERE job_id = ${JOB} AND operation_key = 'done'`)).rejects.toThrow(/resolution_ck|check constraint/i);
+  });
+});
+
+describe("listUnresolvedOperations — the queue of things awaiting a person", () => {
+  beforeEach(async () => {
+    await persistPlan(db, JOB, planRateBatch([op('a', 65, '19370'), op('b', 66, '19232'), op('c', 65, '192')]));
+    await recordOperationResult(db, JOB, result('a', 'indeterminate', { iTariff: 65 }));
+    await recordOperationResult(db, JOB, result('b', 'indeterminate', { iTariff: 66 }));
+    await recordOperationResult(db, JOB, result('c', 'success', { iTariff: 65 }));
+  });
+
+  it("lists only unestablished, unsettled operations", async () => {
+    const all = await listUnresolvedOperations(db);
+    expect(all.map(o => o.operationKey).sort()).toEqual(['a', 'b']);
+  });
+
+  it("filters to one tariff", async () => {
+    expect((await listUnresolvedOperations(db, { iTariff: 66 })).map(o => o.operationKey)).toEqual(['b']);
+  });
+
+  it("drops an operation once a person has settled it", async () => {
+    await resolveOperation(db, JOB, 'a', { resolution: 'not_applied', resolvedBy: 'junaid', note: 'Read tariff 65; 19370 absent.' });
+    expect((await listUnresolvedOperations(db)).map(o => o.operationKey)).toEqual(['b']);
+  });
+});
+
+describe("the resolve endpoint is gated, attributable and never touches Sippy", () => {
+  const SRC = readFileSync(join(__dirname, '..', '..', 'routes.ts'), 'utf8');
+  const handler = (() => {
+    const start = SRC.indexOf("app.post('/api/rate-manager/jobs/:jobId/operations/:operationKey/resolve'");
+    return SRC.slice(start, SRC.indexOf("app.get('/api/rate-manager/jobs'", start));
+  })();
+
+  it("is mounted and role-gated", () => {
+    expect(handler.length).toBeGreaterThan(200);
+    expect(handler).toContain("requireRole(['admin', 'management']");
+  });
+
+  it("refuses an unattributable resolution", () => {
+    expect(handler).toContain('A resolution must be attributable to a person.');
+  });
+
+  it("makes NO Sippy call and never re-runs the operation", () => {
+    for (const forbidden of ['sippy.', 'pushRateToSippy', 'runRateBatch', 'setSippyRateEntry']) {
+      expect(handler, `resolve handler must not contain ${forbidden}`).not.toContain(forbidden);
+    }
+  });
+
+  it("writes an audit event naming the operator and the finding", () => {
+    expect(handler).toContain("action: 'RATE_OPERATION_RESOLVED'");
+    expect(handler).toContain("actorType: 'user'");
+    expect(handler).toContain('originalStatus');
+  });
+
+  it("treats a mutation declared APPLIED as more serious than one declared absent", () => {
+    expect(handler).toContain("severity: resolution === 'applied' ? 'warning' : 'info'");
   });
 });

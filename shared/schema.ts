@@ -4633,6 +4633,19 @@ export const ratePushOperations = pgTable("rate_push_operations", {
   createdAt:          timestamp("created_at").defaultNow().notNull(),
   startedAt:          timestamp("started_at"),
   completedAt:        timestamp("completed_at"),
+
+  // ── Operator resolution of an unknown outcome (migration 512) ───────────────
+  // Recorded BESIDE `status`, never on top of it. The original verdict is the
+  // historical fact that nobody could establish what happened; the resolution is
+  // a later, attributable fact about what a person found when they looked.
+  /** 'not_applied' | 'applied'. NULL means nobody has looked yet. */
+  resolution:         varchar("resolution",      { length: 24 }),
+  resolvedBy:         varchar("resolved_by",     { length: 128 }),
+  resolvedAt:         timestamp("resolved_at"),
+  /** Why. The DB requires >= 10 characters, so "resolve" cannot mean "I did not check". */
+  resolutionNote:     text("resolution_note"),
+  /** What the operator actually saw in Sippy. Evidence, not a verdict. */
+  observedState:      text("observed_state"),
 }, (t) => ({
   jobKeyUq:   uniqueIndex("rate_push_operations_job_key_uq").on(t.jobId, t.operationKey),
   jobSeqIx:   index("rate_push_operations_job_seq_ix").on(t.jobId, t.sequence),

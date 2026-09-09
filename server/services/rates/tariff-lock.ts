@@ -145,7 +145,8 @@ export interface LockQueryable {
 }
 
 /**
- * Whether this tariff holds an operation whose outcome was never established.
+ * Whether this tariff holds an operation whose outcome was never established AND that nobody has
+ * since settled. An operation an operator has read Sippy for and resolved no longer counts.
  *
  * Reported, not enforced. Writing to a tariff in this state is not a concurrency problem — the
  * advisory lock is free — it is an unknown-state problem, and whether to refuse is a policy the
@@ -160,7 +161,9 @@ export async function tariffHasUnresolvedOperations(
   const res = await db.execute(sql`
     SELECT job_id, operation_key
       FROM rate_push_operations
-     WHERE i_tariff = ${iTariff} AND status = 'indeterminate'
+     WHERE i_tariff = ${iTariff}
+       AND status = 'indeterminate'
+       AND resolution IS NULL
      ORDER BY id`);
   const rows = Array.isArray(res) ? res : (res?.rows ?? []);
   return {
