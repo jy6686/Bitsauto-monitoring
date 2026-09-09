@@ -43,6 +43,7 @@ import { parseBillingIncrement } from './services/rates/billing-increment';
 import { lookupCatalogueIncrements } from './services/rates/catalogue-increments';
 import { checkTariffIntegrity } from './services/rates/tariff-integrity';
 import { runRateBatch, type RunnerOperation, type InjectedPush } from './services/rates/batch-runner';
+import { createPostgresTariffLock } from './services/rates/tariff-lock';
 import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
@@ -44170,7 +44171,11 @@ ${footer}
         // One serial lane per tariff, concurrent across tariffs, every operation on a durable row
         // before the first push, and an outcome nobody established never retried.
         const runOutcome = await runRateBatch(
-          { db, push },
+          // The lock makes "one writer per tariff" true across BATCHES, not just within one. On
+          // 2026-09-09 jobs 46 and 47 wrote tariff 65 concurrently for ~44s because the planner's
+          // serialisation stops at the batch boundary; a Postgres advisory lock is visible to every
+          // request and process, and Postgres frees it if this one dies.
+          { db, push, lock: createPostgresTariffLock(pool) },
           {
             jobId,
             operations,
