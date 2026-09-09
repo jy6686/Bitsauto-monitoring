@@ -41,6 +41,7 @@ import { composePrefix } from './services/rates/rate-matrix';
 import { validateTrunkPrefix } from './services/rates/product-trunk';
 import { parseBillingIncrement } from './services/rates/billing-increment';
 import { lookupCatalogueIncrements } from './services/rates/catalogue-increments';
+import { checkTariffIntegrity } from './services/rates/tariff-integrity';
 import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
@@ -43994,6 +43995,41 @@ ${footer}
               console.warn(`[push-batch] iTariff resolution failed for ${acc.username}: ${e.message}`);
             }
           }
+        }
+
+        // ── Tariff integrity: is the resolved tariff this customer's OWN? ─────
+        // The resolver above asks Sippy which tariff the account bills on. That is the right
+        // question for "where would this write land", and the wrong one to act on alone: on
+        // this Sippy build the service-plan step cannot run, so accounts are created without
+        // their provisioned plan and Sippy assigns a shared default. 22 of 26 companies are
+        // in that state, and fifteen of them resolve to tariff 2 — a live customer's tariff.
+        //
+        // On 2026-09-08 a test push aimed at tariff 61 reached tariff 2 and was stopped only
+        // because that tariff happened to be locked. This is the check that should have
+        // stopped it, and it runs before any Sippy contact.
+        const integrityRefusals: Array<{ accountName: string; reason: string; message: string }> = [];
+        if (Array.isArray(accounts)) {
+          for (const acc of accounts) {
+            const company = acc.iAccount ? await storage.getCompanyBySippyAccount(Number(acc.iAccount)) : null;
+            const verdict = checkTariffIntegrity({
+              accountName:     acc.username,
+              storedITariff:   (company as any)?.sippyITariff ?? null,
+              resolvedITariff: iTariffByAccountName.get(acc.username) ?? null,
+            });
+            if (!verdict.safe) {
+              integrityRefusals.push({ accountName: acc.username, reason: verdict.reason, message: verdict.message });
+              console.warn(`[push-batch] REFUSED ${acc.username}: ${verdict.message}`);
+            } else {
+              console.log(`[push-batch] tariff integrity ok for ${acc.username}: provisioned ${verdict.storedITariff} == resolved ${verdict.resolvedITariff}`);
+            }
+          }
+        }
+        if (integrityRefusals.length) {
+          return res.status(409).json({
+            error: `Refusing to push: ${integrityRefusals.length} of ${(accounts ?? []).length} account(s) do not bill on the tariff provisioned for them. A rate written to a shared or unintended tariff changes billing for every account on it.`,
+            refusals: integrityRefusals,
+            hint: 'This clears when provisioning links each account to its own service plan — see the Sippy service-plan dependency. Nothing was sent to Sippy.',
+          });
         }
         const results: {
           accountName: string; prefix: string; rate: number;
