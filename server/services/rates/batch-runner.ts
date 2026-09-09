@@ -35,6 +35,7 @@ import {
   persistPlan, markOperationRunning, recordOperationResult, deriveJobStatus,
   type OperationQueryable, type PersistContext, type JobSummary,
 } from './operation-store';
+import { acquireTariff, type TariffLockProvider, type AcquireOptions } from './tariff-lock';
 
 /** One operation as the route knows it: what preflight needs, plus what the record should carry. */
 export interface RunnerOperation extends PreflightOperation {
@@ -64,6 +65,14 @@ export type InjectedPush = (
 export interface BatchRunnerDeps {
   db: OperationQueryable;
   push: InjectedPush;
+  /**
+   * Cross-BATCH exclusion on a tariff. The planner already serialises a tariff within one batch;
+   * this is what stops a second batch, in another request or process, writing the same tariff at
+   * the same time — which is exactly what jobs 46 and 47 did on tariff 65 on 2026-09-09.
+   * Omitted leaves behaviour unchanged: no cross-batch exclusion.
+   */
+  lock?: TariffLockProvider;
+  lockOptions?: AcquireOptions;
 }
 
 export interface BatchRunInput {
@@ -162,6 +171,30 @@ export async function runRateBatch(
 
   // ── 4. Execute ──────────────────────────────────────────────────────────────
   const runner: OperationRunner = async (operation, ctx) => {
+    // Claimed BEFORE the row is marked running, so a waiting batch never sees a row in flight that
+    // is only queued behind a lock.
+    const release = deps.lock
+      ? await acquireTariff(deps.lock, ctx.iTariff, deps.lockOptions)
+      : (async () => {}) as (() => Promise<void>);
+
+    if (!release) {
+      // Nothing was sent, so the tariff is provably untouched: a failure, never an unknown outcome.
+      return {
+        verdict: 'failure',
+        message: `Tariff ${ctx.iTariff} is being written by another push and did not become free in time. Nothing was sent for ${operation.prefix}; the tariff is unchanged by this operation.`,
+        refusedBeforeWrite: true,
+      };
+    }
+
+    try {
+      return await runOnePush(operation, ctx);
+    } finally {
+      // Released even if the push threw, or Postgres would hold the tariff until the connection died.
+      await release();
+    }
+  };
+
+  const runOnePush = async (operation: RateOperation, ctx: { attempt: number; iTariff: number }) => {
     await markOperationRunning(deps.db, input.jobId, operation.operationKey);
     const raw = await deps.push({
       operationKey:  operation.operationKey,

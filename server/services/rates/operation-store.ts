@@ -263,3 +263,95 @@ export async function reconcileInterruptedOperations(
     resumable:    num(rest?.n),
   };
 }
+
+// ── Reading it back ──────────────────────────────────────────────────────────
+
+/** One operation as an operator needs to see it: what was asked, what happened, and when. */
+export interface OperationRecord {
+  operationKey: string;
+  sequence: number;
+  lanePosition: number | null;
+  accountName: string;
+  iAccount: number | null;
+  iTariff: number | null;
+  productName: string | null;
+  trunkPrefix: string | null;
+  dialPrefix: string | null;
+  fullPrefix: string;
+  destinationName: string | null;
+  requestedRate: number | null;
+  interval1: number | null;
+  intervalN: number | null;
+  effectiveFrom: string | null;
+  effectiveTill: string | null;
+  status: OperationStatus;
+  attempts: number;
+  iRate: number | null;
+  pushMethod: string | null;
+  verificationResult: string | null;
+  /** null means nobody established whether a mutating request was sent. NOT the same as false. */
+  refusedBeforeWrite: boolean | null;
+  message: string | null;
+  createdAt: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+/**
+ * Every operation of a job, in submission order, with the parent status derived from them.
+ *
+ * Read-only, and it exists because the rows were being written and never shown. During the
+ * 2026-09-09 acceptance the per-operation status and `refused_before_write` were asked for and
+ * could not be produced without opening Postgres by hand — durable state that no one can read is
+ * only half of the recovery model.
+ */
+export async function getJobOperations(
+  db: OperationQueryable,
+  jobId: string,
+): Promise<{ jobId: string; operations: OperationRecord[]; summary: JobSummary }> {
+  const raw = rows(await db.execute(sql`
+    SELECT operation_key, sequence, lane_position, account_name, i_account, i_tariff,
+           product_name, trunk_prefix, dial_prefix, full_prefix, destination_name,
+           requested_rate, interval_1, interval_n, effective_from, effective_till,
+           status, attempts, i_rate, push_method, verification_result, refused_before_write,
+           message, created_at, started_at, completed_at
+      FROM rate_push_operations
+     WHERE job_id = ${jobId}
+     ORDER BY sequence`));
+
+  const asNum = (v: any): number | null => (v === null || v === undefined ? null : Number(v));
+  const asStr = (v: any): string | null => (v === null || v === undefined ? null : String(v));
+
+  const operations: OperationRecord[] = raw.map((r: any) => ({
+    operationKey:       String(r.operation_key),
+    sequence:           num(r.sequence),
+    lanePosition:       asNum(r.lane_position),
+    accountName:        String(r.account_name),
+    iAccount:           asNum(r.i_account),
+    iTariff:            asNum(r.i_tariff),
+    productName:        asStr(r.product_name),
+    trunkPrefix:        asStr(r.trunk_prefix),
+    dialPrefix:         asStr(r.dial_prefix),
+    fullPrefix:         String(r.full_prefix),
+    destinationName:    asStr(r.destination_name),
+    requestedRate:      asNum(r.requested_rate),
+    interval1:          asNum(r.interval_1),
+    intervalN:          asNum(r.interval_n),
+    effectiveFrom:      asStr(r.effective_from),
+    effectiveTill:      asStr(r.effective_till),
+    status:             String(r.status) as OperationStatus,
+    attempts:           num(r.attempts),
+    iRate:              asNum(r.i_rate),
+    pushMethod:         asStr(r.push_method),
+    verificationResult: asStr(r.verification_result),
+    // Preserved as a tri-state: false and null mean different things and must not collapse.
+    refusedBeforeWrite: r.refused_before_write === null || r.refused_before_write === undefined
+                          ? null : Boolean(r.refused_before_write),
+    message:            asStr(r.message),
+    createdAt:          asStr(r.created_at),
+    startedAt:          asStr(r.started_at),
+    completedAt:        asStr(r.completed_at),
+  }));
+
+  return { jobId, operations, summary: await deriveJobStatus(db, jobId) };
+}

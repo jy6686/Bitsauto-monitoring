@@ -22,7 +22,7 @@ import { planRateBatch, type RateOperation } from "./batch-plan";
 import type { OperationResult } from "./batch-execute";
 import {
   persistPlan, markOperationRunning, recordOperationResult,
-  deriveJobStatus, reconcileInterruptedOperations,
+  deriveJobStatus, reconcileInterruptedOperations, getJobOperations,
 } from "./operation-store";
 
 let client: PGlite;
@@ -327,5 +327,92 @@ describe("reconcileInterruptedOperations — what a crash leaves behind", () => 
     expect(s.status).toBe('needs_review');
     expect(s.tariffsNeedingReview).toEqual([64]);
     expect(s.counts).toMatchObject({ indeterminate: 1, not_attempted: 1, pending: 0 });
+  });
+});
+
+describe("getJobOperations — the reader the acceptance needed and did not have", () => {
+  it("returns every operation in submission order with the parent status derived", async () => {
+    const plan = planRateBatch([op('a', 64, '191'), op('b', 64, '192'), op('c', 65, '191'), op('d', null)]);
+    await persistPlan(db, JOB, plan, {
+      productName: 'First Class', trunkPrefix: '1',
+      extras: { a: { dialPrefix: '91', destinationName: 'PAKISTAN', iAccount: 1065 } },
+    });
+    await recordOperationResult(db, JOB, result('a', 'success', { method: 'upload_token', iRate: 9200, attempts: 1 }), { verificationResult: 'confirmed', refusedBeforeWrite: false });
+    await recordOperationResult(db, JOB, result('b', 'indeterminate'));
+
+    const { operations, summary } = await getJobOperations(db, JOB);
+
+    expect(operations.map(o => o.operationKey)).toEqual(['a', 'b', 'c', 'd']);
+    expect(operations.map(o => o.status)).toEqual(['succeeded', 'indeterminate', 'pending', 'not_attempted']);
+    expect(summary.status).toBe('processing');   // 'c' is still pending
+  });
+
+  it("exposes every field an operator needs to reconstruct what happened", async () => {
+    await persistPlan(db, JOB, planRateBatch([op('a', 65, '19370')]), {
+      productName: 'First Class', trunkPrefix: '1',
+      extras: { a: { dialPrefix: '9370', destinationName: 'AFGHANISTAN - MOBILE AWCC', iAccount: 1066 } },
+    });
+    await recordOperationResult(db, JOB, result('a', 'success', { method: 'portal_csv', iRate: 9200, attempts: 2 }), { verificationResult: 'confirmed', refusedBeforeWrite: false });
+
+    const [o] = (await getJobOperations(db, JOB)).operations;
+    expect(o).toMatchObject({
+      accountName: 'acct-65', iAccount: 1066, iTariff: 65,
+      productName: 'First Class', trunkPrefix: '1', dialPrefix: '9370',
+      fullPrefix: '19370', destinationName: 'AFGHANISTAN - MOBILE AWCC',
+      requestedRate: 0.133, interval1: 60, intervalN: 1,
+      status: 'succeeded', attempts: 2, iRate: 9200,
+      pushMethod: 'portal_csv', verificationResult: 'confirmed', refusedBeforeWrite: false,
+    });
+    expect(o.completedAt).toBeTruthy();
+    expect(o.message).toContain('success');
+  });
+
+  it("keeps refusedBeforeWrite as a TRI-STATE — null must not read as false", async () => {
+    await persistPlan(db, JOB, planRateBatch([op('a', 65, '191'), op('b', 65, '192'), op('c', 65, '191')]));
+    await recordOperationResult(db, JOB, result('a', 'indeterminate'));                                  // nobody established it
+    await recordOperationResult(db, JOB, result('b', 'failure'), { refusedBeforeWrite: true });           // provably untouched
+    const byKey = Object.fromEntries((await getJobOperations(db, JOB)).operations.map(o => [o.operationKey, o.refusedBeforeWrite]));
+    expect(byKey.a).toBeNull();
+    expect(byKey.b).toBe(true);
+    expect(byKey.c).toBe(true);   // planner refusal: no request ever existed
+  });
+
+  it("returns an empty list for a job with no operations rather than failing", async () => {
+    const r = await getJobOperations(db, JOB);
+    expect(r.operations).toEqual([]);
+    expect(r.summary.status).toBe('pending');
+  });
+});
+
+describe("the operations endpoint is read-only and gated", () => {
+  const SRC = readFileSync(join(__dirname, '..', '..', 'routes.ts'), 'utf8');
+  const handler = (() => {
+    const start = SRC.indexOf("app.get('/api/rate-manager/jobs/:jobId/operations'");
+    return SRC.slice(start, SRC.indexOf("app.get('/api/rate-manager/jobs'", start));
+  })();
+
+  it("is mounted, and only as a GET", () => {
+    expect(handler.length).toBeGreaterThan(200);
+    expect(SRC).not.toContain("app.post('/api/rate-manager/jobs/:jobId/operations'");
+  });
+
+  it("requires an admin or management role", () => {
+    expect(handler).toContain("requireRole(['admin', 'management']");
+  });
+
+  it("performs NO writes — the whole point is that reading evidence cannot alter it", () => {
+    for (const mutation of ['db.insert(', 'db.update(', 'db.delete(', 'INSERT ', 'UPDATE ', 'DELETE ']) {
+      expect(handler, `operations reader must not contain ${mutation}`).not.toContain(mutation);
+    }
+  });
+
+  it("accepts either the numeric id the UI shows or the business key", () => {
+    expect(handler).toContain('ratePushJobs.id');
+    expect(handler).toContain('ratePushJobs.jobId');
+  });
+
+  it("reports the DERIVED status alongside the stored one, so a disagreement is visible", () => {
+    expect(handler).toContain('derived: summary');
+    expect(handler).toContain('status: parent.status');
   });
 });
