@@ -6850,6 +6850,16 @@ export interface SippyPushResult {
   portalSubcustomer?: boolean;
   // Count of extra auth rules added (additional IPs) after account creation
   extraAuthRules?: number;
+  /**
+   * Whether a MUTATING request was issued to Sippy for this push.
+   *
+   *   true   none was — the tariff is untouched and this outcome is safe to treat as a failure
+   *   false  one was, whatever happened afterwards; the tariff's state is not assured
+   *   absent nobody established it, which is NOT the same as false
+   *
+   * Determined structurally, from whether execution passed the request, never from a message.
+   */
+  refusedBeforeWrite?: boolean;
 }
 
 function fmtSippyDate(d: Date): string {
@@ -6931,7 +6941,9 @@ export async function pushRateToSippy(opts: {
   intervalN?: number;
 }, credentials: { username: string; password: string }, targetUrl?: string, adminCreds?: RateAdminCreds, onProgress?: RatePushProgress): Promise<SippyPushResult> {
   const baseUrl = targetUrl ?? activeSession?.portalUrl;
-  if (!baseUrl) return { success: false, message: 'Not connected to Sippy.' };
+  // Covers only the customer.updateAccount attempt below; the delegated push reports its own.
+  const boundary: MutationBoundary = { crossed: false };
+  if (!baseUrl) return { success: false, message: 'Not connected to Sippy.', refusedBeforeWrite: true };
 
   const apiUrl  = `${sippyBase(baseUrl)}/xmlapi/xmlapi`;
   const lastErrors: string[] = [];
@@ -6991,9 +7003,11 @@ export async function pushRateToSippy(opts: {
         i_account: customer.i_account,
         ...(opts.ratePerMin !== undefined ? { rate: opts.ratePerMin } : {}),
       });
+      // Boundary crossed: customer.updateAccount changes the account's rate.
+      boundary.crossed = true;
       const resp = await sippyPost(apiUrl, body, credentials.username, credentials.password);
       if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
-        return { success: true, message: `Account rate updated via customer.updateAccount`, method: 'customer.updateAccount' };
+        return { success: true, message: `Account rate updated via customer.updateAccount`, method: 'customer.updateAccount', refusedBeforeWrite: false };
       }
       const fault = extractTag(resp.body, 'faultString') || 'customer.updateAccount rejected';
       lastErrors.push(fault);
@@ -7005,6 +7019,7 @@ export async function pushRateToSippy(opts: {
   return {
     success: false,
     message: reason,
+    refusedBeforeWrite: !boundary.crossed,
     detail: customer ? `i_account=${customer.i_account ?? 'none'} i_tariff=${customer.i_tariff ?? 'none'}` : 'No matching Sippy customer found for this account name.',
   };
 }
@@ -9459,7 +9474,41 @@ export async function uploadRatesWorkbook(
 export type RatePushStep = 'editing' | 'token' | 'uploading' | 'polling' | 'verifying' | 'fallback';
 export type RatePushProgress = (step: RatePushStep, detail?: string) => void;
 
+/**
+ * Whether execution has crossed the point where a MUTATING request was issued to Sippy.
+ *
+ * Set immediately BEFORE each such request, never after: a request that then times out or throws
+ * has still been sent, and the tariff may already have moved. Position in the code is the whole
+ * signal — this is never inferred from an error message, because a message is a description of a
+ * failure and not evidence about whether a request left the process.
+ *
+ * One object is threaded through the whole push, so the portal fallback's mutation and the upload
+ * path's mutation are recorded against the same operation.
+ */
+export interface MutationBoundary { crossed: boolean }
+
+/**
+ * Public entry point. Owns the mutation boundary for the whole operation and stamps the answer
+ * onto whatever the inner function returns, so no return path can omit it.
+ *
+ *   refusedBeforeWrite === true   no mutating request was issued; the tariff is untouched
+ *   refusedBeforeWrite === false  a mutating request was issued, whatever happened afterwards
+ */
 export async function setSippyRateEntry(
+  username: string,
+  password: string,
+  tariffId: string,
+  entry: { prefix: string; rate: number; effectiveFrom?: string; effectiveTill?: string; iRate?: number; interval1?: number; intervalN?: number },
+  portalUrl?: string,
+  adminCreds?: RateAdminCreds,
+  onProgress?: RatePushProgress,
+): Promise<{ success: boolean; message: string; method?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string; refusedBeforeWrite: boolean }> {
+  const boundary: MutationBoundary = { crossed: false };
+  const result = await setSippyRateEntryInner(username, password, tariffId, entry, portalUrl, adminCreds, onProgress, boundary);
+  return { ...result, refusedBeforeWrite: !boundary.crossed };
+}
+
+async function setSippyRateEntryInner(
   username: string,
   password: string,
   tariffId: string,
@@ -9473,6 +9522,8 @@ export async function setSippyRateEntry(
   portalUrl?: string,
   adminCreds?: RateAdminCreds,
   onProgress?: RatePushProgress,
+  /** Defaulted so the parameter may follow the optional ones; the wrapper always supplies it. */
+  boundary: MutationBoundary = { crossed: false },
 ): Promise<{ success: boolean; message: string; method?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string }> {
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
@@ -9607,6 +9658,8 @@ export async function setSippyRateEntry(
         console.log(`[RateManager] Upload XLSX: prefix=${entry.prefix} rate=${entry.rate} interval=${entry.interval1 ?? 1}/${entry.intervalN ?? 1} effective=${normaliseEntryDate(entry.effectiveFrom) || 'immediate'} till=${normaliseEntryDate(entry.effectiveTill) || 'never'} bytes=${xlsxBuffer.length}`);
 
         step('uploading', `${xlsxBuffer.length} bytes`);
+        // Boundary crossed: from here the file is on its way to Sippy and may be processed.
+        boundary.crossed = true;
         const uploadResult = await uploadBinaryFile(uploadUrl, xlsxBuffer, 'rates.xlsx');
         console.log(`[RateManager] File upload: success=${uploadResult.success} body=${uploadResult.body.substring(0, 200)}`);
 
@@ -9798,6 +9851,8 @@ export async function setSippyRateEntry(
   for (const method of methodsToTry) {
     try {
       const body = xmlRpcCall(method, params);
+      // Each probe is a write attempt, so the boundary is crossed before the first one is sent.
+      boundary.crossed = true;
       const resp = await sippyPost(apiUrl, body, username, password);
       console.log(`[Sippy] setSippyRateEntry ${method}: HTTP ${resp.statusCode} body=${resp.body.substring(0, 300)}`);
       if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
@@ -9818,6 +9873,7 @@ export async function setSippyRateEntry(
     entry.effectiveFrom, entry.effectiveTill, adminCreds, entry.iRate,
     username, password,
     entry.interval1, entry.intervalN,
+    boundary,
   );
   if (portalResult.success) {
     // Phase E: verify the rate actually changed in Sippy.
@@ -10172,6 +10228,8 @@ async function pushRateViaPortalUpload(
    */
   suppliedInterval1?: number,
   suppliedIntervalN?: number,
+  /** Shared with the caller: set the instant a mutating request is issued from here. */
+  boundary?: MutationBoundary,
 ): Promise<{ success: boolean; message: string }> {
 
   function normDate(raw?: string): string {
@@ -10308,6 +10366,8 @@ async function pushRateViaPortalUpload(
       };
       if (effectiveFrom) addParams.activation_date = normDate(effectiveFrom);
       const addQs   = new URLSearchParams(addParams).toString();
+      // This GET is the mutation. Crossed before it is sent, so a throw below still counts.
+      if (boundary) boundary.crossed = true;
       const addResp = await rawRequest('GET', `${base}/c1/rates_tariff.php?${addQs}`, null,
         { Referer: `${base}/c1/rates_tariff.php?action=&n=0&i_tariff=${iTariff}&i_rate=` }, cookies);
       const isLogin  = addResp.body.includes('value="Login"') || addResp.body.includes("value='Login'");
@@ -10371,6 +10431,8 @@ async function pushRateViaPortalUpload(
   console.log(`[Sippy] pushRateViaPortalUpload: action=change iRate=${targetIRate} prefix=${prefix} rate=${rate} act="${activationDateStr}"`);
 
   try {
+    // This GET is the mutation. Crossed before it is sent, so a throw below still counts.
+    if (boundary) boundary.crossed = true;
     const resp = await rawRequest('GET', changeUrl, null, {
       Referer: `${base}/c1/rates_tariff.php?action=edit&i_rate=${targetIRate}&i_tariff=${iTariff}`,
     }, cookies);

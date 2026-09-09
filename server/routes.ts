@@ -42,6 +42,7 @@ import { validateTrunkPrefix } from './services/rates/product-trunk';
 import { parseBillingIncrement } from './services/rates/billing-increment';
 import { lookupCatalogueIncrements } from './services/rates/catalogue-increments';
 import { checkTariffIntegrity } from './services/rates/tariff-integrity';
+import { runRateBatch, type RunnerOperation, type InjectedPush } from './services/rates/batch-runner';
 import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
@@ -43956,7 +43957,9 @@ ${footer}
           d.intervalN = parsed.intervalN;
         }
         if (unreadable.length) {
-          return res.status(400).json({ error: `Unreadable billing increment for ${unreadable.length} prefix(es): ${unreadable.slice(0, 5).join(', ')} — refusing to push rather than billing them per-second by default` });
+          // No longer a request-level refusal. The batch is well-formed; these particular prefixes
+          // are not, and preflight refuses them per operation so the rest of the batch still runs.
+          console.warn(`[push-batch] ${unreadable.length} prefix(es) have an unreadable billing increment and will be refused individually: ${unreadable.slice(0, 5).join(', ')}`);
         }
         console.log(`[push-batch] increments: ${destList.map((d: any) => `${d.dialPrefix}=${d.interval1 ?? 1}/${d.intervalN ?? 1}`).join(' ')}`);
 
@@ -44007,30 +44010,27 @@ ${footer}
         // On 2026-09-08 a test push aimed at tariff 61 reached tariff 2 and was stopped only
         // because that tariff happened to be locked. This is the check that should have
         // stopped it, and it runs before any Sippy contact.
-        const integrityRefusals: Array<{ accountName: string; reason: string; message: string }> = [];
+        // What provisioning built for each account, and its Sippy id. The integrity RULE is not
+        // applied here any more: preflight applies it per operation, so one misprovisioned account
+        // no longer cancels every sound operation beside it. A 409 here would refuse the batch at
+        // the request boundary, and the batch is perfectly well formed.
+        const storedITariffByAccountName = new Map<string, number | null>();
+        const iAccountByName             = new Map<string, number | null>();
         if (Array.isArray(accounts)) {
           for (const acc of accounts) {
             const company = acc.iAccount ? await storage.getCompanyBySippyAccount(Number(acc.iAccount)) : null;
+            storedITariffByAccountName.set(acc.username, (company as any)?.sippyITariff ?? null);
+            iAccountByName.set(acc.username, acc.iAccount ? Number(acc.iAccount) : null);
             const verdict = checkTariffIntegrity({
               accountName:     acc.username,
               storedITariff:   (company as any)?.sippyITariff ?? null,
               resolvedITariff: iTariffByAccountName.get(acc.username) ?? null,
             });
-            if (!verdict.safe) {
-              integrityRefusals.push({ accountName: acc.username, reason: verdict.reason, message: verdict.message });
-              console.warn(`[push-batch] REFUSED ${acc.username}: ${verdict.message}`);
-            } else {
-              console.log(`[push-batch] tariff integrity ok for ${acc.username}: provisioned ${verdict.storedITariff} == resolved ${verdict.resolvedITariff}`);
-            }
+            if (!verdict.safe) console.warn(`[push-batch] ${acc.username} will be refused per-operation: ${verdict.message}`);
+            else console.log(`[push-batch] tariff integrity ok for ${acc.username}: provisioned ${verdict.storedITariff} == resolved ${verdict.resolvedITariff}`);
           }
         }
-        if (integrityRefusals.length) {
-          return res.status(409).json({
-            error: `Refusing to push: ${integrityRefusals.length} of ${(accounts ?? []).length} account(s) do not bill on the tariff provisioned for them. A rate written to a shared or unintended tariff changes billing for every account on it.`,
-            refusals: integrityRefusals,
-            hint: 'This clears when provisioning links each account to its own service plan — see the Sippy service-plan dependency. Nothing was sent to Sippy.',
-          });
-        }
+
         const results: {
           accountName: string; prefix: string; rate: number;
           success: boolean; message: string; method?: string;
@@ -44091,90 +44091,95 @@ ${footer}
             lastStepAt:       new Date(),
           });
         } catch (e: any) {
-          // Non-fatal: a push must not be refused because its bookkeeping failed. But say so
-          // loudly, because the rest of this route now assumes the row exists.
-          console.error('[rate_push_jobs] could not create job row — push continues unrecorded:', e?.message || e);
+          // Now FATAL, where it used to be tolerated. Every operation gets a durable row before the
+          // first mutation-capable push, and those rows hang off this one by foreign key. With no
+          // parent row there is nothing to record against, so the batch is refused at the request
+          // boundary rather than run unrecorded — which is exactly the state that made a 19,000-
+          // prefix push unreconstructable when the process restarted.
+          console.error('[rate_push_jobs] could not create job row — refusing the batch:', e?.message || e);
+          return res.status(500).json({ error: `Could not record this push (${e?.message ?? e}). Refusing to run it unrecorded.` });
         }
 
-        for (const dest of destList) {
+        // ── One operation per destination × client ────────────────────────────
+        // The key is positional, so two destinations resolving to the same prefix for the same
+        // client stay distinct rows; the planner still refuses the second as a duplicate target.
+        const operations: RunnerOperation[] = [];
+        for (const dest of destList as any[]) {
           for (const accountName of accountNames) {
-            const startedAt = Date.now();
-
-            // Where we are, before the call rather than after it — an operation that never
-            // returns is precisely the one whose position needs to be on record.
-            // The tariff this operation targets, recorded on the row BEFORE the upload runs.
-            // It used to be written only by the finalising UPDATE, so when that statement
-            // failed the job could not say which tariff it had aimed at — and the answer had
-            // to be reconstructed from deployment logs that may already have rotated.
-            // Verification reads back from whatever this resolves to, so a push can verify
-            // itself successfully against a tariff nobody was looking at.
-            const resolvedTariff = iTariffByAccountName.get(accountName);
-            const mark = (step: string, extra: Record<string, unknown> = {}) => {
-              db.update(ratePushJobs)
-                .set({
-                  lastStep: step, lastStepAt: new Date(),
-                  lastClient: accountName.substring(0, 160),
-                  lastPrefix: dest.fullPrefix.substring(0, 32),
-                  ...(resolvedTariff ? { iTariff: Number(resolvedTariff) } : {}),
-                  ...extra,
-                })
-                .where(eq(ratePushJobs.jobId, jobId))
-                .catch(() => { /* position reporting must never fail a push */ });
-            };
-            console.log(`[push-batch] ${dest.fullPrefix} → ${accountName}: targeting i_tariff=${resolvedTariff ?? 'UNRESOLVED (server will look it up)'}`);
-            mark('queued');
-
-            try {
-              const r = await sippy.pushRateToSippy(
-                {
-                  accountName,
-                  iTariff:     iTariffByAccountName.get(accountName),
-                  prefix:      dest.fullPrefix,   // fullPrefix = trunkPrefix + dialPrefix (e.g. 19233 for First Class)
-                  ratePerMin:  dest.rate,
-                  // The destination's OWN time. A batch-level value cannot express "Mobilink
-                  // now, Zong tomorrow at 01:40" and quietly gave every row the same one.
-                  effectiveFrom: dest.effectiveFrom || effectiveFrom || undefined,
-                  effectiveTo:   effectiveTill || undefined,
-                  // The catalogue's billing increment for this prefix. Undefined only where the
-                  // prefix is not in the active catalogue, which keeps the historical 1/1.
-                  interval1:     dest.interval1,
-                  intervalN:     dest.intervalN,
-                  format: format ?? 'full',
-                },
-                { username, password },
-                portalUrl,
-                adminCreds,
-                // Real phase boundaries, reported from inside the Sippy client. The route
-                // cannot see them: from here the entire push is a single await.
-                (step, detail) => {
-                  console.log(`[push-batch] ${dest.fullPrefix} → ${accountName}: ${step}${detail ? ` (${detail})` : ''} @ ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
-                  mark(step);
-                },
-              );
-              const ms = Date.now() - startedAt;
-              console.log(`[push-batch] ${dest.fullPrefix} → ${accountName}: ${r.success ? 'ok' : 'FAILED'} in ${(ms / 1000).toFixed(1)}s (${r.method ?? 'no method'}) ${r.success ? '' : r.message}`);
-              results.push({ accountName, prefix: dest.fullPrefix, rate: dest.rate, ...r, ms });
-              if (!r.success) mark('failed', { errorMessage: `${dest.fullPrefix} → ${accountName}: ${r.message}`.substring(0, 2000) });
-            } catch (e: any) {
-              const ms = Date.now() - startedAt;
-              console.log(`[push-batch] ${dest.fullPrefix} → ${accountName}: THREW in ${(ms / 1000).toFixed(1)}s — ${e.message}`);
-              results.push({ accountName, prefix: dest.fullPrefix, rate: dest.rate, success: false, message: e.message, ms });
-              mark('failed', { errorMessage: `${dest.fullPrefix} → ${accountName}: ${e.message}`.substring(0, 2000) });
-            }
+            operations.push({
+              operationKey:    `${operations.length}:${accountName}:${dest.fullPrefix}`,
+              accountName,
+              storedITariff:   storedITariffByAccountName.get(accountName) ?? null,
+              resolvedITariff: iTariffByAccountName.get(accountName) ?? null,
+              fullPrefix:      dest.fullPrefix,
+              rate:            dest.rate,
+              // Raw, so preflight owns what a readable increment is rather than this route.
+              rawIncrement:    catalogueIncrements.get(dest.dialPrefix) ?? null,
+              dialPrefix:      dest.dialPrefix,
+              destinationName: dest.destinationName ?? null,
+              iAccount:        iAccountByName.get(accountName) ?? null,
+              // The destination's OWN time. A batch-level value cannot express "Mobilink now,
+              // Zong tomorrow at 01:40" and quietly gave every row the same one.
+              effectiveFrom:   dest.effectiveFrom || effectiveFrom || undefined,
+              effectiveTill:   effectiveTill || undefined,
+            });
           }
-
-          // Progress after each destination. Without it a five-minute push is a single
-          // opaque wait; with it, Push History shows which prefix it is on and how far in —
-          // which is also the measurement that will say whether the time is spent in Sippy's
-          // upload polling, the verification read-back, or somewhere else entirely.
-          try {
-            await db.update(ratePushJobs).set({
-              pushedClients: results.filter(r => r.success).length,
-              failedClients: results.filter(r => !r.success).length,
-              notes: `In progress: ${results.length}/${totalOps} op(s) — last ${dest.fullPrefix} took ${((results[results.length - 1]?.ms ?? 0) / 1000).toFixed(1)}s`,
-            }).where(eq(ratePushJobs.jobId, jobId));
-          } catch { /* best-effort: never fail a push because a progress update did */ }
         }
+
+        // ── The single-operation primitive, unchanged, handed to the engine ───
+        const push: InjectedPush = async (o) => {
+          const mark = (step: string) => {
+            db.update(ratePushJobs)
+              .set({
+                lastStep: step, lastStepAt: new Date(),
+                lastClient: o.accountName.substring(0, 160),
+                lastPrefix: o.prefix.substring(0, 32),
+                iTariff: o.iTariff,
+              })
+              .where(eq(ratePushJobs.jobId, jobId))
+              .catch(() => { /* position reporting must never fail a push */ });
+          };
+          console.log(`[push-batch] ${o.prefix} → ${o.accountName}: targeting i_tariff=${o.iTariff}`);
+          mark('queued');
+          const startedAt = Date.now();
+          const r = await sippy.pushRateToSippy(
+            {
+              accountName:   o.accountName,
+              iTariff:       String(o.iTariff),
+              prefix:        o.prefix,
+              ratePerMin:    o.rate,
+              effectiveFrom: o.effectiveFrom,
+              effectiveTo:   o.effectiveTill,
+              interval1:     o.interval1,
+              intervalN:     o.intervalN,
+              format:        format ?? 'full',
+            },
+            { username, password },
+            portalUrl,
+            adminCreds,
+            // Real phase boundaries, reported from inside the Sippy client.
+            (step, detail) => {
+              console.log(`[push-batch] ${o.prefix} → ${o.accountName}: ${step}${detail ? ` (${detail})` : ''}`);
+              mark(step);
+            },
+          );
+          console.log(`[push-batch] ${o.prefix} → ${o.accountName}: ${r.success ? 'ok' : 'FAILED'} in ${((Date.now() - startedAt) / 1000).toFixed(1)}s — ${r.message}`);
+          return r;
+        };
+
+        // One serial lane per tariff, concurrent across tariffs, every operation on a durable row
+        // before the first push, and an outcome nobody established never retried.
+        const runOutcome = await runRateBatch(
+          { db, push },
+          {
+            jobId,
+            operations,
+            productName: req.body.productName ?? null,
+            trunkPrefix: trunkPrefix ?? null,
+            concurrency: Number((req.body as any).concurrency) || undefined,
+          },
+        );
+        results.push(...(runOutcome.results as any));
 
         const ok    = results.filter(r => r.success).length;
         const total = results.length;
@@ -44192,7 +44197,11 @@ ${footer}
           await db.update(ratePushJobs).set({
             pushedClients:      ok,
             failedClients:      total - ok,
-            status:             ok === total ? 'completed' : ok > 0 ? 'partial' : 'failed',
+            // Derived from the persisted operation rows, so the summary cannot drift from the
+            // evidence. 'needs_review' appears when an outcome was never established: the job is
+            // then neither completed nor failed, and the UI's Re-send button is correctly withheld
+            // because retrying a possible mutation is the one thing that must not be one click.
+            status:             runOutcome.summary.status,
             // `new_rate` is varchar(32) and holds a RATE. It was being handed a 255-char
             // batch summary, so Postgres rejected the whole UPDATE and the catch below
             // swallowed it — leaving a finished push sitting at `processing` with every
@@ -44210,11 +44219,13 @@ ${footer}
             // answerable from the row rather than only from logs that may have rotated.
             notes:              `Batch: ${prefixSummary} — ok=${ok}/${total} method=${methods.join(',') || 'n/a'} | timings ${results.map(r => `${r.prefix}:${((r.ms ?? 0) / 1000).toFixed(1)}s`).join(' ')} | request ${(requestMs / 1000).toFixed(1)}s`.substring(0, 2000),
             // A terminal step, so the UI never renders a finished job as still working.
-            lastStep:           ok === total ? 'completed' : 'failed',
+            lastStep:           runOutcome.summary.status === 'completed' ? 'completed' : 'failed',
             lastStepAt:         new Date(),
             // The first failure, kept as a field rather than buried in prose. Null on a clean
             // run, so a non-null error_message always means something actually went wrong.
-            errorMessage:       results.find(r => !r.success)
+            errorMessage:       runOutcome.tariffsNeedingReview.length
+                                  ? `UNVERIFIED on tariff(s) ${runOutcome.tariffsNeedingReview.join(', ')} — read the tariff before writing to it again; those operations were not retried. ${results.filter(r => !r.success).length}/${total} did not succeed.`
+                                  : results.find(r => !r.success)
                                   ? `${results.filter(r => !r.success).length}/${total} failed — first: ${results.find(r => !r.success)!.prefix} → ${results.find(r => !r.success)!.accountName}: ${results.find(r => !r.success)!.message}`.substring(0, 2000)
                                   : null,
             completedAt:        new Date(),
@@ -44227,9 +44238,9 @@ ${footer}
           // truth: terminal status, a completion time, and the error itself.
           try {
             await db.update(ratePushJobs).set({
-              status:       ok === total ? 'completed' : ok > 0 ? 'partial' : 'failed',
+              status:       runOutcome.summary.status,
               completedAt:  new Date(),
-              lastStep:     ok === total ? 'completed' : 'failed',
+              lastStep:     runOutcome.summary.status === 'completed' ? 'completed' : 'failed',
               errorMessage: `finalise failed (${String(e?.message ?? e).substring(0, 300)}) — ${ok}/${total} operations succeeded`,
             }).where(eq(ratePushJobs.jobId, jobId));
             console.error('[rate_push_jobs] fell back to a minimal finalise; job is no longer marked processing');

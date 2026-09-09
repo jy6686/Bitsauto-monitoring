@@ -4580,6 +4580,67 @@ export const ratePushJobs = pgTable("rate_push_jobs", {
 export type RatePushJob       = typeof ratePushJobs.$inferSelect;
 export type InsertRatePushJob = typeof ratePushJobs.$inferInsert;
 
+/**
+ * One durable row per operation in a rate push (migration 511).
+ *
+ * The parent row above is flat: its i_tariff / full_prefix / new_rate describe only the FIRST
+ * result of a batch, and the per-operation outcomes used to live in an in-memory array that a
+ * single finalising UPDATE collapsed into two counters. A restart mid-run lost them, and this
+ * process restarts often.
+ *
+ * `status` keeps the terminal states apart by whether the TARIFF'S STATE IS KNOWN — `failed`
+ * means provably unchanged, `indeterminate` means nobody established it. Job #43 reported "not
+ * applied" while a rate was being destroyed; recording that as a failure is what this prevents.
+ */
+export const ratePushOperations = pgTable("rate_push_operations", {
+  id:                 serial("id").primaryKey(),
+  jobId:              varchar("job_id",        { length: 64  }).notNull()
+                        .references(() => ratePushJobs.jobId, { onDelete: 'cascade' }),
+  operationKey:       varchar("operation_key", { length: 128 }).notNull(),
+
+  /** Submission order, and position within the tariff's serial lane. */
+  sequence:           integer("sequence").notNull(),
+  lanePosition:       integer("lane_position"),
+
+  // ── What was asked for ──────────────────────────────────────────────────────
+  accountName:        varchar("account_name",     { length: 160 }).notNull(),
+  productName:        varchar("product_name",     { length: 64  }),
+  trunkPrefix:        varchar("trunk_prefix",     { length: 8   }),
+  dialPrefix:         varchar("dial_prefix",      { length: 64  }),
+  fullPrefix:         varchar("full_prefix",      { length: 32  }).notNull(),
+  destinationName:    varchar("destination_name", { length: 256 }),
+  requestedRate:      numeric("requested_rate",   { precision: 18, scale: 6 }),
+  interval1:          integer("interval_1"),
+  intervalN:          integer("interval_n"),
+  effectiveFrom:      varchar("effective_from",   { length: 32 }),
+  effectiveTill:      varchar("effective_till",   { length: 32 }),
+
+  // ── Where it was aimed. A null tariff never becomes an executable operation ──
+  iAccount:           integer("i_account"),
+  iTariff:            integer("i_tariff"),
+
+  // ── What happened ───────────────────────────────────────────────────────────
+  /** pending | running | succeeded | failed | indeterminate | not_attempted */
+  status:             varchar("status", { length: 24 }).notNull().default("pending"),
+  attempts:           integer("attempts").notNull().default(0),
+  iRate:              integer("i_rate"),
+  pushMethod:         varchar("push_method",         { length: 32 }),
+  verificationResult: varchar("verification_result", { length: 32 }),
+  /** TRUE = no mutating request was sent. NULL = nobody established it, which is NOT false. */
+  refusedBeforeWrite: boolean("refused_before_write"),
+  message:            text("message"),
+
+  createdAt:          timestamp("created_at").defaultNow().notNull(),
+  startedAt:          timestamp("started_at"),
+  completedAt:        timestamp("completed_at"),
+}, (t) => ({
+  jobKeyUq:   uniqueIndex("rate_push_operations_job_key_uq").on(t.jobId, t.operationKey),
+  jobSeqIx:   index("rate_push_operations_job_seq_ix").on(t.jobId, t.sequence),
+  tariffIx:   index("rate_push_operations_tariff_status_ix").on(t.iTariff, t.status),
+}));
+export type RatePushOperation       = typeof ratePushOperations.$inferSelect;
+export type InsertRatePushOperation = typeof ratePushOperations.$inferInsert;
+
 // ── Product Rate Repository ───────────────────────────────────────────────────
 // Commercial rate per product × prefix. Distinct from Sippy tariff rates.
 // This is what BitsAuto manages; Sippy tariff rates come from Sippy directly.
