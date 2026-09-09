@@ -41,6 +41,10 @@ export interface OperationOutcome {
   /** Optional detail carried straight through to the operation record. */
   method?: string;
   iRate?: number;
+  /** 'confirmed' | 'mismatch' | 'skip' as the primitive reported it. */
+  verificationResult?: string;
+  /** The primitive's mutation-boundary signal. Undefined means it was never established. */
+  refusedBeforeWrite?: boolean;
 }
 
 export type OperationRunner = (
@@ -58,6 +62,8 @@ export interface OperationResult {
   message: string;
   method?: string;
   iRate?: number;
+  verificationResult?: string;
+  refusedBeforeWrite?: boolean;
   attempts: number;
   ms: number;
 }
@@ -84,8 +90,11 @@ export interface ExecuteOptions {
    * one attempt regardless of this value.
    */
   maxAttempts?: number;
-  /** Called after every operation settles, for progress persistence. Must not throw. */
-  onResult?: (result: OperationResult, progress: { done: number; total: number }) => void;
+  /**
+   * Called after every operation settles, for progress persistence. Awaited, so a durable record
+   * exists before the lane continues; a rejection is contained and never fails the batch.
+   */
+  onResult?: (result: OperationResult, progress: { done: number; total: number }) => void | Promise<void>;
   /** Injected clock, so elapsed-time assertions do not depend on real time. */
   now?: () => number;
 }
@@ -104,10 +113,10 @@ export async function executeRateBatch(
   const total = plan.executableCount;
   let done = 0;
 
-  const record = (r: OperationResult) => {
+  const record = async (r: OperationResult) => {
     results.push(r);
     done += 1;
-    try { opts.onResult?.(r, { done, total }); } catch { /* progress reporting is not load-bearing */ }
+    try { await opts.onResult?.(r, { done, total }); } catch { /* progress reporting is not load-bearing */ }
   };
 
   /** One lane: strictly sequential, and it stops the moment an outcome cannot be established. */
@@ -139,7 +148,7 @@ export async function executeRateBatch(
         message: 'The push returned no outcome.',
       };
 
-      record({
+      await record({
         operationKey: operation.operationKey,
         iTariff: lane.iTariff,
         prefix: operation.prefix,
@@ -148,6 +157,8 @@ export async function executeRateBatch(
         message: settled.message,
         method: settled.method,
         iRate: settled.iRate,
+        verificationResult: settled.verificationResult,
+        refusedBeforeWrite: settled.refusedBeforeWrite,
         attempts,
         ms: now() - startedAt,
       });
@@ -157,7 +168,7 @@ export async function executeRateBatch(
         if (remaining.length) {
           haltedLanes.push({ iTariff: lane.iTariff, atOperationKey: operation.operationKey, remaining: remaining.length });
           for (const skipped of remaining) {
-            record({
+            await record({
               operationKey: skipped.operationKey,
               iTariff: lane.iTariff,
               prefix: skipped.prefix,
