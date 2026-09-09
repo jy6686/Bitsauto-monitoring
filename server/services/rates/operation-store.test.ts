@@ -25,6 +25,7 @@ import {
   deriveJobStatus, reconcileInterruptedOperations, getJobOperations,
   resolveOperation, listUnresolvedOperations,
 } from "./operation-store";
+import { tariffHasUnresolvedOperations } from "./tariff-lock";
 
 let client: PGlite;
 let db: ReturnType<typeof drizzle>;
@@ -545,5 +546,49 @@ describe("the resolve endpoint is gated, attributable and never touches Sippy", 
 
   it("treats a mutation declared APPLIED as more serious than one declared absent", () => {
     expect(handler).toContain("severity: resolution === 'applied' ? 'warning' : 'info'");
+  });
+});
+
+describe("REGRESSION: the two 'needs a person' predicates must agree", () => {
+  // Found by production verification on 2026-09-09, not by a test. After both indeterminate
+  // operations on tariff 65 were resolved, /operations/unresolved correctly returned 0 while
+  // deriveJobStatus still reported tariffsNeedingReview: [65]. tariffHasUnresolvedOperations had
+  // been made resolution-aware and this one had not. A later blocking policy built on this list
+  // would have kept a resolved tariff blocked forever — the exact stranding the workflow prevents.
+  const NOTE = 'Read tariff 65 in Sippy; 19370 is absent, so nothing was applied.';
+
+  beforeEach(async () => {
+    await persistPlan(db, JOB, planRateBatch([op('a', 65, '19370'), op('b', 65, '19371')]));
+    await recordOperationResult(db, JOB, result('a', 'indeterminate', { iTariff: 65 }));
+    await recordOperationResult(db, JOB, result('b', 'not_attempted', { iTariff: 65, attempts: 0 }));
+  });
+
+  it("before resolution: the tariff needs review and the job needs a person", async () => {
+    const s = await deriveJobStatus(db, JOB);
+    expect(s.tariffsNeedingReview).toEqual([65]);
+    expect(s.requiresReview).toBe(true);
+    expect(s.unresolvedCount).toBe(1);
+  });
+
+  it("after resolution: the tariff drops off the list and nothing awaits a person", async () => {
+    await resolveOperation(db, JOB, 'a', { resolution: 'not_applied', resolvedBy: 'junaid', note: NOTE });
+    const s = await deriveJobStatus(db, JOB);
+
+    expect(s.tariffsNeedingReview).toEqual([]);
+    expect(s.requiresReview).toBe(false);
+    expect(s.unresolvedCount).toBe(0);
+    // …while the history is untouched: the operation and the job still say what happened.
+    expect(s.counts.indeterminate).toBe(1);
+    expect(s.status).toBe('needs_review');
+  });
+
+  it("agrees with tariffHasUnresolvedOperations in both directions", async () => {
+    const before = await tariffHasUnresolvedOperations(db, 65, sql);
+    expect(before.unresolved).toBe((await deriveJobStatus(db, JOB)).requiresReview);
+
+    await resolveOperation(db, JOB, 'a', { resolution: 'applied', resolvedBy: 'junaid', note: NOTE });
+    const after = await tariffHasUnresolvedOperations(db, 65, sql);
+    expect(after.unresolved).toBe((await deriveJobStatus(db, JOB)).requiresReview);
+    expect(after.unresolved).toBe(false);
   });
 });
