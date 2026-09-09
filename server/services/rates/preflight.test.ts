@@ -140,31 +140,55 @@ describe("the rules are not restated here", () => {
   });
 });
 
-describe("the push-batch route already gates on these, ahead of the primitive", () => {
-  // Audited 2026-09-09 rather than assumed: the route resolves each account's tariff, runs
-  // checkTariffIntegrity and validates catalogue increments BEFORE its push loop, so a mismatch or
-  // an unreadable increment already exits without a Sippy rate-write today. What it cannot do is
-  // report those per operation — it refuses the whole request — which is why preflight exists.
-  // This pins the ordering so a later edit cannot quietly move a gate below the first push.
+describe("the push-batch route, after wiring", () => {
+  // These replace the pair that pinned the pre-wiring ordering. They failed the moment the 409 was
+  // removed, which is what they were for; the invariant has moved rather than disappeared.
   const SRC = readFileSync(join(__dirname, '..', '..', 'routes.ts'), 'utf8').split('\n');
   const lineOf = (needle: string, from = 0): number =>
     SRC.findIndex((l, i) => i >= from && l.includes(needle)) + 1;
 
-  it("validates increments and tariff integrity before it calls pushRateToSippy", () => {
-    const increments = lineOf('lookupCatalogueIncrements(db, destList.map');
-    const integrity  = lineOf('const verdict = checkTariffIntegrity({', increments);
-    const refusal    = lineOf('integrityRefusals.length', integrity);
-    const firstPush  = lineOf('await sippy.pushRateToSippy(', refusal);
+  /** The push-batch handler's own line range, so nothing here reads a neighbouring route. */
+  const handler = (() => {
+    const start = lineOf("app.post('/api/rate-manager/push-batch'");
+    const end   = lineOf('res.json({ results, ok, total, requestMs, sippyMs })', start);
+    return { start, end, text: SRC.slice(start - 1, end).join('\n') };
+  })();
 
-    expect(increments).toBeGreaterThan(0);
-    expect(integrity).toBeGreaterThan(increments);
-    expect(refusal).toBeGreaterThan(integrity);
-    expect(firstPush).toBeGreaterThan(refusal);
+  it("still resolves tariffs and increments, and records the job, before the engine runs", () => {
+    const increments = lineOf('lookupCatalogueIncrements(db, destList.map', handler.start);
+    const jobRow     = lineOf('await db.insert(ratePushJobs)', increments);
+    const engine     = lineOf('await runRateBatch(', jobRow);
+
+    expect(increments).toBeGreaterThan(handler.start);
+    expect(jobRow).toBeGreaterThan(increments);
+    // The parent row must exist before operations can hang off it by foreign key.
+    expect(engine).toBeGreaterThan(jobRow);
+    expect(engine).toBeLessThan(handler.end);
   });
 
-  it("refuses the WHOLE request on an integrity failure — the behaviour preflight replaces", () => {
-    const integrity = lineOf('const verdict = checkTariffIntegrity({');
-    const window    = SRC.slice(integrity, integrity + 25).join('\n');
-    expect(window).toContain('res.status(409)');
+  it("no longer refuses the whole request on a tariff-integrity failure", () => {
+    // A misprovisioned account is now one refused operation, not a cancelled batch. The request
+    // itself is well formed, so it is not a request-level HTTP failure.
+    expect(handler.text).not.toContain('res.status(409)');
+    expect(handler.text).toContain('will be refused per-operation');
+  });
+
+  it("keeps request-level failures at the request boundary", () => {
+    // Malformed input and an unrecordable batch are still 4xx/5xx: those cannot be expressed as an
+    // operation outcome because there is no well-formed batch to attribute them to.
+    expect(handler.text).toContain("res.status(400).json({ error: 'accountNames array required' })");
+    expect(handler.text).toContain('Refusing to run it unrecorded.');
+  });
+
+  it("hands the engine the RAW catalogue increment, so preflight owns readability", () => {
+    expect(handler.text).toContain('rawIncrement:    catalogueIncrements.get(dest.dialPrefix)');
+  });
+
+  it("takes the parent status from the derived summary, not from a counter", () => {
+    expect(handler.text).toContain('status:             runOutcome.summary.status');
+  });
+
+  it("preserves the response contract the client reads", () => {
+    expect(handler.text).toContain('res.json({ results, ok, total, requestMs, sippyMs })');
   });
 });
