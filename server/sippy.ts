@@ -48,6 +48,8 @@ import tls from 'node:tls';
 import crypto from 'node:crypto';
 import { URL } from 'node:url';
 import * as XLSX from 'xlsx';
+import { resolveNewRateId } from './services/rates/portal-rate-id';
+import { classifyPortalWrite, type PortalReadBack } from './services/rates/portal-write-outcome';
 
 // ── Cookie jar type ───────────────────────────────────────────────────────────
 
@@ -8984,6 +8986,44 @@ async function verifySippyRate(
   }
 }
 
+/**
+ * Read a rate back INCLUDING its billing increment.
+ *
+ * `verifySippyRate` checks prefix and price only, because `RateEntry` carries no intervals.
+ * `getTariffRatesListFull` returns `SippyTariffRate`, which does — so an increment can be
+ * asserted rather than assumed. That matters: a rate at the right price with the wrong
+ * increment is billed on terms the contract does not say, and nothing downstream notices.
+ */
+async function readBackRateWithIntervals(
+  username: string,
+  password: string,
+  iTariff: number,
+  prefix: string,
+  expectedRate: number,
+  base: string,
+): Promise<PortalReadBack> {
+  try {
+    await new Promise(r => setTimeout(r, 1500));   // same settle delay verifySippyRate uses
+    const rates = await getTariffRatesListFull(username, password, iTariff, undefined, 1000, undefined, base);
+    const match = rates.find(r => String(r.prefix) === String(prefix));
+    if (!match) {
+      return { confirmed: false, message: `prefix ${prefix} not found in tariff ${iTariff} after the write (tariff holds ${rates.length} rate(s))` };
+    }
+    const priceOk = Math.abs(Number(match.price1) - expectedRate) < 0.000001;
+    return {
+      confirmed: priceOk,
+      foundRate: Number(match.price1),
+      foundInterval1: match.interval1 === undefined ? undefined : Number(match.interval1),
+      foundIntervalN: match.intervalN === undefined ? undefined : Number(match.intervalN),
+      message: priceOk
+        ? `tariff=${iTariff} prefix=${prefix} rate=${match.price1} interval=${match.interval1}/${match.intervalN}`
+        : `tariff=${iTariff} prefix=${prefix} found rate ${match.price1}, expected ${expectedRate}`,
+    };
+  } catch (e: any) {
+    return { confirmed: false, message: `read-back failed: ${e?.message}` };
+  }
+}
+
 // Build a Sippy-compatible XLSX workbook for a single rate row.
 // Column layout matches Sippy's own export template exactly (confirmed from
 // internal tariff XLSX: internal-ptcl_Rates.xlsx).
@@ -10154,21 +10194,40 @@ async function pushRateViaPortalUpload(
     console.log(`[Sippy] ACTION=A: iTariff=${iTariff} prefix=${prefix} rate=${rate}`);
     try {
       const addFormResp = await rawRequest('GET', `${base}/c1/rates_tariff.php?action=&n=0&i_tariff=${iTariff}&i_rate=`, null, {}, cookies);
-      const iRateM = addFormResp.body.match(/name=["']?i_rate["']?[^>]*value=["'](\d+)["']/i)
-                  || addFormResp.body.match(/[?&]i_rate=(\d+)/i)
-                  || addFormResp.body.match(/i_rate.*?(\d{2,})/i);
-      const newIRate = iRateM ? parseInt(iRateM[1], 10) : 0;
-      console.log(`[Sippy] action=add form: newIRate=${newIRate} body=${addFormResp.body.length}B`);
-      if (!newIRate) {
-        return { success: false, message: `Rate add: could not extract new i_rate from Sippy add form` };
+
+      // The id is accepted ONLY from a real form field, and only if no existing rate already
+      // uses it. The previous code fell back to `/[?&]i_rate=(\d+)/` — any edit link on the
+      // page — so on tariff 64 it picked i_rate=9115 (prefix 191) and action=change rewrote
+      // that row: 191 @ 0.02 became 19370 @ 0.133. A wrong id here is not a failed add, it is
+      // a silent edit of another destination's price.
+      let existingIRates: number[] = [];
+      if (xmlUsername && xmlPassword) {
+        try {
+          const list = await getSippyRateList(xmlUsername, xmlPassword, String(iTariff), base);
+          existingIRates = (list.rates ?? []).map(r => Number((r as any).iRate)).filter(n => Number.isInteger(n) && n > 0);
+        } catch (e: any) {
+          return { success: false, message: `Rate add: could not read the tariff's existing rates to guard against overwriting one (${e?.message}) — refusing.` };
+        }
+      } else {
+        return { success: false, message: `Rate add: no XML-RPC credentials available to read the tariff's existing rates — refusing, because the collision check cannot run.` };
       }
+
+      const decision = resolveNewRateId(addFormResp.body, existingIRates);
+      console.log(`[Sippy] action=add form: ${addFormResp.body.length}B, ${existingIRates.length} existing rate(s), decision=${decision.ok ? `iRate ${decision.iRate}` : decision.reason}`);
+      if (!decision.ok) {
+        return { success: false, message: `Rate add refused: ${decision.message}` };
+      }
+      const newIRate = decision.iRate;
       const addParams: Record<string, string> = {
         action:              'change',
         i_tariff:            String(iTariff),
         i_rate:              String(newIRate),
         prefix,
-        interval_1:          '1',
-        interval_n:          '1',
+        // The catalogue's billing increment, same as the edit path below. Hardcoding 1/1 here
+        // meant a NEW prefix always shipped per-second billing regardless of contract — which
+        // is exactly the case the increment work exists for.
+        interval_1:          String(interval1),
+        interval_n:          String(intervalN),
         price_1:             String(rate),
         price_n:             String(rate),
         grace_period_enable: '1',
@@ -10181,21 +10240,29 @@ async function pushRateViaPortalUpload(
         { Referer: `${base}/c1/rates_tariff.php?action=&n=0&i_tariff=${iTariff}&i_rate=` }, cookies);
       const isLogin  = addResp.body.includes('value="Login"') || addResp.body.includes("value='Login'");
       const hasError = /class=["']err[^"']*["']/i.test(addResp.body.slice(0, 8000));
-      console.log(`[Sippy] action=add->change: HTTP ${addResp.statusCode} ${addResp.body.length}B login=${isLogin} err=${hasError}`);
-      if (isLogin)    return { success: false, message: 'Rate add: session expired' };
-      if (hasError) {
-        const errM = addResp.body.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
-        return { success: false, message: `Rate add error: ${errM ? errM[1].trim() : 'Sippy error on action=add'}` };
-      }
       const addLocked = tariffLockedMessage(addResp.body);
-      if (addLocked) {
-        console.log(`[Sippy] action=add: tariff ${iTariff} LOCKED — "${addLocked}"`);
-        return { success: false, message: `Tariff ${iTariff} is locked — Sippy is still processing an earlier upload, so this rate was not applied. ${addLocked}` };
+      console.log(`[Sippy] action=add->change: HTTP ${addResp.statusCode} ${addResp.body.length}B login=${isLogin} err=${hasError} lockBanner=${addLocked ? 'yes' : 'no'}`);
+
+      // ── The page is NOT the outcome ─────────────────────────────────────────
+      // The GET above IS the mutation: Sippy's edit form is method="GET", so by the time
+      // there is a response to inspect, the tariff has already changed or it has not.
+      // Job #43 proved what that costs — the response carried a lock banner, the code
+      // reported "this rate was not applied", and the tariff HAD been rewritten. So the
+      // tariff itself decides, and the page is only used to explain a negative read-back.
+      const readBack = await readBackRateWithIntervals(xmlUsername, xmlPassword, iTariff, prefix, rate, base);
+      console.log(`[Sippy] action=add read-back: ${readBack.message}`);
+      const errM = addResp.body.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
+      const verdict = classifyPortalWrite(
+        { operation: 'add', tariffId: iTariff, prefix, rate, iRate: newIRate,
+          expectedInterval1: interval1, expectedIntervalN: intervalN },
+        { isLoginPage: isLogin, hasError, errorText: errM?.[1] ?? null, lockBanner: addLocked,
+          statusCode: addResp.statusCode, bodyLength: addResp.body.length },
+        readBack,
+      );
+      if (verdict.pageContradictedTariff) {
+        console.warn(`[Sippy] action=add: PAGE CONTRADICTED TARIFF — ${verdict.message}`);
       }
-      if (addResp.statusCode === 200 && addResp.body.length > 5000) {
-        return { success: true, message: `New destination: prefix ${prefix} added to tariff ${iTariff} at ${rate} (iRate=${newIRate})` };
-      }
-      return { success: false, message: `Rate add: unexpected response HTTP ${addResp.statusCode} ${addResp.body.length}B` };
+      return { success: verdict.success, message: verdict.message };
     } catch (addErr: any) {
       return { success: false, message: `Rate add exception: ${(addErr as any).message}` };
     }
@@ -10241,21 +10308,28 @@ async function pushRateViaPortalUpload(
     const hasError    = /class=["']err[^"']*["']/i.test(body.slice(0, 8000));
     console.log(`[Sippy] pushRateViaPortalUpload: action=change → HTTP ${resp.statusCode} ${body.length}B login=${isLoginPage} err=${hasError}`);
 
-    if (isLoginPage) return { success: false, message: 'Rate edit: session rejected (login page returned)' };
-    if (hasError) {
-      const errM = body.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
-      return { success: false, message: `Rate edit error: ${errM ? errM[1].trim() : 'Sippy returned error response'}` };
-    }
     const changeLocked = tariffLockedMessage(body);
-    if (changeLocked) {
-      console.log(`[Sippy] action=change: tariff ${iTariff} LOCKED — "${changeLocked}"`);
-      return { success: false, message: `Tariff ${iTariff} is locked — Sippy is still processing an earlier upload, so this rate was not applied. ${changeLocked}` };
-    }
-    if (resp.statusCode === 200 && body.length > 5000) {
-      return { success: true, message: `Rate pushed via portal edit (action=change, iRate=${targetIRate}, prefix=${prefix}, rate=${rate})` };
-    }
 
-    return { success: false, message: `Rate edit: unexpected response (HTTP ${resp.statusCode}, ${body.length}B)` };
+    // Same rule as the add path above: this GET is the mutation, so the page it returns can
+    // only ever be a hint. The tariff decides. Body length in particular is not evidence —
+    // a full page is what Sippy returns whether or not the rate went in.
+    const readBack = xmlUsername && xmlPassword
+      ? await readBackRateWithIntervals(xmlUsername, xmlPassword, iTariff, prefix, rate, base)
+      : null;
+    console.log(`[Sippy] action=change read-back: ${readBack ? readBack.message : 'SKIPPED — no XML-RPC credentials'}`);
+
+    const errM2 = body.match(/class=["']err[^"']*["'][^>]*>([^<]{0,300})/i);
+    const verdict = classifyPortalWrite(
+      { operation: 'edit', tariffId: iTariff, prefix, rate, iRate: targetIRate,
+        expectedInterval1: interval1, expectedIntervalN: intervalN },
+      { isLoginPage, hasError, errorText: errM2?.[1] ?? null, lockBanner: changeLocked,
+        statusCode: resp.statusCode, bodyLength: body.length },
+      readBack,
+    );
+    if (verdict.pageContradictedTariff) {
+      console.warn(`[Sippy] action=change: PAGE CONTRADICTED TARIFF — ${verdict.message}`);
+    }
+    return { success: verdict.success, message: verdict.message };
   } catch (e: any) {
     return { success: false, message: `Rate edit exception: ${e?.message}` };
   }
