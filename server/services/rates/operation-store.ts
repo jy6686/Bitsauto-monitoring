@@ -52,8 +52,13 @@ export interface JobSummary {
   counts: OperationCounts;
   /** Tariffs left in an unknown state. Nothing further may be written to these without a read. */
   tariffsNeedingReview: number[];
-  /** True when an operation's outcome was never established. */
+  /**
+   * True when something is still waiting for a PERSON. False once every unestablished outcome has
+   * been resolved — which is not the same as `status`, that stays historical.
+   */
   requiresReview: boolean;
+  /** Operations still `indeterminate` with no resolution recorded. */
+  unresolvedCount: number;
 }
 
 /** Job-level facts every operation of a batch shares. */
@@ -190,12 +195,25 @@ export async function deriveJobStatus(db: OperationQueryable, jobId: string): Pr
     counts.total += num(r.n);
   }
 
+  // Only operations nobody has SETTLED. An operator who read the tariff and recorded what they
+  // found has done the review, so it no longer needs doing — even though `status` still says
+  // indeterminate, because that remains the historical fact. This filter and the one in
+  // tariffHasUnresolvedOperations must agree: if a later blocking policy were built on this list
+  // while it ignored resolutions, a resolved tariff would stay blocked forever, which is the exact
+  // stranding the resolution workflow exists to prevent.
   const unknown = rows(await db.execute(sql`
     SELECT DISTINCT i_tariff
       FROM rate_push_operations
-     WHERE job_id = ${jobId} AND status = 'indeterminate' AND i_tariff IS NOT NULL
+     WHERE job_id = ${jobId}
+       AND status = 'indeterminate'
+       AND resolution IS NULL
+       AND i_tariff IS NOT NULL
      ORDER BY i_tariff`));
   const tariffsNeedingReview = unknown.map(r => num(r.i_tariff));
+
+  const [{ n: unresolvedCount }] = rows(await db.execute(sql`
+    SELECT COUNT(*)::int AS n FROM rate_push_operations
+     WHERE job_id = ${jobId} AND status = 'indeterminate' AND resolution IS NULL`));
 
   let status: JobStatus;
   if (counts.total === 0)                             status = 'pending';
@@ -207,7 +225,10 @@ export async function deriveJobStatus(db: OperationQueryable, jobId: string): Pr
   else if (counts.succeeded > 0)                      status = 'partial';
   else                                                status = 'failed';
 
-  return { status, counts, tariffsNeedingReview, requiresReview: counts.indeterminate > 0 };
+  // `status` deliberately stays historical: a job whose outcomes could not be established reports
+  // needs_review forever, because that is what happened. `requiresReview` is the ACTIONABLE signal
+  // and answers a different question — is there anything left for a person to do right now.
+  return { status, counts, tariffsNeedingReview, requiresReview: num(unresolvedCount) > 0, unresolvedCount: num(unresolvedCount) };
 }
 
 export interface RecoveryReport {
