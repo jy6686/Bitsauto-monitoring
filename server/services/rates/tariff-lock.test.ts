@@ -38,6 +38,7 @@ beforeAll(async () => {
   await client.exec(`CREATE TABLE rate_push_jobs (id SERIAL PRIMARY KEY, job_id VARCHAR(64) UNIQUE NOT NULL, status VARCHAR(16) NOT NULL DEFAULT 'pending');`);
   await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '511_rate_push_operations.sql'), 'utf8'));
   await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '512_operation_resolution.sql'), 'utf8'));
+  await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '513_operation_trace.sql'), 'utf8'));
 });
 afterAll(async () => { await client?.close(); });
 beforeEach(async () => {

@@ -45,6 +45,8 @@ export interface OperationOutcome {
   verificationResult?: string;
   /** The primitive's mutation-boundary signal. Undefined means it was never established. */
   refusedBeforeWrite?: boolean;
+  /** The push's own account of what it did, for the durable record. */
+  trace?: string[];
 }
 
 export type OperationRunner = (
@@ -64,6 +66,7 @@ export interface OperationResult {
   iRate?: number;
   verificationResult?: string;
   refusedBeforeWrite?: boolean;
+  trace?: string[];
   attempts: number;
   ms: number;
 }
@@ -137,6 +140,8 @@ export async function executeRateBatch(
           outcome = {
             verdict: 'indeterminate',
             message: `Push threw before an outcome could be established: ${e?.message ?? String(e)}. The write may still have been applied — read the tariff before any further action.`,
+            // The adapter attaches its trace to the error precisely so a throw still explains itself.
+            trace: Array.isArray(e?.trace) ? e.trace : undefined,
           };
           break;
         }
@@ -159,6 +164,7 @@ export async function executeRateBatch(
         iRate: settled.iRate,
         verificationResult: settled.verificationResult,
         refusedBeforeWrite: settled.refusedBeforeWrite,
+        trace: settled.trace,
         attempts,
         ms: now() - startedAt,
       });

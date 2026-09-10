@@ -6851,6 +6851,12 @@ export interface SippyPushResult {
   // Count of extra auth rules added (additional IPs) after account creation
   extraAuthRules?: number;
   /**
+   * The push's own account of what it did, oldest first, each entry timestamped from the start of
+   * the operation. Present so a failed push explains itself from the record instead of from a
+   * console nobody can reach — which is why jobs #44-#47 produced no diagnosis.
+   */
+  trace?: string[];
+  /**
    * Whether a MUTATING request was issued to Sippy for this push.
    *
    *   true   none was — the tariff is untouched and this outcome is safe to treat as a failure
@@ -6943,7 +6949,7 @@ export async function pushRateToSippy(opts: {
   const baseUrl = targetUrl ?? activeSession?.portalUrl;
   // Covers only the customer.updateAccount attempt below; the delegated push reports its own.
   const boundary: MutationBoundary = { crossed: false };
-  if (!baseUrl) return { success: false, message: 'Not connected to Sippy.', refusedBeforeWrite: true };
+  if (!baseUrl) return { success: false, message: 'Not connected to Sippy.', refusedBeforeWrite: true, trace: ['not connected to Sippy — no request built'] };
 
   const apiUrl  = `${sippyBase(baseUrl)}/xmlapi/xmlapi`;
   const lastErrors: string[] = [];
@@ -7007,7 +7013,7 @@ export async function pushRateToSippy(opts: {
       boundary.crossed = true;
       const resp = await sippyPost(apiUrl, body, credentials.username, credentials.password);
       if (resp.statusCode === 200 && !resp.body.includes('<fault>')) {
-        return { success: true, message: `Account rate updated via customer.updateAccount`, method: 'customer.updateAccount', refusedBeforeWrite: false };
+        return { success: true, message: `Account rate updated via customer.updateAccount`, method: 'customer.updateAccount', refusedBeforeWrite: false, trace: lastErrors.concat('customer.updateAccount accepted') };
       }
       const fault = extractTag(resp.body, 'faultString') || 'customer.updateAccount rejected';
       lastErrors.push(fault);
@@ -7020,6 +7026,7 @@ export async function pushRateToSippy(opts: {
     success: false,
     message: reason,
     refusedBeforeWrite: !boundary.crossed,
+    trace: lastErrors,
     detail: customer ? `i_account=${customer.i_account ?? 'none'} i_tariff=${customer.i_tariff ?? 'none'}` : 'No matching Sippy customer found for this account name.',
   };
 }
@@ -9502,10 +9509,17 @@ export async function setSippyRateEntry(
   portalUrl?: string,
   adminCreds?: RateAdminCreds,
   onProgress?: RatePushProgress,
-): Promise<{ success: boolean; message: string; method?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string; refusedBeforeWrite: boolean }> {
+): Promise<{ success: boolean; message: string; method?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string; refusedBeforeWrite: boolean; trace: string[] }> {
   const boundary: MutationBoundary = { crossed: false };
-  const result = await setSippyRateEntryInner(username, password, tariffId, entry, portalUrl, adminCreds, onProgress, boundary);
-  return { ...result, refusedBeforeWrite: !boundary.crossed };
+  // Owned here so it survives every return path the inner function can take, including a throw.
+  const trace: string[] = [];
+  try {
+    const result = await setSippyRateEntryInner(username, password, tariffId, entry, portalUrl, adminCreds, onProgress, boundary, trace);
+    return { ...result, refusedBeforeWrite: !boundary.crossed, trace };
+  } catch (e: any) {
+    trace.push(`push threw: ${e?.message ?? String(e)}`);
+    throw Object.assign(e instanceof Error ? e : new Error(String(e)), { trace });
+  }
 }
 
 async function setSippyRateEntryInner(
@@ -9524,11 +9538,25 @@ async function setSippyRateEntryInner(
   onProgress?: RatePushProgress,
   /** Defaulted so the parameter may follow the optional ones; the wrapper always supplies it. */
   boundary: MutationBoundary = { crossed: false },
+  /**
+   * The push's own account of what it did, so it survives the request.
+   *
+   * This is the SAME array as `lastErrors` below — not a second mechanism. Everything the upload
+   * path already records lands here, plus the milestones that were previously only console.log'd.
+   * Jobs #44-#47 each threw this away: the console held the token result, the upload response and
+   * the final status, while the durable record kept only the portal's closing message. Four
+   * production attempts produced no diagnosis because of that.
+   */
+  trace: string[] = [],
 ): Promise<{ success: boolean; message: string; method?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string }> {
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
   if (!base) return { success: false, message: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
-  const lastErrors: string[] = [];
+  // The trace IS lastErrors. One array, so no exit path can preserve one and drop the other.
+  const lastErrors: string[] = trace;
+  const tStart = Date.now();
+  /** Milestone, timestamped. Latency is evidence here — see the 36 s tariff read of 2026-09-09. */
+  const note = (msg: string) => { lastErrors.push(`+${Date.now() - tStart}ms ${msg}`); };
 
   // A reporting callback must never be able to fail a push. If the caller's handler
   // throws, that is the caller's problem and the rate still needs to go to Sippy.
@@ -9570,6 +9598,7 @@ async function setSippyRateEntryInner(
       processOn, undefined, { i_tariff: Number(tariffId) });
     const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10000);
     console.log(`[RateManager] getUploadToken: HTTP ${tokenResp.statusCode} body=${tokenResp.body.substring(0, 300)}`);
+    note(`getUploadToken HTTP ${tokenResp.statusCode}${tokenResp.body.includes('faultCode') ? ' FAULT' : ''} body=${tokenResp.body.substring(0, 300)}`);
 
     if (tokenResp.statusCode === 200 && !tokenResp.body.includes('faultCode')) {
       const tokenMembers = extractStructMembers(extractAllTags(tokenResp.body, 'struct')[0] ?? '');
@@ -9578,6 +9607,7 @@ async function setSippyRateEntryInner(
 
       if (uploadToken && uploadUrl) {
         console.log(`[RateManager] Upload token: ${uploadToken} | URL: ${uploadUrl}`);
+        note(`token=${uploadToken} url=${uploadUrl}`);
 
         const normFrom = normDateLocal(entry.effectiveFrom);
         const normTill = normDateLocal(entry.effectiveTill);
@@ -9601,6 +9631,7 @@ async function setSippyRateEntryInner(
         boundary.crossed = true;
         const uploadResult = await uploadBinaryFile(uploadUrl, xlsxBuffer, 'rates.xlsx');
         console.log(`[RateManager] File upload: success=${uploadResult.success} body=${uploadResult.body.substring(0, 200)}`);
+        note(`file upload success=${uploadResult.success} bytes=${xlsxBuffer.length} body=${uploadResult.body.substring(0, 300)}`);
 
         if (uploadResult.success) {
           let finalStatus = 'FILE_UPLOADED';
@@ -9636,6 +9667,7 @@ async function setSippyRateEntryInner(
             // Not implemented here. Stop asking and let verification decide.
             if (!answering && poll === 1) {
               console.log('[RateManager] getUploadStatus unsupported on this build — skipping the poll loop and verifying the tariff directly');
+              note('getUploadStatus did not answer on poll#1 — skipped the loop, verifying the tariff directly');
               break;
             }
 
@@ -9646,10 +9678,12 @@ async function setSippyRateEntryInner(
             await new Promise(res => setTimeout(res, 2000));
           }
 
+          note(`upload status settled at ${finalStatus}`);
           if (finalStatus === 'DONE') {
             step('verifying', `tariff ${tariffId}`);
             const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base);
             console.log(`[RateManager] Verification (upload_token): ${verifyResult.message}`);
+            note(`verification after DONE: confirmed=${verifyResult.confirmed} — ${verifyResult.message}`);
             if (verifyResult.confirmed) {
               return {
                 success: true,
@@ -9676,6 +9710,7 @@ async function setSippyRateEntryInner(
             step('verifying', `tariff ${tariffId}`);
             const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base);
             console.log(`[RateManager] Verification after FILE_UPLOADED (upload_token): ${verifyResult.message}`);
+            note(`verification after FILE_UPLOADED: confirmed=${verifyResult.confirmed} — ${verifyResult.message}`);
             if (verifyResult.confirmed) {
               return {
                 success: true,

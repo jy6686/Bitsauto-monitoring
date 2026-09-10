@@ -19,7 +19,7 @@ import { sql } from "drizzle-orm";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { runRateBatch, type RunnerOperation, type InjectedPush } from "./batch-runner";
-import { reconcileInterruptedOperations, deriveJobStatus } from "./operation-store";
+import { reconcileInterruptedOperations, deriveJobStatus, getJobOperations } from "./operation-store";
 
 let client: PGlite;
 let db: ReturnType<typeof drizzle>;
@@ -52,6 +52,7 @@ beforeAll(async () => {
     );`);
   await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '511_rate_push_operations.sql'), 'utf8'));
   await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '512_operation_resolution.sql'), 'utf8'));
+  await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '513_operation_trace.sql'), 'utf8'));
 });
 afterAll(async () => { await client?.close(); });
 beforeEach(async () => {
@@ -289,5 +290,60 @@ describe("a run interrupted mid-flight", () => {
     const report = await reconcileInterruptedOperations(db, 'job-crashed');
     expect(report.reclassified).toEqual([{ operationKey: 'x1', iTariff: 64 }]);
     expect((await deriveJobStatus(db, 'job-crashed')).status).toBe('needs_review');
+  });
+});
+
+describe("the push explains itself from the record", () => {
+  // Jobs #44-#47 each held the answer for ~50 seconds and threw it away: the console had the token
+  // result, the upload response and the final status, while the durable record kept only the
+  // portal's closing message. Four production pushes produced no diagnosis. This is that fixed.
+  const TRACE = [
+    '+0ms getUploadToken HTTP 200 body=<methodResponse>…',
+    '+412ms token=abc-123 url=https://switch/upload/abc-123',
+    '+1180ms file upload success=true bytes=7201 body=OK',
+    '+1181ms getUploadStatus did not answer on poll#1 — skipped the loop, verifying the tariff directly',
+    '+9400ms verification after FILE_UPLOADED: confirmed=false — prefix 19370 not found in tariff 65',
+  ];
+
+  it("persists the trace on a FAILED operation — especially on a failed one", async () => {
+    const push: InjectedPush = async () => ({
+      success: false, message: 'Portal CSV: Rate add refused…', verificationResult: 'skip',
+      refusedBeforeWrite: false, trace: TRACE,
+    });
+    await runRateBatch({ db, push }, { jobId: JOB, operations: [op({ operationKey: 'a' })] });
+
+    const [row] = await all(sql`SELECT status, trace FROM rate_push_operations WHERE job_id = ${JOB}`);
+    expect(row.status).toBe('indeterminate');
+    const stored = Array.isArray(row.trace) ? row.trace : JSON.parse(String(row.trace));
+    expect(stored).toEqual(TRACE);
+    // The specific thing the investigation could not answer for four jobs.
+    expect(stored.join('\n')).toContain('file upload success=true');
+  });
+
+  it("exposes it through the reader, in order, oldest first", async () => {
+    const push: InjectedPush = async () => ({
+      success: true, message: 'confirmed', verificationResult: 'confirmed', refusedBeforeWrite: false, trace: TRACE,
+    });
+    await runRateBatch({ db, push }, { jobId: JOB, operations: [op({ operationKey: 'a' })] });
+    const [o] = (await getJobOperations(db, JOB)).operations;
+    expect(o.trace).toEqual(TRACE);
+    expect(o.trace![0]).toContain('getUploadToken');
+  });
+
+  it("a push that THROWS still records the trace the adapter attached to the error", async () => {
+    // The adapter attaches its trace to the thrown error precisely so this path is not blind.
+    const push: InjectedPush = async () => {
+      throw Object.assign(new Error('socket hang up'), { trace: TRACE.slice(0, 3) });
+    };
+    await runRateBatch({ db, push }, { jobId: JOB, operations: [op({ operationKey: 'a' })] });
+    const [o] = (await getJobOperations(db, JOB)).operations;
+    expect(o.status).toBe('indeterminate');
+    expect(o.trace).toEqual(TRACE.slice(0, 3));
+  });
+
+  it("null trace and empty trace are different — a row that recorded nothing must not look like one that ran before the column", async () => {
+    const push: InjectedPush = async () => ({ success: true, message: 'ok', verificationResult: 'confirmed', refusedBeforeWrite: false, trace: [] });
+    await runRateBatch({ db, push }, { jobId: JOB, operations: [op({ operationKey: 'a' })] });
+    expect((await getJobOperations(db, JOB)).operations[0].trace).toBeNull();
   });
 });
