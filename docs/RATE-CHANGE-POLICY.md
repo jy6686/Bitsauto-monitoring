@@ -106,7 +106,7 @@ the vocabulary, and one structural fact that matters.
 `decrease_effective_date` — distinct fields, not one date with a direction. The stated rule treats
 the effective date as a single choice; this model carries one per direction.
 
-### HYPOTHESIS — not established, do not implement on it
+### HYPOTHESIS — DISPROVED 2026-09-11, kept only to record the correction
 
 `Pending Increase` / `Pending Decrease` look like the state of a change that has been ANNOUNCED but
 is not yet in effect. That would join three things already observed:
@@ -120,10 +120,67 @@ is not yet in effect. That would join three things already observed:
   also reconcile discrepancy 1: the threshold is an *alert* because it does not refuse the change,
   it changes its STATE.
 
-If that is right, the guard is not a simple refusal. It is a state machine: a change either applies
-or becomes pending, and something releases it. **That is a materially different design from the
-"reject the push" rule as stated, and it must be confirmed against `/rate_change/ratechange/` before
-anything is built.**
+**This was wrong.** The validation-rule screen below shows the configured action for a suspect
+decrease is `REJECT DESTINATION` — the destination is dropped, not moved to a pending state.
+`Pending Increase` / `Pending Decrease` remain rate-sheet STATUS CODES, but they are not the
+mechanism the threshold triggers. Recorded rather than deleted, because the reasoning was
+plausible and the next person may reach for it again.
+
+## THE RULE ENGINE — `/client_registration/update/validation_rule/`, read 2026-09-11
+
+This is the authority. It is not a global policy at all.
+
+### It is configured PER CLIENT and PER DEPARTMENT
+
+The screen selects a **Department** (e.g. Wholesale) and a **Company** (e.g. 1GLOBAL) before
+showing any rule. **There is no single platform-wide rate-change rule to duplicate.** A "50% rule"
+implemented as a platform constant would be the wrong shape.
+
+### Six rules, in two groups
+
+| Group | Rule |
+|-------|------|
+| Rate Changes | Rate Increase Notice Violation (days) |
+| Rate Changes | Suspect Rate Increase |
+| Rate Changes | Suspect Rate Decrease |
+| Suspicious | Number of pending increases exceeds the required limit |
+| Suspicious | Effective Date Greater Than Allowed Limit |
+| Suspicious | Effective Date Older Than Allowed Limit |
+
+Each names a threshold held in **Configuration Values** — "Allowed Limit", "required limit", the
+50% alerts, the 7/14-day dates. **Thresholds are global; outcomes are per client.** That split is
+the design.
+
+### Six possible OUTCOMES per rule — this is the part the stated rule was missing
+
+`IGNORE` · `REJECT RATE-SHEET` · `REJECT COUNTRY` · `REJECT DESTINATION` · `APPROVAL REQD` ·
+`AUTO ADJUST EFFECTIVE DATE`
+
+Three separate blast radii for a rejection — whole sheet, one country, one destination. A
+violating rate does **not** necessarily fail the push; it can drop only its own destination and
+let the rest through. "Reject the push" was too coarse.
+
+`AUTO ADJUST EFFECTIVE DATE` is offered on **`Rate Increase Notice Violation` only** — the other
+five rows do not have that column enabled. This resolves the third discrepancy: an increase that
+breaches the 7-day notice can have its effective date moved out automatically instead of being
+refused, which is how an increase can be "immediate" from the operator's side while a notice
+period still exists.
+
+`APPROVAL REQD` is one of the six outcomes, so approval is a configurable result, not absent from
+the model. The owner's "no approval needed" holds for the client below, where no rule selects it.
+
+### The configuration observed — 1GLOBAL / Wholesale
+
+| Rule | Outcome |
+|------|---------|
+| Rate Increase Notice Violation (days) | `IGNORE` |
+| Suspect Rate Increase | `IGNORE` |
+| **Suspect Rate Decrease** | **`REJECT DESTINATION`** |
+| Number of pending increases exceeds the required limit | `IGNORE` |
+| **Effective Date Greater Than Allowed Limit** | **`REJECT DESTINATION`** |
+| Effective Date Older Than Allowed Limit | `IGNORE` |
+
+One client. Another may differ entirely, and the per-client design means it is expected to.
 
 ### Also present, not yet read
 
