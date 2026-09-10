@@ -23,8 +23,21 @@ function displayPrefix(sippyPrefix: string | null | undefined): string {
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-interface CommercialDest {
-  id: number; prefix: string; name: string; countryCode: string | null; products: string[];
+// A catalogue destination is a SET of prefixes, not one. AWCC is 9370 and 9371. The legacy
+// CommercialDest this replaces had a single `prefix`, because `global_destinations` had a single
+// `dial_prefix` column — which is why the old grid keyed rows on a prefix.
+interface EligibleDest {
+  destinationId: number; name: string; versionId: number; approvalStatus: string; prefixes: string[];
+}
+interface EligibilityResponse {
+  product: { id: number; code: string; name: string; segment: string | null; trunkPrefix: string | null; status: string };
+  destinations: EligibleDest[];
+  count: number;
+  /** The ACTIVE catalogue version and its size. Null means no active version could be read. */
+  catalogue: { versionId: number; label: string; destinationCount: number } | null;
+  /** False means nobody has said what this product sells. It does NOT mean "everything". */
+  declared: boolean;
+  note?: string;
 }
 interface Product {
   id: number; code: string; name: string;
@@ -3157,7 +3170,7 @@ function ProductRatesTab({ products }: { products: Product[] }) {
   const { toast } = useToast();
   const [selectedProductId, setSelectedProductId] = useState<string>("");
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ prefix: "", rate: "", currency: "USD", effectiveFrom: new Date().toISOString().slice(0, 10), effectiveTo: "", notes: "" });
+  const [form, setForm] = useState({ destinationId: "", prefix: "", rate: "", currency: "USD", effectiveFrom: new Date().toISOString().slice(0, 10), effectiveTo: "", notes: "" });
 
   const { data: rates = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/product-rates", selectedProductId],
@@ -3165,35 +3178,62 @@ function ProductRatesTab({ products }: { products: Product[] }) {
     enabled: true,
   });
 
-  // The destinations this product is SOLD on — approved in the catalogue and assigned to a
-  // product. Pricing works from this list, not from whatever happens to have a rate already:
-  // an operator loading opening rates needs to see the destinations still waiting for one,
-  // and the previous grid could only show rows that already existed.
-  const { data: commercial } = useQuery<{ destinations: CommercialDest[] }>({
-    queryKey: ["/api/commercial-destinations"],
-    queryFn: () => fetch("/api/commercial-destinations").then(r => r.json()),
+  // The destinations this product is SOLD on, from the versioned commercial catalogue.
+  //
+  // This replaces /api/commercial-destinations, which joined product_destination_assignments to
+  // global_destinations. Migration 514 marked both non-authoritative: the assignment table's
+  // destination_id moved id space twice and its 52 rows are uniform seed. Nothing on this screen
+  // reads either any more, and the 52 rows are left where they are.
+  //
+  // An empty list here means nobody has declared what this product sells. It is NOT an error and
+  // NOT "everything" — see the three-state panel below.
+  const { data: eligibility, isLoading: eligLoading, isError: eligError } = useQuery<EligibilityResponse>({
+    queryKey: ["/api/products", selectedProductId, "eligibility"],
+    queryFn: () => fetch(`/api/products/${selectedProductId}/eligibility`).then(r => {
+      if (!r.ok) throw new Error(`eligibility failed: ${r.status}`);
+      return r.json();
+    }),
+    enabled: !!selectedProductId,
     staleTime: 60_000,
   });
 
-  const productCode = products.find(p => String(p.id) === selectedProductId)?.code ?? "";
-
-  // Assigned destinations LEFT JOIN their rate, plus any rate whose prefix is NOT assigned.
+  // Eligible destinations LEFT JOIN their rate, plus any rate not claimed by one.
   //
-  // That second group is deliberately kept rather than filtered away. A price on a
-  // destination this product is not sold on is a real thing that will be uploaded, and
-  // hiding it would make the grid disagree with what provisioning does — the exact class of
-  // problem this screen exists to end.
+  // Keyed on destinationId, not prefix. A rate is priced per DESTINATION — the push already works
+  // that way, expanding one rate across a destination's prefixes — and a destination now holds many
+  // prefixes, so a prefix key would either drop rows or match the wrong one.
+  //
+  // The id is corroborated by the prefix before the rate is shown as this destination's price.
+  // product_rates.destination_id predates the catalogue and could hold an id from a different id
+  // space that happens to collide; a colliding row would not also carry a prefix the destination
+  // covers. On disagreement the destination reads as unpriced and the rate falls to the second
+  // group, so a wrong price is visible rather than presented as the right one.
+  //
+  // That second group is deliberately kept rather than filtered away. A price on a destination this
+  // product is not sold on is a real thing that will be uploaded, and hiding it would make the grid
+  // disagree with what provisioning does — the exact class of problem this screen exists to end.
   const grid = useMemo(() => {
-    const assigned = (commercial?.destinations ?? []).filter(d => d.products.includes(productCode));
-    const byPrefix = new Map(rates.map((r: any) => [String(r.prefix ?? ""), r]));
-    const rows = assigned.map(d => ({ dest: d, rate: byPrefix.get(d.prefix) ?? null, unassigned: false }));
-    const assignedPrefixes = new Set(assigned.map(d => d.prefix));
-    for (const r of rates) {
-      const p = String(r.prefix ?? "");
-      if (p && !assignedPrefixes.has(p)) rows.push({ dest: null as any, rate: r, unassigned: true });
+    const byDest = new Map<number, any>();
+    for (const r of rates as any[]) {
+      const d = r.destinationId ?? r.destination_id;
+      if (d !== null && d !== undefined) byDest.set(Number(d), r);
+    }
+    const rows: Array<{ dest: EligibleDest | null; rate: any; unassigned: boolean }> = [];
+    const claimed = new Set<any>();
+    for (const d of eligibility?.destinations ?? []) {
+      const cand = byDest.get(d.destinationId) ?? null;
+      const corroborated = !!cand && (
+        cand.prefix === null || cand.prefix === undefined || d.prefixes.length === 0
+        || d.prefixes.includes(String(cand.prefix))
+      );
+      if (cand && corroborated) claimed.add(cand);
+      rows.push({ dest: d, rate: corroborated ? cand : null, unassigned: false });
+    }
+    for (const r of rates as any[]) {
+      if (!claimed.has(r)) rows.push({ dest: null, rate: r, unassigned: true });
     }
     return rows;
-  }, [commercial, rates, productCode]);
+  }, [eligibility, rates]);
 
   const priced  = grid.filter(g => g.rate && !g.unassigned).length;
   const missing = grid.filter(g => !g.rate).length;
@@ -3203,7 +3243,7 @@ function ProductRatesTab({ products }: { products: Product[] }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/product-rates"] });
       setShowForm(false);
-      setForm({ prefix: "", rate: "", currency: "USD", effectiveFrom: new Date().toISOString().slice(0, 10), effectiveTo: "", notes: "" });
+      setForm({ destinationId: "", prefix: "", rate: "", currency: "USD", effectiveFrom: new Date().toISOString().slice(0, 10), effectiveTo: "", notes: "" });
       toast({ title: "Rate created" });
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
@@ -3215,16 +3255,44 @@ function ProductRatesTab({ products }: { products: Product[] }) {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const chosenDest = (eligibility?.destinations ?? [])
+    .find(d => String(d.destinationId) === form.destinationId) ?? null;
+
+  // A destination with more than one prefix cannot be priced from here YET, and that is a
+  // deliberate refusal rather than a missing feature.
+  //
+  // The catalogue holds ~19,160 prefixes across 1,344 destinations, so most destinations carry
+  // several. But the two readers of product_rates — rate-upload.service.ts and rates.step.ts —
+  // still select a single `prefix` column. Writing one of a destination's prefixes here would
+  // upload a price for that one and silently leave the rest unpriced; writing none would make the
+  // row invisible to those readers. Both are wrong quietly, which is worse than being unavailable
+  // loudly. Teaching those readers to expand from destination_id is its own slice.
+  const multiPrefix = !!chosenDest && chosenDest.prefixes.length > 1;
+
   const handleCreate = () => {
-    // Prefix is now chosen from a list, so an empty one means nothing was selected — worth
+    // The destination is chosen from a list, so an empty one means nothing was selected — worth
     // its own message rather than being folded into "fill rate + effective date", which
     // would leave an operator hunting for which field is missing.
-    if (!selectedProductId) { toast({ title: "Select a product first", variant: "destructive" }); return; }
-    if (!form.prefix)       { toast({ title: "Select a destination", variant: "destructive" }); return; }
+    if (!selectedProductId)  { toast({ title: "Select a product first", variant: "destructive" }); return; }
+    if (!form.destinationId) { toast({ title: "Select a destination", variant: "destructive" }); return; }
+    if (multiPrefix) {
+      toast({
+        title: "This destination has more than one prefix",
+        description: `${chosenDest!.name} covers ${chosenDest!.prefixes.length} prefixes. The rate upload still reads one prefix per rate, so pricing it here would upload a price for one and leave the rest unpriced.`,
+        variant: "destructive",
+      });
+      return;
+    }
     if (!form.rate || !form.effectiveFrom) {
       toast({ title: "Enter a rate and an effective date", variant: "destructive" }); return;
     }
-    createMut.mutate({ productId: Number(selectedProductId), ...form });
+    // destinationId is the key; prefix is carried for the readers that still use it.
+    createMut.mutate({
+      productId: Number(selectedProductId),
+      destinationId: Number(form.destinationId),
+      prefix: form.prefix, rate: form.rate, currency: form.currency,
+      effectiveFrom: form.effectiveFrom, effectiveTo: form.effectiveTo, notes: form.notes,
+    });
   };
 
   return (
@@ -3294,14 +3362,14 @@ function ProductRatesTab({ products }: { products: Product[] }) {
           const effectiveToday = withRate.filter(r => r.effectiveFrom <= today && (!r.effectiveTo || r.effectiveTo >= today)).length;
           const scheduled      = withRate.filter(r => r.effectiveFrom > today).length;
           const expired        = withRate.filter(r => r.effectiveTo && r.effectiveTo < today).length;
-          // Assigned first, then priced against it. "6 destinations" used to mean "6 rows
+          // Eligible first, then priced against it. "6 destinations" used to mean "6 rows
           // exist", which is a count of work done with no denominator — the number an
           // operator actually needs is how many are still waiting.
           //
-          // No "Approved" tile: /api/commercial-destinations already filters to approved, so
-          // it could only ever equal Assigned.
+          // "Eligible", not "Assigned": the number is now declared eligibility from the
+          // versioned catalogue, not a row in the retired assignment table.
           const tiles = [
-            { label: "Assigned",        value: String(grid.filter(g => !g.unassigned).length), cls: "text-blue-400   border-blue-500/20  bg-blue-500/8"   },
+            { label: "Eligible",        value: String(grid.filter(g => !g.unassigned).length), cls: "text-blue-400   border-blue-500/20  bg-blue-500/8"   },
             { label: "Priced",          value: String(priced),        cls: "text-green-400  border-green-500/20 bg-green-500/8"  },
             { label: "Missing Rate",    value: String(missing),       cls: missing > 0 ? "text-amber-400 border-amber-500/20 bg-amber-500/8" : "text-muted-foreground border-border/40 bg-muted/10" },
             { label: "Effective Today", value: String(effectiveToday), cls: "text-emerald-400 border-emerald-500/20 bg-emerald-500/8" },
@@ -3327,24 +3395,28 @@ function ProductRatesTab({ products }: { products: Product[] }) {
             {/* Destination, not a typed prefix.
                 A free-text box asks the operator to remember that Pakistan Mobile Jazz is
                 9230 — and a typo there does not fail, it prices a different country. The
-                list is the destinations this product is SOLD on, so an unassigned prefix
-                cannot be entered by accident either. */}
+                list is the destinations this product is declared eligible for, so an
+                ineligible destination cannot be entered by accident either. */}
             <div className="flex flex-col gap-1">
               <label className="text-[10px] text-muted-foreground">Destination</label>
               <select
                 data-testid="select-rate-destination"
                 className="bg-muted border border-border rounded px-2 py-1 text-xs w-64"
-                value={form.prefix}
-                onChange={e => setForm(f => ({ ...f, prefix: e.target.value }))}
+                value={form.destinationId}
+                onChange={e => {
+                  const id = e.target.value;
+                  const d = (eligibility?.destinations ?? []).find(x => String(x.destinationId) === id);
+                  // One prefix is carried alongside the id ONLY when the destination has exactly
+                  // one. See the note below for why a multi-prefix destination stores none.
+                  setForm(f => ({ ...f, destinationId: id, prefix: d && d.prefixes.length === 1 ? d.prefixes[0] : "" }));
+                }}
               >
                 <option value="">Select a destination…</option>
-                {(commercial?.destinations ?? [])
-                  .filter(d => d.products.includes(productCode))
-                  .map(d => (
-                    <option key={d.id} value={d.prefix}>
-                      {d.name} — {d.prefix}
-                    </option>
-                  ))}
+                {(eligibility?.destinations ?? []).map(d => (
+                  <option key={d.destinationId} value={String(d.destinationId)}>
+                    {d.name} — {d.prefixes.length === 1 ? d.prefixes[0] : `${d.prefixes.length} prefixes`}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="flex flex-col gap-1">
@@ -3363,7 +3435,15 @@ function ProductRatesTab({ products }: { products: Product[] }) {
               <label className="text-[10px] text-muted-foreground">Notes</label>
               <input data-testid="input-rate-notes" className="bg-muted border border-border rounded px-2 py-1 text-xs w-48" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
             </div>
-            <button onClick={handleCreate} disabled={createMut.isPending} data-testid="btn-save-rate"
+            {multiPrefix && (
+              <div data-testid="warn-multi-prefix" className="basis-full text-[11px] text-amber-400">
+                {chosenDest!.name} covers {chosenDest!.prefixes.length} prefixes ({chosenDest!.prefixes.join(", ")}).
+                A rate here stores one prefix, and the rate upload reads one prefix per rate — so pricing this
+                destination would upload a price for one of them and leave the rest unpriced. Single-prefix
+                destinations can be priced now.
+              </div>
+            )}
+            <button onClick={handleCreate} disabled={createMut.isPending || multiPrefix} data-testid="btn-save-rate"
               className="flex items-center gap-1 text-xs bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded transition-colors disabled:opacity-50">
               {createMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
             </button>
@@ -3372,7 +3452,7 @@ function ProductRatesTab({ products }: { products: Product[] }) {
         )}
 
         <div className="flex-1 overflow-auto">
-          {isLoading ? (
+          {isLoading || (selectedProductId && eligLoading) ? (
             <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>
           ) : !selectedProductId ? (
             // Without a product there is nothing to join against: /api/product-rates returns
@@ -3383,9 +3463,61 @@ function ProductRatesTab({ products }: { products: Product[] }) {
               Select a product to see the destinations it is sold on
             </div>
           ) : grid.length === 0 ? (
-            <div className="text-center text-xs text-muted-foreground py-12">
-              No destinations are assigned to this product — assign them in the Destination Catalogue first
-            </div>
+            // THREE DIFFERENT SITUATIONS, and the old single message conflated all of them into
+            // "assign them in the Destination Catalogue first". An operator who cannot tell an
+            // undeclared product from a failed catalogue load goes looking in the wrong place, and
+            // an empty catalogue read as "nothing assigned yet" hides a broken import entirely.
+            (() => {
+              if (eligError || !eligibility) {
+                return (
+                  <div data-testid="empty-catalogue-unreadable" className="text-center text-xs py-12 px-6">
+                    <div className="text-rose-400 font-medium">The catalogue could not be read.</div>
+                    <div className="text-muted-foreground mt-1">
+                      This is a failure to load, not a statement about what this product sells. Nothing has been
+                      declared ineligible — retry, and if it persists this is a platform fault rather than a
+                      commercial gap.
+                    </div>
+                  </div>
+                );
+              }
+              if (!eligibility.catalogue) {
+                return (
+                  <div data-testid="empty-no-active-version" className="text-center text-xs py-12 px-6">
+                    <div className="text-rose-400 font-medium">No catalogue version is active.</div>
+                    <div className="text-muted-foreground mt-1">
+                      Destinations are held per version, and nothing can be sold on a version that is not active.
+                      Activate one in the Destination Catalogue.
+                    </div>
+                  </div>
+                );
+              }
+              if (eligibility.catalogue.destinationCount === 0) {
+                return (
+                  <div data-testid="empty-catalogue-empty" className="text-center text-xs py-12 px-6">
+                    <div className="text-rose-400 font-medium">
+                      The active catalogue version ({eligibility.catalogue.label}) holds no destinations.
+                    </div>
+                    <div className="text-muted-foreground mt-1">
+                      Nothing can be eligible because there is nothing to be eligible for. This is a catalogue
+                      problem, not a pricing one — import destinations before pricing anything.
+                    </div>
+                  </div>
+                );
+              }
+              return (
+                <div data-testid="empty-none-declared" className="text-center text-xs py-12 px-6">
+                  <div className="text-amber-400 font-medium">
+                    No destinations have been declared eligible for this product yet.
+                  </div>
+                  <div className="text-muted-foreground mt-1 max-w-xl mx-auto">
+                    The catalogue is healthy — {eligibility.catalogue.destinationCount.toLocaleString()} destinations
+                    in version {eligibility.catalogue.label}. What this product sells is a commercial decision that
+                    has not been recorded, and an empty list here means exactly that. It does not mean every
+                    destination, and nothing is inferred on its behalf.
+                  </div>
+                </div>
+              );
+            })()
           ) : (
             <table className="w-full text-xs border-collapse">
               <thead>
@@ -3398,17 +3530,28 @@ function ProductRatesTab({ products }: { products: Product[] }) {
               <tbody>
                 {grid.map((g, i) => {
                   const r = g.rate;
-                  const prefix = g.dest?.prefix ?? String(r?.prefix ?? "");
+                  // A destination's prefixes, or — for an unclaimed rate — whatever single prefix
+                  // that rate carries. The row is the destination; the prefixes are its extent.
+                  const prefixes = g.dest ? g.dest.prefixes : (r?.prefix ? [String(r.prefix)] : []);
                   return (
-                    <tr key={g.dest ? `d${g.dest.id}` : `r${r.id}`}
+                    <tr key={g.dest ? `d${g.dest.destinationId}` : `r${r.id}`}
                         className={cn("border-b border-border/20 hover:bg-muted/10", !r && "bg-amber-500/[0.04]")}
-                        data-testid={r ? `row-rate-${r.id}` : `row-unpriced-${prefix}`}>
+                        data-testid={r ? `row-rate-${r.id}` : `row-unpriced-${g.dest?.destinationId ?? ""}`}>
                       <td className="py-2 px-3">
                         {g.dest
                           ? <span className="text-foreground">{g.dest.name}</span>
-                          : <span className="text-muted-foreground italic">not assigned to this product</span>}
+                          : <span className="text-muted-foreground italic">not eligible for this product</span>}
                       </td>
-                      <td className="py-2 px-3 font-mono text-amber-400">{displayPrefix(prefix)}</td>
+                      {/* Every prefix, not a representative one. Collapsing 14 prefixes to the
+                          first would misstate what the row covers, and the count is the reason a
+                          multi-prefix destination cannot be priced here yet. */}
+                      <td className="py-2 px-3 font-mono text-amber-400" title={prefixes.join(", ")}>
+                        {prefixes.length === 0
+                          ? <span className="text-muted-foreground">—</span>
+                          : prefixes.length === 1
+                            ? displayPrefix(prefixes[0])
+                            : <span>{displayPrefix(prefixes[0])} <span className="text-muted-foreground">+{prefixes.length - 1} more</span></span>}
+                      </td>
                       <td className="py-2 px-3 font-mono tabular-nums">
                         {r ? Number(r.rate).toFixed(6) : <span className="text-muted-foreground">—</span>}
                       </td>
@@ -3418,7 +3561,7 @@ function ProductRatesTab({ products }: { products: Product[] }) {
                         {!r
                           ? <span className="text-amber-400">⚠ Unpriced</span>
                           : g.unassigned
-                            ? <span className="text-orange-400" title="This prefix has a price but the product is not sold on it">priced, not assigned</span>
+                            ? <span className="text-orange-400" title="This rate has a price but the product is not declared eligible for its destination">priced, not eligible</span>
                             : <span className="text-green-400">Active</span>}
                       </td>
                       <td className="py-2 px-3">
@@ -3431,8 +3574,15 @@ function ProductRatesTab({ products }: { products: Product[] }) {
                           // Pre-fills the prefix. The operator supplies the number and the
                           // date; the destination is never typed, so it cannot be mistyped.
                           <button
-                            data-testid={`btn-price-${prefix}`}
-                            onClick={() => { setForm(f => ({ ...f, prefix })); setShowForm(true); }}
+                            data-testid={`btn-price-${g.dest?.destinationId ?? ""}`}
+                            onClick={() => {
+                              setForm(f => ({
+                                ...f,
+                                destinationId: String(g.dest?.destinationId ?? ""),
+                                prefix: prefixes.length === 1 ? prefixes[0] : "",
+                              }));
+                              setShowForm(true);
+                            }}
                             className="text-primary hover:underline whitespace-nowrap">
                             Add rate
                           </button>

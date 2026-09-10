@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   grantEligibility, withdrawEligibility, listEligibleDestinations, describeVersionRollover,
+  describeActiveCatalogue,
 } from "./eligibility-store";
 
 let client: PGlite;
@@ -242,5 +243,44 @@ describe("the legacy table is never read", () => {
     for (const legacy of ['product_destination_assignments', 'global_destinations', 'destination_id_map']) {
       expect(src, `eligibility must not read ${legacy}`).not.toContain(legacy);
     }
+  });
+});
+
+describe("describeActiveCatalogue — telling an empty product from an empty catalogue", () => {
+  it("reports the active version and how many destinations it holds", async () => {
+    const c = await describeActiveCatalogue(db as any);
+    expect(c).toEqual({ versionId: 1, label: 'V1', destinationCount: 3 });
+  });
+
+  it("counts only the ACTIVE version, not every destination in the database", async () => {
+    // A draft version being prepared must not inflate the number an operator reads as "what is
+    // sellable today" — nothing is sold on a version that is not active.
+    await db.execute(sql`INSERT INTO catalogue_versions (id, label, status) VALUES (2, 'V2', 'draft')`);
+    await db.execute(sql`
+      INSERT INTO commercial_destinations (id, version_id, name, approval_status)
+      VALUES (20, 2, 'NEPAL - FIXED', 'approved'), (21, 2, 'NEPAL - MOBILE', 'approved')`);
+    expect((await describeActiveCatalogue(db as any))!.destinationCount).toBe(3);
+  });
+
+  it("returns zero — not null — for an active version with nothing in it", async () => {
+    // The distinction the UI depends on. Zero means "the catalogue is empty", which is a broken
+    // import; null means "no active version could be read", which is a different fault entirely.
+    await client.exec(`DELETE FROM commercial_destination_prefixes; DELETE FROM commercial_destinations;`);
+    const c = await describeActiveCatalogue(db as any);
+    expect(c).not.toBeNull();
+    expect(c!.destinationCount).toBe(0);
+  });
+
+  it("returns null when no version is active", async () => {
+    await db.execute(sql`UPDATE catalogue_versions SET status = 'archived'`);
+    expect(await describeActiveCatalogue(db as any)).toBeNull();
+  });
+
+  it("a populated catalogue with an undeclared product is distinguishable from both", async () => {
+    // The three states side by side, which is the whole point of this function existing.
+    const c = await describeActiveCatalogue(db as any);
+    const declared = await listEligibleDestinations(db as any, FC);
+    expect(c!.destinationCount).toBeGreaterThan(0);   // catalogue is healthy
+    expect(declared).toHaveLength(0);                  // and this product still sells nothing
   });
 });

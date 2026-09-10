@@ -250,3 +250,33 @@ export async function describeVersionRollover(
   }
   return { fromVersionId, toVersionId, carriable, orphaned };
 }
+
+export interface ActiveCatalogue {
+  versionId: number;
+  label: string;
+  /** Destinations in the active version. Zero means the catalogue itself is empty. */
+  destinationCount: number;
+}
+
+/**
+ * The active catalogue version and how much is in it.
+ *
+ * Exists so a caller can tell three states apart, which matters commercially and operationally:
+ *
+ *   catalogue null            the catalogue could not be read, or no version is active
+ *   destinationCount === 0    the catalogue is empty — nothing could be eligible
+ *   count > 0, declared false the catalogue is populated and this product has no eligibility yet
+ *
+ * Without it, an empty eligibility list is indistinguishable from a broken catalogue, and an
+ * operator cannot tell "nobody has decided yet" from "the import failed".
+ */
+export async function describeActiveCatalogue(db: EligibilityQueryable): Promise<ActiveCatalogue | null> {
+  const [v] = rows(await db.execute(sql`
+    SELECT v.id, v.label, count(d.id)::int AS destination_count
+      FROM catalogue_versions v
+      LEFT JOIN commercial_destinations d ON d.version_id = v.id
+     WHERE v.status = 'active'
+     GROUP BY v.id, v.label`));
+  if (!v) return null;
+  return { versionId: num(v.id), label: String(v.label), destinationCount: num(v.destination_count) };
+}

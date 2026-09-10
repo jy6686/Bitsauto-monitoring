@@ -31,6 +31,7 @@ import { sql } from 'drizzle-orm';
 import { writeAudit } from './audit';
 import {
   grantEligibility, withdrawEligibility, listEligibleDestinations, describeVersionRollover,
+  describeActiveCatalogue,
 } from './services/products/eligibility-store';
 
 async function requireRole(roles: string[], req: any, res: any, next: any) {
@@ -72,7 +73,10 @@ export function registerProductEligibilityRoutes(app: Express) {
         if (!product) return res.status(404).json({ error: `No product ${productId}` });
 
         const versionId = req.query.versionId !== undefined ? Number(req.query.versionId) : undefined;
-        const destinations = await listEligibleDestinations(db as any, productId, { versionId });
+        const [destinations, catalogue] = await Promise.all([
+          listEligibleDestinations(db as any, productId, { versionId }),
+          describeActiveCatalogue(db as any),
+        ]);
 
         res.json({
           product: {
@@ -82,6 +86,9 @@ export function registerProductEligibilityRoutes(app: Express) {
           },
           destinations,
           count: destinations.length,
+          // So an empty list can be told apart from an empty or unreadable catalogue. Null here
+          // means no active version could be read; destinationCount 0 means the catalogue is empty.
+          catalogue,
           // Said explicitly so a caller cannot read an empty list as "unrestricted".
           declared: destinations.length > 0,
           note: destinations.length === 0
