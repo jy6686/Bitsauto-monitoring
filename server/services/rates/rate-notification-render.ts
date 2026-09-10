@@ -22,6 +22,8 @@
  * notice appears on it - printing both leaves the customer to guess, and the expensive guess is
  * available.
  */
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { LOGO_CID } from '../provisioning/account-details-email';
 
 export type NotificationKind = 'FULL' | 'CHANGES';
@@ -190,4 +192,29 @@ export function renderRateNotification(v: RateNotificationView): string {
 
   </div>
 </div>`.trim();
+}
+
+/**
+ * The inline-logo attachment this HTML requires.
+ *
+ * The header references `cid:ichibaan-logo`, and that resolves ONLY if the sender attaches the
+ * asset under the same Content-ID. Nothing in the HTML can enforce that, so a sender that forgets
+ * produces a broken image box in every inbox and nothing fails loudly — the send "succeeds".
+ *
+ * Exporting the spec from the same module as the markup makes the two hard to separate: a sender
+ * takes its attachment from here or the logo does not appear. Bundled builds run from dist/, so
+ * both roots are checked, and a missing file returns null so the header degrades to its TEXT
+ * wordmark rather than the send failing. The same trade-off the account email makes.
+ */
+export function rateNotificationLogoAttachment():
+  { filename: string; content: Buffer; contentType: string; cid: string } | null {
+  for (const p of [
+    resolve(process.cwd(), 'server/assets/ichibaan-logo.png'),
+    resolve(__dirname ?? '.', '../../assets/ichibaan-logo.png'),
+  ]) {
+    if (existsSync(p)) {
+      return { filename: 'ichibaan-logo.png', content: readFileSync(p), contentType: 'image/png', cid: LOGO_CID };
+    }
+  }
+  return null;
 }

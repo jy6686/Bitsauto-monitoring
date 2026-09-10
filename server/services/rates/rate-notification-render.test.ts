@@ -9,7 +9,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  renderRateNotification, subjectForRateNotification, type RateNotificationView,
+  renderRateNotification, subjectForRateNotification, rateNotificationLogoAttachment,
+  type RateNotificationView,
 } from "./rate-notification-render";
 import { LOGO_CID } from "../provisioning/account-details-email";
 
@@ -35,6 +36,19 @@ describe("it is the house template, not a lookalike", () => {
     // open, which is the worst possible moment.
     expect(html).toContain(`cid:${LOGO_CID}`);
     expect(html).not.toMatch(/<img[^>]+src="https?:/);
+  });
+
+  it("ships the attachment the cid: reference needs, from the same module as the markup", () => {
+    // Nothing in the HTML can enforce that a sender attaches the logo. Exporting the spec beside
+    // the markup makes the two hard to separate: a sender takes it from here, or the header shows
+    // a broken image box in every inbox while the send reports success.
+    const a = rateNotificationLogoAttachment();
+    expect(a).not.toBeNull();
+    expect(a!.cid).toBe(LOGO_CID);
+    expect(a!.contentType).toBe('image/png');
+    expect(a!.content.length).toBeGreaterThan(1000);
+    // The cid the HTML asks for and the cid the attachment carries must be the same string.
+    expect(html).toContain(`cid:${a!.cid}`);
   });
 
   it("keeps the wordmark as TEXT, so a client that strips images still reads correctly", () => {
