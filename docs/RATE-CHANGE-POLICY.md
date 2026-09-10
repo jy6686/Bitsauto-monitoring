@@ -91,6 +91,40 @@ where it disagrees with the verbal statement, the disagreement is the finding.
    the Client side, or may have been about the effective-date field rather than the notice period —
    but the setting exists and is not zero.
 
+### The domain vocabulary, from the client rate-sheet template
+
+`/tariffs_profile/clienttariffprofile/16/update/` — a PRESENTATION template. It maps rate-sheet
+concepts to spreadsheet cells (`F5`, `B6`), so it holds no rule logic. What it does establish is
+the vocabulary, and one structural fact that matters.
+
+**Nine rate status codes**, each a state a rate can carry on a client rate sheet:
+
+`New Code` · `No Change` · `Increase` · `Decrease` · **`Pending Increase`** · **`Pending Decrease`**
+· `Block` · `Removed` · `Destination`
+
+**Two separate effective dates on the sheet header**: `increase_effective_date` and
+`decrease_effective_date` — distinct fields, not one date with a direction. The stated rule treats
+the effective date as a single choice; this model carries one per direction.
+
+### HYPOTHESIS — not established, do not implement on it
+
+`Pending Increase` / `Pending Decrease` look like the state of a change that has been ANNOUNCED but
+is not yet in effect. That would join three things already observed:
+
+- `Increase Notice Period = 7 days` — an increase announced today cannot apply until the notice
+  elapses, so it sits somewhere in the meantime. `Pending Increase` is the obvious candidate.
+- `Acceptable Pending Increase = 3` — a cap on how many such pending changes are tolerated, which
+  only makes sense if pending is a durable state rather than a transient one.
+- The owner's **"release"**. If a >50% decrease becomes `Pending Decrease` rather than being
+  refused outright, then "release" is plausibly the act that moves it out of pending — which would
+  also reconcile discrepancy 1: the threshold is an *alert* because it does not refuse the change,
+  it changes its STATE.
+
+If that is right, the guard is not a simple refusal. It is a state machine: a change either applies
+or becomes pending, and something releases it. **That is a materially different design from the
+"reject the push" rule as stated, and it must be confirmed against `/rate_change/ratechange/` before
+anything is built.**
+
 ### Also present, not yet read
 
 - `/rate_change/ratechange/` — "Change Rate". The screen the rule most likely governs.
