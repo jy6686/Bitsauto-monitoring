@@ -43,6 +43,7 @@ import { parseBillingIncrement } from './services/rates/billing-increment';
 import { lookupCatalogueIncrements } from './services/rates/catalogue-increments';
 import { checkTariffIntegrity } from './services/rates/tariff-integrity';
 import { runRateBatch, type RunnerOperation, type InjectedPush } from './services/rates/batch-runner';
+import { validateProductInput, describeTrunkSharing } from './services/products/product-identity';
 import { createPostgresTariffLock } from './services/rates/tariff-lock';
 import { getJobOperations, resolveOperation, listUnresolvedOperations } from './services/rates/operation-store';
 import { createServer, type Server } from "http";
@@ -42363,6 +42364,33 @@ ${footer}
 
   // ── Product Registry & Global Destination Catalog ─────────────────────────
   // GET /api/product-registry/products
+  /**
+   * GET /api/product-registry/trunk-sharing — READ-ONLY.
+   *
+   * Which products share a trunk prefix. Wholesale and Retail sharing one is the design (First
+   * Class Wholesale and Premium are both trunk 1), so this reports rather than refuses. It exists
+   * because the cost of that sharing lands late otherwise: a customer holding both products gets
+   * the same full prefix twice in one tariff, and the batch planner only refuses it as a duplicate
+   * target at push time. `withinSegment` marks the one shape with no legitimate reading — two
+   * products on one trunk inside the same segment.
+   */
+  app.get('/api/product-registry/trunk-sharing',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (_req, res) => {
+      try {
+        const rows = await db.select({
+          id: productRegistry.id, code: productRegistry.code, name: productRegistry.name,
+          segment: productRegistry.segment, trunkPrefix: productRegistry.trunkPrefix,
+        }).from(productRegistry);
+        const sharing = describeTrunkSharing(rows as any);
+        res.json({
+          sharing,
+          sharedTrunks: sharing.length,
+          conflicts: sharing.filter(s => s.withinSegment).length,
+        });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    });
+
   app.get('/api/product-registry/products', async (_req, res) => {
     try {
       const rows = await db
@@ -42374,34 +42402,60 @@ ${footer}
   });
 
   // POST /api/product-registry/products
-  app.post('/api/product-registry/products', async (req: any, res) => {
+  /**
+   * Create a product.
+   *
+   * Previously ungated, and it destructured a fixed field list that omitted `trunkPrefix` and
+   * `segment` — so a product added through the platform had no trunk digit and push-batch refused
+   * it ("has no usable trunk prefix"), and could not be marked retail. It also defaulted `status`
+   * to 'active', which nothing reads; every commercial surface filters `status = 'commercial'`, so
+   * such a product was invisible rather than broken. All three are validated here now.
+   */
+  app.post('/api/product-registry/products',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
     try {
-      const { code, name, description, status, color, defaultRoutingTemplate, backupRoutingTemplate,
-              defaultPricingTemplate, minMarginPct, discountRangeMin, discountRangeMax,
-              noticePeriodDays, offerWindowMin, offerWindowTarget, offerWindowPremium, sortOrder } = req.body;
-      if (!code || !name) return res.status(400).json({ error: 'code and name required' });
-      const [row] = await db.insert(productRegistry).values({
-        code, name, description, status: status ?? 'active', color: color ?? 'violet',
-        defaultRoutingTemplate, backupRoutingTemplate, defaultPricingTemplate,
-        minMarginPct, discountRangeMin, discountRangeMax, noticePeriodDays,
-        offerWindowMin, offerWindowTarget, offerWindowPremium, sortOrder: sortOrder ?? 0,
-      }).returning();
+      const checked = validateProductInput(req.body ?? {});
+      if (!checked.ok) return res.status(400).json({ error: 'Invalid product', fields: checked.errors });
+
+      const [row] = await db.insert(productRegistry).values(checked.value as any).returning();
       await db.insert(productHistory).values({
         productId: row.id, eventType: 'product_created',
-        description: `Product "${name}" created`,
+        description: `Product "${row.name}" created`,
+        newValue: row,
         performedBy: req.user?.claims?.sub ?? 'system',
       });
       res.json(row);
-    } catch (e: any) { res.status(500).json({ error: e.message }); }
+    } catch (e: any) {
+      // `code` is UNIQUE; say so rather than returning an opaque 500.
+      if (/unique|duplicate key/i.test(String(e?.message))) {
+        return res.status(409).json({ error: `A product with that code already exists.` });
+      }
+      res.status(500).json({ error: e.message });
+    }
   });
 
-  // PUT /api/product-registry/products/:id
-  app.put('/api/product-registry/products/:id', async (req: any, res) => {
+  /**
+   * Edit a product.
+   *
+   * This previously did `.set(req.body)` with no gate and no allowlist, so any caller could write
+   * any column — the primary key and the unique `code` included. Fields are now taken from an
+   * explicit allowlist, and anything outside it is dropped rather than denied, so a column added
+   * later is not writable by default.
+   */
+  app.put('/api/product-registry/products/:id',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
       const [existing] = await db.select().from(productRegistry).where(eq(productRegistry.id, id)).limit(1);
       if (!existing) return res.status(404).json({ error: 'Not found' });
-      const [row] = await db.update(productRegistry).set(req.body).where(eq(productRegistry.id, id)).returning();
+
+      const checked = validateProductInput(req.body ?? {}, { partial: true });
+      if (!checked.ok) return res.status(400).json({ error: 'Invalid product', fields: checked.errors });
+      if (Object.keys(checked.value).length === 0) return res.json(existing);
+
+      const [row] = await db.update(productRegistry).set(checked.value as any).where(eq(productRegistry.id, id)).returning();
       await db.insert(productHistory).values({
         productId: id, eventType: 'product_updated',
         description: `Product "${row.name}" updated`,

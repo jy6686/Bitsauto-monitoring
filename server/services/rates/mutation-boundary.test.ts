@@ -158,3 +158,47 @@ describe("a consequence of the ordering, recorded so it cannot change unnoticed"
     expect(between).toContain('all XML-RPC methods failed');
   });
 });
+
+describe("every portal-write call site threads the boundary", () => {
+  // Added 2026-09-10 after a call site was introduced without it. This is the SECOND time a
+  // threaded parameter regressed at a call site rather than in the function that owns it — the
+  // first was uploadExpiresOn — so the guard is on the call sites, where the mistake happens.
+  //
+  // pushRateViaPortalUpload issues action=change, which IS the mutation. A call that omits
+  // `boundary` leaves boundary.crossed false, so the wrapper reports refusedBeforeWrite: true and
+  // the executor is entitled to RETRY a write that may already have landed.
+  const callSites = (() => {
+    const out: Array<{ line: number; text: string }> = [];
+    for (let i = 0; i < LINES.length; i++) {
+      if (!/await pushRateViaPortalUpload\(/.test(LINES[i])) continue;
+      // Bounded by the closing `);` of the argument list, never a fixed window — a capped read is
+      // exactly how the earlier guard skipped the one site it existed to protect.
+      let text = '';
+      for (let j = i; j < Math.min(i + 40, LINES.length); j++) {
+        // Comments are STRIPPED before the check. The first version of this guard matched the word
+        // `boundary` inside the comment that explains why boundary matters, so the explanation
+        // would have masked the very regression it describes. Verified by re-running the guard
+        // against a simulated revert: with comments included it passed, which is a useless guard.
+        text += LINES[j].replace(/\/\/.*$/, '') + '\n';
+        if (/^\s*\);\s*$/.test(LINES[j])) break;
+      }
+      out.push({ line: i + 1, text });
+    }
+    return out;
+  })();
+
+  it("finds every call site (there is more than one, which is the point)", () => {
+    expect(callSites.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("REGRESSION: each one passes `boundary`", () => {
+    const missing = callSites.filter(c => !/\bboundary\b/.test(c.text));
+    expect(missing.map(c => `sippy.ts:${c.line}`)).toEqual([]);
+  });
+
+  it("each one also passes the catalogue billing increment", () => {
+    // Omitting it silently writes 1/1, asserting per-second billing on a contract that may not be.
+    const missing = callSites.filter(c => !/entry\.interval1|suppliedInterval1|interval1/.test(c.text));
+    expect(missing.map(c => `sippy.ts:${c.line}`)).toEqual([]);
+  });
+});
