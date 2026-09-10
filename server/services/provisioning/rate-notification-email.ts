@@ -43,7 +43,7 @@ export type NotificationRate = {
 // ── Customer-facing Excel ──────────────────────────────────────────────────────
 // Three columns only: Destination, Prefix, Rate (USD/Min).
 // The Sippy upload format (Action/Id/Interval/…) is internal and would confuse a customer.
-function buildRateNotificationXlsx(
+export function buildRateNotificationXlsx(
   companyName: string,
   productLabel: string,
   rows: NotificationRate[],
@@ -82,14 +82,25 @@ function buildRateNotificationXlsx(
 
 // ── Email HTML body ────────────────────────────────────────────────────────────
 // Matches the reference EML format: plain paragraphs, a simple rate table, footer notice.
-function renderRateNotificationHtml(opts: {
+/**
+ * FULL and CHANGES are not two spellings of one thing — the footer below gives them opposite
+ * legal meanings. Under FULL, a destination absent from the sheet is DELETED. Under CHANGES, an
+ * absent destination keeps its previous rate. Sending a partial push labelled FULL therefore
+ * tells a customer that every destination it does not mention has been withdrawn.
+ */
+export type RateNotificationType = 'FULL' | 'CHANGES';
+
+export function renderRateNotificationHtml(opts: {
   companyName:  string;
   productLabel: string;
   dialFormat:   string;  // e.g. "30711XXXXXXXXXX" (accountPrefix + productDigit + dest)
   issueDate:    string;  // e.g. "July 31, 2026"
   rows:         NotificationRate[];
+  /** Defaults to FULL so every existing caller keeps the behaviour it had. */
+  notificationType?: RateNotificationType;
 }): string {
   const { companyName, productLabel, dialFormat, issueDate, rows } = opts;
+  const notificationType = opts.notificationType ?? 'FULL';
 
   const rateTableRows = rows
     .map(r =>
@@ -102,7 +113,7 @@ function renderRateNotificationHtml(opts: {
     .join("");
 
   return `<p>Dear ${companyName},&nbsp;<br /><br />
-Please find attached updated rate sheet from <strong>Ichibaan Logic Private Limited</strong>
+Please find attached ${notificationType === 'CHANGES' ? 'a partial rate sheet containing only the destinations whose rates have changed' : 'updated rate sheet'} from <strong>Ichibaan Logic Private Limited</strong>
 <em>(formerly&nbsp;Bhaoo Private Limited)</em>. Changes are indicated in the attached rate
 sheet and are effective as specified.</p>
 
@@ -117,7 +128,7 @@ confirm.</p>
 
 <p><strong>Traffic to send in a format:</strong>&nbsp;${dialFormat}</p>
 
-<p><strong>Notification Type:</strong>&nbsp;<strong>FULL</strong></p>
+<p><strong>Notification Type:</strong>&nbsp;<strong>${notificationType === 'CHANGES' ? 'CHANGES/PARTIAL' : 'FULL'}</strong></p>
 
 <p>We would like to inform you that notwithstanding anything contained in the rate sheet,
 the following rates will be charged for traffic:</p>
