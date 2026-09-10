@@ -180,7 +180,18 @@ gate is added:
 Step 2 complete — `DELETE /api/sippy/tariffs/:id` established by RUNTIME resolution as the
 `deleteTariff` handler. Step 3 complete — `requireRole(['admin'])` applied to **that** registration
 and nothing else; the confirmation guard is deliberately NOT included, being a tightening decision
-above the floor. Step 4 (role-level testing of the reachable route) remains.
+above the floor. Step 4 complete — role-level acceptance driven through the REAL application
+(`registerRoutes()` against a real Express app, real `requireRole`, real handler; only
+`sippy.deleteTariff` replaced by a recorder). admin → 204 and the mutation is attempted;
+management, viewer, destination_manager, finance, noc, and a user with no role → 403 with the
+recorder EMPTY; unauthenticated → 401. A denied caller is proven not to reach the mutation, which
+is a stronger claim than a 403 in the response body.
+
+**The single-route remediation is complete.** Two things it deliberately does NOT do, asserted as
+behaviour so they stay visible: a `portal_only` session holding an admin role is still allowed,
+because `/api/sippy` is absent from `PLATFORM_ROUTE_GROUPS` and the role floor is not a substitute
+for that boundary; and no confirmation is required, that being a tightening decision above the
+floor. Both remain open scope.
 
 The assertion that closes this out lives in `route-reachability.test.ts`: it resolves the request
 through real Express and requires the gate to be on the line Express lands on — not merely present
