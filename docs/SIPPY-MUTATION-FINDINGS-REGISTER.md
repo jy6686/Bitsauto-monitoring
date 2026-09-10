@@ -176,6 +176,10 @@ gate is added:
 3. Add the authorization gate to it
 4. Test the actual reachable route
 
+**Progress:** step 1 complete (`b45017f9`) — duplicate resolved behaviourally, no gate applied.
+Step 2 complete — `DELETE /api/sippy/tariffs/:id` is established by RUNTIME resolution as
+`routes.ts:9059`, the `deleteTariff` handler. Step 3 gates that registration and nothing else.
+
 **Not "resolve and gate in one pass."** Express serves the first matching registration, so a gate
 added to the shadowed copy is present in the source and inert at runtime. A source-level
 assertion — the style used throughout this work, grepping the handler for `requireRole` — would
@@ -183,6 +187,17 @@ pass on exactly that arrangement while the ungated first registration keeps serv
 would be green and the route open.
 
 Step 4 means the reachable route, established at step 2, not the one a grep happens to find.
+
+**Why step 2 is a separate step and not a formality.** "Exactly one source registration" is
+necessary and not sufficient: it cannot see path-pattern shadowing. A different pattern registered
+earlier — `/api/sippy/:resource/:id`, a mounted router, a wildcard — intercepts the request while
+the source still shows one literal registration of the path. `route-reachability.test.ts` resolves
+the request through real Express over the application's actual registration order, with every
+handler replaced by a marker so no real handler code and no Sippy call can run.
+
+Demonstrated, not asserted: injecting `DELETE /api/sippy/:resource/:id` ahead of 9059 fails the
+reachability test on 4 assertions, while step 1's source-level test passes 9 of 9 and sees
+nothing.
 
 ### Logging, scoped narrowly
 
