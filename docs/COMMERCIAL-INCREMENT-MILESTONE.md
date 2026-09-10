@@ -6,8 +6,8 @@ That distinction is the point of this document. The tests prove the safety prope
 **absence of callers** proves the engines cannot currently act in production. Both halves matter,
 and "done" here means *proven*, not *running*.
 
-1,777 tests · 325 baseline type errors (unchanged throughout) · 38 commits unpushed ·
-migrations 516/517 **written and unapplied** · no email sent · no production Sippy write.
+1,856 tests · 325 baseline type errors (unchanged throughout) · 46 commits unpushed ·
+migrations 516/517/518 **written and unapplied** · no email sent · no production Sippy write.
 
 ---
 
@@ -31,6 +31,10 @@ Catalogue (supplier truth)
 | 4 | Increment change + outbox + UI | `4b7994aa` `69f20a58` `7eba4022` | built |
 | 5 | Effective-date application | `de44e6ab` `49d4b245` | built, **unbound** |
 | 6 | Delivery worker | `1fbb93a9` | built, **no caller** |
+| 7 | Post-push CHANGES notification | `8eeffdb0` `6b2d2707` | built |
+| 8 | Recipients (commercial + rates) | `2188f85e` | built |
+| 9 | Durable post-push obligation | `34e4dcb5` | built, **no caller** |
+| 10 | Branded renderer + logo contract | `81aa2da8` `a568f391` `460d5f94` | built |
 
 ## Three defects found by building, not by auditing
 
@@ -42,6 +46,22 @@ Each was a real hole that the acceptance tests exposed:
    for an undeclared destination was expanded and would have been uploaded (`68da664d`).
 3. **`push-batch` was a complete eligibility bypass.** Destinations arrive in the request body and
    eligibility was never consulted, so any prefix could go to any client (`ef93d115`).
+4. **Rate sheets were reaching NOC and support inboxes.** The recipient query's own comment says
+   technical contacts are excluded; its predicate included `technical`, `support` and `noc`
+   (`2188f85e`). Fixed for the new path only — narrowing the PROVISIONING path removes real
+   contacts from real customers and is a commercial decision, still open.
+
+## Two customer-facing rules, enforced rather than documented
+
+**The customer never sees the execution prefix.** Commercial catalogue prefix `9230`; Sippy
+execution prefix `19230`, used internally and unchanged; the notification shows `9230`. The
+renderer cannot be handed a pre-built dial format — it takes the account prefix and product digit
+and composes the format itself — and it THROWS if the composed prefix reaches the HTML by any
+other route. Publishing it cannot be taken back once the mail is out.
+
+**Only the governing legal clause appears.** Under FULL a destination absent from the sheet is
+DELETED; under CHANGES it keeps its previous rate. A CHANGES notice never carries the deletion
+clause, so a partial sheet cannot be read as withdrawing everything it does not list.
 
 ## The separations that must not collapse
 
