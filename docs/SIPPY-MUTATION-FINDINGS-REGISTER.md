@@ -122,9 +122,27 @@ already gated (destructive → `admin`, 15 of 18; everything else → `admin, ma
 3. `POST /api/sippy/invoices/generate` — issues a financial document
 4. The three destructive routes currently at `admin, management` — confirm as deliberate
    exceptions or align to `admin`; do not normalise silently
-5. The duplicate `DELETE /api/sippy/tariffs/:id` registration — resolve first, or a gate may be
-   added to the shadowed copy and appear to work
+5. The duplicate `DELETE /api/sippy/tariffs/:id` registration — resolve first (see the invariant
+   below); gating it in the same pass can gate the dead copy
 6. Whether `/api/sippy` joins `PLATFORM_ROUTE_GROUPS` without external deployment-log evidence
+
+### Implementation safety invariant — ordering, not a single pass
+
+When SMP-003 is implemented, the duplicated route must be resolved as its own step **before** any
+gate is added:
+
+1. Resolve the duplicate registration
+2. Verify which route now survives and serves
+3. Add the authorization gate to it
+4. Test the actual reachable route
+
+**Not "resolve and gate in one pass."** Express serves the first matching registration, so a gate
+added to the shadowed copy is present in the source and inert at runtime. A source-level
+assertion — the style used throughout this work, grepping the handler for `requireRole` — would
+pass on exactly that arrangement while the ungated first registration keeps serving. The test
+would be green and the route open.
+
+Step 4 means the reachable route, established at step 2, not the one a grep happens to find.
 
 ### Logging, scoped narrowly
 
