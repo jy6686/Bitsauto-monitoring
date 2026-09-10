@@ -28,6 +28,7 @@ register classifies rather than counts, so that "no boundary" is not read as "un
 
 | ID | Finding | Severity | Status | Required decision |
 |----|---------|----------|--------|-------------------|
+| SMP-004 | Two further shadowed route registrations — `GET /api/reports/asr-acd` and `GET /api/sippy/accounts/:id/info` each registered twice, the second copy unreachable. **Neither carries authorization, so neither is an authorization exposure**: divergent dead implementations, not an open door | Low | OPEN | Decide which implementation is intended, then remove the other |
 | SMP-003 | **57 of 160** `/api/sippy` write routes have no gate of any kind, and `/api/sippy` is absent from `PLATFORM_ROUTE_GROUPS` so `requirePlatformAccess` never runs; the tariff-rate DELETE is reachable by any authenticated session, `portal_only` included. Includes a **shadowed gate**: `DELETE /api/sippy/tariffs/:id` is registered twice and the `requireRole(['admin'])` copy is unreachable | **Critical** | OPEN — audited, policy not yet decided | Separate authorization-hardening decision. Evidence: [SMP-003-AUTHORIZATION-AUDIT.md](SMP-003-AUTHORIZATION-AUDIT.md) |
 
 SMP-001 and SMP-002 were fixed together and are removed rather than marked closed — see the
@@ -139,6 +140,31 @@ exception process can only tighten, never delay.
 **Still to confirm individually — not blockers:** the three destructive routes currently at
 `admin, management` (confirm as deliberate or align to `admin`; do not normalise silently), and
 whether `/api/sippy` joins `PLATFORM_ROUTE_GROUPS` absent external deployment-log evidence.
+
+---
+
+### SMP-004 · Two more shadowed route registrations
+
+**Severity: Low. Status: OPEN.**
+
+**Found:** 2026-09-10, by the duplicate-registration guard written for SMP-003 step 1 — which is
+the reason that guard covers the whole file rather than the one route the audit had found.
+
+| Route | Serves | Shadowed |
+|-------|--------|----------|
+| `GET /api/reports/asr-acd` | L5273 | L9551 |
+| `GET /api/sippy/accounts/:id/info` | L10759 | L13519 |
+
+**Not an authorization exposure.** Neither shadowed copy carries `requireRole`, so unlike SMP-003
+nothing here reads as protected while being open. What remains is a correctness and maintenance
+defect: two implementations exist, one can never run, and a change made to the wrong one has no
+effect while appearing correct.
+
+**Intended fix.** Determine which implementation is intended — they are not obviously equivalent —
+then remove the other. Same behavioural-comparison step SMP-003 required, without the urgency.
+
+Both are pinned by `route-registration.test.ts`, so a NEW duplicate fails the test rather than
+joining them silently.
 
 ### Implementation safety invariant — ordering, not a single pass
 

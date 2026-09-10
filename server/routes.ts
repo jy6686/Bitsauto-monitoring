@@ -12681,14 +12681,29 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
   });
 
   // DELETE /api/sippy/tariffs/:id — delete a tariff
-  app.delete('/api/sippy/tariffs/:id', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req, res) => {
-    try {
-      const settings = await storage.getSettings();
-      const { username, password } = sippyXmlCreds(settings);
-      const result = await sippy.deleteSippyTariff(username, password, parseInt(req.params.id, 10));
-      res.json(result);
-    } catch (e: any) { res.status(500).json({ success: false, message: e.message }); }
-  });
+  // DELETE /api/sippy/tariffs/:id was registered a SECOND time here, with
+  // requireRole(['admin']). Both registrations sat inside this same registerRoutes function, so
+  // file order was registration order and Express always matched the earlier one at ~9059 — this
+  // copy never executed, and its admin gate was unreachable. Reading it, tariff deletion looked
+  // admin-only. It was not.
+  //
+  // Removed rather than kept, and the surviving handler is the earlier one, because that one is
+  // the better implementation independently of which came first:
+  //   - it accepts i_customer, which deleteTariff supports and this copy dropped;
+  //   - it validates the id, where this copy passed an unchecked parseInt straight through;
+  //   - it uses assertSippyOk, the fault check the rest of this codebase uses, rather than a
+  //     narrower `<fault>` substring test.
+  // Nothing can depend on this copy's 200-JSON response shape, because it has never run.
+  //
+  // sippy.deleteSippyTariff() is NOT dead — routes.ts:~28900 still calls it — so only the route
+  // registration is removed here.
+  //
+  // The surviving route is deliberately left UNGATED by this change. Resolving the duplicate and
+  // applying authorization are separate steps (see SMP-003's ordering invariant): a gate added in
+  // the same pass could land on the copy that never runs, and a source-level test would pass while
+  // the open route kept serving. This step is runtime-neutral by construction — removing a
+  // registration that never executed cannot change behaviour — which is exactly what makes it
+  // safe to land on its own.
 
   // GET /api/sippy/account-balance/:iAccount — live balance for a single account
   // Returns { balance, creditLimit, currency } fetched via listAccounts from Sippy.
