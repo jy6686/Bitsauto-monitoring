@@ -9,7 +9,33 @@ integrity guards, evaluated from data, with no human in the loop.
 
 ---
 
-## The rules as stated
+## THE REQUIREMENT — ratified 2026-09-11
+
+> Rate Manager must have a configurable rate-change validation engine modelled on the old BitsAuto
+> rule structure. Global configuration defines thresholds and date limits; client + department
+> rules determine the consequence. Rate validation occurs before any Sippy mutation. Rate push
+> itself does not inherently require approval.
+
+And the consequence **must be capable of being destination-level**, not necessarily whole-batch
+rejection.
+
+This supersedes the first formulation below, which was "a >50% decrease is blocked until the rate
+is released". That was too coarse in three ways the evidence established: the threshold is
+configurable rather than fixed, the consequence is per client and department rather than universal,
+and rejection has three blast radii rather than one.
+
+### Where it sits in the existing pipeline
+
+The old system separates the change job from switch propagation via `Is Sync`. That is the same
+separation this platform already enforces, and the stages line up:
+
+`validation decision → mutation eligibility → Sippy mutation → synchronisation / verification`
+
+The validation engine is a new stage in front of the boundary work already built. It does not
+replace the integrity guards or the mutation boundary; a validation refusal must produce
+`refusedBeforeWrite: true` like any other pre-write refusal.
+
+## SUPERSEDED — the rules as first stated
 
 ### 1. Effective date is independent of direction
 
@@ -38,6 +64,9 @@ With a currently offered rate of `0.05`:
 > A rate decrease of up to 50% from the currently offered rate may be implemented. A decrease
 > greater than 50% cannot be applied directly; the existing offered rate must first be released
 > before the lower rate can be implemented.
+
+**Superseded.** Retained because it is what was originally asked for, and because the gap between
+it and the ratified requirement is the value the investigation produced.
 
 ### 3. The guard runs BEFORE the mutation boundary
 
@@ -221,8 +250,14 @@ over a historical job.
 So these remain open, and reaching them requires either driving the wizard or opening a historical
 record — both beyond navigate-and-read, and neither done:
 
-- **`>50%` or `>=50%`** — the boundary that decides whether `0.05 → 0.025` passes.
-- **What "release" is.** Nothing on any screen read so far uses the word. It is not the validation
+- **`>50%` or `>=50%`** — the boundary that decides whether `0.05 → 0.025` passes. Deliberately
+  unresolved: neither is to be implemented until the old calculation or another authoritative
+  source proves it. `0.05 → 0.02` is unambiguously 60% and beyond a 50% threshold; what remains is
+  how the violation is calculated and what the client's rule then does.
+- **What "release" is.** Nothing on any screen read so far uses the word, and there is now
+  evidence AGAINST equating it with `Pending Increase`, `Pending Decrease`, or `REJECT
+  DESTINATION` — those are distinct concepts in the material examined. **Do not invent a release
+  mechanism.** It is not the validation
   outcome (that is `REJECT DESTINATION`), and it is not the `Pending` status codes.
 - **What "the currently offered rate" is compared against** in the old system.
 
