@@ -44354,6 +44354,38 @@ ${footer}
         );
         results.push(...(runOutcome.results as any));
 
+        // ── Record what this push owes clients ────────────────────────────────
+        // Derived from the DURABLE operation records this run just wrote, never from a fresh
+        // product_rates lookup: that table describes the current matrix, and after a push it can
+        // disagree with what landed, so rebuilding from it would tell a customer about rates the
+        // switch does not hold.
+        //
+        // Creation only. Nothing is sent here, and nothing can be: the module has no transport,
+        // and delivery is a separate worker that refuses to run unless explicitly enabled.
+        //
+        // Failure is swallowed ON PURPOSE. The push has already mutated the switch; throwing here
+        // would turn a successful push into an error response and invite a retry that writes
+        // again. An obligation that was not recorded is re-derived later by
+        // recoverMissingObligations from the same durable records, so the omission is
+        // self-healing rather than lost.
+        try {
+          const { createObligationsForPush, loadOperationsForPush } =
+            await import('./services/rates/post-push-obligation');
+          const certified = await loadOperationsForPush(db as any, jobId);
+          const owed = await createObligationsForPush(db as any, {
+            jobId,
+            operations: certified,
+            productLabelFor: (code) => pushProduct?.name ?? code,
+            dialFormatFor: (_c, trunk) => `${trunk}[Country Code][Number]`,
+            createdVia: 'push',
+          });
+          console.log(`[push-batch] notification obligations: ${owed.created} created, ` +
+                      `${owed.alreadyPresent} already present, ${owed.excluded.length} operation(s) not announced`);
+        } catch (e: any) {
+          console.warn(`[push-batch] could not record notification obligations (${e?.message ?? e}) — ` +
+                       `recovery will re-derive them from the operation records`);
+        }
+
         const ok    = results.filter(r => r.success).length;
         const total = results.length;
         const firstR = results[0];
