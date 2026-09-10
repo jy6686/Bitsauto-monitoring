@@ -79,6 +79,53 @@ DELETE, leave no trace of who called them. The empirical gate proposed before th
 `PLATFORM_ROUTE_GROUPS` decision therefore cannot be met from platform data, and these routes are
 **unauditable** both before and after any fix. See the audit for the full check.
 
+### The evidentiary boundary, stated precisely
+
+> No evidence of `portal_only` use was found because the application has no path-level access
+> log — **not** because `portal_only` users were proven never to have called `/api/sippy`.
+>
+> The absence of access records is not evidence that access did not occur; it is evidence that
+> **the system cannot determine whether it occurred.**
+
+What the code evidence does establish: `/api/sippy` is absent from `PLATFORM_ROUTE_GROUPS`, no
+identified portal-scoped UI calls it, and `client-portal.tsx` is itself restricted to
+admin/management. Historical production access cannot be established from application data.
+
+Concretely, if `DELETE /api/sippy/tariffs/:id/rates` has already been exercised, the application
+cannot answer who invoked it, when, from which session, whether that session was `portal_only`,
+or which tariff was targeted.
+
+### PROPOSED policy — awaiting ratification, NOT adopted
+
+Evidence-gathering is complete; this is the decision that remains. Derived from the 92 routes
+already gated (destructive → `admin`, 15 of 18; everything else → `admin, management`, 67 of 74).
+
+| Route class | Proposed access |
+|-------------|-----------------|
+| Destructive / disconnect | `admin` |
+| Create / update | `admin`, `management` |
+| Read / validation | `admin`, `management` |
+| `/api/sippy` from `portal_only` | Deny at the platform boundary |
+| Existing approval workflows | Preserve unchanged |
+
+**Explicitly unresolved until reviewed — these do not inherit the default:**
+
+1. `DELETE /api/sippy/tariffs/:id/rates` — blast radius is a customer's entire pricing
+2. `PUT /api/sippy/system-config` — switch-wide configuration
+3. `POST /api/sippy/invoices/generate` — issues a financial document
+4. The three destructive routes currently at `admin, management` — confirm as deliberate
+   exceptions or align to `admin`; do not normalise silently
+5. The duplicate `DELETE /api/sippy/tariffs/:id` registration — resolve first, or a gate may be
+   added to the shadowed copy and appear to work
+6. Whether `/api/sippy` joins `PLATFORM_ROUTE_GROUPS` without external deployment-log evidence
+
+### Logging, scoped narrowly
+
+General HTTP request logging is **not** in scope and should not be added under this finding. But
+remediation should make an authorization **denial** attributable, or it creates a state where
+"the route is correctly blocked" is true and the application cannot demonstrate that the block
+occurred. Authorization events only — not a general observability project.
+
 **Intended fix.** An authorization-scope decision, not a code cleanup: which roles may reach
 which Sippy write operations, and whether `/api/sippy` belongs in `PLATFORM_ROUTE_GROUPS`.
 Adding `requireRole` route-by-route without that decision would encode 76 individual guesses.
