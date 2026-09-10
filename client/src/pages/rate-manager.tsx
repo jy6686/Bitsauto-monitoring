@@ -3164,6 +3164,257 @@ function JobsTab() {
   );
 }
 
+
+// ── Product Eligibility Tab ───────────────────────────────────────────────────
+// Declaring which catalogue destinations a product is sold on.
+//
+// This screen exists because the chain had no first link. The eligibility API and the
+// Product Rates grid that consumes it were both built, but nothing could CREATE eligibility —
+// so every product declared nothing, Product Rates showed nothing, nothing could be priced,
+// and nothing could be pushed. An empty state that no screen can leave is not a safe default,
+// it is a dead end.
+//
+// It declares eligibility and nothing else. It does not price, does not push, and does not
+// touch the legacy assignment table.
+interface CatalogueDest {
+  id: number;
+  name: string;
+  approval_status: string;
+  prefix_count: number;
+  prefix_preview: string[] | null;
+}
+
+function EligibilityTab({ products }: { products: Product[] }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  const [q, setQ] = useState("");
+  const [onlyEligible, setOnlyEligible] = useState(false);
+  const [page, setPage] = useState(0);
+  const PAGE = 100;
+
+  const { data: eligibility, isLoading: eligLoading, isError: eligError } = useQuery<EligibilityResponse>({
+    queryKey: ["/api/products", selectedProductId, "eligibility"],
+    queryFn: () => fetch(`/api/products/${selectedProductId}/eligibility`).then(r => {
+      if (!r.ok) throw new Error(`eligibility failed: ${r.status}`);
+      return r.json();
+    }),
+    enabled: !!selectedProductId,
+  });
+
+  const versionId = eligibility?.catalogue?.versionId ?? null;
+
+  // The catalogue is 1,344 destinations, so it is searched and paged rather than listed.
+  const { data: catalogue, isLoading: catLoading } = useQuery<{ destinations: CatalogueDest[]; total: number }>({
+    queryKey: ["/api/commercial/catalogues", versionId, "destinations", q, page],
+    queryFn: () => fetch(`/api/commercial/catalogues/${versionId}/destinations?q=${encodeURIComponent(q)}&limit=${PAGE}&offset=${page * PAGE}`)
+      .then(r => r.json()),
+    enabled: versionId !== null && !onlyEligible,
+    staleTime: 30_000,
+  });
+
+  // Declared eligibility, by destination id — the authority for what is already granted.
+  const eligibleIds = useMemo(
+    () => new Set((eligibility?.destinations ?? []).map(d => d.destinationId)),
+    [eligibility],
+  );
+
+  // "Only eligible" reads from the eligibility response itself rather than filtering the
+  // catalogue page, so it shows everything declared and not merely what this page happens to
+  // hold. The two lists are different questions.
+  const rows: Array<{ id: number; name: string; prefixCount: number; preview: string[]; approval: string }> =
+    onlyEligible
+      ? (eligibility?.destinations ?? []).map(d => ({
+          id: d.destinationId, name: d.name, prefixCount: d.prefixes.length,
+          preview: d.prefixes.slice(0, 4), approval: d.approvalStatus,
+        }))
+      : (catalogue?.destinations ?? []).map(d => ({
+          id: d.id, name: d.name, prefixCount: Number(d.prefix_count ?? 0),
+          preview: Array.isArray(d.prefix_preview) ? d.prefix_preview.filter(Boolean) : [],
+          approval: d.approval_status,
+        }));
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["/api/products", selectedProductId, "eligibility"] });
+    // Product Rates reads the same key shape; keep it honest without a reload.
+    qc.invalidateQueries({ queryKey: ["/api/products"] });
+  };
+
+  const grant = useMutation({
+    mutationFn: (destinationId: number) =>
+      apiRequest("POST", `/api/products/${selectedProductId}/eligibility`, { destinationId }),
+    onSuccess: () => { invalidate(); },
+    onError: (e: any) => toast({ title: "Could not declare eligibility", description: e.message, variant: "destructive" }),
+  });
+
+  const withdraw = useMutation({
+    mutationFn: (destinationId: number) =>
+      apiRequest("POST", `/api/products/${selectedProductId}/eligibility/${destinationId}/withdraw`, {}),
+    onSuccess: () => { invalidate(); },
+    onError: (e: any) => toast({ title: "Could not withdraw", description: e.message, variant: "destructive" }),
+  });
+
+  const busy = grant.isPending || withdraw.isPending;
+  const product = products.find(p => String(p.id) === selectedProductId);
+
+  return (
+    <div className="flex flex-1 overflow-hidden">
+      {/* Product list */}
+      <div className="w-48 shrink-0 border-r border-border/50 flex flex-col overflow-y-auto py-2">
+        <div className="px-3 py-1.5 text-[10px] font-semibold uppercase text-muted-foreground tracking-wider">Product</div>
+        {products.map(p => (
+          <button
+            key={p.id}
+            onClick={() => { setSelectedProductId(String(p.id)); setPage(0); }}
+            data-testid={`eligibility-product-${p.id}`}
+            className={cn(
+              "text-left px-3 py-2 text-xs flex items-center gap-2 border-l-2 transition-colors",
+              selectedProductId === String(p.id)
+                ? "border-primary bg-muted/30 text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/10",
+            )}
+          >
+            <Tag className="w-3 h-3 shrink-0" />
+            <span className="truncate">{p.name}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border/30 bg-muted/10">
+          <div className="text-xs font-medium flex items-center gap-2">
+            <PackageCheck className="w-3.5 h-3.5 text-blue-400" />
+            Product Eligibility
+            {product && <span className="text-muted-foreground">— {product.name}</span>}
+          </div>
+          {eligibility?.catalogue && (
+            <div className="text-[10px] text-muted-foreground tabular-nums">
+              {eligibility.count.toLocaleString()} declared of {eligibility.catalogue.destinationCount.toLocaleString()} in {eligibility.catalogue.label}
+            </div>
+          )}
+        </div>
+
+        {!selectedProductId ? (
+          <div className="text-center text-xs text-muted-foreground py-12">
+            Select a product to declare what it is sold on
+          </div>
+        ) : eligLoading ? (
+          <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+          </div>
+        ) : eligError || !eligibility?.catalogue ? (
+          <div data-testid="eligibility-no-catalogue" className="text-center text-xs py-12 px-6">
+            <div className="text-rose-400 font-medium">No active catalogue version could be read.</div>
+            <div className="text-muted-foreground mt-1">
+              Eligibility references the versioned catalogue, so nothing can be declared until one is active.
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-3 px-4 py-2 border-b border-border/20">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  data-testid="eligibility-search"
+                  value={q}
+                  onChange={e => { setQ(e.target.value); setPage(0); }}
+                  placeholder="Search destinations or prefix…"
+                  disabled={onlyEligible}
+                  className="w-full bg-muted border border-border rounded pl-7 pr-2 py-1 text-xs disabled:opacity-50"
+                />
+              </div>
+              <button
+                data-testid="eligibility-filter-declared"
+                onClick={() => { setOnlyEligible(v => !v); setPage(0); }}
+                className={cn("text-xs px-2.5 py-1 rounded border transition-colors",
+                  onlyEligible ? "bg-primary/15 text-primary border-primary/30" : "border-border/50 text-muted-foreground hover:text-foreground")}
+              >
+                {onlyEligible ? "Showing declared only" : "Show declared only"}
+              </button>
+              {!onlyEligible && (catalogue?.total ?? 0) > PAGE && (
+                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <button disabled={page === 0} onClick={() => setPage(p => p - 1)}
+                    className="px-1.5 py-0.5 rounded border border-border/50 disabled:opacity-30"><ChevronLeft className="w-3 h-3" /></button>
+                  <span className="tabular-nums">{page * PAGE + 1}–{Math.min((page + 1) * PAGE, catalogue!.total)} of {catalogue!.total.toLocaleString()}</span>
+                  <button disabled={(page + 1) * PAGE >= (catalogue?.total ?? 0)} onClick={() => setPage(p => p + 1)}
+                    className="px-1.5 py-0.5 rounded border border-border/50 disabled:opacity-30"><ChevronRight className="w-3 h-3" /></button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-auto">
+              {catLoading && !onlyEligible ? (
+                <div className="flex items-center gap-2 justify-center py-12 text-xs text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading catalogue…
+                </div>
+              ) : rows.length === 0 ? (
+                <div data-testid="eligibility-empty" className="text-center text-xs py-12 px-6 text-muted-foreground">
+                  {onlyEligible
+                    ? "Nothing declared for this product yet. Clear the filter to choose destinations from the catalogue."
+                    : "No destination matches that search."}
+                </div>
+              ) : (
+                <table className="w-full text-xs border-collapse">
+                  <thead>
+                    <tr className="border-b border-border/50 bg-muted/20 sticky top-0">
+                      {["Destination", "Prefixes", "Catalogue status", "Sold on this product", ""].map(h => (
+                        <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(r => {
+                      const isEligible = eligibleIds.has(r.id);
+                      return (
+                        <tr key={r.id} data-testid={`eligibility-row-${r.id}`}
+                            className={cn("border-b border-border/20 hover:bg-muted/10", isEligible && "bg-green-500/[0.04]")}>
+                          <td className="py-2 px-3">{r.name}</td>
+                          <td className="py-2 px-3 font-mono text-amber-400" title={r.preview.join(", ")}>
+                            {r.prefixCount === 0
+                              ? <span className="text-muted-foreground">none</span>
+                              : <>{displayPrefix(r.preview[0] ?? "")}{r.prefixCount > 1 && <span className="text-muted-foreground"> +{r.prefixCount - 1}</span>}</>}
+                          </td>
+                          <td className="py-2 px-3">
+                            <span className={r.approval === "approved" ? "text-green-400" : "text-muted-foreground"}>{r.approval}</span>
+                          </td>
+                          <td className="py-2 px-3">
+                            {isEligible
+                              ? <span className="text-green-400 flex items-center gap-1"><Check className="w-3 h-3" /> Declared</span>
+                              : <span className="text-muted-foreground">—</span>}
+                          </td>
+                          <td className="py-2 px-3 text-right">
+                            {isEligible ? (
+                              <button
+                                data-testid={`eligibility-withdraw-${r.id}`}
+                                disabled={busy}
+                                onClick={() => withdraw.mutate(r.id)}
+                                className="text-xs text-rose-400 hover:text-rose-300 disabled:opacity-40 whitespace-nowrap">
+                                Withdraw
+                              </button>
+                            ) : (
+                              <button
+                                data-testid={`eligibility-grant-${r.id}`}
+                                disabled={busy}
+                                onClick={() => grant.mutate(r.id)}
+                                className="text-xs text-primary hover:underline disabled:opacity-40 whitespace-nowrap">
+                                Declare
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Product Rates Tab ─────────────────────────────────────────────────────────
 function ProductRatesTab({ products }: { products: Product[] }) {
   const qc = useQueryClient();
@@ -5093,7 +5344,7 @@ export default function RateManagerPage() {
   const urlSubTab = searchParams.get("subtab") as "templates" | "jobs" | null;
   const urlStatusFilter = searchParams.get("statusFilter") ?? "";
 
-  const [activeTab, setActiveTab] = useState<"analysis" | "send" | "jobs" | "product-rates" | "notifications" | "intelligence" | "vendor-rates">(
+  const [activeTab, setActiveTab] = useState<"analysis" | "send" | "jobs" | "eligibility" | "product-rates" | "notifications" | "intelligence" | "vendor-rates">(
     urlTab ?? "analysis"
   );
 
@@ -5132,6 +5383,7 @@ export default function RateManagerPage() {
     { key: "vendor-rates"  as const, label: "Vendor Rates"    },
     { key: "send"          as const, label: "Send Rate"        },
     { key: "jobs"          as const, label: "Push History"     },
+    { key: "eligibility"   as const, label: "Eligibility"     },
     { key: "product-rates" as const, label: "Product Rates"   },
     { key: "notifications" as const, label: "Notifications"   },
     { key: "intelligence"  as const, label: "Intelligence"    },
@@ -5192,6 +5444,7 @@ export default function RateManagerPage() {
       {activeTab === "analysis"      && <AnalysisTab products={products} accounts={accounts} allDests={allDests} onProductChange={setActiveProductId} />}
       {activeTab === "send"          && <SendRateTab products={products} accounts={accounts} allDests={allDests} onProductChange={setActiveProductId} />}
       {activeTab === "jobs"          && <JobsTab />}
+      {activeTab === "eligibility"   && <EligibilityTab products={products} />}
       {activeTab === "product-rates" && <ProductRatesTab products={products} />}
       {activeTab === "notifications" && <NotificationsTab products={products} initialSubTab={urlSubTab ?? undefined} initialStatusFilter={urlStatusFilter || undefined} />}
       {activeTab === "intelligence"  && <PricingIntelligenceTab products={products} />}
