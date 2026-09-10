@@ -9,12 +9,17 @@
  * matches production's request shape. Production still fell through to the portal on jobs #45–#47.
  * The requests are identical, so the difference is the deadline:
  *
- *   setSippyRateEntry (sippy.ts:9571)      sippyPost(..., 10_000)   ← 10 s
- *   diagnose-upload-token.ts               no timeout at all
+ *   setSippyRateEntry (sippy.ts:9571)      sippyPost(..., 10_000)        ← 10 s
+ *   diagnose-upload-token.ts               sippyRawCall(...) default     ← 15 s
  *
- * Sippy was measured at 36.3 s for one tariff read the same evening. If getUploadToken is anywhere
- * near that, production aborts and the diagnostic does not — which would explain the whole regression
- * without a single line of our code having changed, and that is exactly what the git history shows.
+ * (An earlier note here said the diagnostic had no timeout. That was wrong: its deadline lives in
+ * sippyRawCall's default parameter, not in the script, so grepping the script found nothing.)
+ *
+ * So the hypothesis is NARROW and precise: the call must take between 10 s and 15 s. Longer and the
+ * diagnostic would have failed too; shorter and production would have succeeded. Sippy was measured
+ * at 36.3 s for a single tariff READ the same evening, so a token call in that band is plausible —
+ * and it would explain the whole regression with none of our code having changed, which is exactly
+ * what the git history shows.
  *
  * This measures the real latency of the EXACT call production makes, with NO deadline, and reports
  * whether production's 10 s would have fired. It is a measurement, not a fix.
@@ -53,7 +58,7 @@ async function main() {
 
   const pool = new Pool({ connectionString: url });
   const { rows } = await pool.query(
-    `SELECT portal_url, api_admin_username, api_admin_password, sippy_username, sippy_password
+    `SELECT portal_url, portal_username, portal_password, api_admin_username, api_admin_password
        FROM settings ORDER BY id LIMIT 1`);
   if (!rows.length) { console.error("No settings row."); process.exit(2); }
   const s = rows[0];
@@ -62,7 +67,7 @@ async function main() {
 
   const pairs: Pair[] = [];
   if (s.api_admin_username && s.api_admin_password) pairs.push({ username: s.api_admin_username, password: s.api_admin_password, origin: 'apiAdmin' });
-  if (s.sippy_username && s.sippy_password)         pairs.push({ username: s.sippy_username,     password: s.sippy_password,     origin: 'sippy' });
+  if (s.portal_username && s.portal_password)       pairs.push({ username: s.portal_username,   password: s.portal_password,   origin: 'portal' });
   if (!pairs.length) { console.error("No credentials configured."); process.exit(2); }
 
   let creds: Pair | null = null;
@@ -72,8 +77,7 @@ async function main() {
   }
   if (!creds) { console.error("No credential pair can call admin XML-RPC."); process.exit(1); }
 
-  const base   = portalUrl.replace(/\/+$/, '');
-  const apiUrl = `${base.startsWith('http') ? base : 'https://' + base}/xmlapi/xmlapi`;
+  const base = sippy.sippyBase(portalUrl);
 
   console.log(`Measuring getUploadToken against ${portalUrl}`);
   console.log(`Credential: ${creds.origin} ("${creds.username}")`);
@@ -94,14 +98,14 @@ async function main() {
     const t0 = Date.now();
     let outcome: string;
     try {
-      // 120 s, i.e. effectively no deadline — the point is to learn the TRUE latency.
-      // sippyPost is not exported, so postRaw below sends the identical request shape.
-      const resp = await postRaw(apiUrl, xml, creds.username, creds.password, 120_000);
+      // sippyRawCall is what the working diagnostic uses; 120 s overrides its 15 s default so the
+      // measurement learns the TRUE latency instead of being capped by another deadline.
+      const resp = await sippy.sippyRawCall(creds.username, creds.password, portalUrl, xml, 120_000);
       const ms = Date.now() - t0;
       samples.push(ms);
       const gotToken = /<name>token<\/name>/.test(resp.body);
-      const fault    = resp.body.includes('faultCode');
-      outcome = fault ? `FAULT ${(resp.body.match(/<int>(\d+)<\/int>/) ?? [])[1] ?? '?'}`
+      const fault    = !!resp.faultCode;
+      outcome = fault ? `FAULT ${resp.faultCode} ${resp.faultString ?? ''}`.trim()
               : gotToken ? 'token issued' : `HTTP ${resp.statusCode}, no token in struct`;
       console.log(`  run ${i}: ${String(ms).padStart(6)} ms — ${outcome}` +
                   `${ms > PRODUCTION_TIMEOUT_MS ? `   ⚠ PRODUCTION WOULD HAVE ABORTED at ${PRODUCTION_TIMEOUT_MS} ms` : ''}`);
@@ -129,41 +133,11 @@ async function main() {
     console.log("VERDICT: every call fit inside the production deadline. The timeout hypothesis is");
     console.log("NOT supported by this measurement — the failure lies elsewhere, and the console");
     console.log("trace is still the artifact that will say where.");
+    console.log("(The band that would have explained it is 10-15 s: over production's deadline but");
+    console.log(" inside the 15 s the diagnostic allowed when it successfully issued a token.)");
   }
   console.log("\nNo tariff, rate or account was modified. Any tokens minted here were never used.");
   await pool.end();
-}
-
-/** Minimal XML-RPC POST, so the measurement does not depend on a non-exported helper. */
-function postRaw(url: string, body: string, username: string, password: string, timeoutMs: number):
-    Promise<{ statusCode: number; body: string }> {
-  const https = require('node:https'), http = require('node:http');
-  const parsed = new URL(url);
-  const isHttps = parsed.protocol === 'https:';
-  return new Promise((resolve, reject) => {
-    const req = (isHttps ? https : http).request({
-      hostname: parsed.hostname,
-      port: parsed.port ? parseInt(parsed.port) : (isHttps ? 443 : 80),
-      path: parsed.pathname + (parsed.search || ''),
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/xml',
-        'Content-Length': Buffer.byteLength(body),
-        'User-Agent': 'SippyAPI/1.0',
-        Authorization: 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64'),
-      },
-      timeout: timeoutMs,
-      ...(isHttps ? { rejectUnauthorized: false } : {}),
-    }, (res: any) => {
-      let data = '';
-      res.on('data', (c: any) => { data += c; });
-      res.on('end', () => resolve({ statusCode: res.statusCode ?? 0, body: data }));
-    });
-    req.on('error', reject);
-    req.on('timeout', () => { req.destroy(); reject(new Error(`no response within ${timeoutMs} ms`)); });
-    req.write(body);
-    req.end();
-  });
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
