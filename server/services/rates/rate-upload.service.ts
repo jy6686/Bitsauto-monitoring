@@ -122,6 +122,9 @@ export async function resolveDefaultRates(opts: {
         prefix: productRates.prefix, rate: productRates.rate,
         destinationId: productRates.destinationId,
         catalogueVersionId: productRates.catalogueVersionId,
+        // Supplied so the expansion can refuse a destination this product does not sell.
+        // A rate row is not a commercial decision; declared eligibility is.
+        productId: productRates.productId,
       })
       .from(productRates)
       .where(

@@ -78,7 +78,11 @@ beforeAll(async () => {
       currency VARCHAR(8) NOT NULL DEFAULT 'USD',
       effective_from DATE NOT NULL, effective_to DATE, notes TEXT,
       created_by VARCHAR(128), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());`);
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+    CREATE TABLE product_destination_assignments (
+      id SERIAL PRIMARY KEY, product_id INTEGER NOT NULL, destination_id INTEGER NOT NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'active');`);
+  await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '514_product_destination_eligibility.sql'), 'utf8'));
   await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '515_product_rate_catalogue_identity.sql'), 'utf8'));
 
   ({ resolveDefaultRates } = await import("./rate-upload.service"));
@@ -103,6 +107,15 @@ beforeEach(async () => {
     INSERT INTO commercial_destination_prefixes (version_id, destination_id, prefix) VALUES
       (${V1}, ${AWCC}, '9370'), (${V1}, ${AWCC}, '9371'),
       (${V1}, ${JAZZ}, '9230')`);   // BD has none, on purpose
+
+  // The product is DECLARED eligible for all three. Provisioning honours declared eligibility,
+  // so without this the fixtures would describe a product that sells nothing, and every
+  // assertion below would be exercising the refusal path by accident.
+  await realDb.execute(sql`
+    INSERT INTO product_destination_eligibility (product_id, destination_id, version_id, status, created_by)
+    VALUES (${FC}, ${AWCC}, ${V1}, 'active', 'fixture'),
+           (${FC}, ${JAZZ}, ${V1}, 'active', 'fixture'),
+           (${FC}, ${BD},   ${V1}, 'active', 'fixture')`);
 });
 
 // ── 1. Legacy rows are unchanged ─────────────────────────────────────────────
@@ -157,6 +170,10 @@ describe("3 — V1 → V2 produces a deterministic stale_version refusal", () =>
     await realDb.execute(sql`INSERT INTO catalogue_versions (id, label, status) VALUES (${V2}, 'V2', 'active')`);
     await realDb.execute(sql`INSERT INTO commercial_destinations (id, version_id, name) VALUES (20, ${V2}, 'AFGHANISTAN - MOBILE AWCC')`);
     await realDb.execute(sql`INSERT INTO commercial_destination_prefixes (version_id, destination_id, prefix) VALUES (${V2}, 20, '9370'), (${V2}, 20, '9372')`);
+    // V2's destination must be declared in its own right — eligibility does not cross versions.
+    await realDb.execute(sql`
+      INSERT INTO product_destination_eligibility (product_id, destination_id, version_id, status, created_by)
+      VALUES (${FC}, 20, ${V2}, 'active', 'fixture')`);
   });
 
   it("uploads nothing for the V1 price and says why", async () => {

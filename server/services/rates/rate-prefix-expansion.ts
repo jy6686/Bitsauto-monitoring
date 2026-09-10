@@ -41,6 +41,15 @@ export type ExpansionVerdict =
   | 'unknown_destination'
   /** Catalogue-keyed, in the active version, but the destination holds no prefixes. */
   | 'no_prefixes'
+  /**
+   * Priced, but the product is not DECLARED ELIGIBLE for the destination.
+   *
+   * A rate row is not a commercial decision. Eligibility is. Without this, pricing is a back
+   * door into selling: someone enters a rate for a destination nobody said the product sells,
+   * and the push uploads it. The Product Rates grid already shows such rows as "priced, not
+   * eligible" — this is the same fact enforced rather than merely displayed.
+   */
+  | 'not_eligible'
   /** Neither a catalogue identity nor a prefix — nothing to upload. */
   | 'unpriceable';
 
@@ -49,6 +58,13 @@ export interface ExpandableRate {
   destinationId: number | null;
   prefix: string | null;
   catalogueVersionId: number | null;
+  /**
+   * OPTIONAL, and its absence is meaningful. When supplied, a catalogue-keyed row is checked
+   * against declared eligibility and refused as `not_eligible` if the product does not sell that
+   * destination. When absent, no eligibility check is performed — callers that legitimately have
+   * no product context keep their previous behaviour rather than being silently refused.
+   */
+  productId?: number | null;
 }
 
 export interface Expansion<T extends ExpandableRate> {
@@ -76,7 +92,7 @@ export interface SqlHelper {
   raw(value: string): any;
 }
 
-const rowsOf = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
+const rowsOf = (r: any): any[] => (r === null || r === undefined ? [] : Array.isArray(r) ? r : (r?.rows ?? []));
 
 /**
  * Expand a batch of priced rows.
@@ -114,6 +130,8 @@ export async function expandRates<T extends ExpandableRate>(
   }
 
   const byDest = new Map<number, { name: string; versionId: number; prefixes: string[] }>();
+  /** destinationId -> productIds declared eligible for it, in the active version. */
+  const eligibleFor = new Map<number, Set<number>>();
   if (wanted.size > 0) {
     // Scoped to the active version in the query as well as the filter above, so a destination id
     // that exists in another version cannot answer for this one.
@@ -132,6 +150,23 @@ export async function expandRates<T extends ExpandableRate>(
        WHERE d.version_id = ${activeVersionId}
          AND d.id IN (${sqlTag.raw(ids.join(','))})
        GROUP BY d.id, d.name, d.version_id`);
+    // Declared eligibility for exactly these destinations — but ONLY when a caller actually
+    // supplied a product to check against. Querying it regardless would ask a question nobody
+    // asked, and would fail outright for callers whose schema has no eligibility table.
+    const checksEligibility = rows.some(r => (r as any).productId !== null && (r as any).productId !== undefined);
+    const elig = checksEligibility ? await db.execute(sqlTag`
+      SELECT product_id, destination_id
+        FROM product_destination_eligibility
+       WHERE status = 'active'
+         AND version_id = ${activeVersionId}
+         AND destination_id IN (${sqlTag.raw(ids.join(','))})`) : null;
+    for (const r of rowsOf(elig)) {
+      const d = Number(r.destination_id);
+      const set = eligibleFor.get(d) ?? new Set<number>();
+      set.add(Number(r.product_id));
+      eligibleFor.set(d, set);
+    }
+
     for (const r of rowsOf(res)) {
       byDest.set(Number(r.id), {
         name: String(r.name),
@@ -171,6 +206,20 @@ export async function expandRates<T extends ExpandableRate>(
         reason: `Destination ${row.destinationId} is not in catalogue version ${version}.`,
       };
     }
+    // Eligibility is checked BEFORE prefixes, because "this product does not sell here" is a
+    // more fundamental answer than "here has no prefixes".
+    const productId = (row as any).productId ?? (row as any).product_id;
+    if (productId !== null && productId !== undefined) {
+      const declared = eligibleFor.get(Number(row.destinationId));
+      if (!declared || !declared.has(Number(productId))) {
+        return {
+          row, verdict: 'not_eligible', prefixes: [], destinationName: dest.name,
+          reason: `${dest.name} is priced for this product but the product is not declared eligible for it. `
+                + `Declare it on the Eligibility screen, or withdraw the price.`,
+        };
+      }
+    }
+
     if (dest.prefixes.length === 0) {
       return {
         row, verdict: 'no_prefixes', prefixes: [], destinationName: dest.name,
@@ -192,7 +241,7 @@ export async function activeCatalogueVersionId(
 
 /** Verdicts that produced no prefixes and therefore belong on a run report. */
 export const REFUSED_VERDICTS: ExpansionVerdict[] =
-  ['stale_version', 'unknown_destination', 'no_prefixes', 'unpriceable'];
+  ['stale_version', 'unknown_destination', 'no_prefixes', 'unpriceable', 'not_eligible'];
 
 /** One line per refused row, for a step report. Grouped so a version rollover reads as one cause. */
 export function summariseRefusals<T extends ExpandableRate>(expansions: Array<Expansion<T>>): string[] {
