@@ -102,10 +102,16 @@ access can run that check. It is therefore **not a prerequisite for ratification
 below is forward-looking, and historical `portal_only` usage stays recorded as unknowable from
 application data unless that external check is performed and its result added here.
 
-### PROPOSED policy — awaiting ratification, NOT adopted
+### RATIFIED policy — 2026-09-10
 
-Evidence-gathering is complete; this is the decision that remains. Derived from the 92 routes
-already gated (destructive → `admin`, 15 of 18; everything else → `admin, management`, 67 of 74).
+Ratified as the platform's engineering authorization policy on the completed evidence. Derived
+from the 92 routes already gated (destructive → `admin`, 15 of 18; everything else →
+`admin, management`, 67 of 74) rather than invented.
+
+Ratification is an engineering-policy decision; it does not claim the engineering team owns the
+business authorization policy, and implementation remains subject to the organizational owner
+where governance requires one to approve who may perform these operations. Ratifying SMP-003
+implies **no** authorization for 514/515 deployment or any Sippy write.
 
 | Route class | Proposed access |
 |-------------|-----------------|
@@ -115,16 +121,24 @@ already gated (destructive → `admin`, 15 of 18; everything else → `admin, ma
 | `/api/sippy` from `portal_only` | Deny at the platform boundary |
 | Existing approval workflows | Preserve unchanged |
 
-**Explicitly unresolved until reviewed — these do not inherit the default:**
+**The floor applies to everything, including the high-consequence routes.**
 
-1. `DELETE /api/sippy/tariffs/:id/rates` — blast radius is a customer's entire pricing
-2. `PUT /api/sippy/system-config` — switch-wide configuration
-3. `POST /api/sippy/invoices/generate` — issues a financial document
-4. The three destructive routes currently at `admin, management` — confirm as deliberate
-   exceptions or align to `admin`; do not normalise silently
-5. The duplicate `DELETE /api/sippy/tariffs/:id` registration — resolve first (see the invariant
-   below); gating it in the same pass can gate the dead copy
-6. Whether `/api/sippy` joins `PLATFORM_ROUTE_GROUPS` without external deployment-log evidence
+The three routes below were first drafted as exceptions to the baseline. That was corrected before
+ratification: making them exceptions would have left the most consequential routes open while
+lower-risk ones were remediated — the tariff-rate wipe, the clearest exposure in this finding,
+would have been last to close. They receive the default floor **in the same pass as everything
+else**, and the separate decision is scoped to whether they need MORE control on top. The
+exception process can only tighten, never delay.
+
+| Route | Floor (immediate) | Separate decision (may only tighten) |
+|-------|-------------------|--------------------------------------|
+| `DELETE /api/sippy/tariffs/:id/rates` | `admin` | Confirmation guard, as the restore route has |
+| `PUT /api/sippy/system-config` | `admin` | Additional high-impact control if warranted |
+| `POST /api/sippy/invoices/generate` | `admin`, `management` | Additional financial control if warranted |
+
+**Still to confirm individually — not blockers:** the three destructive routes currently at
+`admin, management` (confirm as deliberate or align to `admin`; do not normalise silently), and
+whether `/api/sippy` joins `PLATFORM_ROUTE_GROUPS` absent external deployment-log evidence.
 
 ### Implementation safety invariant — ordering, not a single pass
 
