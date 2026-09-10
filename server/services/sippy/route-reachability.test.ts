@@ -143,19 +143,36 @@ describe("DELETE /api/sippy/tariffs/:id resolves to the surviving implementation
   });
 });
 
-describe("step 2 established reachability and applied NO authorization", () => {
-  it("the reachable registration is still ungated — step 3 has not run", async () => {
+describe("the authorization floor landed on the REACHABLE registration", () => {
+  it("requireRole(['admin']) is on the line Express actually resolves to", async () => {
+    // THE ASSERTION THIS WHOLE SEQUENCE EXISTS FOR.
+    //
+    // Not "requireRole appears somewhere in a handler for this path" — that is what passed while
+    // the shadowed copy carried the gate and the open copy served. This resolves the request
+    // through real Express, takes the line it lands on, and requires the gate to be on THAT line.
+    // A gate on any other registration of this path would fail here.
     const hit = await resolve('delete', '/api/sippy/tariffs/123');
+    expect(hit, 'the route resolved to nothing').not.toBeNull();
     const line = read('routes.ts').split('\n')[hit.line - 1];
-    expect(line).not.toContain('requireRole');
+    expect(line, `reachable registration ${hit.file}:${hit.line} is not gated`).toContain("requireRole(['admin']");
   });
 
-  it("names the exact registration step 3 must gate", async () => {
-    // The output of this step: a line number established by runtime resolution rather than by
-    // reading the file. Step 3 gates THIS registration; step 4 asserts the gate landed on it.
+  it("the gate did not displace the handler step 1 kept", async () => {
+    // Adding middleware must not have swapped which implementation runs.
     const hit = await resolve('delete', '/api/sippy/tariffs/123');
-    expect(hit.file).toBe('routes.ts');
-    expect(typeof hit.line).toBe('number');
-    console.log(`[SMP-003 step 2] reachable registration = ${hit.file}:${hit.line} (${hit.path})`);
+    const from = read('routes.ts').split('\n').slice(hit.line - 1).join('\n');
+    const handler = from.slice(0, from.indexOf('\n  app.', 10));
+    expect(handler).toContain('sippy.deleteTariff(');
+    expect(handler).toContain('iCustomer');
+    expect(handler).not.toContain('deleteSippyTariff');
+  });
+
+  it("no OTHER registration of this path carries a gate", async () => {
+    // The failure mode being guarded: a gate present in source on a registration that never runs.
+    const all = order.filter(r => r.verb === 'DELETE' && r.path === '/api/sippy/tariffs/:id');
+    const hit = await resolve('delete', '/api/sippy/tariffs/123');
+    const src = read('routes.ts').split('\n');
+    const gatedElsewhere = all.filter(r => r.line !== hit.line && src[r.line - 1].includes('requireRole'));
+    expect(gatedElsewhere).toEqual([]);
   });
 });

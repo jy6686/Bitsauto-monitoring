@@ -107,12 +107,21 @@ describe("removing the registration did not orphan anything", () => {
   });
 });
 
-describe("step 1 did NOT apply authorization — that is step 3", () => {
-  it("the surviving route is still ungated, deliberately", () => {
-    // Resolving the duplicate is runtime-neutral: removing a registration that never executed
-    // cannot change behaviour, which is what makes it safe to land alone. Gating it in the same
-    // pass is the thing the ordering invariant exists to prevent.
+describe("the admin floor is on the surviving registration", () => {
+  it("the surviving route carries requireRole(['admin'])", () => {
+    // SMP-003 baseline: destructive -> admin. Step 3 applied it, to the registration step 2
+    // established as reachable. That this line and the reachable line are the same one is
+    // asserted by route-reachability.test.ts, which is where it belongs — a source check alone
+    // cannot know which registration serves.
     const reg = LINES[registrations.find(r => r.verb === 'DELETE' && r.path === '/api/sippy/tariffs/:id')!.line - 1];
-    expect(reg).not.toContain('requireRole');
+    expect(reg).toContain("requireRole(['admin']");
+  });
+
+  it("the floor did not bring a confirmation guard with it", () => {
+    // A confirmation control for this route is a tightening decision above the floor, recorded
+    // separately. Step 3 was the floor only.
+    const a = SRC.indexOf("app.delete('/api/sippy/tariffs/:id'");
+    const handler = SRC.slice(a, SRC.indexOf('\n  app.', a + 10));
+    expect(handler).not.toContain('confirmation');
   });
 });

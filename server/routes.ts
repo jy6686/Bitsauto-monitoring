@@ -9056,7 +9056,19 @@ export async function registerRoutes(
   // DELETE /api/sippy/tariffs/:id — delete a tariff
   // Query params: iCustomer (optional)
   // Returns: 204 No Content on success
-  app.delete('/api/sippy/tariffs/:id', async (req: any, res) => {
+  //
+  // SMP-003 baseline floor: destructive -> admin. This matches what the platform already does
+  // for its other destructive Sippy routes (15 of 18 gated ones use ['admin']), so it extends
+  // the existing convention rather than introducing a new one.
+  //
+  // Applied to THIS registration because step 2 established by runtime resolution — real Express,
+  // real registration order — that this is the one that serves the request. A duplicate
+  // registration used to shadow an admin gate on this exact path, which is why the reachable
+  // route is established before a gate is placed rather than after.
+  //
+  // The floor only. A confirmation guard for this route, as the tariff-restore workflow has, is
+  // a tightening decision recorded separately in the register and is deliberately NOT here.
+  app.delete('/api/sippy/tariffs/:id', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);

@@ -177,8 +177,17 @@ gate is added:
 4. Test the actual reachable route
 
 **Progress:** step 1 complete (`b45017f9`) — duplicate resolved behaviourally, no gate applied.
-Step 2 complete — `DELETE /api/sippy/tariffs/:id` is established by RUNTIME resolution as
-`routes.ts:9059`, the `deleteTariff` handler. Step 3 gates that registration and nothing else.
+Step 2 complete — `DELETE /api/sippy/tariffs/:id` established by RUNTIME resolution as the
+`deleteTariff` handler. Step 3 complete — `requireRole(['admin'])` applied to **that** registration
+and nothing else; the confirmation guard is deliberately NOT included, being a tightening decision
+above the floor. Step 4 (role-level testing of the reachable route) remains.
+
+The assertion that closes this out lives in `route-reachability.test.ts`: it resolves the request
+through real Express and requires the gate to be on the line Express lands on — not merely present
+somewhere in a handler for that path, which is what passed while the shadowed copy carried the
+gate. Re-creating that defect (an ungated copy registered earlier, gated copy still in source)
+fails 5 assertions there, while a source grep still reports one gated registration and reads as
+protected.
 
 **Not "resolve and gate in one pass."** Express serves the first matching registration, so a gate
 added to the shadowed copy is present in the source and inert at runtime. A source-level
