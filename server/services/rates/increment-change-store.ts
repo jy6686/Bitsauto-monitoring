@@ -248,3 +248,71 @@ export async function markNotifiedWhenComplete(db: ChangeStoreDb, changeId: numb
      WHERE id = ${changeId} AND status = 'accepted'`);
   return true;
 }
+
+/**
+ * Persist the outcome of an application attempt.
+ *
+ * THE INVARIANT THIS ENFORCES: `applied_at` is earned only by authoritative read-back. A client
+ * notification and a commercial commitment are not proof that the switch changed, so nothing
+ * here sets `applied` except an `applied` verdict — which the apply path only produces after
+ * every affected prefix read back with the intended increment.
+ *
+ * A REFUSAL DOES NOT CHANGE STATUS. Nothing was sent, so the change is exactly as due as it was
+ * before; only the attempt is counted. Marking it failed would retire a commitment that is still
+ * owed to a customer.
+ */
+export async function recordApplyOutcome(
+  db: ChangeStoreDb,
+  changeId: number,
+  outcome:
+    | { verdict: 'applied'; increment: string; prefixesVerified: number; appliedBy: string }
+    | { verdict: 'needs_review'; message: string }
+    | { verdict: 'refused'; code: string; message: string },
+): Promise<void> {
+  if (outcome.verdict === 'applied') {
+    await db.execute(sql`
+      UPDATE billing_increment_changes
+         SET status = 'applied', applied_at = NOW(), applied_by = ${outcome.appliedBy},
+             applied_increment = ${outcome.increment}, prefixes_verified = ${outcome.prefixesVerified},
+             last_attempt_at = NOW(), attempts = attempts + 1, failure_reason = NULL
+       WHERE id = ${changeId}`);
+    return;
+  }
+
+  if (outcome.verdict === 'needs_review') {
+    // Sent, unproven. Durable and visible, and deliberately NOT retried by the worker: a second
+    // write of something that may already be there is how a rate gets applied twice.
+    await db.execute(sql`
+      UPDATE billing_increment_changes
+         SET status = 'needs_review', failure_reason = ${outcome.message},
+             last_attempt_at = NOW(), attempts = attempts + 1
+       WHERE id = ${changeId}`);
+    return;
+  }
+
+  // Refused: nothing was sent. The commitment stands and stays due; only the attempt is recorded.
+  await db.execute(sql`
+    UPDATE billing_increment_changes
+       SET last_attempt_at = NOW(), attempts = attempts + 1,
+           failure_reason = ${`${outcome.code}: ${outcome.message}`}
+     WHERE id = ${changeId} AND status NOT IN ('applied', 'cancelled')`);
+}
+
+/**
+ * Changes a person must look at: a mutation was sent and the result could not be established.
+ * Separated from everything else because it is the only state that must never be retried
+ * automatically.
+ */
+export async function changesNeedingReview(db: ChangeStoreDb): Promise<Array<{
+  id: number; destinationId: number; newIncrement: string; effectiveDate: string; reason: string;
+}>> {
+  return rows(await db.execute(sql`
+    SELECT id, destination_id, new_increment, effective_date, failure_reason
+      FROM billing_increment_changes
+     WHERE status = 'needs_review'
+     ORDER BY effective_date`)).map((r: any) => ({
+    id: Number(r.id), destinationId: Number(r.destination_id),
+    newIncrement: String(r.new_increment), effectiveDate: String(r.effective_date).slice(0, 10),
+    reason: String(r.failure_reason ?? ''),
+  }));
+}

@@ -17,7 +17,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   acceptIncrementChange, resolveRecipients, pendingNotifications, recordDelivery,
-  markNotifiedWhenComplete,
+  markNotifiedWhenComplete, recordApplyOutcome, changesNeedingReview,
 } from "./increment-change-store";
 
 let client: PGlite;
@@ -322,5 +322,90 @@ describe("DELIVERY — a failure loses the email, never the change", () => {
     const [c] = await all(sql`SELECT status, notified_count FROM billing_increment_changes`);
     expect(c.status).toBe('notified');
     expect(Number(c.notified_count)).toBe(r.notified);
+  });
+});
+
+describe("APPLIED IS EARNED, NOT ASSUMED", () => {
+  const changeId = async () => {
+    const r = await accept();
+    if (!r.ok) throw new Error('setup failed');
+    return r.changeId;
+  };
+
+  it("THE INVARIANT: notifying every client does not make a change applied", async () => {
+    // A commercial commitment and a client notification are not evidence about a switch.
+    const id = await changeId();
+    for (const p of await pendingNotifications(db)) await recordDelivery(db, p.id, { sent: true });
+    await markNotifiedWhenComplete(db, id);
+
+    const [c] = await all(sql`SELECT status, applied_at FROM billing_increment_changes WHERE id = ${id}`);
+    expect(c.status).toBe('notified');
+    expect(c.applied_at).toBeNull();
+  });
+
+  it("an APPLIED outcome records the evidence, not merely the status", async () => {
+    const id = await changeId();
+    await recordApplyOutcome(db, id, { verdict: 'applied', increment: '30/6', prefixesVerified: 3, appliedBy: ACTOR });
+    const [c] = await all(sql`SELECT * FROM billing_increment_changes WHERE id = ${id}`);
+    expect(c.status).toBe('applied');
+    expect(c.applied_at).not.toBeNull();
+    expect(c.applied_increment).toBe('30/6');
+    expect(Number(c.prefixes_verified)).toBe(3);
+  });
+
+  it("the schema REFUSES an applied row with no evidence", async () => {
+    // Belt and braces: even a hand-written UPDATE cannot claim applied without proof.
+    const id = await changeId();
+    await expect(client.exec(
+      `UPDATE billing_increment_changes SET status='applied', applied_at=NOW(), applied_by='x' WHERE id=${id}`
+    )).rejects.toThrow(/bic_applied_proven/);
+  });
+
+  it("NEEDS_REVIEW is durable, explained, and distinct from failed", async () => {
+    const id = await changeId();
+    await recordApplyOutcome(db, id, { verdict: 'needs_review', message: 'write sent, read-back failed' });
+    const [c] = await all(sql`SELECT status, failure_reason, applied_at FROM billing_increment_changes WHERE id = ${id}`);
+    expect(c.status).toBe('needs_review');
+    expect(c.failure_reason).toContain('read-back failed');
+    // Not applied. Something may have happened, and we do not claim it did.
+    expect(c.applied_at).toBeNull();
+    expect(await changesNeedingReview(db)).toHaveLength(1);
+  });
+
+  it("a REFUSAL leaves the change due — the commitment is still owed", async () => {
+    const id = await changeId();
+    await recordApplyOutcome(db, id, { verdict: 'refused', code: 'lock_unavailable', message: 'tariff busy' });
+    const [c] = await all(sql`SELECT status, applied_at, attempts, failure_reason FROM billing_increment_changes WHERE id = ${id}`);
+    // Nothing was sent, so nothing is retired.
+    expect(c.status).toBe('accepted');
+    expect(c.applied_at).toBeNull();
+    expect(Number(c.attempts)).toBe(1);
+    expect(c.failure_reason).toContain('lock_unavailable');
+  });
+
+  it("a refusal cannot un-apply a change that is already applied", async () => {
+    const id = await changeId();
+    await recordApplyOutcome(db, id, { verdict: 'applied', increment: '30/6', prefixesVerified: 3, appliedBy: ACTOR });
+    await recordApplyOutcome(db, id, { verdict: 'refused', code: 'already_applied', message: 'not re-sending' });
+    const [c] = await all(sql`SELECT status FROM billing_increment_changes WHERE id = ${id}`);
+    expect(c.status).toBe('applied');
+  });
+
+  it("the four states are all representable and distinct", async () => {
+    const ids = [] as number[];
+    for (const d of ['2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23']) {
+      const r = await accept({ effectiveDate: d, newIncrement: '30/6' });
+      if (r.ok) ids.push(r.changeId);
+    }
+    await recordApplyOutcome(db, ids[1], { verdict: 'applied', increment: '30/6', prefixesVerified: 1, appliedBy: ACTOR });
+    await recordApplyOutcome(db, ids[2], { verdict: 'needs_review', message: 'unproven' });
+    await client.exec(`UPDATE billing_increment_changes SET status='cancelled', cancelled_at=NOW(), cancelled_by='x' WHERE id=${ids[3]}`);
+
+    const states = await all(sql`SELECT id, status FROM billing_increment_changes ORDER BY id`);
+    const byId = Object.fromEntries(states.map((s: any) => [Number(s.id), s.status]));
+    expect(byId[ids[0]]).toBe('accepted');       // scheduled
+    expect(byId[ids[1]]).toBe('applied');        // proven
+    expect(byId[ids[2]]).toBe('needs_review');   // sent, unproven
+    expect(byId[ids[3]]).toBe('cancelled');      // never reaches the switch
   });
 });
