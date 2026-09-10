@@ -28,7 +28,7 @@ register classifies rather than counts, so that "no boundary" is not read as "un
 
 | ID | Finding | Severity | Status | Required decision |
 |----|---------|----------|--------|-------------------|
-| SMP-003 | 76 of 160 `/api/sippy` write routes lack `requireRole`, and `/api/sippy` is absent from `PLATFORM_ROUTE_GROUPS` so `requirePlatformAccess` never runs; the tariff-rate DELETE is reachable by any authenticated session | **Critical** | OPEN | Separate authorization-hardening decision |
+| SMP-003 | **57 of 160** `/api/sippy` write routes have no gate of any kind, and `/api/sippy` is absent from `PLATFORM_ROUTE_GROUPS` so `requirePlatformAccess` never runs; the tariff-rate DELETE is reachable by any authenticated session, `portal_only` included. Includes a **shadowed gate**: `DELETE /api/sippy/tariffs/:id` is registered twice and the `requireRole(['admin'])` copy is unreachable | **Critical** | OPEN — audited, policy not yet decided | Separate authorization-hardening decision. Evidence: [SMP-003-AUTHORIZATION-AUDIT.md](SMP-003-AUTHORIZATION-AUDIT.md) |
 
 SMP-001 and SMP-002 were fixed together and are removed rather than marked closed — see the
 convention above; `git log docs/SIPPY-MUTATION-FINDINGS-REGISTER.md` and the commit that removed
@@ -46,10 +46,18 @@ to review, and neither is a substitute for the other.
 
 **Found:** 2026-09-10, same audit.
 
-**Current behaviour.** 76 of 160 `/api/sippy` write routes (`POST`/`PUT`/`PATCH`/`DELETE`) carry
-no `requireRole`. Sibling routes show the pattern exists and was simply not applied
+**Current behaviour.** **57** of 160 `/api/sippy` write routes (`POST`/`PUT`/`PATCH`/`DELETE`)
+have no gate of any kind. Sibling routes show the pattern exists and was simply not applied
 consistently — `/api/sippy/users/:id` and `/api/sippy/customers/:id` both gate on
 `requireRole(['admin'])`.
+
+> **Corrected 2026-09-10.** This entry first recorded "76 of 160", from a single-line grep that
+> missed `requireRole` on multi-line registrations (8 routes) and an entirely different gating
+> mechanism — inline role check plus approval workflow (11 routes). "No `requireRole`" is not
+> "no gate". One part of the finding is WORSE than first recorded: `DELETE /api/sippy/tariffs/:id`
+> is registered twice and its `requireRole(['admin'])` copy is shadowed and unreachable.
+> Full evidence, including the 57 routes by operation and a policy proposal derived from the 92
+> already-gated ones, is in [SMP-003-AUTHORIZATION-AUDIT.md](SMP-003-AUTHORIZATION-AUDIT.md).
 
 Two layers were expected to cover this and do not:
 
