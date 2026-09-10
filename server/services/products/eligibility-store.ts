@@ -280,3 +280,27 @@ export async function describeActiveCatalogue(db: EligibilityQueryable): Promise
   if (!v) return null;
   return { versionId: num(v.id), label: String(v.label), destinationCount: num(v.destination_count) };
 }
+
+/**
+ * Every PREFIX a product is declared eligible for, in the active catalogue version.
+ *
+ * The push path works in prefixes — an operator picks destinations and the request carries dial
+ * prefixes — so the eligibility question has to be answerable in that shape too. This is the same
+ * declared fact as `listEligibleDestinations`, flattened to the key the push actually holds.
+ *
+ * An undeclared product returns an EMPTY set, and a caller must read that as "sells nothing",
+ * never as "no restriction". The two are opposite and the empty set is the truthful one.
+ */
+export async function listEligiblePrefixes(
+  db: EligibilityQueryable,
+  productId: number,
+): Promise<Set<string>> {
+  const res = await db.execute(sql`
+    SELECT p.prefix
+      FROM product_destination_eligibility e
+      JOIN commercial_destinations d ON d.id = e.destination_id
+      JOIN catalogue_versions      v ON v.id = d.version_id AND v.status = 'active'
+      JOIN commercial_destination_prefixes p ON p.destination_id = d.id
+     WHERE e.product_id = ${productId} AND e.status = 'active'`);
+  return new Set(rows(res).map((r: any) => String(r.prefix)));
+}

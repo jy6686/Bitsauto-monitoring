@@ -44245,6 +44245,26 @@ ${footer}
           return res.status(500).json({ error: `Could not record this push (${e?.message ?? e}). Refusing to run it unrecorded.` });
         }
 
+        // ── Is this product declared eligible for what is being pushed? ──────
+        // Until now this route never asked. Destinations arrive in the request body, so an
+        // operator could push any prefix in the catalogue to any client regardless of what
+        // anybody declared the product sells — pricing and pushing became commercial decisions
+        // by default. Eligibility is resolved ONCE for the product and attached per operation;
+        // preflight does the refusing, so an ineligible destination is recorded and reported
+        // like any other refusal and the rest of the batch still runs.
+        //
+        // Resolved defensively: if this lookup fails we leave `eligible` UNDEFINED rather than
+        // false, so a database problem cannot masquerade as a commercial refusal and silently
+        // block a legitimate push. A missing answer is not a "no".
+        let eligiblePrefixes: Set<string> | null = null;
+        try {
+          const { listEligiblePrefixes } = await import('./services/products/eligibility-store');
+          eligiblePrefixes = await listEligiblePrefixes(db as any, Number(productId));
+          console.log(`[push-batch] product ${pushProduct?.code ?? productId} is declared eligible for ${eligiblePrefixes.size} prefix(es)`);
+        } catch (e: any) {
+          console.warn(`[push-batch] eligibility lookup failed (${e?.message ?? e}) — not refusing on it`);
+        }
+
         // ── One operation per destination × client ────────────────────────────
         // The key is positional, so two destinations resolving to the same prefix for the same
         // client stay distinct rows; the planner still refuses the second as a duplicate target.
@@ -44260,6 +44280,8 @@ ${footer}
               rate:            dest.rate,
               // Raw, so preflight owns what a readable increment is rather than this route.
               rawIncrement:    catalogueIncrements.get(dest.dialPrefix) ?? null,
+              // undefined when eligibility could not be resolved — see above.
+              eligible:        eligiblePrefixes ? eligiblePrefixes.has(String(dest.dialPrefix)) : undefined,
               dialPrefix:      dest.dialPrefix,
               destinationName: dest.destinationName ?? null,
               iAccount:        iAccountByName.get(accountName) ?? null,

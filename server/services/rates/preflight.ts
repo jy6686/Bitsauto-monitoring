@@ -39,7 +39,15 @@ export type PreflightCode =
   | 'tariff_mismatch'
   | 'increment_unreadable'
   | 'invalid_rate'
-  | 'invalid_prefix';
+  | 'invalid_prefix'
+  /**
+   * The product is not declared eligible for this destination.
+   *
+   * Pricing and pushing are not commercial decisions; declaring what a product sells is. Without
+   * this the push path is a complete bypass of eligibility — an operator picks any destination in
+   * the catalogue and it goes to the switch, whatever anybody declared.
+   */
+  | 'not_eligible';
 
 export interface PreflightOperation {
   operationKey: string;
@@ -57,6 +65,14 @@ export interface PreflightOperation {
    * keeps the tariff's existing increment, defaulting to 1/1. Only an unreadable VALUE is refused.
    */
   rawIncrement?: string | null;
+  /**
+   * Whether the product is declared eligible for this destination.
+   *
+   * OPTIONAL, and undefined is meaningful: it means the caller did not establish eligibility, and
+   * preflight then leaves the question alone rather than refusing on an answer nobody gave. Only
+   * an explicit `false` is a refusal. Callers with no product context keep their behaviour.
+   */
+  eligible?: boolean;
 }
 
 export interface PreflightPass {
@@ -89,6 +105,18 @@ const TARIFF_CODE: Record<string, PreflightCode> = {
 };
 
 export function preflightOperation(op: PreflightOperation): PreflightDecision {
+  // ── Is this product even sold here? ─────────────────────────────────────────
+  // FIRST, because it is the most fundamental refusal available: whether the prefix is
+  // well-formed or the rate is sane does not matter for a destination the product does not sell.
+  // Only an explicit `false` refuses — `undefined` means the caller did not establish
+  // eligibility, and refusing on an answer nobody gave would break every caller that has no
+  // product context.
+  if (op.eligible === false) {
+    return refuse(op.operationKey, 'not_eligible',
+      `${op.fullPrefix} → ${op.accountName}: this product is not declared eligible for that destination. `
+    + `Declare it on the Eligibility screen, or remove it from this push.`);
+  }
+
   // ── The prefix, which is the thing being written ────────────────────────────
   const prefix = String(op.fullPrefix ?? '').trim();
   if (!/^\d+$/.test(prefix)) {
