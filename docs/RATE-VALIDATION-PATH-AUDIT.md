@@ -25,6 +25,11 @@ CRUD API and a governance sign-off flow. It is not wired to any decision.
 `server/services/rates/` contains **no reference to increase, decrease, a current rate, a prior
 rate, or a delta**. The rate push has never consulted these tables.
 
+**Scope that statement carefully.** It is true of the push path. It is NOT true of the platform:
+`rate_notifications.notification_type` already carries `rate_change | price_increase |
+price_decrease | 7_day_notice`. Direction and a seven-day notice exist in the NOTIFICATION layer.
+They have simply never reached the layer that writes to the switch.
+
 So this is not a build from nothing. It is **wiring an existing, seeded, governed rule set to the
 push path** — and closing three specific gaps.
 
@@ -98,29 +103,65 @@ stay unchanged.
 
 ---
 
+## Decision A — the comparison base. Evidence, not a recommendation.
+
+Nothing may be enforced until this is settled, because `0.05 → 0.02` is only a 60% decrease once
+we know which `0.05` is authoritative. What the repository establishes about each candidate:
+
+### 1. The live Sippy tariff rate
+
+Authoritative for what the switch charges right now. Two costs. **Which tariff is itself
+contested** — push-batch resolves via the Sippy billing plan while deal-approve uses
+`company.sippyITariff`, and those disagree for 22 of 26 Sippy-linked companies. And it couples
+validation to switch availability: a read per tariff per push, so a switch that is slow or
+unreachable stops rates being validated rather than merely stopping them being sent.
+
+### 2. `product_rates`
+
+The platform's own default matrix. **Per product, not per client** — so it structurally cannot
+express what a particular customer was offered, which is the thing the rule protects. Also empty
+in production, cause unresolved.
+
+### 3. The issued rate sheet — `rate_notification_template_destinations`
+
+**This is not hypothetical; the structure already exists and is written to.**
+
+`rate_notification_templates` is keyed on **client name + product**. Its destination rows carry
+`destinationName`, `dialPrefix`, **`rate`**, **`baseRate`**, and **`activationDate` /
+`activationTime`**. The schema's own comment calls them "the rate sheet entries".
+
+That is the closest match to the old system's semantics, where the offered rate is what was sent
+to the customer on a rate sheet with an activation date.
+
+**Two things are NOT established** and neither can be answered from the repository: how completely
+this table is populated in production, and whether it is maintained as the record of what is
+currently offered or only as a template for composing the next send. Both need a production read,
+which this audit did not perform.
+
+**A loose thread worth noting, not concluding:** the pairing of `rate` with `baseRate` may be the
+answer to "50% of which value" — the currently offered rate versus the rate it was originally
+derived from. That would resolve an open question in the policy. It is a guess from column names
+and is recorded only so the question is asked of the data rather than of the schema.
+
 ## Smallest implementation plan
 
-Staged so each step is independently verifiable, in the pattern SMP-003 used. **No step implements
-`>50%` / `>=50%`, and none invents "release".**
+RATIFIED SEQUENCE. An earlier draft of this plan put "carry the inputs" first. **That was wrong**
+and was corrected by the owner: populating `currentRate` *is* choosing the comparison base, so the
+plumbing cannot be built before the decision — a plumbing test made to pass against an assumed
+source silently ratifies that source.
 
-1. **Carry the inputs.** Add `currentRate` and the effective dates to `PreflightOperation`, and
-   populate them in the push-batch route. **No rule, no behaviour change.** Acceptance: the values
-   arrive correctly, including when the prefix is new and there is no current rate.
-2. **Resolve rules, enforce nothing.** A reader over `validation_rules` + `configuration_values`
-   returning the applicable action and threshold for a given scope. Read-only; the result is
-   logged and reported, never acted on. Acceptance: the seeded rules resolve to the seeded
-   thresholds.
-3. **Add the missing dimension.** Migration for the per-client / per-department rule, once the
-   owner confirms the resolution order (client+department → client → scope default). **Blocked on
-   that decision, not on code.**
-4. **Evaluate and refuse — `reject_destination` and `ignore` only.** The two actions the engine
-   already expresses. Acceptance is the property SMP-003 established: a refused operation reaches
-   no Sippy call, proven by an empty recorder, and the rest of the batch still completes.
-5. **The adapter**, for `reject_country` and `reject_rate_sheet`.
-6. **`approval_reqd` and `auto_adjust_effective_date`** last. Both change the shape of an
-   operation rather than refusing it, and `approval_reqd` must not become a requirement for
-   ordinary pushes — it is one configurable outcome.
+| | Step | Gate |
+|---|------|------|
+| **A** | Establish the authoritative comparison base | **Owner decision. Nothing may begin before it.** |
+| **B** | Carry the correctly-sourced current rate + effective dates into `PreflightOperation` | Needs A |
+| **C** | Establish client/department rule resolution, then the migration for the missing dimension | Owner decision on precedence. `client+department → client → scope default` is a CANDIDATE, not ratified |
+| **D** | Define the exact threshold boundary, `>` or `>=` | Owner decision; unresolved by the evidence |
+| **E** | Enforce `ignore` and `reject_destination` — the two the engine already expresses | First step that can refuse anything |
+| **F** | Adapters for `reject_country` and `reject_rate_sheet` | |
+| **G** | `approval_reqd` and `auto_adjust_effective_date`, separately | Neither may become a requirement for ordinary pushes |
 
-Steps 1 and 2 change no behaviour and are the whole prerequisite. Step 4 is the first that can
-refuse anything, and it cannot run before the owner settles the comparison base (gap 1) and the
-boundary condition.
+Throughout: **validation refusal → `refusedBeforeWrite: true` → no Sippy mutation**, with E's
+acceptance being the property SMP-003 established — a refused operation reaches no Sippy call,
+proven by an empty recorder, while the rest of the batch completes.
+
+No step implements `>50%` / `>=50%`, and none invents "release".
