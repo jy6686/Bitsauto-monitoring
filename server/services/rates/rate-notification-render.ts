@@ -47,8 +47,19 @@ export interface RateNotificationView {
   issueDate: string;
   /** The date the notice as a whole takes effect; rows may carry their own. */
   effectiveDate: string;
-  /** e.g. "19230[Country Code][Number]" */
-  dialFormat: string;
+  /**
+   * The customer's account prefix, e.g. "307". Optional.
+   *
+   * COMPONENTS, NOT A PRE-BUILT STRING, and that is the point. A caller handed a `dialFormat`
+   * field can put anything in it, and the obvious mistake is to paste the prefix the switch was
+   * actually given - trunk digit plus destination code, "19230". That publishes the internal
+   * execution prefix as though it were a dialling instruction. Taking the parts means the dial
+   * format can only ever be account prefix + product digit + placeholders, so a destination code
+   * cannot appear in it at all.
+   */
+  accountPrefix?: string | null;
+  /** The product's trunk digit, e.g. "1". Identifies the product, never a destination. */
+  productDigit?: string | null;
   kind: NotificationKind;
   rows: RateChangeRow[];
 }
@@ -100,13 +111,38 @@ function noticeBlock(kind: NotificationKind): string {
       </div>`;
 }
 
+/**
+ * `307` + `1` + placeholders. Never a destination code.
+ *
+ * The product is already named in its own row, so repeating its digit against a destination would
+ * add nothing a customer can use and would expose how traffic is routed internally.
+ */
+function dialFormat(v: RateNotificationView): string {
+  const account = (v.accountPrefix ?? '').trim();
+  const product = (v.productDigit ?? '').trim();
+  return `${account}${product}[Country Code][Number]`;
+}
+
+/**
+ * Every string a customer must never be shown: each row's prefix with the product digit in front.
+ *
+ * That is exactly the prefix the switch was given, and it is the one thing in this document that
+ * could plausibly be pasted in by mistake — the operation record carries it, and it looks like a
+ * dialling code.
+ */
+function internalPrefixes(v: RateNotificationView): string[] {
+  const product = (v.productDigit ?? '').trim();
+  if (!product) return [];
+  return v.rows.map(r => `${product}${String(r.prefix).trim()}`).filter(p => p.length > product.length);
+}
+
 export function renderRateNotification(v: RateNotificationView): string {
   const summary: Array<[string, string, boolean?]> = [
     ['Issue Date',                    v.issueDate],
     ['Product',                       v.productLabel],
     ['Notification Type',             v.kind === 'CHANGES' ? 'CHANGES (PARTIAL)' : 'FULL / A2Z'],
     ['Effective Date',                v.effectiveDate],
-    ['Traffic to be sent in a format', v.dialFormat, true],
+    ['Traffic to be sent in a format', dialFormat(v), true],
   ];
 
   const summaryTable = `<table role="presentation" cellpadding="0" cellspacing="0" style="${S.table}">${
@@ -125,7 +161,7 @@ export function renderRateNotification(v: RateNotificationView): string {
         <td style="${S.td}">${esc(r.effectiveDate)}</td>
       </tr>`).join('');
 
-  return `
+  const html = `
 <div style="margin:0;padding:24px 12px;background:#f4f5f7;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
   <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e8eaed;border-radius:10px;overflow:hidden;">
 
@@ -192,6 +228,20 @@ export function renderRateNotification(v: RateNotificationView): string {
 
   </div>
 </div>`.trim();
+
+  // ── The presentation boundary, enforced rather than trusted ─────────────────
+  // Refusing to render is deliberately harsher than logging: publishing the switch-side prefix to
+  // a customer cannot be taken back once the mail is out, and every path here is deterministic, so
+  // this fires in a test long before it could fire in front of a customer.
+  for (const internal of internalPrefixes(v)) {
+    if (html.includes(internal)) {
+      throw new Error(
+        `Rate notification would expose the internal execution prefix "${internal}". ` +
+        `The customer sees the destination code only; the product is named in its own row.`,
+      );
+    }
+  }
+  return html;
 }
 
 /**

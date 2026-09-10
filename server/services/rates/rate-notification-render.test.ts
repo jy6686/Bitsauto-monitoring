@@ -19,7 +19,8 @@ const view = (o: Partial<RateNotificationView> = {}): RateNotificationView => ({
   productLabel: 'Voice A-Z',
   issueDate: '18 Aug 2026',
   effectiveDate: '20 Aug 2026',
-  dialFormat: '19230[Country Code][Number]',
+  accountPrefix: '307',
+  productDigit: '1',
   kind: 'CHANGES',
   rows: [
     { destination: 'Afghanistan Mobile', prefix: '9230', previousRate: '0.0500', newRate: '0.0450', billingIncrement: '60/1', effectiveDate: '20 Aug 2026' },
@@ -82,7 +83,7 @@ describe("the content is commercial", () => {
     expect(html).toContain('Dear Shareef Telecom,');
     expect(html).toContain('Voice A-Z');
     expect(html).toContain('18 Aug 2026');
-    expect(html).toContain('19230[Country Code][Number]');
+    expect(html).toContain('3071[Country Code][Number]');
   });
 
   it("shows all six rate columns", () => {
@@ -98,10 +99,32 @@ describe("the content is commercial", () => {
     expect(html).toContain('60/1');
   });
 
-  it("quotes the BARE prefix, never a trunk-composed one", () => {
-    // 19230 is trunk 1 + dial 9230 and belongs only in the dial-format line.
+  it("THE PRESENTATION BOUNDARY: 9230 appears, 19230 appears NOWHERE", () => {
+    // 19230 is the prefix the switch was actually given: product digit 1 + destination 9230.
+    // The customer sees the destination code. The product is named in its own row, so repeating
+    // its digit against a destination adds nothing usable and publishes internal routing.
     expect(html).toMatch(/>9230</);
-    expect(html).toContain('19230[Country Code][Number]');
+    expect(html).not.toContain('19230');
+    expect(html).not.toContain('19231');
+  });
+
+  it("the product is still identified, in its own field", () => {
+    expect(html).toContain('Voice A-Z');
+    expect(html).toContain('Product');
+  });
+
+  it("the dial format carries the product digit WITHOUT a destination code", () => {
+    // Mentioning the product prefix is fine; concatenating it with a destination is not.
+    expect(html).toContain('3071[Country Code][Number]');
+    expect(html).not.toMatch(/307\d*9230/);
+  });
+
+  it("REFUSES to render if the internal prefix reaches the HTML by ANY route", () => {
+    // Unrepresentable rather than merely asserted: a caller cannot hand in a pre-built dial
+    // format, and if the composed prefix arrives through free text instead, rendering throws.
+    // Publishing it cannot be taken back once the mail is out.
+    expect(() => renderRateNotification(view({ clientName: 'ACME 19230 Telecom' })))
+      .toThrow(/internal execution prefix/i);
   });
 
   it("shows a dash where there is no previous rate, rather than inventing one", () => {
