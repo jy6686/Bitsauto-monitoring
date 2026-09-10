@@ -4771,6 +4771,94 @@ export const productDestinationEligibility = pgTable("product_destination_eligib
 export type ProductDestinationEligibility       = typeof productDestinationEligibility.$inferSelect;
 export type InsertProductDestinationEligibility = typeof productDestinationEligibility.$inferInsert;
 
+// ── Billing increment changes (migration 516) ────────────────────────────────
+// DECLARED HERE, CREATED BY THE MIGRATION — the same arrangement productDestinationEligibility
+// uses above, and it is not cosmetic. Replit's publish runs a Drizzle diff, and a table present
+// in the DATABASE but absent from this file is one the diff can propose DROPPING. That is
+// literally how a publish once proposed `DROP TABLE rate_push_operations CASCADE`. Declaring the
+// table costs nothing and removes the proposal; the migration remains the only thing that creates
+// it, per the runner rule.
+export const billingIncrementChanges = pgTable("billing_increment_changes", {
+  id:                 serial("id").primaryKey(),
+  productId:          integer("product_id").notNull(),
+  destinationId:      integer("destination_id").notNull(),
+  catalogueVersionId: integer("catalogue_version_id").notNull(),
+  previousIncrement:  varchar("previous_increment", { length: 16 }),
+  newIncrement:       varchar("new_increment",      { length: 16 }).notNull(),
+  /** The commercial contract date: what clients are told, and when the switch is changed. */
+  effectiveDate:      date("effective_date").notNull(),
+  /** accepted | notified | applied | needs_review | cancelled | failed */
+  status:             text("status").notNull().default("accepted"),
+  notifiedAt:         timestamp("notified_at", { withTimezone: true }),
+  notifiedCount:      integer("notified_count"),
+  notificationRef:    varchar("notification_ref", { length: 128 }),
+  /** Earned ONLY by authoritative read-back. A notification is not proof the switch changed. */
+  appliedAt:          timestamp("applied_at", { withTimezone: true }),
+  appliedBy:          varchar("applied_by", { length: 128 }),
+  appliedIncrement:   varchar("applied_increment", { length: 16 }),
+  prefixesVerified:   integer("prefixes_verified"),
+  failureReason:      text("failure_reason"),
+  lastAttemptAt:      timestamp("last_attempt_at", { withTimezone: true }),
+  attempts:           integer("attempts").notNull().default(0),
+  createdAt:          timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  createdBy:          varchar("created_by", { length: 128 }).notNull(),
+  cancelledAt:        timestamp("cancelled_at", { withTimezone: true }),
+  cancelledBy:        varchar("cancelled_by", { length: 128 }),
+  notes:              text("notes"),
+});
+export type BillingIncrementChange       = typeof billingIncrementChanges.$inferSelect;
+export type InsertBillingIncrementChange = typeof billingIncrementChanges.$inferInsert;
+
+// ── Increment-change notification outbox (migration 517) ─────────────────────
+// Committed with the change, delivered by a worker. Declared here for the same publish-diff
+// reason as above.
+export const billingIncrementNotifications = pgTable("billing_increment_notifications", {
+  id:              serial("id").primaryKey(),
+  changeId:        integer("change_id").notNull(),
+  clientName:      varchar("client_name",      { length: 256 }).notNull(),
+  recipientEmail:  varchar("recipient_email",  { length: 320 }).notNull(),
+  /** rate_notification_template | company_invoice_email — which setting supplied the address. */
+  recipientSource: varchar("recipient_source", { length: 32 }).notNull(),
+  status:          text("status").notNull().default("pending"),
+  attempts:        integer("attempts").notNull().default(0),
+  lastAttemptAt:   timestamp("last_attempt_at", { withTimezone: true }),
+  sentAt:          timestamp("sent_at", { withTimezone: true }),
+  lastError:       text("last_error"),
+  /** Frozen at commit time: what the client was actually told, whatever the change later says. */
+  message:         text("message").notNull(),
+  createdAt:       timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export type BillingIncrementNotification       = typeof billingIncrementNotifications.$inferSelect;
+export type InsertBillingIncrementNotification = typeof billingIncrementNotifications.$inferInsert;
+
+// ── Post-push rate notification obligations (migration 518) ──────────────────
+// What a CERTIFIED push owes clients. Separate lineage from the increment outbox above: that one
+// announces a future commitment, this one announces what is live now.
+export const ratePushNotifications = pgTable("rate_push_notifications", {
+  id:               serial("id").primaryKey(),
+  jobId:            varchar("job_id",        { length: 128 }).notNull(),
+  clientName:       varchar("client_name",   { length: 256 }).notNull(),
+  productCode:      varchar("product_code",  { length: 64 }).notNull(),
+  productLabel:     varchar("product_label", { length: 128 }).notNull(),
+  /** CHANGES for a post-push notice. Under FULL an omitted destination reads as DELETED. */
+  notificationType: varchar("notification_type", { length: 16 }).notNull().default("CHANGES"),
+  /** The certified rows, frozen. Never rebuilt from product_rates. */
+  rowsJson:         jsonb("rows_json").notNull(),
+  rowCount:         integer("row_count").notNull(),
+  dialFormat:       varchar("dial_format", { length: 128 }),
+  status:           text("status").notNull().default("pending"),
+  attempts:         integer("attempts").notNull().default(0),
+  lastAttemptAt:    timestamp("last_attempt_at", { withTimezone: true }),
+  sentAt:           timestamp("sent_at", { withTimezone: true }),
+  lastError:        text("last_error"),
+  recipients:       text("recipients"),
+  createdAt:        timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  /** push | recovery — a rising recovery count means completions are dying before they record. */
+  createdVia:       varchar("created_via", { length: 16 }).notNull().default("push"),
+});
+export type RatePushNotification       = typeof ratePushNotifications.$inferSelect;
+export type InsertRatePushNotification = typeof ratePushNotifications.$inferInsert;
+
 export const companyProducts = pgTable("company_products", {
   id:        serial("id").primaryKey(),
   companyId: integer("company_id").notNull(),
