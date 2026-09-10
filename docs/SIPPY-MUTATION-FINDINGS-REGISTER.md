@@ -28,6 +28,7 @@ register classifies rather than counts, so that "no boundary" is not read as "un
 
 | ID | Finding | Severity | Status | Required decision |
 |----|---------|----------|--------|-------------------|
+| SMP-005 | `POST /api/sippy/upload/file` sends caller-supplied bytes to a **caller-supplied URL** (`?url=`) with no allowlist and `rejectUnauthorized: false`, and returns the response body. Paired with `POST /api/sippy/upload/token`, which accepts an arbitrary `i_tariff`, the two compose into a generic rate-rewrite capability. Both currently ungated | **Critical** (proposed) | OPEN | Not fixable by a role floor alone — needs a destination allowlist. Assess before the create/update pass |
 | SMP-004 | Two further shadowed route registrations — `GET /api/reports/asr-acd` and `GET /api/sippy/accounts/:id/info` each registered twice, the second copy unreachable. **Neither carries authorization, so neither is an authorization exposure**: divergent dead implementations, not an open door | Low | OPEN | Decide which implementation is intended, then remove the other |
 | SMP-003 | **57 of 160** `/api/sippy` write routes have no gate of any kind, and `/api/sippy` is absent from `PLATFORM_ROUTE_GROUPS` so `requirePlatformAccess` never runs; the tariff-rate DELETE is reachable by any authenticated session, `portal_only` included. Includes a **shadowed gate**: `DELETE /api/sippy/tariffs/:id` is registered twice and the `requireRole(['admin'])` copy is unreachable | **Critical** | OPEN — audited, policy not yet decided | Separate authorization-hardening decision. Evidence: [SMP-003-AUTHORIZATION-AUDIT.md](SMP-003-AUTHORIZATION-AUDIT.md) |
 
@@ -165,6 +166,47 @@ then remove the other. Same behavioural-comparison step SMP-003 required, withou
 
 Both are pinned by `route-registration.test.ts`, so a NEW duplicate fails the test rather than
 joining them silently.
+
+---
+
+### SMP-005 · The upload pair is a mutation capability, and its destination is caller-controlled
+
+**Severity: Critical (proposed). Status: OPEN.**
+
+**Found:** 2026-09-10, while deciding whether the create/update floor could be applied uniformly.
+It could not, and this is why the audit's own note — that name-based classification must be read
+rather than trusted — was worth writing down.
+
+**Two routes, one capability.**
+
+- `POST /api/sippy/upload/token` (L8602) takes `iUploadType` and a free-form `params` object,
+  passed through to `getUploadToken`. `params` is where `i_tariff` goes.
+- `POST /api/sippy/upload/file` (L8648) takes a raw binary body up to 200 MB and posts it to
+  `req.query.url`.
+
+Together: obtain an upload token for any tariff, then upload a rates workbook to it. That is the
+same consequence as `DELETE /api/sippy/tariffs/:id/rates` — a customer's entire pricing — reached
+through two routes a name-based classification files under "create". Both are in the ungated 57.
+
+**The destination is caller-controlled, which authorization does not fix.**
+`uploadBinaryFile` (`sippy.ts:5263`) does `new URL(uploadUrl)` and posts to whatever hostname it
+names. There is no allowlist, no check that the host is the configured Sippy switch, and
+`rejectUnauthorized: false` disables certificate verification. The response body is returned to the
+caller.
+
+So the route makes the server POST attacker-chosen bytes to an attacker-chosen host and hands back
+what it says — usable against hosts reachable from the server but not from the caller. A role floor
+narrows *who* can do this; it does not stop an authorized caller doing it, and it is not what the
+route is for.
+
+**Intended fix.** Two separable things, and the second is not an authorization change:
+
+1. Floor both routes at `admin`, the destructive tier — not `admin, management` — because
+   together they rewrite tariffs.
+2. Constrain the destination: `/upload/file` should accept a URL only if it matches the configured
+   Sippy host, ideally only a token URL this platform just issued. Whether `rejectUnauthorized:
+   false` is still required for the switch's self-signed certificate is a separate question worth
+   answering rather than inheriting.
 
 ### Implementation safety invariant — ordering, not a single pass
 
