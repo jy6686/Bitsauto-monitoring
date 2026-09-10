@@ -6373,6 +6373,15 @@ export async function deleteAllRatesInTariff(
   password: string,
   iTariff: number,
   iCustomer?: number,
+  /**
+   * Optional, and the caller keeps ownership so one object can span a whole workflow.
+   *
+   * This deletes EVERY rate in a tariff. The hazard here is the inverse of the usual one: a
+   * DELETE is idempotent, so a retry is not what goes wrong — the report is. Without this, a
+   * timeout after the request has landed is indistinguishable from one that never left, and an
+   * operator reads "failed" as "the rates are still there" when the tariff has been emptied.
+   */
+  boundary?: MutationBoundary,
 ): Promise<void> {
   if (!activeSession) throw new Error('No active Sippy session');
   const apiUrl = `${activeSession.portalUrl}/xmlapi/xmlapi`;
@@ -6380,6 +6389,11 @@ export async function deleteAllRatesInTariff(
   const p: Record<string, string | number | boolean | null> = { i_tariff: iTariff };
   if (iCustomer !== undefined) p.i_customer = iCustomer;
 
+  // ── THE MUTATION ──────────────────────────────────────────────────────────
+  // Everything above is local. Set immediately BEFORE the request and never after: a request
+  // that then times out has still been sent, and the tariff may already be empty. The throws
+  // below this line are all post-boundary.
+  if (boundary) boundary.crossed = true;
   const resp = await sippyPost(apiUrl, xmlRpcCall('deleteAllRatesInTariff', p), username, password);
   const text = resp.body.toString?.() ?? resp.body;
   if (resp.statusCode !== 200) throw new Error(`deleteAllRatesInTariff HTTP ${resp.statusCode}`);

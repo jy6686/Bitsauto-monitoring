@@ -17,6 +17,7 @@
  */
 
 import * as sippy from '../../sippy';
+import type { MutationBoundary } from '../../sippy';
 import {
   SippyConfig, SippyTariff, SippyTariffRate,
   RateUploadResult, ServiceResult,
@@ -259,16 +260,49 @@ export async function updateBillingInterval(
   });
 }
 
+/** What a clear is known to have done. Only `failure` means nothing was sent. */
+export type ClearVerdict = 'success' | 'failure' | 'indeterminate';
+
+export interface ClearTariffRatesResult extends ServiceResult<void> {
+  verdict: ClearVerdict;
+  /**
+   * True = no request left this process. False = one did, whatever happened next.
+   *
+   * Structural, taken from where the boundary sits relative to the request — never inferred
+   * from an error message, because a message describes a failure and is not evidence about
+   * whether bytes left the process.
+   */
+  refusedBeforeWrite: boolean;
+}
+
 /**
- * Delete all rates in a tariff — use with caution.
+ * Delete all rates in a tariff.
+ *
+ * THE HAZARD HERE IS THE REPORT, NOT THE RETRY.
+ *
+ * `deleteAllRatesInTariff` is idempotent at the Sippy operation level, so re-issuing it is
+ * harmless. What is not harmless is telling an operator "this failed" when the tariff has in
+ * fact been emptied — they will reason about the next step from a tariff state that no longer
+ * exists. A caller deciding whether to proceed with a destructive workflow needs to know
+ * whether the request was sent, which a thrown error alone cannot say.
+ *
+ * So this returns three verdicts rather than a boolean:
+ *
+ *   failure        nothing was sent — safe to retry, and the tariff is untouched
+ *   indeterminate  a request was sent and the outcome is unknown — the tariff may be empty
+ *   success        Sippy accepted it
+ *
+ * `success` is Sippy's own say-so and not proof of the resulting state. A caller that depends
+ * on the tariff actually being empty must read it back; see the restore route, which does.
  */
 export async function clearTariffRates(
   config: SippyConfig,
   iTariff: string | number,
-): Promise<ServiceResult<void>> {
+): Promise<ClearTariffRatesResult> {
   const t0 = Date.now();
+  const boundary: MutationBoundary = { crossed: false };
   try {
-    await sippy.deleteAllRatesInTariff(config.username, config.password, Number(iTariff));
+    await sippy.deleteAllRatesInTariff(config.username, config.password, Number(iTariff), undefined, boundary);
     await auditLog({
       operationType: 'tariff_update',
       portalUrl: config.portalUrl,
@@ -276,18 +310,26 @@ export async function clearTariffRates(
       result: 'success',
       durationMs: Date.now() - t0,
     });
-    return { ok: true };
+    return { ok: true, verdict: 'success', refusedBeforeWrite: false };
   } catch (err) {
     const sippyErr = normalizeSippyError(err, 'clearTariffRates');
+    // The boundary decides, not the error. A fault raised after the request was sent is an
+    // unknown outcome; a failure before it is a clean one.
+    const verdict: ClearVerdict = boundary.crossed ? 'indeterminate' : 'failure';
     await auditLog({
       operationType: 'tariff_update',
       portalUrl: config.portalUrl,
-      params: { action: 'clearRates', iTariff },
+      params: { action: 'clearRates', iTariff, verdict, requestSent: boundary.crossed },
       result: 'failure',
       errorMessage: sippyErr.message,
       durationMs: Date.now() - t0,
     });
-    return { ok: false, error: sippyErr.message };
+    return {
+      ok: false, verdict, refusedBeforeWrite: !boundary.crossed,
+      error: verdict === 'indeterminate'
+        ? `${sippyErr.message} — the delete request WAS sent, so what the tariff now holds is unknown. Read it back before acting on this.`
+        : sippyErr.message,
+    };
   }
 }
 

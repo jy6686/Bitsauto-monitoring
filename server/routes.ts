@@ -32322,7 +32322,49 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       // called sippy.pushRateToSippy() (account-based) which silently returns {success:false}
       // when called without accountName — resulting in clearTariffRates() succeeding but
       // all 14 pushes silently failing while still reporting pushedCount=14.
-      await clearTariffRates(config, version.iTariff);
+      //
+      // ── SMP-001: THE CLEAR DECIDES WHETHER THE RESTORE HAPPENS ─────────────
+      // This used to be a bare `await clearTariffRates(...)` whose result was discarded, and
+      // the function swallows its own errors rather than throwing, so a failed clear had no
+      // way to reach this code at all — the push ran regardless. The tariff was then left
+      // holding the old rates PLUS the snapshot, and a tariff_versions row was written
+      // recording the snapshot as the live state. The post-upload guard could not catch it:
+      // it tests `liveAfter.length === 0`, which detects a failed PUSH, and a tariff holding
+      // old-plus-new is not empty.
+      //
+      // A restore is defined by what it REMOVES as much as by what it adds. If the removal
+      // did not happen, continuing does not produce a partially-restored tariff — it produces
+      // a tariff that matches no snapshot at all, described by an audit record that says it
+      // matches this one.
+      const clearResult = await clearTariffRates(config, version.iTariff);
+
+      // Sippy's own acceptance is not proof of the resulting state, so the tariff is READ BACK
+      // in every case — including `success`. This also collapses `indeterminate` into a known
+      // answer most of the time: an unknown outcome plus an empty tariff is an empty tariff.
+      const afterClear = await getTariffRatesList(config, version.iTariff);
+      if (afterClear.length > 0) {
+        return res.status(409).json({
+          error: clearResult.verdict === 'failure'
+            ? `Restore aborted — the tariff was not cleared and still holds ${afterClear.length} rate(s). No rate data was sent to Sippy, so nothing has changed and this is safe to retry.`
+            : `Restore aborted — the tariff still holds ${afterClear.length} rate(s) after the clear. Pushing the snapshot now would merge it onto rates the snapshot does not contain, producing a tariff that matches no version.`,
+          clearVerdict:       clearResult.verdict,
+          // Structural, from the mutation boundary — not read off the message.
+          refusedBeforeWrite: clearResult.refusedBeforeWrite,
+          clearError:         clearResult.error,
+          liveCount:          afterClear.length,
+          snapshotCount:      snapshotRates.length,
+          // Said explicitly, because "aborted" is otherwise ambiguous about what was written.
+          restored:           false,
+          versionRecorded:    false,
+        });
+      }
+      // The tariff is confirmed empty. If the clear reported an unknown outcome, it is now a
+      // known one, and that is recorded rather than left to inference.
+      if (clearResult.verdict !== 'success') {
+        console.log(`[tariff-restore] clear reported ${clearResult.verdict} ` +
+                    `(refusedBeforeWrite=${clearResult.refusedBeforeWrite}) but the tariff reads back empty — proceeding. ${clearResult.error ?? ''}`);
+      }
+
       const bulkResult = await bulkPushRates(
         config,
         version.iTariff,
@@ -32341,18 +32383,35 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
       // ── Verify live Sippy rates after upload ──────────────────────────────
       // Guard against silent upload failures: read rates back from Sippy and
-      // abort BEFORE writing any DB records if Sippy still shows 0 rates.
+      // abort BEFORE writing any DB records if Sippy does not hold the snapshot.
       // Allow 3s for Sippy's async import processor to commit the file.
       await new Promise(res => setTimeout(res, 3_000));
       const liveAfter = await getTariffRatesList(config, version.iTariff);
       const verifiedLiveCount = liveAfter.length;
-      if (verifiedLiveCount === 0 && snapshotRates.length > 0) {
+
+      // The tariff was CONFIRMED EMPTY before the push, so the live count is exactly what the
+      // push produced — which is what makes an exact comparison meaningful here rather than a
+      // guess. Anything other than the snapshot's own count means the restore did not
+      // reproduce the snapshot, and a tariff_versions row claiming it did would assert a state
+      // that was never reached. Same defect as SMP-001, one step later.
+      if (verifiedLiveCount !== snapshotRates.length) {
+        const emptied = verifiedLiveCount === 0;
         return res.status(500).json({
-          error:          'Restore bulk upload reported success but live Sippy verification shows 0 rates — upload may have failed silently',
+          error: emptied
+            // THE FACT THAT MATTERS FIRST. The clear succeeded, so the previous rates are gone
+            // and the tariff is carrying none — live traffic on it is unpriced right now. The
+            // old message reported "0 rates" as evidence about the upload and never said what
+            // that meant for the tariff.
+            ? `Restore FAILED and the tariff is now EMPTY — the clear succeeded, the upload did not land, and the previous rates are gone. Tariff ${version.iTariff} holds no rates and traffic on it is unpriced. Re-run the restore or upload the snapshot from Rate Manager.`
+            : `Restore INCOMPLETE — the tariff holds ${verifiedLiveCount} rate(s) but the snapshot has ${snapshotRates.length}. The tariff now matches no version. No version record has been written.`,
           uploadMessage:  bulkResult.message,
           pushedCount,
           snapshotCount:  snapshotRates.length,
           liveCount:      verifiedLiveCount,
+          // The previous rates were removed by this request, whatever else happened.
+          previousRatesCleared: true,
+          restored:        false,
+          versionRecorded: false,
         });
       }
 
