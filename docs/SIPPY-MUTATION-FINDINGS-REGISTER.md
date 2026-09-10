@@ -72,6 +72,13 @@ reachable by any authenticated session — including a `portal_only` user, who i
 permitted on the main platform. The same applies to tariff, trunk, trunk-connection and rate
 deletion routes in the ungated set.
 
+**The access-log check cannot be completed.** The platform keeps no per-request access log — no
+HTTP logger, no path column, and `AuditInput` carries neither a path nor `platformAccessType`.
+Only 3 of the 57 ungated routes write any audit record, so 54 of them, including the tariff-rate
+DELETE, leave no trace of who called them. The empirical gate proposed before the
+`PLATFORM_ROUTE_GROUPS` decision therefore cannot be met from platform data, and these routes are
+**unauditable** both before and after any fix. See the audit for the full check.
+
 **Intended fix.** An authorization-scope decision, not a code cleanup: which roles may reach
 which Sippy write operations, and whether `/api/sippy` belongs in `PLATFORM_ROUTE_GROUPS`.
 Adding `requireRole` route-by-route without that decision would encode 76 individual guesses.

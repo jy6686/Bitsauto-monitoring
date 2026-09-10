@@ -145,8 +145,40 @@ No portal-scoped surface calls `/api/sippy`, so adding the prefix should not bre
 `portal_only` user's UI.
 
 **Caveat.** That is client-side routing evidence. It establishes that no portal surface is built
-to call these routes; it does not by itself prove no portal_only session ever does. Worth
-confirming against access logs before the change, but nothing in the code suggests otherwise.
+to call these routes; it does not by itself prove no portal_only session ever does.
+
+### The access-log check cannot be completed — there is no access log
+
+Attempted 2026-09-10 as the final evidence gate before the `PLATFORM_ROUTE_GROUPS` decision.
+**The platform keeps no per-request access log**, so the question "has a `portal_only` session
+ever called `/api/sippy`?" cannot be answered from its own data. Every candidate was checked:
+
+| Candidate | Why it cannot answer |
+|-----------|----------------------|
+| `sessionActivityMiddleware` (`security/sessions.ts`) | Updates a `lastActivity` timestamp on `user_sessions`. Records no path |
+| HTTP request logger | None exists — no morgan, no equivalent |
+| Tables with a `route` column | `navigation_modules`, `user_favorites`, `workspace_tab_items` — navigation config, bookmarks and tabs. None records an API request |
+| `audit_events` via `writeAudit` | `AuditInput` has no path and no `platformAccessType` field, and it is written only by explicitly instrumented operations |
+| `requirePlatformAccess` denials | Not logged, and it never runs for `/api/sippy` anyway |
+
+**Only 3 of the 57 ungated routes write any audit record at all** — the two disconnect routes and
+`POST /api/sippy/audit-logs`. The other 54, including
+`DELETE /api/sippy/tariffs/:id/rates`, leave no trace of who called them.
+
+**This changes how the decision has to be made, in two ways.**
+
+1. The empirical check cannot be the final gate, because the data does not exist. The decision
+   rests on the code evidence above — no portal-scoped surface calls `/api/sippy` — plus whatever
+   HTTP logs exist *outside* the application (Replit deployment logs), which are not reachable
+   from the codebase and were not consulted here.
+2. **A wider finding: these routes are unauditable.** If the gap has already been exercised there
+   is no record of it, and after a policy change there would still be no record of an attempt.
+   Absence of evidence here is not evidence of absence, and cannot become so without adding
+   request logging — which is a code change and outside this audit's scope.
+
+Adding a `portal_only` denial log, or request logging over `/api/sippy`, is worth considering as
+part of the SMP-003 remediation rather than after it — a gate whose refusals are invisible cannot
+be shown to be working.
 
 ---
 
@@ -191,6 +223,9 @@ deliberate exceptions or aligned to `['admin']`; this audit does not assume whic
   corrected by reading them. Any route acted on should be read, not taken from the table alone.
 - Routes gating through the approval workflow were identified by `submitApprovalRequest`; they
   return `202 requiresApproval` and do not mutate Sippy directly.
+- **The access-log check was attempted and could not be completed** — see above. No production
+  system was contacted; the conclusion is drawn from the absence of any logging mechanism in the
+  codebase and schema.
 - **Read-only.** No code changed, no route re-gated, no Sippy request made, no migration applied.
 
 **Posture:** migrations 514/515 unpublished and unapplied, eligibility empty, `40a2650d` and
