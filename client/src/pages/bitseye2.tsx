@@ -2254,24 +2254,38 @@ export default function BitsEye2Page() {
     queryFn: () => fetch('/api/bitseye/concurrent-trend?hours=4&bucket=5').then(r => r.json()),
     staleTime: 20_000, refetchInterval: 30_000,   // live — NOC overview chart
   });
+  // Shared fetcher for the four live-slice queries. `.then(r => r.json())` with no
+  // r.ok check turns a 401/500/503 JSON error body into SUCCESSFUL query data: the
+  // slice is then a truthy object with no `entities` array, `for (const ent of
+  // slice.entities)` throws "not iterable", and the whole page white-screens on one
+  // bad poll (observed live 2026-08-24 on /bitseye2). Throwing here keeps errors in
+  // react-query's error state, so `data` stays undefined and the `!slice` guards
+  // downstream do their job.
+  const fetchSlice = (groupBy: string) => async (): Promise<LiveSliceResponse> => {
+    const r = await fetch(`/api/bitseye/live-slice?groupBy=${groupBy}`);
+    if (!r.ok) throw new Error(`live-slice ${groupBy}: HTTP ${r.status}`);
+    const body = await r.json();
+    if (!Array.isArray(body?.entities)) throw new Error(`live-slice ${groupBy}: malformed response (no entities array)`);
+    return body;
+  };
   const { data: clientSlice } = useQuery<LiveSliceResponse>({
     queryKey: ['/api/bitseye/live-slice', 'client'],
-    queryFn: () => fetch('/api/bitseye/live-slice?groupBy=client').then(r => r.json()),
+    queryFn: fetchSlice('client'),
     staleTime: 20_000, refetchInterval: 30_000,   // live — entity sidebar counts
   });
   const { data: vendorSlice } = useQuery<LiveSliceResponse>({
     queryKey: ['/api/bitseye/live-slice', 'vendor'],
-    queryFn: () => fetch('/api/bitseye/live-slice?groupBy=vendor').then(r => r.json()),
+    queryFn: fetchSlice('vendor'),
     staleTime: 20_000, refetchInterval: 30_000,
   });
   const { data: countrySlice } = useQuery<LiveSliceResponse>({
     queryKey: ['/api/bitseye/live-slice', 'country'],
-    queryFn: () => fetch('/api/bitseye/live-slice?groupBy=country').then(r => r.json()),
+    queryFn: fetchSlice('country'),
     staleTime: 20_000, refetchInterval: 30_000,
   });
   const { data: destSlice } = useQuery<LiveSliceResponse>({
     queryKey: ['/api/bitseye/live-slice', 'destination'],
-    queryFn: () => fetch('/api/bitseye/live-slice?groupBy=destination').then(r => r.json()),
+    queryFn: fetchSlice('destination'),
     staleTime: 20_000, refetchInterval: 30_000,
   });
   const { data: kamLive } = useQuery<KamLiveResponse>({
@@ -2392,7 +2406,9 @@ export default function BitsEye2Page() {
       ];
       let changed = false;
       for (const [dim, slice] of pairs) {
-        if (!slice) continue;
+        // Array.isArray, not truthiness: a malformed API body is a truthy object
+        // whose .entities is undefined, and iterating that kills the page.
+        if (!slice || !Array.isArray(slice.entities)) continue;
         for (const ent of slice.entities) {
           const key  = `${dim}:${ent.name}`;
           const hist = next.get(key) ?? [];
@@ -2483,7 +2499,7 @@ export default function BitsEye2Page() {
     for (const sec of SECTIONS) {
       if (!sec.dim) continue;
       const slice = dimToSlice[sec.dim];
-      if (!slice) continue;
+      if (!slice || !Array.isArray(slice.entities)) continue;
       for (const ent of slice.entities) {
         if (ent.name.toLowerCase().includes(searchQuery)) {
           out.push({ dim: sec.dim, sec, entity: ent });
