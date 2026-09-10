@@ -31,6 +31,15 @@ export interface ResolvedDefaults {
   byProduct: Array<{ code: string; name: string; trunkPrefix: string; count: number }>;
   /** Active products that produced no rows. A silent zero here is a customer priced on three tiers out of four. */
   productsWithoutRates: Array<{ code: string; name: string }>;
+  /**
+   * Priced rows that could NOT be expanded into prefixes, one line per cause.
+   *
+   * A price set against a superseded catalogue version, or naming a destination that version does
+   * not hold, contributes nothing to `rows`. Without this the caller sees a smaller matrix and no
+   * reason for it — and "uploaded fewer prefixes than the operator priced" is indistinguishable
+   * from success once it reaches the switch.
+   */
+  refusals: string[];
 }
 
 /**

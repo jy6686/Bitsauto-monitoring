@@ -24,6 +24,9 @@ import { companyProducts, companyMarkets, productRegistry, globalDestinations, p
 import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import * as sippy from "../../../sippy";
 import { generateRateMatrix, type CatalogueDestination, type GeneratorProduct, type GeneratorRate } from "../../rates/matrix-generator";
+import {
+  expandRates, activeCatalogueVersionId, summariseRefusals,
+} from "../../rates/rate-prefix-expansion";
 import { buildBulkRateXlsx } from "../../rates/rate-matrix";
 import type { ProvisioningStep, StepContext, StepOutcome } from "../types";
 
@@ -101,6 +104,7 @@ export const ratesStep: ProvisioningStep = {
       .select({
         destinationId: productRates.destinationId, productId: productRates.productId,
         rate: productRates.rate, prefix: productRates.prefix,
+        catalogueVersionId: productRates.catalogueVersionId,
       })
       .from(productRates)
       .where(and(
@@ -108,6 +112,21 @@ export const ratesStep: ProvisioningStep = {
         sql`${productRates.effectiveFrom} <= ${asOf}`,
         or(sql`${productRates.effectiveTo} IS NULL`, sql`${productRates.effectiveTo} >= ${asOf}`),
       ));
+
+    // ── TWO ID SPACES, SPLIT BEFORE ANYTHING IS RESOLVED ───────────────────
+    // product_rates.destination_id is ambiguous on its own. Everything below this line
+    // resolves it against global_destinations, which is correct ONLY for legacy rows; Rate
+    // Manager writes it as a commercial_destinations id, and feeding one of those into the
+    // lookup below would attach the price to whatever global destination happens to share
+    // the integer. Migration 515 made the space explicit, and this splits on it FIRST so no
+    // catalogue-keyed row ever reaches the legacy resolution.
+    const activeVersionId = await activeCatalogueVersionId(db as any, sql as any);
+    const expansions = await expandRates(db as any, priced, activeVersionId, sql as any);
+    const catalogueKeyed = expansions.filter(e => e.verdict === 'catalogue');
+    const legacyPriced   = expansions.filter(e => e.verdict === 'legacy_prefix').map(e => e.row);
+    // A price the operator entered that reaches no prefix. Reported on the step rather than
+    // subtracted from the matrix in silence.
+    const expansionRefusals = summariseRefusals(expansions);
 
     // ── A price may name its destination, or name a prefix ─────────────────
     // product_rates carries BOTH columns and Rate Manager's form only fills `prefix` —
@@ -135,7 +154,7 @@ export const ratesStep: ProvisioningStep = {
     const needsFallback = new Set<string>();
 
     // First pass — resolve against the company's destination set.
-    const firstPass: Array<{ r: typeof priced[number]; destinationId: number | null }> = priced.map(r => {
+    const firstPass: Array<{ r: typeof legacyPriced[number]; destinationId: number | null }> = legacyPriced.map(r => {
       let destinationId = r.destinationId;
       if (destinationId == null && r.prefix) {
         destinationId = byDialPrefix.get(String(r.prefix).trim()) ?? null;
@@ -182,6 +201,30 @@ export const ratesStep: ProvisioningStep = {
       return [{ destinationId, productId: r.productId, rate: Number(r.rate) }];
     });
 
+    // ── Catalogue-keyed prices: ONE price, EVERY prefix ────────────────────
+    // A rate is priced per DESTINATION, and a catalogue destination holds many prefixes —
+    // AWCC is 9370 and 9371. The matrix generator is destination-centric and carries one
+    // dialPrefix per destination, so each catalogue prefix becomes its own destination row
+    // sharing the parent's name and rate. That keeps the generator untouched and keeps its
+    // duplicate-prefix detection working across both sources.
+    //
+    // SYNTHETIC IDS ARE NEGATIVE, and that is load-bearing rather than cosmetic. The
+    // generator keys rates by destinationId, and `destinations` here holds global_destinations
+    // serials. A negative id cannot collide with one, so a catalogue-derived row can never be
+    // mistaken for a legacy destination — which is the whole defect this slice closes.
+    let syntheticId = -1;
+    for (const e of catalogueKeyed) {
+      for (const prefix of e.prefixes) {
+        const id = syntheticId--;
+        destinations.push({
+          id, dialPrefix: prefix,
+          name: e.destinationName ?? `destination ${e.row.destinationId}`,
+          country: null, commercialStatus: 'approved',
+        } as CatalogueDestination);
+        rates.push({ destinationId: id, productId: e.row.productId, rate: Number(e.row.rate) });
+      }
+    }
+
     const matrix = generateRateMatrix({ destinations, products, rates });
 
     // ── Nothing priced is not a failure ────────────────────────────────────
@@ -202,6 +245,7 @@ export const ratesStep: ProvisioningStep = {
         detail: [
           `Nothing to upload — no price is effective today for any of the ${destinations.length} destination(s) x ${products.length} product(s).`,
           `${priced.length} price(s) effective today, ${rates.length} matched to a destination.`,
+          ...expansionRefusals,
           `To load opening rates: go to Rate Manager → add a price row for each product (FC / BC / SB / SC) and prefix. Prices saved there will be picked up on the next provisioning run.`,
           // NAME THE PREFIXES. "17 destination(s)" says how much work there is and not what to
           // do, and prices are matched to this exact set — a price entered against any other
@@ -315,6 +359,10 @@ export const ratesStep: ProvisioningStep = {
             .map(([name, codes]) => `${name}${codes.length ? ` (${codes.join('/')})` : ''}`);
           return [`${noRate.length} cell(s) NOT uploaded — no price for: ${shown.join(' · ')}${byDest.size > 15 ? ` … and ${byDest.size - 15} more destination(s)` : ''}`];
         })(),
+        // A price that could not be expanded into prefixes never reached the matrix at all, so
+        // it is invisible to matrix.skipped. Uploading fewer prefixes than the operator priced
+        // is indistinguishable from success once it reaches the switch, so it is named here.
+        ...expansionRefusals,
         ...(matrix.warnings.length ? [`Warnings: ${matrix.warnings.join(' · ')}`] : []),
       ],
       metrics: {

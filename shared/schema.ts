@@ -4667,7 +4667,17 @@ export type InsertRatePushOperation = typeof ratePushOperations.$inferInsert;
 export const productRates = pgTable("product_rates", {
   id:            serial("id").primaryKey(),
   productId:     integer("product_id").notNull(),
+  // Ambiguous WITHOUT catalogueVersionId — read that first. rates.step.ts reads this as a
+  // global_destinations id; Rate Manager writes it as a commercial_destinations id. Migration
+  // 515 made the space explicit rather than leaving two readers to disagree silently.
   destinationId: integer("destination_id"),
+  // NULL = destination_id is not a catalogue reference and the price covers the single `prefix`.
+  // NOT NULL = destination_id is a commercial_destinations.id in THIS version and the price
+  // covers every prefix that destination holds. Deliberately no .references(): a price is a
+  // commercial record that must outlive a version cleanup, and catalogue_versions is absent from
+  // this schema and the drizzle snapshot, so a constraint across that line is what makes the
+  // publish diff propose destructive DDL.
+  catalogueVersionId: integer("catalogue_version_id"),
   prefix:        varchar("prefix",    { length: 32  }),
   rate:          numeric("rate",      { precision: 12, scale: 6 }).notNull().default("0"),
   currency:      varchar("currency",  { length: 8   }).notNull().default("USD"),

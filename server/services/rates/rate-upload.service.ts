@@ -18,6 +18,9 @@ import { db } from "../../db";
 import { productRates, productRegistry } from "../../../shared/schema";
 import { and, eq, or, sql, inArray } from "drizzle-orm";
 import { composePrefix, type RateRow, type ResolvedDefaults } from "./rate-matrix";
+import {
+  expandRates, activeCatalogueVersionId, summariseRefusals,
+} from "./rate-prefix-expansion";
 
 /**
  * Which product_registry rows count as sellable, and therefore must be priced.
@@ -100,6 +103,11 @@ export async function resolveDefaultRates(opts: {
   const rows: RateRow[] = [];
   const byProduct: ResolvedDefaults['byProduct'] = [];
   const productsWithoutRates: ResolvedDefaults['productsWithoutRates'] = [];
+  const refusals: string[] = [];
+
+  // Resolved ONCE for the whole matrix. Reading it per product could straddle a version
+  // activation mid-run and price two products against different catalogues.
+  const activeVersionId = await activeCatalogueVersionId(db as any, sql as any);
 
   for (const p of products) {
     const trunk = (p.trunkPrefix ?? '').trim();
@@ -110,7 +118,11 @@ export async function resolveDefaultRates(opts: {
     }
 
     const rates = await db
-      .select({ prefix: productRates.prefix, rate: productRates.rate })
+      .select({
+        prefix: productRates.prefix, rate: productRates.rate,
+        destinationId: productRates.destinationId,
+        catalogueVersionId: productRates.catalogueVersionId,
+      })
       .from(productRates)
       .where(
         and(
@@ -123,17 +135,28 @@ export async function resolveDefaultRates(opts: {
         ),
       );
 
+    // ── One price, every prefix it covers ──────────────────────────────────
+    // A rate is priced per DESTINATION, and a catalogue destination holds many prefixes —
+    // AWCC is 9370 and 9371. This used to read `prefix` alone and emit one row, so a
+    // destination priced through Rate Manager would have uploaded a price for one of its
+    // prefixes and left the rest unpriced. Legacy rows carry no catalogue version and still
+    // resolve to exactly the single prefix they always did.
+    const expanded = await expandRates(db as any, rates, activeVersionId, sql as any);
+
     let n = 0;
-    for (const r of rates) {
-      const dest = (r.prefix ?? '').trim();
-      if (!dest) continue;
-      rows.push({ prefix: composePrefix(trunk, dest), rate: Number(r.rate) });
-      n++;
+    for (const e of expanded) {
+      for (const dest of e.prefixes) {
+        rows.push({ prefix: composePrefix(trunk, dest), rate: Number(e.row.rate) });
+        n++;
+      }
     }
+    // Named, not swallowed. A refused price is a price the operator entered and the switch
+    // will not receive.
+    refusals.push(...summariseRefusals(expanded).map(l => `${p.code}: ${l}`));
 
     byProduct.push({ code: p.code, name: p.name, trunkPrefix: trunk, count: n });
     if (n === 0) productsWithoutRates.push({ code: p.code, name: p.name });
   }
 
-  return { rows, byProduct, productsWithoutRates };
+  return { rows, byProduct, productsWithoutRates, refusals };
 }

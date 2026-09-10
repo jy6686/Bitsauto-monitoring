@@ -194,9 +194,46 @@ export function registerRateManagerRoutes(app: Express) {
 
   app.post('/api/product-rates', (req: any, res, next) => requireRole(['admin', 'management'], req, res, next), async (req: any, res) => {
     try {
-      const { productId, destinationId, prefix, rate, currency, effectiveFrom, effectiveTo, notes } = req.body ?? {};
+      const { productId, destinationId, catalogueVersionId, prefix, rate, currency, effectiveFrom, effectiveTo, notes } = req.body ?? {};
       if (!productId || rate === undefined) {
         return res.status(400).json({ error: 'productId and rate are required' });
+      }
+
+      // ── The caller DECLARES the id space; the server VERIFIES it ───────────
+      // product_rates.destination_id is ambiguous on its own: rates.step.ts reads it as a
+      // global_destinations id and Rate Manager writes it as a commercial_destinations id.
+      // Migration 515 made the space explicit, and it is declared rather than inferred —
+      // inferring it by "does this id exist in the catalogue?" would mislabel any legacy id
+      // that happens to collide, which is the same guess that caused the original defect.
+      //
+      // Absent, the row is legacy and prices the single prefix in `prefix`, exactly as before.
+      let versionId: number | null = null;
+      if (catalogueVersionId !== undefined && catalogueVersionId !== null) {
+        versionId = Number(catalogueVersionId);
+        if (!Number.isInteger(versionId)) {
+          return res.status(400).json({ error: 'catalogueVersionId must be a catalogue version id' });
+        }
+        if (!destinationId) {
+          return res.status(400).json({ error: 'A catalogue-keyed rate must name a destination.' });
+        }
+        const check: any = await db.execute(sql`
+          SELECT d.id, v.status
+            FROM commercial_destinations d
+            JOIN catalogue_versions v ON v.id = d.version_id
+           WHERE d.id = ${Number(destinationId)} AND d.version_id = ${versionId}`);
+        const found = (check.rows ?? check)[0];
+        if (!found) {
+          return res.status(404).json({
+            error: `Destination ${destinationId} is not in catalogue version ${versionId}.`,
+          });
+        }
+        // Pricing against a superseded version would be written and then refused at upload as
+        // stale_version — a row that exists, reads as priced, and reaches nothing.
+        if (String(found.status) !== 'active') {
+          return res.status(409).json({
+            error: `Catalogue version ${versionId} is not active, so a price set against it would never be uploaded.`,
+          });
+        }
       }
       // ── Effective TODAY unless a date is given ─────────────────────────────
       // effectiveFrom used to be mandatory, so a price entered without one was rejected
@@ -214,6 +251,7 @@ export function registerRateManagerRoutes(app: Express) {
       const [row] = await db.insert(productRates).values({
         productId:     Number(productId),
         destinationId: destinationId ? Number(destinationId) : null,
+        catalogueVersionId: versionId,
         prefix:        prefix || null,
         rate:          String(rate),
         currency:      currency || 'USD',

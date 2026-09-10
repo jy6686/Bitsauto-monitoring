@@ -3258,16 +3258,14 @@ function ProductRatesTab({ products }: { products: Product[] }) {
   const chosenDest = (eligibility?.destinations ?? [])
     .find(d => String(d.destinationId) === form.destinationId) ?? null;
 
-  // A destination with more than one prefix cannot be priced from here YET, and that is a
-  // deliberate refusal rather than a missing feature.
+  // Multi-prefix destinations CAN now be priced. Both readers of product_rates expand a
+  // catalogue-keyed rate into the destination's full prefix set via rate-prefix-expansion.ts,
+  // so one price covers all of them instead of one and silently dropping the rest.
   //
-  // The catalogue holds ~19,160 prefixes across 1,344 destinations, so most destinations carry
-  // several. But the two readers of product_rates — rate-upload.service.ts and rates.step.ts —
-  // still select a single `prefix` column. Writing one of a destination's prefixes here would
-  // upload a price for that one and silently leave the rest unpriced; writing none would make the
-  // row invisible to those readers. Both are wrong quietly, which is worse than being unavailable
-  // loudly. Teaching those readers to expand from destination_id is its own slice.
-  const multiPrefix = !!chosenDest && chosenDest.prefixes.length > 1;
+  // What the operator is told instead is how many prefixes the price will cover, because
+  // "0.021 for AWCC" and "0.021 on 9370 and 9371" are the same decision only if you already
+  // know the catalogue.
+  const coveredPrefixes = chosenDest?.prefixes.length ?? 0;
 
   const handleCreate = () => {
     // The destination is chosen from a list, so an empty one means nothing was selected — worth
@@ -3275,21 +3273,20 @@ function ProductRatesTab({ products }: { products: Product[] }) {
     // would leave an operator hunting for which field is missing.
     if (!selectedProductId)  { toast({ title: "Select a product first", variant: "destructive" }); return; }
     if (!form.destinationId) { toast({ title: "Select a destination", variant: "destructive" }); return; }
-    if (multiPrefix) {
-      toast({
-        title: "This destination has more than one prefix",
-        description: `${chosenDest!.name} covers ${chosenDest!.prefixes.length} prefixes. The rate upload still reads one prefix per rate, so pricing it here would upload a price for one and leave the rest unpriced.`,
-        variant: "destructive",
-      });
-      return;
-    }
     if (!form.rate || !form.effectiveFrom) {
       toast({ title: "Enter a rate and an effective date", variant: "destructive" }); return;
     }
-    // destinationId is the key; prefix is carried for the readers that still use it.
+    // destinationId is the key, and catalogueVersionId DECLARES which id space it is in.
+    // Without it the row would be stored as legacy and price one prefix — the server does not
+    // infer the space, deliberately, because inferring it is what caused the original defect.
+    if (!eligibility?.catalogue) {
+      toast({ title: "No active catalogue version", description: "A price cannot be keyed to a destination without one.", variant: "destructive" });
+      return;
+    }
     createMut.mutate({
       productId: Number(selectedProductId),
       destinationId: Number(form.destinationId),
+      catalogueVersionId: eligibility.catalogue.versionId,
       prefix: form.prefix, rate: form.rate, currency: form.currency,
       effectiveFrom: form.effectiveFrom, effectiveTo: form.effectiveTo, notes: form.notes,
     });
@@ -3406,8 +3403,9 @@ function ProductRatesTab({ products }: { products: Product[] }) {
                 onChange={e => {
                   const id = e.target.value;
                   const d = (eligibility?.destinations ?? []).find(x => String(x.destinationId) === id);
-                  // One prefix is carried alongside the id ONLY when the destination has exactly
-                  // one. See the note below for why a multi-prefix destination stores none.
+                  // The catalogue decides what the price covers; `prefix` is carried only as a
+                  // legacy convenience for a single-prefix destination and is ignored by the
+                  // expansion, which always reads the destination's own set.
                   setForm(f => ({ ...f, destinationId: id, prefix: d && d.prefixes.length === 1 ? d.prefixes[0] : "" }));
                 }}
               >
@@ -3435,15 +3433,12 @@ function ProductRatesTab({ products }: { products: Product[] }) {
               <label className="text-[10px] text-muted-foreground">Notes</label>
               <input data-testid="input-rate-notes" className="bg-muted border border-border rounded px-2 py-1 text-xs w-48" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
             </div>
-            {multiPrefix && (
-              <div data-testid="warn-multi-prefix" className="basis-full text-[11px] text-amber-400">
-                {chosenDest!.name} covers {chosenDest!.prefixes.length} prefixes ({chosenDest!.prefixes.join(", ")}).
-                A rate here stores one prefix, and the rate upload reads one prefix per rate — so pricing this
-                destination would upload a price for one of them and leave the rest unpriced. Single-prefix
-                destinations can be priced now.
+            {coveredPrefixes > 1 && (
+              <div data-testid="note-prefix-coverage" className="basis-full text-[11px] text-muted-foreground">
+                One price for all {coveredPrefixes} prefixes {chosenDest!.name} covers ({chosenDest!.prefixes.join(", ")}).
               </div>
             )}
-            <button onClick={handleCreate} disabled={createMut.isPending || multiPrefix} data-testid="btn-save-rate"
+            <button onClick={handleCreate} disabled={createMut.isPending} data-testid="btn-save-rate"
               className="flex items-center gap-1 text-xs bg-green-600 hover:bg-green-500 text-white px-3 py-1 rounded transition-colors disabled:opacity-50">
               {createMut.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Save
             </button>

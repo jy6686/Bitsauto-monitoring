@@ -112,25 +112,30 @@ describe("an empty result is not a broken catalogue", () => {
   });
 });
 
-describe("it refuses to price a destination it cannot price correctly", () => {
-  it("blocks saving a multi-prefix destination", () => {
-    // rate-upload.service.ts and rates.step.ts both select a single `prefix`. Writing one of a
-    // destination's prefixes would upload a price for that one and silently leave the rest
-    // unpriced — wrong quietly, which is worse than unavailable loudly.
-    expect(CODE).toContain('const multiPrefix =');
-    expect(CODE).toContain('chosenDest.prefixes.length > 1');
-    expect(CODE).toContain('disabled={createMut.isPending || multiPrefix}');
-  });
-
-  it("says why, on the form, rather than failing silently", () => {
-    expect(CODE).toContain('data-testid="warn-multi-prefix"');
-  });
-
-  it("carries a prefix only when the destination has exactly one", () => {
-    expect(CODE).toMatch(/prefixes\.length === 1 \? d\.prefixes\[0\] : ""/);
-  });
-
-  it("sends destinationId as the key on create", () => {
+describe("pricing declares its id space", () => {
+  it("sends catalogueVersionId alongside destinationId", () => {
+    // product_rates.destination_id is ambiguous without it — rates.step.ts reads the same column
+    // as a global_destinations id. Omitting it would store the row as legacy and price one prefix.
+    expect(CODE).toContain('catalogueVersionId: eligibility.catalogue.versionId');
     expect(CODE).toContain('destinationId: Number(form.destinationId)');
+  });
+
+  it("refuses to create a rate when no catalogue version is active", () => {
+    expect(CODE).toContain('if (!eligibility?.catalogue)');
+  });
+
+  it("no longer blocks multi-prefix destinations, because both readers now expand", () => {
+    // The guard's stated reason was that rate-upload.service.ts and rates.step.ts read a single
+    // prefix. They expand via rate-prefix-expansion.ts now, so a guard citing that reason would
+    // be a false statement left in the UI.
+    expect(CODE).not.toContain('multiPrefix');
+    expect(CODE).not.toContain('data-testid="warn-multi-prefix"');
+  });
+
+  it("tells the operator how many prefixes one price will cover", () => {
+    // "0.021 for AWCC" and "0.021 on 9370 and 9371" are the same decision only to someone who
+    // already knows the catalogue.
+    expect(CODE).toContain('data-testid="note-prefix-coverage"');
+    expect(CODE).toContain('coveredPrefixes');
   });
 });
