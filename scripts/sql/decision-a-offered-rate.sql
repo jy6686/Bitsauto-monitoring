@@ -1,13 +1,27 @@
 -- Decision A — is `rate_notification_template_destinations` the currently OFFERED rate,
 -- or only a template for the next notification?
 --
--- READ-ONLY. Every statement is a SELECT. No write, no notification, no Sippy call.
--- Run in the Replit shell against PRODUCTION.
+-- READ-ONLY. Every statement is a SELECT, and the whole script runs inside a transaction that
+-- ends in ROLLBACK. No write, no notification, no Sippy call.
+--
+-- RUN IT LIKE THIS, and the flag is not optional:
+--
+--     psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/decision-a-offered-rate.sql
+--
+-- WHY. A first version of this script carried the guard below WITHOUT ON_ERROR_STOP and without
+-- the transaction. Run against the dev database it did exactly the wrong thing: the DO block
+-- raised, psql printed the error, and then — because each statement autocommits independently —
+-- every SELECT after it ran anyway and returned dev rows under a heading that said production.
+-- All zeros, which reads exactly like "the table is empty in production". A guard that does not
+-- abort is not a guard; it is a comment that happens to be red.
 --
 -- WHY THE GUARD. This platform's workspace shell has a $PROD_URL that actually points at the DEV
 -- database (heliumdb). Reading dev and concluding about production is the specific trap here, and
 -- it is silent — the rows look plausible either way. The guard below refuses to proceed rather
 -- than letting that happen.
+
+BEGIN;  -- read-only; ends in ROLLBACK. Also makes the guard fatal: once it raises, every
+        -- statement below fails with "current transaction is aborted" instead of answering.
 
 DO $$ BEGIN
   IF current_database() <> 'neondb' THEN
@@ -79,3 +93,5 @@ SELECT t.client_name, t.product_id, d.dial_prefix, d.destination_name,
 SELECT (SELECT count(DISTINCT dial_prefix) FROM rate_notification_template_destinations) AS offered_prefixes,
        (SELECT count(*) FROM product_rates)                                              AS product_rates_rows,
        (SELECT count(*) FROM product_destination_eligibility WHERE status = 'active')     AS declared_eligibility;
+
+ROLLBACK;  -- nothing was written; this is belt-and-braces, not a formality.
