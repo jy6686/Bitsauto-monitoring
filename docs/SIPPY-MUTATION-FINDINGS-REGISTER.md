@@ -95,6 +95,13 @@ Concretely, if `DELETE /api/sippy/tariffs/:id/rates` has already been exercised,
 cannot answer who invoked it, when, from which session, whether that session was `portal_only`,
 or which tariff was targeted.
 
+**Deployment logs are outside this environment.** External Replit deployment logs could answer
+the historical-access question, but there is no route to them from the codebase: no Replit CLI, no
+file-based logging in the application, and no local log files. Only someone with Replit console
+access can run that check. It is therefore **not a prerequisite for ratification** — the policy
+below is forward-looking, and historical `portal_only` usage stays recorded as unknowable from
+application data unless that external check is performed and its result added here.
+
 ### PROPOSED policy — awaiting ratification, NOT adopted
 
 Evidence-gathering is complete; this is the decision that remains. Derived from the 92 routes
