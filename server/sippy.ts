@@ -9596,6 +9596,17 @@ async function setSippyRateEntryInner(
       base, Number(tariffId), entry.prefix, entry.rate,
       entry.effectiveFrom, entry.effectiveTill, adminCreds, entry.iRate,
       username, password,
+      // Both restored 2026-09-10. This call was added without them, and each omission is a
+      // silent regression of something built and production-verified:
+      //   intervals — the catalogue's billing increment. Without it the edit writes whatever the
+      //     tariff holds, defaulting to 1/1, which is the defect a6b80e9c exists to prevent: it
+      //     asserts per-second billing on a contract that may say 60/60.
+      //   boundary  — action=change IS the mutation. Unthreaded, boundary.crossed stays false, the
+      //     wrapper reports refusedBeforeWrite: true ("the tariff is provably untouched"), and the
+      //     executor then treats an unverified edit as a PROVEN non-event — the one verdict it is
+      //     allowed to retry. That is how 191 @ 0.02 was destroyed on tariff 64.
+      entry.interval1, entry.intervalN,
+      boundary,
     );
 
     if (directResult.success) {
