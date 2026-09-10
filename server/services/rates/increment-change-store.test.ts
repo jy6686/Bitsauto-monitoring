@@ -136,6 +136,43 @@ describe("ATOMICITY — the promise and the obligation become true together", ()
     expect(notes.every((n: any) => n.status === 'pending')).toBe(true);
   });
 
+  it("60/1 -> 30/6 creates exactly ONE scheduled change, field for field", async () => {
+    // The acceptance row itself, not inferred from the notification text. A change whose stored
+    // date or previous increment differs from what was requested is a different commitment from
+    // the one the client was told about.
+    const r = await accept();
+    expect(r.ok).toBe(true);
+    const changes = await all(sql`SELECT * FROM billing_increment_changes`);
+    expect(changes).toHaveLength(1);
+    const [c] = changes;
+    expect(c.previous_increment).toBe('60/1');          // the CURRENT increment is preserved
+    expect(c.new_increment).toBe('30/6');
+    expect(String(c.effective_date).slice(0, 10)).toBe(EFFECTIVE);   // preserved EXACTLY
+    expect(c.status).toBe('accepted');                  // scheduled, not applied
+    expect(c.applied_at).toBeNull();                    // the switch has not been told
+    expect(c.notified_at).toBeNull();                   // nor have the clients, yet
+    expect(c.created_by).toBe(ACTOR);
+    expect(Number(c.product_id)).toBe(FC);
+    expect(Number(c.destination_id)).toBe(JAZZ);
+    expect(Number(c.catalogue_version_id)).toBe(V1);
+  });
+
+  it("the stored date is the one the notification names — one date, not two", async () => {
+    // The whole contract: the date clients are told is the date the switch will be changed.
+    // Two fields drifting apart is how that promise gets broken silently.
+    const r = await accept();
+    const [c] = await all(sql`SELECT effective_date FROM billing_increment_changes`);
+    const [n] = await all(sql`SELECT message FROM billing_increment_notifications LIMIT 1`);
+    expect(String(n.message)).toContain(String(c.effective_date).slice(0, 10));
+  });
+
+  it("a normalised increment is stored canonically, not as typed", async () => {
+    const r = await accept({ newIncrement: '30 / 6' });
+    expect(r.ok).toBe(true);
+    const [c] = await all(sql`SELECT new_increment FROM billing_increment_changes`);
+    expect(c.new_increment).toBe('30/6');
+  });
+
   it("the notification text names the destination, both increments and the date", async () => {
     const r = await accept();
     const [n] = await all(sql`SELECT message FROM billing_increment_notifications LIMIT 1`);
