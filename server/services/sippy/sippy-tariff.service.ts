@@ -179,29 +179,32 @@ export async function pushRate(
   if (!isValidPrefix(opts.prefix)) {
     throw new SippyValidationError(`Invalid prefix: ${opts.prefix}`, 'prefix');
   }
+  // The legacy Sippy write path accepts one numeric per-minute price. Passing an
+  // interval-only rollback through it used to become ratePerMin=undefined, yet still
+  // requested an upload token and locked the tariff. Fail before any remote write.
+  if (opts.price1 == null || !Number.isFinite(Number(opts.price1))) {
+    throw new SippyValidationError(
+      `A finite price1 is required to write prefix ${opts.prefix}; interval-only writes are not supported by this path`,
+      'price1',
+    );
+  }
 
   const t0 = Date.now();
   try {
-    const result = await withRetry(() =>
-      sippy.pushRateToSippy(
+    const result = await withRetry(async () => {
+      const pushed = await sippy.pushRateToSippy(
         {
+          accountName:        opts.destination ?? `tariff-${opts.iTariff}`,
           iTariff:            opts.iTariff != null ? String(opts.iTariff) : undefined,
           prefix:             normalizePrefix(opts.prefix),
-          price_1:            opts.price1,
-          price_n:            opts.priceN,
-          interval_1:         opts.interval1,
-          interval_n:         opts.intervalN,
-          free_seconds:       opts.freeSeconds,
-          grace_period:       opts.gracePeriod,
-          connect_fee:        opts.connectFee,
-          post_call_surcharge:opts.postCallSurcharge,
-          destination:        opts.destination,
+          ratePerMin:         Number(opts.price1),
         },
         { username: config.username, password: config.password },
         config.portalUrl,
-      ),
-      { maxAttempts: 2 },
-    );
+      );
+      if (!pushed.success) throw new Error(pushed.message);
+      return pushed;
+    }, { maxAttempts: 2 });
 
     await auditLog({
       operationType: 'rate_upload',

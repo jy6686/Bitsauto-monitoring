@@ -9478,7 +9478,7 @@ export async function uploadRatesWorkbook(
  * the code is now guessing at write methods via system.listMethods. That is both the
  * slow path and the one that leaves a tariff empty while still reporting progress.
  */
-export type RatePushStep = 'token' | 'uploading' | 'polling' | 'verifying' | 'fallback';
+export type RatePushStep = 'editing' | 'token' | 'uploading' | 'polling' | 'verifying' | 'fallback';
 export type RatePushProgress = (step: RatePushStep, detail?: string) => void;
 
 /**
@@ -9567,17 +9567,78 @@ async function setSippyRateEntryInner(
   // ── Phase A: structured diagnostic logging ──────────────────────────────────
   console.log(`[RateManager] Push — tariff=${tariffId} prefix=${entry.prefix} rate=${entry.rate} effective=${entry.effectiveFrom ?? 'immediate'} till=${entry.effectiveTill ?? 'never'}`);
 
+  const normaliseEntryDate = (raw?: string): string => {
+    if (!raw) return '';
+    const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return `${s}:00`;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))     return `${raw.trim()} 00:00:00`;
+    return '';
+  };
+  const requestedAction = rateUploadAction(normaliseEntryDate(entry.effectiveFrom));
+
+  // A single-rate change must use the portal's individual edit form first.
+  //
+  // The upload-token path below creates a real Sippy import job. If that job reaches
+  // FILE_UPLOADED and then FAIL, Sippy can keep the tariff locked while its importer
+  // cleans up. Falling through to the portal edit at that point guarantees a second
+  // failure ("Tariff is locked") and repeated retries can lock more client tariffs.
+  //
+  // The individual action=change form is the confirmed write path for one rate and
+  // does not enqueue a bulk import. Keep token upload only as a compatibility fallback
+  // when no rate-admin portal session can perform the direct edit.
+  // `action=change` is intentionally limited to immediate changes. Sippy has been
+  // observed accepting a future activation on that form while silently retaining the
+  // old activation date, which applies the new price now. Future-dated rates must stay
+  // on the A-upload path because that is the path proven to schedule them correctly.
+  if (adminCreds && requestedAction === 'SA') {
+    step('editing', `tariff ${tariffId}`);
+    const directResult = await pushRateViaPortalUpload(
+      base, Number(tariffId), entry.prefix, entry.rate,
+      entry.effectiveFrom, entry.effectiveTill, adminCreds, entry.iRate,
+      username, password,
+    );
+
+    if (directResult.success) {
+      step('verifying', `tariff ${tariffId}`);
+      const verifyResult = await verifySippyRate(
+        username, password, tariffId, entry.prefix, entry.rate, base,
+      );
+      console.log(`[RateManager] Verification (portal_edit): ${verifyResult.message}`);
+      if (verifyResult.confirmed) {
+        return {
+          ...directResult,
+          method: 'portal_edit',
+          verificationResult: 'confirmed',
+        };
+      }
+      return {
+        success: false,
+        message: `Portal edit returned success but rate is unchanged: ${verifyResult.message} — no bulk upload was started`,
+        method: 'portal_edit',
+        verificationResult: 'mismatch',
+      };
+    }
+
+    // A locked tariff cannot accept either path. Most importantly, do not create
+    // another upload job behind the one that already owns the lock.
+    if (/locked/i.test(directResult.message)) {
+      console.log(`[RateManager] Direct edit blocked by tariff lock — bulk upload suppressed`);
+      return {
+        success: false,
+        message: directResult.message,
+        method: 'portal_edit',
+        verificationResult: 'skip',
+      };
+    }
+
+    console.log(`[RateManager] Direct portal edit unavailable: ${directResult.message} — trying compatibility fallbacks`);
+    lastErrors.push(`portal_edit: ${directResult.message}`);
+  }
+
   // ── Phase C: getUploadToken (official Sippy bulk upload API, docs 3000073011) ─
   // Uses buildGetUploadTokenXml + sippyPost directly with base URL (multi-switch safe).
   // Falls through on any failure so XML-RPC / portal fallbacks still run.
   try {
-    const normDateLocal = (raw?: string): string => {
-      if (!raw) return '';
-      const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
-      if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return `${s}:00`;
-      if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))     return `${raw.trim()} 00:00:00`;
-      return '';
-    };
   // process_on RESTORED, now that buildGetUploadTokenXml sends it as <string>. It faulted
   // 500 only because it was typed <dateTime.iso8601>; the same value as a string is
   // accepted. Without it some builds schedule processing far out and the status sits at
@@ -9609,8 +9670,8 @@ async function setSippyRateEntryInner(
         console.log(`[RateManager] Upload token: ${uploadToken} | URL: ${uploadUrl}`);
         note(`token=${uploadToken} url=${uploadUrl}`);
 
-        const normFrom = normDateLocal(entry.effectiveFrom);
-        const normTill = normDateLocal(entry.effectiveTill);
+        const normFrom = normaliseEntryDate(entry.effectiveFrom);
+        const normTill = normaliseEntryDate(entry.effectiveTill);
         // A to schedule, SA to apply now. Sending SA for a future date is how a rate meant
         // for next week goes live today, which is a different commercial commitment from the
         // one on the rate sheet.
@@ -9624,7 +9685,7 @@ async function setSippyRateEntryInner(
           entry.interval1,
           entry.intervalN,
         );
-        console.log(`[RateManager] Upload XLSX: prefix=${entry.prefix} rate=${entry.rate} interval=${entry.interval1 ?? 1}/${entry.intervalN ?? 1} effective=${normDateLocal(entry.effectiveFrom) || 'immediate'} till=${normDateLocal(entry.effectiveTill) || 'never'} bytes=${xlsxBuffer.length}`);
+        console.log(`[RateManager] Upload XLSX: prefix=${entry.prefix} rate=${entry.rate} interval=${entry.interval1 ?? 1}/${entry.intervalN ?? 1} effective=${normaliseEntryDate(entry.effectiveFrom) || 'immediate'} till=${normaliseEntryDate(entry.effectiveTill) || 'never'} bytes=${xlsxBuffer.length}`);
 
         step('uploading', `${xlsxBuffer.length} bytes`);
         // Boundary crossed: from here the file is on its way to Sippy and may be processed.
