@@ -4726,6 +4726,41 @@ export type InsertProductDestinationAssignment = typeof productDestinationAssign
 // What the customer BOUGHT, against the company. Distinct from customer_product_assignments
 // and the Sippy tables, which record what was BUILT and only exist after provisioning.
 // Migration 054.
+/**
+ * Which catalogue destinations each product is sold on (migration 514).
+ *
+ * Replaces `productDestinationAssignments`, which is NON-AUTHORITATIVE as of 514: its
+ * `destination_id` moved id space twice (global_destinations -> destinations, via 059/064/065 with
+ * the intended translation in 060 never written) and its 52 rows are uniform seed expressing no
+ * product differentiation. That table is kept as an audit trail and must not be read for
+ * eligibility.
+ *
+ * `destinationId` and `versionId` point at `commercial_destinations` / `catalogue_versions`, which
+ * are migration-only tables and so are not expressed as drizzle `references()` here. The foreign
+ * keys and the version-consistency trigger are enforced in 514.
+ *
+ * Product identity is the registry ROW, never the trunk prefix: Wholesale and Retail deliberately
+ * share trunks, so a trunk identifies a family. Wholesale vs Retail comes from productRegistry.segment.
+ */
+export const productDestinationEligibility = pgTable("product_destination_eligibility", {
+  id:            serial("id").primaryKey(),
+  productId:     integer("product_id").notNull(),
+  /** commercial_destinations.id — versioned; eligibility does NOT carry across versions by itself. */
+  destinationId: integer("destination_id").notNull(),
+  versionId:     integer("version_id").notNull(),
+  /** active | withdrawn. Withdrawal is a claim someone made, never a DELETE. */
+  status:        text("status").notNull().default("active"),
+  createdAt:     timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  createdBy:     text("created_by"),
+  withdrawnAt:   timestamp("withdrawn_at", { withTimezone: true }),
+  withdrawnBy:   text("withdrawn_by"),
+  notes:         text("notes"),
+}, (t) => ({
+  productDestUq: uniqueIndex("product_destination_eligibility_product_id_destination_id_key").on(t.productId, t.destinationId),
+}));
+export type ProductDestinationEligibility       = typeof productDestinationEligibility.$inferSelect;
+export type InsertProductDestinationEligibility = typeof productDestinationEligibility.$inferInsert;
+
 export const companyProducts = pgTable("company_products", {
   id:        serial("id").primaryKey(),
   companyId: integer("company_id").notNull(),
