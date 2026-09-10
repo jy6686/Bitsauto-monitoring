@@ -90,6 +90,29 @@ export function buildRateNotificationXlsx(
  */
 export type RateNotificationType = 'FULL' | 'CHANGES';
 
+/**
+ * ONLY THE CLAUSE THAT APPLIES IS SHOWN, and that is a correctness requirement rather than
+ * tidiness.
+ *
+ * These two paragraphs say OPPOSITE things about a destination the sheet does not mention:
+ * under FULL it is DELETED, under CHANGES it keeps its previous rate. Printing both on a partial
+ * sheet leaves the customer to work out which governs, and the expensive misreading is available
+ * — a partial sheet listing four destinations, read under the FULL clause, withdraws every other
+ * destination the customer buys.
+ *
+ * So the notification states the one rule that governs it. The `Notification Type` line above
+ * names which, and the footer explains only that.
+ */
+const FULL_FOOTER = `<p><strong>FULL/A2Z:&nbsp;</strong>FULL rate sheet contains all the codes and destinations
+for all countries offered. Rates against codes/destinations should always be replaced by the
+new FULL rate sheet. In case any code/destination is not offered in the new FULL rate sheet,
+the missing codes/destinations are considered to be DELETED.</p>`;
+
+const CHANGES_FOOTER = `<p><strong>CHANGES/PARTIAL:&nbsp;</strong>This is a partial rate sheet and includes only the
+destinations whose rates have changed. All rates given against codes in this partial rate sheet
+replace the previous rates for those codes. Rates for codes/destinations NOT listed here are
+unaffected and remain valid as given in the previous rate sheet.</p>`;
+
 export function renderRateNotificationHtml(opts: {
   companyName:  string;
   productLabel: string;
@@ -153,15 +176,7 @@ Manager.</p>
 <p><strong>Ichibaan Logic Private Limited</strong></p>
 <p><em>(formerly Bhaoo Private Limited)</em></p>
 
-<p><strong>FULL/A2Z:&nbsp;</strong>FULL rate sheet contains all the codes and destinations
-for all countries offered. Rates against codes/destinations should always be replaced by the
-new FULL rate sheet. In case any code/destination is not offered in the new FULL rate sheet,
-the missing codes/destinations are considered to be DELETED.</p>
-
-<p><strong>CHANGES/PARTIAL:&nbsp;</strong>Partial rate sheet includes only changes from the
-previous rate sheet. All rates given against codes in the partial rate sheet are replaced by
-the new rate sheet. However, rates for the missing codes/destinations are still considered
-valid as given in the previous rate sheet.</p>`;
+${notificationType === 'CHANGES' ? CHANGES_FOOTER : FULL_FOOTER}`;
 }
 
 // ── Date helpers ───────────────────────────────────────────────────────────────

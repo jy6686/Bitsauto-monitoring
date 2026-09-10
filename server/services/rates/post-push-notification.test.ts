@@ -138,14 +138,26 @@ describe("THE LEGAL LABEL: CHANGES, not FULL", () => {
     expect(render()).toContain('<strong>FULL</strong>');
   });
 
-  it("keeps BOTH legal paragraphs in either mode - they define each other", () => {
-    for (const t of ['FULL', 'CHANGES'] as const) {
-      const html = render(t);
-      expect(html, t).toMatch(/FULL\/A2Z/);
-      expect(html, t).toMatch(/considered to be DELETED/);
-      expect(html, t).toMatch(/CHANGES\/PARTIAL/);
-      expect(html, t).toMatch(/still considered\s*\n?\s*valid/);
-    }
+  it("GATE 9: the FULL deletion clause never appears on a CHANGES notification", () => {
+    // The expensive misreading: a partial sheet listing four destinations, read under the FULL
+    // clause, withdraws every other destination the customer buys.
+    const html = render('CHANGES');
+    expect(html).not.toMatch(/considered to be DELETED/);
+    expect(html).not.toMatch(/FULL\/A2Z/);
+  });
+
+  it("a CHANGES notification states that unlisted destinations are UNAFFECTED", () => {
+    const html = render('CHANGES');
+    expect(html).toMatch(/NOT listed here are\s*\n?\s*unaffected/);
+    expect(html).toMatch(/remain valid/);
+  });
+
+  it("a FULL notification still carries its deletion clause, and only that", () => {
+    const html = render('FULL');
+    expect(html).toMatch(/FULL\/A2Z/);
+    expect(html).toMatch(/considered to be DELETED/);
+    // The two clauses say opposite things; printing both leaves the customer to guess which governs.
+    expect(html).not.toMatch(/CHANGES\/PARTIAL:/);
   });
 
   it("the rate table shows the bare prefix with a plus, at the pushed rate", () => {
