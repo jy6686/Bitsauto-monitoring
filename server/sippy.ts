@@ -9414,7 +9414,29 @@ export async function uploadRatesWorkbook(
   iTariff: number,
   xlsx: Buffer,
   sample: Array<{ prefix: string; rate: number }>,
-): Promise<{ success: boolean; message: string; uploadStatus?: string; verified: number; checked: number }> {
+): Promise<{
+  success: boolean; message: string; uploadStatus?: string; verified: number; checked: number;
+  /**
+   * success / failure / indeterminate — the same three verdicts the single-rate push uses, and
+   * for the same reason: only `failure` is safely retryable.
+   *
+   * This path previously returned `success: false` for two outcomes that are not alike. A
+   * getUploadToken failure means NOTHING WAS SENT. A workbook that uploaded, reached status DONE
+   * and then failed its sampled read-back means the file WAS SENT and the tariff may already hold
+   * it. Collapsing those into one retryable failure is how a rate gets written twice.
+   */
+  verdict: 'success' | 'failure' | 'indeterminate';
+  /**
+   * True = no mutating request left this process, so a retry is safe. False = one did.
+   *
+   * Structural, from the boundary's position in the code — never inferred from a message.
+   */
+  refusedBeforeWrite: boolean;
+}> {
+  // Set immediately BEFORE the upload, never after: a request that then times out has still been
+  // sent. One object for the whole operation, so every return path reports the same fact.
+  const boundary: MutationBoundary = { crossed: false };
+  const done = <T extends object>(r: T) => ({ ...r, refusedBeforeWrite: !boundary.crossed });
   const base   = sippyBase(portalUrl);
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
@@ -9426,18 +9448,27 @@ export async function uploadRatesWorkbook(
   const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 15000);
   console.log(`[RateManager] bulk getUploadToken: HTTP ${tokenResp.statusCode} ${tokenResp.body.slice(0, 200)}`);
   if (tokenResp.statusCode !== 200 || tokenResp.body.includes('faultCode')) {
-    return { success: false, verified: 0, checked: 0,
-      message: `getUploadToken failed: ${extractFaultString(tokenResp.body) || `HTTP ${tokenResp.statusCode}`}` };
+    // Nothing has been sent to the tariff — the token request is a read.
+    return done({ success: false, verdict: 'failure' as const, verified: 0, checked: 0,
+      message: `getUploadToken failed: ${extractFaultString(tokenResp.body) || `HTTP ${tokenResp.statusCode}`}` });
   }
   const m = extractStructMembers(extractAllTags(tokenResp.body, 'struct')[0] ?? '');
   if (!m['token'] || !m['url']) {
-    return { success: false, verified: 0, checked: 0, message: 'getUploadToken returned no token or url' };
+    return done({ success: false, verdict: 'failure' as const, verified: 0, checked: 0,
+      message: 'getUploadToken returned no token or url' });
   }
 
+  // ── THE MUTATION ────────────────────────────────────────────────────────────
+  // Everything above is a read. This sends the whole workbook, so the boundary is crossed
+  // here and stays crossed for every return path below, including the ones that throw.
+  boundary.crossed = true;
   const up = await uploadBinaryFile(m['url'], xlsx, 'rates.xlsx');
   console.log(`[RateManager] bulk upload: success=${up.success} ${up.body.slice(0, 200)}`);
   if (!up.success) {
-    return { success: false, verified: 0, checked: 0, message: `file upload rejected: ${up.body.slice(0, 200)}` };
+    // The request WAS sent. A rejection reported by the far end is not proof the far end
+    // discarded it, so this is indeterminate rather than a clean failure to retry.
+    return done({ success: false, verdict: 'indeterminate' as const, verified: 0, checked: 0,
+      message: `file upload rejected: ${up.body.slice(0, 200)}` });
   }
 
   let status = 'FILE_UPLOADED';
@@ -9462,11 +9493,16 @@ export async function uploadRatesWorkbook(
   }
 
   if (verified === sample.length && sample.length > 0) {
-    return { success: true, verified, checked: sample.length, uploadStatus: status,
-      message: `Uploaded and verified (${verified}/${sample.length} sampled, status ${status})` };
+    return done({ success: true, verdict: 'success' as const, verified, checked: sample.length, uploadStatus: status,
+      message: `Uploaded and verified (${verified}/${sample.length} sampled, status ${status})` });
   }
-  return { success: false, verified, checked: sample.length, uploadStatus: status,
-    message: `Upload finished with status ${status} but only ${verified}/${sample.length} sampled rate(s) read back — the tariff does not hold what was sent` };
+  // INDETERMINATE, not failure. The workbook was uploaded; the sampled read-back did not confirm
+  // it. That is "we do not know what the tariff holds", and the old message asserted more than
+  // the evidence supports — a sample that does not read back does not establish that nothing
+  // landed. Retrying this blindly is how a rate gets written twice.
+  return done({ success: false, verdict: 'indeterminate' as const, verified, checked: sample.length, uploadStatus: status,
+    message: `Upload finished with status ${status} but only ${verified}/${sample.length} sampled rate(s) read back — `
+           + `what the tariff now holds is UNKNOWN. The workbook was sent, so this must not be retried blindly.` });
 }
 
 /**

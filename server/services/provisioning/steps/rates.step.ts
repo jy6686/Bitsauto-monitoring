@@ -309,19 +309,35 @@ export const ratesStep: ProvisioningStep = {
     );
 
     if (!res.success) {
+      // ── FAILURE AND INDETERMINATE ARE NOT THE SAME OUTCOME ─────────────────
+      // Both used to arrive here as RATE_UPLOAD_FAILED, which reads as "nothing happened, run
+      // it again". That is true when getUploadToken failed — no mutating request left the
+      // process. It is NOT true when the workbook uploaded and the sampled read-back did not
+      // confirm it: the file was sent, the tariff may already hold it, and re-running would
+      // write it a second time. `refusedBeforeWrite` is structural, from where the boundary
+      // sits in the upload, and is never read off the message text.
+      const indeterminate = res.verdict === 'indeterminate' || res.refusedBeforeWrite === false;
       return {
         status: 'failed',
-        reasonCode: 'RATE_UPLOAD_FAILED',
+        reasonCode: indeterminate ? 'RATE_UPLOAD_INDETERMINATE' : 'RATE_UPLOAD_FAILED',
         error: res.message,
         detail: [
           `${rows.length} row(s) built from ${destinations.length} destination(s) x ${products.length} product(s)`,
           `Tariff ${iTariff} — ${res.message}`,
-          'The account is provisioned; load the rates from Rate Manager and this is complete.',
+          ...(indeterminate
+            ? [
+                `The workbook WAS sent to tariff ${iTariff}. What it now holds is unknown, so this step must NOT be re-run blindly — read the tariff back first.`,
+                'Re-running would upload the same rows a second time.',
+              ]
+            : [
+                'No rate data was sent to the tariff, so re-running this step is safe.',
+                'The account is provisioned; load the rates from Rate Manager and this is complete.',
+              ]),
         ],
         metrics: {
           requested: rows.length, created: 0, verified: 0, failed: rows.length,
           iTariff, products: products.length, destinations: destinations.length,
-          failures: [{ cause: 'rate upload rejected by Sippy', count: 1 }],
+          failures: [{ cause: indeterminate ? 'rate upload outcome unknown — workbook was sent' : 'rate upload rejected by Sippy', count: 1 }],
         },
       };
     }
