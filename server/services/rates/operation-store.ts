@@ -163,7 +163,7 @@ export async function recordOperationResult(
   db: OperationQueryable,
   jobId: string,
   result: OperationResult,
-  extra: { verificationResult?: string | null; refusedBeforeWrite?: boolean | null } = {},
+  extra: { verificationResult?: string | null; refusedBeforeWrite?: boolean | null; trace?: string[] | null } = {},
 ): Promise<void> {
   await db.execute(sql`
     UPDATE rate_push_operations
@@ -174,6 +174,8 @@ export async function recordOperationResult(
            i_rate               = ${result.iRate ?? null},
            verification_result  = ${extra.verificationResult ?? null},
            refused_before_write = ${extra.refusedBeforeWrite ?? null},
+           -- The push's own account. Stored even on failure — especially on failure.
+           trace                = ${extra.trace && extra.trace.length ? JSON.stringify(extra.trace) : null}::jsonb,
            completed_at         = NOW()
      WHERE job_id = ${jobId} AND operation_key = ${result.operationKey}`);
 }
@@ -322,6 +324,8 @@ export interface OperationRecord {
   resolvedAt: string | null;
   resolutionNote: string | null;
   observedState: string | null;
+  /** The push's own account of what it did. Null means the row predates the column. */
+  trace: string[] | null;
 }
 
 /**
@@ -342,7 +346,7 @@ export async function getJobOperations(
            requested_rate, interval_1, interval_n, effective_from, effective_till,
            status, attempts, i_rate, push_method, verification_result, refused_before_write,
            message, created_at, started_at, completed_at,
-           resolution, resolved_by, resolved_at, resolution_note, observed_state
+           resolution, resolved_by, resolved_at, resolution_note, observed_state, trace
       FROM rate_push_operations
      WHERE job_id = ${jobId}
      ORDER BY sequence`));
@@ -384,6 +388,10 @@ export async function getJobOperations(
     resolvedAt:         asStr(r.resolved_at),
     resolutionNote:     asStr(r.resolution_note),
     observedState:      asStr(r.observed_state),
+    // jsonb comes back parsed from node-postgres and as text from some drivers; accept both.
+    trace:              r.trace === null || r.trace === undefined ? null
+                          : (Array.isArray(r.trace) ? r.trace.map(String)
+                            : (() => { try { const v = JSON.parse(String(r.trace)); return Array.isArray(v) ? v.map(String) : null; } catch { return null; } })()),
   }));
 
   return { jobId, operations, summary: await deriveJobStatus(db, jobId) };

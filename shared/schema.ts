@@ -4646,6 +4646,13 @@ export const ratePushOperations = pgTable("rate_push_operations", {
   resolutionNote:     text("resolution_note"),
   /** What the operator actually saw in Sippy. Evidence, not a verdict. */
   observedState:      text("observed_state"),
+
+  /**
+   * The push's own account of what it did (migration 513): token response, token and URL, upload
+   * result, status, verification — oldest first, each prefixed with ms since the operation began.
+   * Null on rows written before the column existed, which is NOT the same as an empty trace.
+   */
+  trace:              jsonb("trace").$type<string[]>(),
 }, (t) => ({
   jobKeyUq:   uniqueIndex("rate_push_operations_job_key_uq").on(t.jobId, t.operationKey),
   jobSeqIx:   index("rate_push_operations_job_seq_ix").on(t.jobId, t.sequence),

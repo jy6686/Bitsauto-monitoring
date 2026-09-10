@@ -210,7 +210,7 @@ export async function runRateBatch(
 
     // The primitive's own report, mapped by the module that owns that mapping.
     const outcome = verdictFromPush(raw);
-    return { ...outcome, verificationResult: raw.verificationResult, refusedBeforeWrite: raw.refusedBeforeWrite };
+    return { ...outcome, verificationResult: raw.verificationResult, refusedBeforeWrite: raw.refusedBeforeWrite, trace: raw.trace };
   };
 
   const executed = await executeRateBatch(plan, runner, {
@@ -220,6 +220,7 @@ export async function runRateBatch(
       await recordOperationResult(deps.db, input.jobId, r, {
         verificationResult: r.verificationResult ?? null,
         refusedBeforeWrite: r.refusedBeforeWrite ?? null,
+        trace: r.trace ?? null,
       });
     },
   });

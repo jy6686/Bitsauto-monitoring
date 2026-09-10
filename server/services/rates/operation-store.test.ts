@@ -64,6 +64,7 @@ beforeAll(async () => {
   // Migration 511 verbatim. If it cannot apply here it cannot apply in production.
   await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '511_rate_push_operations.sql'), 'utf8'));
   await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '512_operation_resolution.sql'), 'utf8'));
+  await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '513_operation_trace.sql'), 'utf8'));
 });
 
 afterAll(async () => { await client?.close(); });

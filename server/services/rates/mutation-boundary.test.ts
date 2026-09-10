@@ -120,7 +120,15 @@ describe("how the answer is computed", () => {
   it("the wrapper stamps every return path, so none can omit it", () => {
     // The inner function has many returns; the flag is applied once, outside all of them.
     expect(SRC).toContain('const result = await setSippyRateEntryInner(');
-    expect(SRC).toMatch(/return \{ \.\.\.result, refusedBeforeWrite: !boundary\.crossed \}/);
+    expect(SRC).toMatch(/return \{ \.\.\.result, refusedBeforeWrite: !boundary\.crossed/);
+  });
+
+  it("the wrapper also returns the trace, on the throwing path as well as the returning one", () => {
+    // The trace is owned by the wrapper for the same reason the boundary is: so no exit can drop it.
+    // A throw attaches it to the error, because a push that dies is exactly the one worth explaining.
+    expect(SRC).toMatch(/return \{ \.\.\.result, refusedBeforeWrite: !boundary\.crossed, trace \}/);
+    expect(SRC).toContain("trace.push(`push threw:");
+    expect(SRC).toMatch(/throw Object\.assign\([\s\S]{0,80}\{ trace \}\)/);
   });
 
   it("one boundary object is threaded into the portal fallback, not a second one", () => {

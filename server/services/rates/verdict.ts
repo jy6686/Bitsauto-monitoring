@@ -46,10 +46,12 @@ export interface PushPrimitiveResult {
    * provably untouched. Absent means "not established" and is treated as such.
    */
   refusedBeforeWrite?: boolean;
+  /** The push's own account of what it did. Carried through untouched. */
+  trace?: string[];
 }
 
 export function verdictFromPush(result: PushPrimitiveResult): OperationOutcome {
-  const carried = { method: result.method, iRate: result.iRate };
+  const carried = { method: result.method, iRate: result.iRate, trace: result.trace };
 
   if (result.verificationResult === 'confirmed' && result.success) {
     return { verdict: 'success', message: result.message, ...carried };
