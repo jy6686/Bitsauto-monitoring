@@ -3176,6 +3176,22 @@ function JobsTab() {
 //
 // It declares eligibility and nothing else. It does not price, does not push, and does not
 // touch the legacy assignment table.
+interface IncrementRow {
+  destinationId: number;
+  name: string;
+  prefixCount: number;
+  /** What the supplier catalogue says. Source data, never edited here. */
+  catalogueIncrement: string | null;
+  /** Present when the destination's prefixes disagree — reported, never averaged. */
+  catalogueIncrementsDiffer?: string[];
+  /** What is actually in force today, which may already be a previous change. */
+  inForce: string | null;
+  source: 'catalogue' | 'change' | 'none';
+  /** Effective date has arrived and the switch has not been told. */
+  awaitingApplication: boolean;
+  scheduled: { changeId?: number; increment: string; effectiveDate: string } | null;
+}
+
 interface CatalogueDest {
   id: number;
   name: string;
@@ -3448,6 +3464,22 @@ function ProductRatesTab({ products }: { products: Product[] }) {
     staleTime: 60_000,
   });
 
+  // Billing increments: the catalogue value, what is in force, and anything scheduled.
+  //
+  // Three separate facts. A single "increment" column cannot express them, and an operator
+  // deciding whether to change one needs all three — what the supplier says, what customers are
+  // charged today, and what has already been promised for a future date.
+  const { data: increments } = useQuery<{ destinations: IncrementRow[] }>({
+    queryKey: ["/api/products", selectedProductId, "increment-changes"],
+    queryFn: () => fetch(`/api/products/${selectedProductId}/increment-changes`).then(r => r.json()),
+    enabled: !!selectedProductId,
+    staleTime: 30_000,
+  });
+  const incrementByDest = useMemo(
+    () => new Map((increments?.destinations ?? []).map(d => [d.destinationId, d])),
+    [increments],
+  );
+
   // Eligible destinations LEFT JOIN their rate, plus any rate not claimed by one.
   //
   // Keyed on destinationId, not prefix. A rate is priced per DESTINATION — the push already works
@@ -3504,6 +3536,28 @@ function ProductRatesTab({ products }: { products: Product[] }) {
     mutationFn: (id: number) => apiRequest("DELETE", `/api/product-rates/${id}`),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["/api/product-rates"] }); toast({ title: "Rate deleted" }); },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  // Scheduling a billing increment change. Local to the row being edited.
+  const [incEdit, setIncEdit] = useState<{ destinationId: number; name: string; current: string | null } | null>(null);
+  const [incForm, setIncForm] = useState({ newIncrement: "", effectiveDate: "" });
+
+  const scheduleIncrement = useMutation({
+    mutationFn: (body: any) => apiRequest("POST", `/api/products/${selectedProductId}/increment-changes`, body),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ["/api/products", selectedProductId, "increment-changes"] });
+      setIncEdit(null);
+      setIncForm({ newIncrement: "", effectiveDate: "" });
+      const gaps = res?.clientsWithoutContact?.length ?? 0;
+      toast({
+        title: "Billing increment change scheduled",
+        // The counts matter more than the confirmation: an operator needs to know how many
+        // customers will be told, and which ones cannot be.
+        description: `${res?.notificationsOwed ?? 0} client contact(s) will be notified.`
+          + (gaps ? ` ${gaps} client(s) have no rate contact configured and will NOT be told: ${res.clientsWithoutContact.join(", ")}.` : ""),
+      });
+    },
+    onError: (e: any) => toast({ title: "Could not schedule the change", description: e.message, variant: "destructive" }),
   });
 
   const chosenDest = (eligibility?.destinations ?? [])
@@ -3638,6 +3692,68 @@ function ProductRatesTab({ products }: { products: Product[] }) {
           );
         })()}
 
+        {/* ── Schedule a billing increment change ────────────────────────────────
+            This edits the COMMERCIAL increment as an effective-dated change. It does not touch
+            the catalogue: that field is supplier data and is replaced on every re-import, so a
+            commitment written there would be silently reverted after clients had been told.
+
+            Nothing is sent and no switch is touched here. Accepting commits the change and the
+            notification rows it owes, together; a worker delivers them, and the switch is changed
+            on the effective date. */}
+        {incEdit && (
+          <div data-testid="increment-change-form" className="border-b border-border/30 bg-blue-500/[0.04] px-4 py-3">
+            <div className="flex flex-wrap gap-3 items-end">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-muted-foreground">Destination</label>
+                <div className="text-xs py-1 font-medium">{incEdit.name}</div>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-muted-foreground">Current</label>
+                <div className="text-xs py-1 font-mono">{incEdit.current ?? "not set"}</div>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-muted-foreground">New increment</label>
+                <input
+                  data-testid="input-new-increment"
+                  value={incForm.newIncrement}
+                  onChange={e => setIncForm(f => ({ ...f, newIncrement: e.target.value }))}
+                  placeholder="30/6"
+                  className="bg-muted border border-border rounded px-2 py-1 text-xs w-24 font-mono"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-muted-foreground">Effective date</label>
+                <input
+                  data-testid="input-increment-effective"
+                  type="date"
+                  value={incForm.effectiveDate}
+                  onChange={e => setIncForm(f => ({ ...f, effectiveDate: e.target.value }))}
+                  className="bg-muted border border-border rounded px-2 py-1 text-xs w-36"
+                />
+              </div>
+              <button
+                data-testid="btn-schedule-increment"
+                disabled={scheduleIncrement.isPending || !incForm.newIncrement || !incForm.effectiveDate}
+                onClick={() => scheduleIncrement.mutate({
+                  destinationId: incEdit.destinationId,
+                  newIncrement: incForm.newIncrement,
+                  effectiveDate: incForm.effectiveDate,
+                })}
+                className="flex items-center gap-1 text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded transition-colors disabled:opacity-50">
+                {scheduleIncrement.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Calendar className="w-3 h-3" />}
+                Schedule change
+              </button>
+              <button onClick={() => setIncEdit(null)} className="text-xs text-muted-foreground hover:text-foreground px-2 py-1">Cancel</button>
+            </div>
+            {/* Said before the operator commits, not after. A billing increment change is
+                announced to customers, so the consequence belongs next to the button. */}
+            <div className="text-[11px] text-muted-foreground mt-2">
+              On the effective date the switch is changed to the new increment, and every client with a
+              configured rate contact is notified of that same date. Nothing is sent until the change is accepted.
+            </div>
+          </div>
+        )}
+
         {showForm && (
           <div className="border-b border-border/30 bg-muted/5 px-4 py-3 flex flex-wrap gap-3 items-end">
             {/* Destination, not a typed prefix.
@@ -3768,7 +3884,7 @@ function ProductRatesTab({ products }: { products: Product[] }) {
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="border-b border-border/50 bg-muted/20 sticky top-0">
-                  {["Destination", "Prefix", "Rate (USD/min)", "Effective From", "Effective To", "Status", ""].map(h => (
+                  {["Destination", "Prefix", "Billing Increment", "Rate (USD/min)", "Effective From", "Effective To", "Status", ""].map(h => (
                     <th key={h} className="text-left py-2 px-3 font-medium text-muted-foreground whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -3797,6 +3913,49 @@ function ProductRatesTab({ products }: { products: Product[] }) {
                           : prefixes.length === 1
                             ? displayPrefix(prefixes[0])
                             : <span>{displayPrefix(prefixes[0])} <span className="text-muted-foreground">+{prefixes.length - 1} more</span></span>}
+                      </td>
+                      {/* Billing increment — the COMMERCIAL one, not the catalogue field.
+                          Editing here schedules an effective-dated change and never touches
+                          commercial_destination_prefixes, which a supplier re-import overwrites. */}
+                      <td className="py-2 px-3 whitespace-nowrap">
+                        {(() => {
+                          const inc = g.dest ? incrementByDest.get(g.dest.destinationId) : undefined;
+                          if (!g.dest) return <span className="text-muted-foreground">—</span>;
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              <span className={cn("font-mono", inc?.source === "change" ? "text-blue-400" : "")}>
+                                {inc?.inForce ?? <span className="text-muted-foreground">not set</span>}
+                              </span>
+                              {inc?.catalogueIncrementsDiffer && (
+                                <span data-testid={`inc-conflict-${g.dest.destinationId}`}
+                                      title={`This destination's prefixes carry different increments: ${inc.catalogueIncrementsDiffer.join(", ")}. One of them is wrong.`}
+                                      className="text-rose-400"><AlertTriangle className="w-3 h-3" /></span>
+                              )}
+                              {inc?.awaitingApplication && (
+                                <span data-testid={`inc-awaiting-${g.dest.destinationId}`}
+                                      title="The effective date has passed and the switch has not been updated yet."
+                                      className="text-amber-400"><Clock className="w-3 h-3" /></span>
+                              )}
+                              {inc?.scheduled && (
+                                <span data-testid={`inc-scheduled-${g.dest.destinationId}`}
+                                      className="text-[10px] text-purple-300 bg-purple-500/10 border border-purple-500/20 rounded px-1"
+                                      title={`Scheduled: ${inc.scheduled.increment} from ${inc.scheduled.effectiveDate}`}>
+                                  → {inc.scheduled.increment} on {inc.scheduled.effectiveDate}
+                                </span>
+                              )}
+                              <button
+                                data-testid={`btn-edit-increment-${g.dest.destinationId}`}
+                                onClick={() => {
+                                  setIncEdit({ destinationId: g.dest!.destinationId, name: g.dest!.name, current: inc?.inForce ?? null });
+                                  setIncForm({ newIncrement: "", effectiveDate: "" });
+                                }}
+                                className="text-muted-foreground hover:text-primary transition-colors"
+                                title="Schedule a billing increment change">
+                                <Pencil className="w-3 h-3" />
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="py-2 px-3 font-mono tabular-nums">
                         {r ? Number(r.rate).toFixed(6) : <span className="text-muted-foreground">—</span>}

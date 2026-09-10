@@ -224,6 +224,52 @@ describe("ATOMICITY — the promise and the obligation become true together", ()
   });
 });
 
+describe("THE CATALOGUE IS NEVER WRITTEN, AND CANNOT OVERWRITE THE COMMITMENT", () => {
+  it("scheduling a change leaves the supplier increment untouched", async () => {
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS commercial_destination_prefixes (
+        id SERIAL PRIMARY KEY, version_id INTEGER NOT NULL, destination_id INTEGER NOT NULL,
+        prefix TEXT NOT NULL, billing_increment TEXT)`);
+    await client.exec(`DELETE FROM commercial_destination_prefixes`);
+    await db.execute(sql`
+      INSERT INTO commercial_destination_prefixes (version_id, destination_id, prefix, billing_increment)
+      VALUES (${V1}, ${JAZZ}, '9230', '60/1')`);
+
+    await accept();
+
+    const [p] = await all(sql`SELECT billing_increment FROM commercial_destination_prefixes WHERE prefix = '9230'`);
+    // Supplier data is source data. The commitment lives elsewhere precisely so this stays true.
+    expect(p.billing_increment).toBe('60/1');
+  });
+
+  it("a supplier re-import CANNOT overwrite the commercial change", async () => {
+    await client.exec(`
+      CREATE TABLE IF NOT EXISTS commercial_destination_prefixes (
+        id SERIAL PRIMARY KEY, version_id INTEGER NOT NULL, destination_id INTEGER NOT NULL,
+        prefix TEXT NOT NULL, billing_increment TEXT)`);
+    await client.exec(`DELETE FROM commercial_destination_prefixes`);
+    await db.execute(sql`
+      INSERT INTO commercial_destination_prefixes (version_id, destination_id, prefix, billing_increment)
+      VALUES (${V1}, ${JAZZ}, '9230', '60/1')`);
+    const r = await accept();
+
+    // The vendor file lands and replaces the supplier value — the thing that would have silently
+    // reverted a commitment if the increment had been edited in place.
+    await db.execute(sql`UPDATE commercial_destination_prefixes SET billing_increment = '1/1' WHERE prefix = '9230'`);
+
+    const [c] = await all(sql`SELECT previous_increment, new_increment, effective_date, status FROM billing_increment_changes`);
+    expect(c.new_increment).toBe('30/6');
+    expect(c.previous_increment).toBe('60/1');
+    expect(String(c.effective_date).slice(0, 10)).toBe(EFFECTIVE);
+    expect(c.status).toBe('accepted');
+    // And the clients still hold exactly what they were promised.
+    const [n] = await all(sql`SELECT message FROM billing_increment_notifications LIMIT 1`);
+    expect(String(n.message)).toContain('30/6');
+    expect(String(n.message)).toContain(EFFECTIVE);
+    if (r.ok) expect(r.changeId).toBeGreaterThan(0);
+  });
+});
+
 describe("DELIVERY — a failure loses the email, never the change", () => {
   it("pending notifications are what the worker should attempt", async () => {
     await accept();
