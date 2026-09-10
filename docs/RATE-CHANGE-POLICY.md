@@ -48,6 +48,60 @@ response, but by nothing having been sent.
 
 ---
 
+## Evidence from the old system — READ 2026-09-10
+
+`23.106.59.17:8081` → Tools → **Configuration Values**. One configuration record, its fields
+grouped into tabs: **Vendor · A-Z · BSR · Global · Client**. The values below are the **Vendor**
+tab. **The Client tab has not been read** — the tabs are JavaScript carousel items with no URL, and
+reading them requires clicking, which was out of scope for this pass.
+
+| Setting | Unit | Value |
+|---------|------|-------|
+| Old Effective Date | days | 7 |
+| Future Effective Date | days | 14 |
+| Dial Code Changes Period | days | 0 |
+| **Increase Notice Period** | days | **7** |
+| Dial Code Length | number | 20 |
+| **Rate Increase Alert** | percent | **50.0** |
+| **Rate Decrease Alert** | percent | **50.0** |
+| Rate Rounding extent | number | 4 |
+| Accepted File size | mb | 5 |
+| Acceptable Shortest Duration | days | 1 |
+| Acceptable Pending Increase | number | 3 |
+| Maximum Delay for CDR Reconciliation | hour | 2 |
+
+### THREE DISCREPANCIES WITH THE RULE AS STATED
+
+These are recorded before interpretation. The old system is the authority the owner nominated, and
+where it disagrees with the verbal statement, the disagreement is the finding.
+
+1. **50% is called an ALERT, not a limit.** The owner stated a decrease over 50% "cannot be
+   implemented" without a release. The old system names the threshold `Rate Decrease Alert`. An
+   alert threshold and a hard block are different controls: one flags, the other refuses. Which one
+   the old system actually enforces is NOT established by this screen, and the difference decides
+   whether the new guard refuses a push or merely marks it.
+
+2. **The threshold is symmetric — there is a `Rate Increase Alert` at 50% too.** The stated rule
+   constrains decreases only. The old system applies the same percentage to increases. Either the
+   rule is symmetric and the statement was partial, or increases are alerted but not constrained.
+
+3. **`Increase Notice Period` = 7 days exists.** The owner's first statement had increases
+   requiring 7 days' notice, then corrected it to "increase would also be immediate". The old
+   system carries a 7-day increase notice period as configuration. The correction may be right for
+   the Client side, or may have been about the effective-date field rather than the notice period —
+   but the setting exists and is not zero.
+
+### Also present, not yet read
+
+- `/rate_change/ratechange/` — "Change Rate". The screen the rule most likely governs.
+- `/client_registration/update/validation_rule/` — per-client "Rules Update".
+- `/rate_notifications/notificationmanagerapproval/` and `notificationmanagementapproval` — the old
+  system DOES have approval stages for rate NOTIFICATIONS. That is not the same thing as approving
+  a push, and the owner's "no approval needed" applies to the push; worth keeping the two apart.
+- `Old Effective Date 7` / `Future Effective Date 14` — bounds on how far back or forward an
+  effective date may be set. The stated rule says "immediate or a selected future date" with no
+  bound; this suggests a 14-day forward limit exists.
+
 ## UNDEFINED — must be sourced, not invented
 
 The rules above cannot be implemented as they stand. Each gap below changes the outcome for real
