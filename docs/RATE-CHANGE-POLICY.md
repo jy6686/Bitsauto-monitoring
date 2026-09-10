@@ -193,6 +193,39 @@ One client. Another may differ entirely, and the per-client design means it is e
   effective date may be set. The stated rule says "immediate or a selected future date" with no
   bound; this suggests a 14-day forward limit exists.
 
+## The Change Rate workflow — read 2026-09-11, PARTIAL
+
+`/rate_change/ratechange/`. A list of rate-change JOBS — 65 records, all from 2016, all by one
+operator. Columns:
+
+`Direction` (Client / Vendor) · `Department` (Whole-Sale / Retail) · `Product` · `All Carrier` ·
+`Created On` · `Created By` · **`Is Sync`** · `Actions`
+
+Three things this establishes:
+
+1. **A rate change is a batch JOB, not a per-rate edit.** It is scoped to a direction, a
+   department, a product and a set of clients — the same (department, product, client) axes the
+   validation rules are configured on, which is consistent.
+2. **`Is Sync`** — the job carries a flag for whether it reached the switch. A rate change and its
+   propagation are separate states in this model.
+3. The products in use are `Premium`, `First Class - Wholesale`, `Business Class - Wholesale`,
+   `Standard`, `Special Alpha - Retail`, `Special Delta - Retail` — the same Wholesale/Retail split
+   and Greek-letter Special naming the current `product_registry` uses.
+
+### NOT ESTABLISHED — and not reachable by reading alone
+
+`create/` is a wizard: Direction → Department → Product → Clients. The rate grid, and therefore the
+calculation, appears only after those selections. The row action is `./update?id=N`, an edit form
+over a historical job.
+
+So these remain open, and reaching them requires either driving the wizard or opening a historical
+record — both beyond navigate-and-read, and neither done:
+
+- **`>50%` or `>=50%`** — the boundary that decides whether `0.05 → 0.025` passes.
+- **What "release" is.** Nothing on any screen read so far uses the word. It is not the validation
+  outcome (that is `REJECT DESTINATION`), and it is not the `Pending` status codes.
+- **What "the currently offered rate" is compared against** in the old system.
+
 ## UNDEFINED — must be sourced, not invented
 
 The rules above cannot be implemented as they stand. Each gap below changes the outcome for real
