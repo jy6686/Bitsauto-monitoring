@@ -3,6 +3,13 @@
 The commercial rules a rate push must satisfy before it may reach Sippy. **Specification in
 progress** — stated by the owner 2026-09-10, with the gaps marked. Nothing here is implemented.
 
+**Implementation status 2026-09-14:** `server/services/rates/rate-validation.ts` implements the
+ratified shape — global thresholds, per-client/department outcomes, three blast radii — and
+**deliberately implements none of the six unresolved questions below**. Each returns
+`undecidable` with the open question named, never a verdict. The engine is pure: no database, no
+Sippy, no clock, no imports at all. It has **no caller**; wiring it into the push path is a
+separate decision.
+
 This is **not** an approval workflow. The owner has decided explicitly that a rate push does not
 require approval. It is a deterministic pre-mutation guard: the same shape as the existing
 integrity guards, evaluated from data, with no human in the loop.
