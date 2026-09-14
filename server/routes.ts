@@ -29,6 +29,7 @@ import { registerVendorRatesRoutes } from './routes-vendor-rates';
 import { registerCommercialCatalogueRoutes } from './routes-commercial-catalogue';
 import { registerProductEligibilityRoutes } from './routes-product-eligibility'
 import { registerIncrementChangeRoutes } from './routes-increment-changes';
+import { perClientPolicy } from './services/rates/policy-adapter';
 import { registerRateNotificationRoutes, createInitialRateJob } from './routes-rate-notifications';
 import { registerProductTemplatesRoutes } from './routes-product-templates';
 import { registerMetaFlowsRoutes } from './routes-meta-flows';
@@ -44163,9 +44164,19 @@ ${footer}
         // the request boundary, and the batch is perfectly well formed.
         const storedITariffByAccountName = new Map<string, number | null>();
         const iAccountByName             = new Map<string, number | null>();
+        // Whose rate each operation is, for the per-client change policy. A batch is destinations
+        // x clients, and policy is per client and department, so the company row is what scopes it.
+        // An account with no company, or a company with no department, is NOT guessed: the policy
+        // layer refuses such an operation as policy_unresolved rather than attaching a policy to
+        // the wrong customer.
+        const companyByAccountName = new Map<string, { id: number; name: string; department: string | null }>();
         if (Array.isArray(accounts)) {
           for (const acc of accounts) {
             const company = acc.iAccount ? await storage.getCompanyBySippyAccount(Number(acc.iAccount)) : null;
+            if (company) companyByAccountName.set(acc.username, {
+              id: Number((company as any).id), name: String((company as any).name),
+              department: (company as any).department ?? null,
+            });
             storedITariffByAccountName.set(acc.username, (company as any)?.sippyITariff ?? null);
             iAccountByName.set(acc.username, acc.iAccount ? Number(acc.iAccount) : null);
             const verdict = checkTariffIntegrity({
@@ -44291,6 +44302,12 @@ ${footer}
               // Zong tomorrow at 01:40" and quietly gave every row the same one.
               effectiveFrom:   dest.effectiveFrom || effectiveFrom || undefined,
               effectiveTill:   effectiveTill || undefined,
+              // Policy scope: the client and department this rate belongs to. Null stays null.
+              clientId:        companyByAccountName.get(accountName)?.id ?? null,
+              clientName:      companyByAccountName.get(accountName)?.name ?? null,
+              department:      companyByAccountName.get(accountName)?.department ?? null,
+              destinationId:   dest.destinationId ?? null,
+              country:         dest.country ?? null,
             });
           }
         }
@@ -44336,6 +44353,73 @@ ${footer}
           return r;
         };
 
+        // ── The commercial change policy, gated by an audited flag ────────────
+        //
+        // OFF by default and off when the flag cannot be read: a new refusal layer that switched
+        // itself on by accident would stop every push on the platform, so its failure mode is
+        // "unchanged behaviour", and turning it on is a deliberate, attributed act on
+        // platform_feature_flags.
+        //
+        // When on: thresholds come from the CLIENT category — settled 2026-09-14 from the old
+        // system's Configuration Values, where vendor (14-day) and client (15-day) deliberately
+        // differ. The comparison base is the rate the client's OWN tariff holds today, read from
+        // Sippy once per target tariff (a read; nothing is written). That is the "currently
+        // offered rate" the old system's Rate Manager shows, sourced the only way this platform
+        // can source it until real clients are provisioned here.
+        let policyEnforced = false;
+        try {
+          const { platformFeatureFlags } = await import('@shared/schema');
+          const row = await db.select({ enabled: platformFeatureFlags.enabled })
+            .from(platformFeatureFlags)
+            .where(eq(platformFeatureFlags.key, 'rate_policy_enforcement')).limit(1);
+          policyEnforced = row.length ? Boolean(row[0].enabled) : false;
+        } catch {
+          policyEnforced = false;   // fail to UNCHANGED behaviour, never to a surprise refusal
+        }
+
+        const policyResolutions: Array<{ scope: string; summary: string; usable: boolean; unmeasurableRules: unknown[] }> = [];
+        let policy: import('./services/rates/batch-runner').PolicyPerClient | undefined;
+        if (policyEnforced) {
+          // Prior rates: one read per distinct target tariff. A tariff read that hits the 1000
+          // cap is PARTIAL, and a prefix absent from a partial read is 'unknown', not 'none' —
+          // "we could not see" is a different fact from "there is no prior rate".
+          const priorByTariff = new Map<string, { rates: Map<string, number>; partial: boolean }>();
+          for (const op of operations) {
+            const t = op.resolvedITariff == null ? null : String(op.resolvedITariff);
+            if (!t || priorByTariff.has(t)) continue;
+            try {
+              const list = await sippy.getTariffRatesListFull(username, password, Number(t), 0, 1000, undefined, portalUrl);
+              const rates = new Map<string, number>();
+              for (const r of list as any[]) {
+                const n = Number(r.price1 ?? r.priceN);
+                if (r.prefix && Number.isFinite(n)) rates.set(String(r.prefix), n);
+              }
+              priorByTariff.set(t, { rates, partial: (list as any[]).length >= 1000 });
+            } catch (e: any) {
+              console.warn(`[push-batch] prior-rate read failed for tariff ${t}: ${e?.message ?? e}`);
+              priorByTariff.set(t, { rates: new Map(), partial: true });
+            }
+          }
+          for (const op of operations) {
+            const t = op.resolvedITariff == null ? null : String(op.resolvedITariff);
+            const read = t ? priorByTariff.get(t) : undefined;
+            const prior = read?.rates.get(String(op.fullPrefix));
+            if (prior !== undefined)      { op.priorRate = prior; op.priorRateSource = 'sippy_tariff'; }
+            else if (!read || read.partial) { op.priorRate = null;  op.priorRateSource = 'unknown'; }
+            else                          { op.priorRate = null;  op.priorRateSource = 'none'; }
+          }
+
+          const today = new Date().toISOString().slice(0, 10);
+          policy = perClientPolicy(db as any, {
+            thresholdCategory: 'client',
+            today,
+            onResolved: (scope, r) => {
+              policyResolutions.push({ scope, summary: r.summary, usable: r.usable, unmeasurableRules: r.unmeasurableRules });
+              console.log(`[push-batch] policy ${scope}: ${r.summary}`);
+            },
+          });
+        }
+
         // One serial lane per tariff, concurrent across tariffs, every operation on a durable row
         // before the first push, and an outcome nobody established never retried.
         const runOutcome = await runRateBatch(
@@ -44343,7 +44427,7 @@ ${footer}
           // 2026-09-09 jobs 46 and 47 wrote tariff 65 concurrently for ~44s because the planner's
           // serialisation stops at the batch boundary; a Postgres advisory lock is visible to every
           // request and process, and Postgres frees it if this one dies.
-          { db, push, lock: createPostgresTariffLock(pool) },
+          { db, push, lock: createPostgresTariffLock(pool), policy },
           {
             jobId,
             operations,
@@ -44459,7 +44543,7 @@ ${footer}
         const sippyMs = results.reduce((a, r) => a + (r.ms ?? 0), 0);
         console.log(`[push-batch] done — ${ok}/${total} ok in ${(requestMs / 1000).toFixed(1)}s total (${(sippyMs / 1000).toFixed(1)}s in Sippy, ${((requestMs - sippyMs) / 1000).toFixed(1)}s elsewhere)`);
 
-        res.json({ results, ok, total, requestMs, sippyMs });
+        res.json({ results, ok, total, requestMs, sippyMs, policy: { enforced: policyEnforced, resolutions: policyResolutions } });
       } catch (e: any) { res.status(500).json({ error: e.message }); }
     },
   );

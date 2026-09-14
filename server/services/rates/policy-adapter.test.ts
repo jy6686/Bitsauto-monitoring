@@ -262,12 +262,17 @@ describe("it never consults validation_rules, defaults nothing, and carries no t
     expect(src).not.toMatch(/thresholdCategory\s*(\?\?|=)\s*'/);
   });
 
-  it("NO PRODUCTION CALLER — the resolver exists and the routes do not build it", () => {
-    const routes = [
-      readFileSync(join(__dirname, '..', '..', 'routes.ts'), 'utf8'),
-      readFileSync(join(__dirname, '..', '..', 'routes-rate-manager.ts'), 'utf8'),
-    ].join('\n');
-    expect(routes).not.toContain('perClientPolicy');
-    expect(routes).not.toContain('policy-adapter');
+  it("THE PRODUCTION CALLER IS GATED — push-batch builds it only behind the enforcement flag", () => {
+    // Wired 2026-09-14 once the threshold category was settled. The invariant is no longer
+    // "no caller"; it is that the one caller cannot enable the layer by itself.
+    const routes = readFileSync(join(__dirname, '..', '..', 'routes.ts'), 'utf8')
+      .split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+    expect(routes).toContain("import { perClientPolicy } from './services/rates/policy-adapter';");
+    expect(routes).toContain("eq(platformFeatureFlags.key, 'rate_policy_enforcement')");
+    expect(routes.indexOf('policy = perClientPolicy(')).toBeGreaterThan(routes.indexOf('if (policyEnforced) {'));
+    // And nothing else builds one.
+    expect(routes.split('perClientPolicy(').length - 1).toBe(1);
+    const rm = readFileSync(join(__dirname, '..', '..', 'routes-rate-manager.ts'), 'utf8');
+    expect(rm).not.toContain('perClientPolicy');
   });
 });

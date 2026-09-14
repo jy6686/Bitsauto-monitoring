@@ -150,7 +150,10 @@ describe("the push-batch route, after wiring", () => {
   /** The push-batch handler's own line range, so nothing here reads a neighbouring route. */
   const handler = (() => {
     const start = lineOf("app.post('/api/rate-manager/push-batch'");
-    const end   = lineOf('res.json({ results, ok, total, requestMs, sippyMs })', start);
+    // Anchored on the response's OPENING, not its full text: fields may be added to the response
+    // (2026-09-14 added `policy`), and a marker pinned to the whole line would silently return an
+    // empty handler and fail every assertion here as 'expected "" to contain'.
+    const end   = lineOf('res.json({ results, ok, total, requestMs, sippyMs', start);
     return { start, end, text: SRC.slice(start - 1, end).join('\n') };
   })();
 
@@ -188,7 +191,11 @@ describe("the push-batch route, after wiring", () => {
     expect(handler.text).toContain('status:             runOutcome.summary.status');
   });
 
-  it("preserves the response contract the client reads", () => {
-    expect(handler.text).toContain('res.json({ results, ok, total, requestMs, sippyMs })');
+  it("preserves the response contract the client reads — additively", () => {
+    // Every field the client already reads is still there, in the same order. New fields may
+    // follow; removing or renaming one is the change this guards against.
+    expect(handler.text).toMatch(/res\.json\(\{ results, ok, total, requestMs, sippyMs(, [a-zA-Z]+: [^}]*\})* \}\);/);
+    // The one addition to date, so its presence is deliberate rather than incidental.
+    expect(handler.text).toContain('policy: { enforced: policyEnforced, resolutions: policyResolutions }');
   });
 });
