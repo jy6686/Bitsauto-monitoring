@@ -1,6 +1,7 @@
 
 import nodemailer from 'nodemailer';
 import { storage } from './storage';
+import { describeEmailSender, senderNotConfiguredMessage } from './email-sender-state';
 import { db } from './db';
 import { userRoles, userConfig } from '../shared/schema';
 import { users } from '../shared/models/auth';
@@ -35,7 +36,11 @@ export function scheduledDispatchAllowed(): boolean {
  * setting. Callers should skip, not fail, when this returns false.
  */
 export async function alertEmailConfigured(): Promise<boolean> {
-  return !!(await getTransporter());
+  // ALERT email: the toggle counts here, exactly as it did when the toggle
+  // lived inside getTransporter(). Callers use this to decide whether an
+  // automated report/alert can go out at all.
+  const settings = await storage.getSettings();
+  return !!settings.alertEnabled && !!(await getTransporter());
 }
 
 export type AlertEmailPayload = {
@@ -72,26 +77,31 @@ export function getNotificationAuditLog(): NotificationAuditEntry[] {
 
 async function getTransporter(): Promise<{ transporter: nodemailer.Transporter; from: string } | null> {
   const settings = await storage.getSettings();
-  if (!settings.alertEnabled) return null;
-  if (!settings.alertGmailUser || !settings.alertGmailAppPass) return null;
+  // The transport is a MAILBOX, not an alert. It exists whenever the Gmail
+  // user and app password are present. "Enable Email Alerts" gates the
+  // automated alerts that use it (see sendAlertEmail), not the mailbox —
+  // gating it here switched off account-details, incident and Email Centre
+  // mail too, and made provisioning readiness report "credentials missing"
+  // for a mailbox whose credentials were fine (production, 2026-09-14).
+  const state = describeEmailSender(settings);
+  if (!state.configured) return null;
+  const user = state.from!;                      // both present: configured says so
+  const pass = settings.alertGmailAppPass!;
 
   // Re-create if creds changed
-  const needsNew = !_transporter || _fromAddress !== settings.alertGmailUser;
+  const needsNew = !_transporter || _fromAddress !== user;
   if (needsNew) {
     _transporter = nodemailer.createTransport({
       service: 'gmail',
-      auth: {
-        user: settings.alertGmailUser,
-        pass: settings.alertGmailAppPass,
-      },
+      auth: { user, pass },
       // Prevent indefinite hangs on network issues
       connectionTimeout: 10_000,
       socketTimeout:     12_000,
       greetingTimeout:    8_000,
     } as any);
-    _fromAddress = settings.alertGmailUser;
+    _fromAddress = user;
   }
-  return { transporter: _transporter!, from: settings.alertGmailUser };
+  return { transporter: _transporter!, from: user };
 }
 
 /**
@@ -245,7 +255,7 @@ export async function sendDirectEmailWithAttachment(opts: {
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const conn = await getTransporter();
-    if (!conn) return { ok: false, error: 'Email not configured — enable alerts in Settings first.' };
+    if (!conn) return { ok: false, error: senderNotConfiguredMessage(describeEmailSender(await storage.getSettings())) };
     const fromAddr = opts.fromAddress ?? conn.from;
     await conn.transporter.sendMail({
       from: `"${opts.fromName ?? 'Bitsauto Monitoring'}" <${fromAddr}>`,
@@ -281,7 +291,7 @@ export async function sendDirectEmail(opts: {
 }): Promise<{ ok: boolean; error?: string }> {
   try {
     const conn = await getTransporter();
-    if (!conn) return { ok: false, error: 'Email not configured — enable alerts in Settings first.' };
+    if (!conn) return { ok: false, error: senderNotConfiguredMessage(describeEmailSender(await storage.getSettings())) };
     const fromAddr = opts.fromAddress ?? conn.from;
     await conn.transporter.sendMail({
       from: `"${opts.fromName ?? 'Bitsauto Monitoring'}" <${fromAddr}>`,
@@ -302,6 +312,13 @@ const EMAIL_RETRY_DELAY   = 5_000; // ms between attempts
 
 export async function sendAlertEmail(payload: AlertEmailPayload): Promise<boolean> {
   const settings = await storage.getSettings();
+  // The toggle is honoured HERE, for alerts, so alert behaviour is unchanged
+  // by the transport no longer checking it: alerts off → nothing is sent,
+  // and the audit log says why in words.
+  if (!settings.alertEnabled) {
+    _audit({ ts: Date.now(), subject: payload.subject, recipients: [], status: 'skipped', attempts: 0, error: 'email alerts are switched off in Settings → Alerts' });
+    return false;
+  }
   const recipients = new Set<string>();
   if (settings.alertAdminEmail) recipients.add(settings.alertAdminEmail);
   if (payload.clientEmail) recipients.add(payload.clientEmail);
@@ -351,14 +368,25 @@ export async function sendAlertEmail(payload: AlertEmailPayload): Promise<boolea
   return false;
 }
 
-export async function testEmailConfig(): Promise<{ ok: boolean; error?: string }> {
+/**
+ * Can the shared Gmail mailbox be opened? Three answers, never merged:
+ * a credential is empty (named), the mailbox refused or timed out (the SMTP
+ * error verbatim), or it is reachable (with the address mail will come from).
+ * `alertsEnabled` rides along as a fact for callers that care; it does not
+ * decide `ok`. Used by the Alerts "Test Connection" button and by
+ * provisioning readiness, so the two can never disagree.
+ */
+export async function testEmailConfig(): Promise<{ ok: boolean; error?: string; from?: string; alertsEnabled: boolean }> {
+  const settings = await storage.getSettings();
+  const state = describeEmailSender(settings);
+  if (!state.configured) return { ok: false, error: senderNotConfiguredMessage(state), alertsEnabled: state.alertsEnabled };
   try {
     const conn = await getTransporter();
-    if (!conn) return { ok: false, error: 'Email alerts not enabled or credentials missing' };
+    if (!conn) return { ok: false, error: senderNotConfiguredMessage(state), alertsEnabled: state.alertsEnabled };
     await conn.transporter.verify();
-    return { ok: true };
+    return { ok: true, from: conn.from, alertsEnabled: state.alertsEnabled };
   } catch (err: any) {
-    return { ok: false, error: err.message };
+    return { ok: false, error: err.message, alertsEnabled: state.alertsEnabled };
   }
 }
 

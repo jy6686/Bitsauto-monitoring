@@ -339,11 +339,16 @@ export async function runPreflight(companyId: number): Promise<PreflightResult> 
   // Warning, never blocking: a provisioned customer whose credentials must be sent by hand
   // is a follow-up; refusing to provision leaves them with neither an account nor an email.
   try {
+    // Verifies the same mailbox the account details email is sent from, by the
+    // same call the Alerts "Test Connection" button makes. The alerts toggle
+    // does not enter into it: account details are not an alert.
     const smtp = await testEmailConfig();
     checks.push(smtp.ok
-      ? pass("smtp", "Outbound email", "SMTP is configured and reachable")
-      : warn("smtp", "Outbound email", smtp.error ?? "SMTP is not configured",
-             "Provisioning will still complete, but the account details email will not be delivered — send it manually or fix SMTP in Settings."));
+      ? pass("smtp", "Outbound email", smtp.from
+          ? `Customer account details will be delivered from ${smtp.from}`
+          : "Customer account details will be delivered")
+      : warn("smtp", "Outbound email", smtp.error ?? "Gmail sender not configured",
+             "Provisioning will still complete, but the account details email will not be delivered — send it manually, or fix the Gmail user and app password in Settings → Alerts."));
   } catch (e: any) {
     checks.push(warn("smtp", "Outbound email", `Could not be checked: ${e?.message ?? "unknown error"}`,
                      "Provisioning is unaffected; the account details email may need to be sent by hand."));
