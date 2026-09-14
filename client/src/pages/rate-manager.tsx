@@ -3439,6 +3439,13 @@ function ProductRatesTab({ products }: { products: Product[] }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ destinationId: "", prefix: "", rate: "", currency: "USD", effectiveFrom: new Date().toISOString().slice(0, 10), effectiveTo: "", notes: "" });
 
+  // Inline eligibility: declaring from the pricing screen instead of sending the operator to
+  // another tab and back. The DECLARATION still goes through the eligibility API — this is one
+  // workflow over two decisions, not a merge of them. Pricing still cannot create eligibility as
+  // a side effect: the operator declares, sees it declared, and then prices it.
+  const [declareOpen, setDeclareOpen] = useState(false);
+  const [declareQuery, setDeclareQuery] = useState("");
+
   const { data: rates = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/product-rates", selectedProductId],
     queryFn: () => fetch(`/api/product-rates${selectedProductId ? `?productId=${selectedProductId}` : ""}`).then(r => r.json()),
@@ -3475,6 +3482,36 @@ function ProductRatesTab({ products }: { products: Product[] }) {
     enabled: !!selectedProductId,
     staleTime: 30_000,
   });
+  // The catalogue, searched only while the inline declare panel is open. Scoped to the ACTIVE
+  // version from the eligibility response so this screen cannot declare against a version the
+  // eligibility layer is not reading.
+  const activeVersionId = eligibility?.catalogue?.versionId ?? null;
+  const { data: catalogueHits } = useQuery<{ destinations: CatalogueDest[] }>({
+    queryKey: ["/api/commercial/catalogues", activeVersionId, "destinations", declareQuery],
+    queryFn: () => fetch(`/api/commercial/catalogues/${activeVersionId}/destinations?q=${encodeURIComponent(declareQuery)}&limit=25&offset=0`).then(r => r.json()),
+    enabled: declareOpen && !!activeVersionId && declareQuery.trim().length >= 2,
+    staleTime: 30_000,
+  });
+
+  const declareMut = useMutation({
+    mutationFn: (destinationId: number) =>
+      apiRequest("POST", `/api/products/${selectedProductId}/eligibility`, { destinationId }),
+    onSuccess: (_res: any, destinationId: number) => {
+      qc.invalidateQueries({ queryKey: ["/api/products", selectedProductId, "eligibility"] });
+      // Select what was just declared, so the operator continues into the price rather than
+      // hunting for the row they created a moment ago.
+      setForm(f => ({ ...f, destinationId: String(destinationId), prefix: "" }));
+      setDeclareOpen(false);
+      setDeclareQuery("");
+      setShowForm(true);
+      toast({
+        title: "Declared eligible",
+        description: "This product is now declared to sell that destination. It has no price yet — nothing is pushed until one exists.",
+      });
+    },
+    onError: (e: any) => toast({ title: "Could not declare eligibility", description: e.message, variant: "destructive" }),
+  });
+
   const incrementByDest = useMemo(
     () => new Map((increments?.destinations ?? []).map(d => [d.destinationId, d])),
     [increments],
@@ -3754,6 +3791,85 @@ function ProductRatesTab({ products }: { products: Product[] }) {
           </div>
         )}
 
+        {declareOpen && (
+          <div data-testid="panel-inline-declare" className="border-b border-border/30 bg-muted/10 px-4 py-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs font-medium">
+                Declare a destination for {products.find(p => String(p.id) === selectedProductId)?.name ?? "this product"}
+              </div>
+              <button
+                data-testid="button-declare-cancel"
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+                onClick={() => { setDeclareOpen(false); setDeclareQuery(""); }}
+              >
+                Cancel
+              </button>
+            </div>
+            {/* Said plainly, because the two decisions stay separate even in one workflow:
+                declaring is a commercial claim about what is SOLD; it sets no price and pushes
+                nothing. */}
+            <div className="text-[10px] text-muted-foreground mb-2 max-w-2xl">
+              Declaring records that this product sells the destination. It does not set a price and
+              sends nothing to the switch — you price it on the next line, and a rate is only pushed
+              when you push it.
+            </div>
+            <input
+              data-testid="input-declare-search"
+              autoFocus
+              className="bg-muted border border-border rounded px-2 py-1 text-xs w-80"
+              placeholder="Search the catalogue by name or prefix…"
+              value={declareQuery}
+              onChange={e => setDeclareQuery(e.target.value)}
+            />
+            {declareQuery.trim().length > 0 && declareQuery.trim().length < 2 && (
+              <div className="text-[10px] text-muted-foreground mt-2">Keep typing — at least two characters.</div>
+            )}
+            {declareQuery.trim().length >= 2 && (
+              <div className="mt-2 max-h-60 overflow-auto border border-border/40 rounded">
+                {(catalogueHits?.destinations ?? []).length === 0 ? (
+                  <div data-testid="declare-no-matches" className="text-[10px] text-muted-foreground px-3 py-3">
+                    Nothing in {eligibility?.catalogue?.label ?? "the active catalogue"} matches that.
+                    A destination that is not in the catalogue cannot be declared here — it has to be
+                    imported first.
+                  </div>
+                ) : (
+                  (catalogueHits?.destinations ?? []).map((d: any) => {
+                    const already = (eligibility?.destinations ?? []).some(e => e.destinationId === d.id);
+                    return (
+                      <div key={d.id} className="flex items-center justify-between gap-3 px-3 py-1.5 border-b border-border/20 last:border-0">
+                        <div className="min-w-0">
+                          <div className="text-xs truncate">{d.name}</div>
+                          <div className="text-[10px] text-muted-foreground font-mono">
+                            {(d.prefix_preview ?? []).join(", ")}
+                            {Number(d.prefix_count) > (d.prefix_preview ?? []).length
+                              ? ` +${Number(d.prefix_count) - (d.prefix_preview ?? []).length} more`
+                              : ""}
+                            {" · "}{d.prefix_count} prefix{Number(d.prefix_count) === 1 ? "" : "es"}
+                          </div>
+                        </div>
+                        {already ? (
+                          // Not an error and not a second row — the pairing is unique, so saying
+                          // so is more useful than offering a button that changes nothing.
+                          <span data-testid={`declared-already-${d.id}`} className="text-[10px] text-green-500 whitespace-nowrap">Already declared</span>
+                        ) : (
+                          <button
+                            data-testid={`button-declare-${d.id}`}
+                            disabled={declareMut.isPending}
+                            className="text-[10px] px-2 py-1 rounded border border-border hover:bg-muted/40 whitespace-nowrap disabled:opacity-50"
+                            onClick={() => declareMut.mutate(d.id)}
+                          >
+                            Declare
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {showForm && (
           <div className="border-b border-border/30 bg-muted/5 px-4 py-3 flex flex-wrap gap-3 items-end">
             {/* Destination, not a typed prefix.
@@ -3783,6 +3899,17 @@ function ProductRatesTab({ products }: { products: Product[] }) {
                   </option>
                 ))}
               </select>
+              {/* The list holds only what this product is declared to sell. Somewhere to go when
+                  the destination you want is not in it — otherwise the honest gate reads as a
+                  broken dropdown, which is how the first operator met it. */}
+              <button
+                data-testid="button-declare-inline"
+                type="button"
+                className="text-[10px] text-muted-foreground hover:text-foreground underline text-left"
+                onClick={() => setDeclareOpen(true)}
+              >
+                Destination not listed? Declare one…
+              </button>
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-[10px] text-muted-foreground">Rate (USD/min)</label>
@@ -3877,6 +4004,13 @@ function ProductRatesTab({ products }: { products: Product[] }) {
                     has not been recorded, and an empty list here means exactly that. It does not mean every
                     destination, and nothing is inferred on its behalf.
                   </div>
+                  <button
+                    data-testid="button-declare-from-empty"
+                    className="mt-4 text-xs px-3 py-1.5 rounded border border-border hover:bg-muted/40"
+                    onClick={() => { setDeclareOpen(true); setShowForm(false); }}
+                  >
+                    Declare a destination for this product
+                  </button>
                 </div>
               );
             })()

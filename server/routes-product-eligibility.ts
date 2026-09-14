@@ -51,6 +51,36 @@ const WRITE = ['admin', 'management'];
 const rows  = (r: any) => (r as any).rows ?? [];
 const actorId = (req: any) => req.user?.claims?.sub ?? req.user?.id ?? null;
 
+/**
+ * Resolve declaration actor ids to display names, in one query for the whole page.
+ *
+ * Deliberately NOT a join inside `listEligibleDestinations`: the store's job is the commercial
+ * fact, and who a user id belongs to is a presentation concern that would otherwise bind the
+ * eligibility query to the users table. An unresolvable id is returned as null — the reader sees
+ * "unknown", never a wrong name.
+ */
+async function attachDeclarer<T extends { declaredBy: string | null }>(list: T[]) {
+  const ids = Array.from(new Set(list.map(d => d.declaredBy).filter((v): v is string => !!v)));
+  const names = new Map<string, string>();
+  if (ids.length > 0) {
+    try {
+      const res = await db.execute(sql`
+        SELECT id, username, email, first_name, last_name
+          FROM users WHERE id IN ${sql.raw('(' + ids.map(i => `'${String(i).replace(/'/g, "''")}'`).join(',') + ')')}`);
+      for (const u of rows(res)) {
+        const full = [u.first_name, u.last_name].filter(Boolean).join(' ').trim();
+        names.set(String(u.id), full || String(u.username ?? u.email ?? u.id));
+      }
+    } catch {
+      // A names lookup that fails must not fail the eligibility read. The ids still go out.
+    }
+  }
+  return list.map(d => ({
+    ...d,
+    declaredByName: d.declaredBy ? (names.get(d.declaredBy) ?? null) : null,
+  }));
+}
+
 export function registerProductEligibilityRoutes(app: Express) {
   /**
    * GET /api/products/:productId/eligibility — READ-ONLY.
@@ -73,10 +103,16 @@ export function registerProductEligibilityRoutes(app: Express) {
         if (!product) return res.status(404).json({ error: `No product ${productId}` });
 
         const versionId = req.query.versionId !== undefined ? Number(req.query.versionId) : undefined;
-        const [destinations, catalogue] = await Promise.all([
+        const [declared, catalogue] = await Promise.all([
           listEligibleDestinations(db as any, productId, { versionId }),
           describeActiveCatalogue(db as any),
         ]);
+
+        // `created_by` holds the actor id the declaration was made under. An id is not an answer to
+        // "who said this product sells that", so resolve it to a name for display — and keep the id
+        // beside it, because the name is a convenience and the id is the record. An id with no
+        // matching user stays unresolved rather than being rendered as somebody.
+        const destinations = await attachDeclarer(declared);
 
         res.json({
           product: {

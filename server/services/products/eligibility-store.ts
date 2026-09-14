@@ -161,6 +161,13 @@ export interface EligibleDestination {
   approvalStatus: string;
   /** Every prefix the catalogue holds for it. A destination is a set of prefixes, not one. */
   prefixes: string[];
+  /**
+   * Who declared this and when. Eligibility is a commercial claim, so the reader is entitled to
+   * see whose claim it is without opening the database. Null where the row predates attribution
+   * or the actor could not be resolved — reported as unknown, never as somebody.
+   */
+  declaredBy: string | null;
+  declaredAt: string | null;
 }
 
 /**
@@ -178,22 +185,24 @@ export async function listEligibleDestinations(
   const res = await db.execute(
     opts.versionId === undefined
       ? sql`SELECT d.id, d.name, d.version_id, d.approval_status,
+                   e.created_by, e.created_at,
                    COALESCE(array_agg(p.prefix ORDER BY p.prefix) FILTER (WHERE p.prefix IS NOT NULL), '{}') AS prefixes
               FROM product_destination_eligibility e
               JOIN commercial_destinations d ON d.id = e.destination_id
               JOIN catalogue_versions      v ON v.id = d.version_id AND v.status = 'active'
               LEFT JOIN commercial_destination_prefixes p ON p.destination_id = d.id
              WHERE e.product_id = ${productId} AND e.status = 'active'
-             GROUP BY d.id, d.name, d.version_id, d.approval_status
+             GROUP BY d.id, d.name, d.version_id, d.approval_status, e.created_by, e.created_at
              ORDER BY d.name`
       : sql`SELECT d.id, d.name, d.version_id, d.approval_status,
+                   e.created_by, e.created_at,
                    COALESCE(array_agg(p.prefix ORDER BY p.prefix) FILTER (WHERE p.prefix IS NOT NULL), '{}') AS prefixes
               FROM product_destination_eligibility e
               JOIN commercial_destinations d ON d.id = e.destination_id
               LEFT JOIN commercial_destination_prefixes p ON p.destination_id = d.id
              WHERE e.product_id = ${productId} AND e.status = 'active'
                AND d.version_id = ${opts.versionId}
-             GROUP BY d.id, d.name, d.version_id, d.approval_status
+             GROUP BY d.id, d.name, d.version_id, d.approval_status, e.created_by, e.created_at
              ORDER BY d.name`);
 
   return rows(res).map((r: any) => ({
@@ -203,6 +212,8 @@ export async function listEligibleDestinations(
     approvalStatus: String(r.approval_status),
     prefixes: Array.isArray(r.prefixes) ? r.prefixes.map(String)
             : String(r.prefixes ?? '').replace(/^\{|\}$/g, '').split(',').filter(Boolean),
+    declaredBy: r.created_by == null ? null : String(r.created_by),
+    declaredAt: r.created_at == null ? null : new Date(r.created_at).toISOString(),
   }));
 }
 

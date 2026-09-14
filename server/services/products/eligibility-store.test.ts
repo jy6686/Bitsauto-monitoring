@@ -189,6 +189,26 @@ describe("what a product sells", () => {
     expect(d.prefixes).toEqual(['9370', '9371']);
   });
 
+  it("says WHO declared it and WHEN — eligibility is a claim, and a claim has an author", async () => {
+    await grantEligibility(db, { productId: FC, destinationId: 10, grantedBy: 'junaid' });
+    const [d] = await listEligibleDestinations(db, FC);
+    expect(d.declaredBy).toBe('junaid');
+    expect(d.declaredAt).not.toBeNull();
+    // An ISO instant, so a reader cannot mistake it for a local wall clock.
+    expect(d.declaredAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it("RE-GRANTING re-attributes: the standing claim belongs to whoever last made it", async () => {
+    // The alternative — keeping the original author on a reactivated row — would credit a
+    // withdrawal-then-regrant to someone who did not decide it.
+    await grantEligibility(db, { productId: FC, destinationId: 10, grantedBy: 'junaid' });
+    await withdrawEligibility(db, { productId: FC, destinationId: 10, withdrawnBy: 'junaid' });
+    await grantEligibility(db, { productId: FC, destinationId: 10, grantedBy: 'someone-else' });
+
+    const [d] = await listEligibleDestinations(db, FC);
+    expect(d.declaredBy).toBe('someone-else');
+  });
+
   it("two products can sell genuinely different sets — the thing the legacy 13x4 seed could not express", async () => {
     await grantEligibility(db, { productId: FC,   destinationId: 10, grantedBy: 'junaid' });
     await grantEligibility(db, { productId: FC,   destinationId: 11, grantedBy: 'junaid' });
