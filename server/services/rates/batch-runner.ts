@@ -28,6 +28,9 @@
  * separately, because reclassifying a crash is a different decision from executing a batch.
  */
 import { preflightOperations, type PreflightOperation } from './preflight';
+import {
+  validateRateChanges, type RateChange, type Thresholds, type RuleConfig, type Disposition,
+} from './rate-validation';
 import { planRateBatch, type BatchPlan, type RateOperation, type RefusedOperation } from './batch-plan';
 import { executeRateBatch, type OperationRunner, type OperationResult } from './batch-execute';
 import { verdictFromPush, type PushPrimitiveResult } from './verdict';
@@ -44,6 +47,18 @@ export interface RunnerOperation extends PreflightOperation {
   iAccount?: number | null;
   effectiveFrom?: string;
   effectiveTill?: string;
+  /**
+   * What the CHANGE-POLICY layer needs. All optional: an operation that carries no prior rate is
+   * assessed with none, and the policy engine reports `no_comparison_base` rather than assuming.
+   * `priorRateSource` is carried because a decision made against an unstated base cannot be
+   * audited, and the candidate sources are known to disagree.
+   */
+  destinationId?: number | null;
+  country?: string | null;
+  priorRate?: number | null;
+  priorRateSource?: RateChange['priorRateSource'];
+  pendingIncreases?: number;
+  incrementChange?: { from: string | null; to: string | null } | null;
 }
 
 /** The single-operation push, injected. Shaped to what `pushRateToSippy` already returns. */
@@ -73,6 +88,14 @@ export interface BatchRunnerDeps {
    */
   lock?: TariffLockProvider;
   lockOptions?: AcquireOptions;
+  /**
+   * The commercial change-policy layer, in front of the technical preflight.
+   *
+   * OMITTED MEANS NO POLICY LAYER — every existing caller keeps its behaviour exactly. Supplying
+   * it turns the layer on for this batch: thresholds are global, the rule config is the one for
+   * this client and department, and `today` is injected so a retry tomorrow decides identically.
+   */
+  policy?: { thresholds: Thresholds; config: RuleConfig | null; today: string };
 }
 
 export interface BatchRunInput {
@@ -118,8 +141,69 @@ export async function runRateBatch(
   const submittedOrder = new Map(input.operations.map((o, i) => [o.operationKey, i]));
   const byKey = new Map(input.operations.map(o => [o.operationKey, o]));
 
+  // ── 0. The COMMERCIAL change policy, in front of the technical preflight ────
+  //
+  // Two distinct layers, deliberately not merged. Policy asks whether this change is permitted
+  // to be made at all; preflight asks whether it can be made correctly. A policy refusal is not
+  // a technical fault and must not read as one.
+  //
+  // ISOLATED PER OPERATION. A single unresolved commercial question must not freeze the sound
+  // destinations beside it — the same principle the batch engine already holds for technical
+  // refusals. The blast radii are the one exception, and they are the POLICY's decision rather
+  // than the batch's: REJECT COUNTRY and REJECT RATE-SHEET are configured consequences that
+  // deliberately reach other operations.
+  //
+  // `undecidable` is refused, never converted to IGNORE. An open commercial question is not
+  // permission.
+  const policyRefusals: Array<{ operationKey: string; code: string; message: string }> = [];
+  let afterPolicy: ReadonlyArray<RunnerOperation> = input.operations;
+
+  if (deps.policy) {
+    const policy = deps.policy;
+    const changes: RateChange[] = input.operations.map(op => ({
+      key: op.operationKey,
+      destinationId: op.destinationId ?? null,
+      destinationName: op.destinationName ?? String(op.fullPrefix),
+      country: op.country ?? null,
+      newRate: op.rate,
+      priorRate: op.priorRate ?? null,
+      priorRateSource: op.priorRateSource ?? 'unknown',
+      effectiveDate: op.effectiveFrom ?? policy.today,
+      today: policy.today,
+      pendingIncreases: op.pendingIncreases,
+      incrementChange: op.incrementChange ?? null,
+    }));
+
+    const verdictCode: Record<Exclude<Disposition, 'proceed'>, string> = {
+      dropped_destination: 'policy_reject_destination',
+      dropped_country:     'policy_reject_country',
+      dropped_rate_sheet:  'policy_reject_rate_sheet',
+      undecided:           'policy_undecided',
+      approval_required:   'policy_approval_required',
+    };
+
+    const result = validateRateChanges(changes, policy.thresholds, policy.config);
+    const proceeding = new Set(result.proceeding.map(r => r.assessment.key));
+
+    for (const row of result.withheld) {
+      const d = row.disposition as Exclude<Disposition, 'proceed'>;
+      // The SUBJECT is named, so "why was this not pushed" has a deterministic answer that does
+      // not pretend the policy answered a question it does not currently answer.
+      const subject = row.assessment.findings.find(f => f.undecidable)?.rule
+                   ?? row.assessment.findings[0]?.rule ?? 'unknown';
+      policyRefusals.push({
+        operationKey: row.assessment.key,
+        code: verdictCode[d],
+        message: `${row.reason ?? 'Refused by the rate-change policy.'} [subject: ${subject}]`,
+      });
+    }
+    afterPolicy = input.operations.filter(op => proceeding.has(op.operationKey));
+  }
+
   // ── 1. Decide everything that can be decided without asking Sippy ───────────
-  const { cleared, refused: preflightRefused } = preflightOperations(input.operations);
+  // Only what policy permitted reaches here. A policy-refused operation is never preflighted,
+  // because a technical verdict on a change that is not permitted is noise.
+  const { cleared, refused: preflightRefused } = preflightOperations(afterPolicy);
 
   const toRateOperation = (op: RunnerOperation, iTariff: number | null, i1?: number, iN?: number): RateOperation => ({
     operationKey: op.operationKey,
@@ -143,9 +227,9 @@ export async function runRateBatch(
 
   // Preflight's refusals join the planner's, so one batch reports every refusal in one place and
   // the conservation property still holds across the whole run.
-  const carriedRefusals: RefusedOperation[] = preflightRefused.map(r => {
+  const carriedRefusals: RefusedOperation[] = [...policyRefusals, ...preflightRefused].map(r => {
     const op = byKey.get(r.operationKey)!;
-    return { operation: toRateOperation(op, null), code: r.code, message: r.message };
+    return { operation: toRateOperation(op, null), code: r.code as any, message: r.message };
   });
 
   const plan: BatchPlan = {
