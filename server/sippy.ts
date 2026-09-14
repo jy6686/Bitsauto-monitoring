@@ -8983,6 +8983,36 @@ export async function getSippyRateList(
 // ── verifySippyRate ───────────────────────────────────────────────────────────
 // Phase E: re-read tariff rates from Sippy after a push and confirm the prefix
 // now carries the expected rate value. Waits 1.5s for async Sippy processing.
+/**
+ * Pick the read-back row a verification should judge.
+ *
+ * A tariff can hold SEVERAL rows for one prefix once a future-dated rate exists: the live row
+ * (with an expiry) and the scheduled row (with a later activation). Judging "the first row for the
+ * prefix" against a future-dated push finds the live row, still at the old price, and calls the
+ * upload a failure — which on 2026-09-14 sent the portal fallback in to edit the live row and apply
+ * the new price immediately (SMP-006). When an effective date was requested, the row that matters
+ * is the one activating on that date; failing that, the latest-activating row. With no date
+ * requested, behaviour is unchanged: the first row for the prefix.
+ *
+ * Dates are compared on their digits (YYYYMMDD): the request arrives as "2026-09-22 00:00:00" and
+ * Sippy reports "20260922T00:00:00".
+ */
+export function selectVerificationRow<T extends { prefix: string; effectiveFrom?: string }>(
+  rates: T[],
+  prefix: string,
+  effectiveFrom?: string,
+): { row: T | undefined; reason: string } {
+  const candidates = rates.filter(r => r.prefix === prefix);
+  if (candidates.length === 0) return { row: undefined, reason: 'no row for prefix' };
+  const day = (v?: string) => String(v ?? '').replace(/\D/g, '').slice(0, 8);
+  const wanted = day(effectiveFrom);
+  if (!wanted) return { row: candidates[0], reason: 'first row for prefix (no effective date requested)' };
+  const exact = candidates.find(r => day(r.effectiveFrom) === wanted);
+  if (exact) return { row: exact, reason: `row activating ${wanted}` };
+  const latest = [...candidates].sort((a, b) => day(b.effectiveFrom).localeCompare(day(a.effectiveFrom)))[0];
+  return { row: latest, reason: `no row activating ${wanted}; judged the latest-activating row (${day(latest.effectiveFrom) || 'undated'})` };
+}
+
 async function verifySippyRate(
   username: string,
   password: string,
@@ -8990,6 +9020,7 @@ async function verifySippyRate(
   prefix: string,
   expectedRate: number,
   base: string,
+  opts: { effectiveFrom?: string } = {},
 ): Promise<{ confirmed: boolean; foundRate?: number; message: string }> {
   try {
     // Name the tariff on both sides of the read. A push verifies against whatever tariff it
@@ -9004,20 +9035,21 @@ async function verifySippyRate(
     }
     // How many rates the tariff holds distinguishes "this prefix is missing" from "this
     // tariff is empty", which point at completely different causes.
-    const match = result.rates.find(r => r.prefix === prefix);
+    const { row: match, reason } = selectVerificationRow(result.rates, prefix, opts.effectiveFrom);
     if (!match) {
       const msg = `prefix ${prefix} not found in tariff ${tariffId} after push (tariff holds ${result.rates.length} rate(s))`;
       console.log(`[verify] ${msg}`);
       return { confirmed: false, message: msg };
     }
     const ok = Math.abs(match.rate - expectedRate) < 0.000001;
-    console.log(`[verify] tariff=${tariffId} prefix=${prefix} → confirmed=${ok} found=${match.rate} expected=${expectedRate} (tariff holds ${result.rates.length} rate(s))`);
+    const when = match.effectiveFrom ? ` activation=${match.effectiveFrom}` : '';
+    console.log(`[verify] tariff=${tariffId} prefix=${prefix} → confirmed=${ok} found=${match.rate} expected=${expectedRate}${when} [${reason}] (tariff holds ${result.rates.length} rate(s))`);
     return {
       confirmed: ok,
       foundRate: match.rate,
       message: ok
-        ? `✓ tariff=${tariffId} prefix=${prefix} rate=${match.rate} (expected=${expectedRate})`
-        : `✗ tariff=${tariffId} prefix=${prefix} found=${match.rate} expected=${expectedRate}`,
+        ? `✓ tariff=${tariffId} prefix=${prefix} rate=${match.rate}${when} (expected=${expectedRate}; ${reason})`
+        : `✗ tariff=${tariffId} prefix=${prefix} found=${match.rate}${when} expected=${expectedRate} (${reason})`,
     };
   } catch (e: any) {
     return { confirmed: false, message: `verification error: ${e.message}` };
@@ -9663,7 +9695,7 @@ async function setSippyRateEntryInner(
     if (directResult.success) {
       step('verifying', `tariff ${tariffId}`);
       const verifyResult = await verifySippyRate(
-        username, password, tariffId, entry.prefix, entry.rate, base,
+        username, password, tariffId, entry.prefix, entry.rate, base, { effectiveFrom: normaliseEntryDate(entry.effectiveFrom) },
       );
       console.log(`[RateManager] Verification (portal_edit): ${verifyResult.message}`);
       if (verifyResult.confirmed) {
@@ -9804,7 +9836,7 @@ async function setSippyRateEntryInner(
           note(`upload status settled at ${finalStatus}`);
           if (finalStatus === 'DONE') {
             step('verifying', `tariff ${tariffId}`);
-            const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base);
+            const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base, { effectiveFrom: normaliseEntryDate(entry.effectiveFrom) });
             console.log(`[RateManager] Verification (upload_token): ${verifyResult.message}`);
             note(`verification after DONE: confirmed=${verifyResult.confirmed} — ${verifyResult.message}`);
             if (verifyResult.confirmed) {
@@ -9831,7 +9863,7 @@ async function setSippyRateEntryInner(
           // falling through so a working upload doesn't get discarded.
           if (finalStatus === 'FILE_UPLOADED') {
             step('verifying', `tariff ${tariffId}`);
-            const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base);
+            const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base, { effectiveFrom: normaliseEntryDate(entry.effectiveFrom) });
             console.log(`[RateManager] Verification after FILE_UPLOADED (upload_token): ${verifyResult.message}`);
             note(`verification after FILE_UPLOADED: confirmed=${verifyResult.confirmed} — ${verifyResult.message}`);
             if (verifyResult.confirmed) {
@@ -9964,6 +9996,24 @@ async function setSippyRateEntryInner(
   }
   // ── All XML-RPC methods failed (Sippy has no rate write API) ────────────────
   // Fall back to portal CSV upload — the only reliable rate-push mechanism.
+  //
+  // NEVER for a future-dated rate. The portal edit form applies the new price immediately
+  // while keeping the old activation date (see the note above `requestedAction`). On
+  // 2026-09-14 the upload path created the scheduled row correctly, the verifier misjudged it,
+  // and this fallback then changed the LIVE row — the rate moved eight days early (SMP-006).
+  // The verifier is now activation-aware, so a good upload confirms and never reaches here;
+  // this gate is what holds if it ever does for another reason. The upload MAY have landed, so
+  // the outcome is indeterminate, not a failure: nothing may retry it before the tariff is read.
+  if (requestedAction === 'A') {
+    const why = `future-dated rate (effective ${normaliseEntryDate(entry.effectiveFrom)}) did not confirm on the upload path and the portal edit form cannot be used for it, because that form applies the price immediately. Upload errors: ${lastErrors.join(' | ') || 'none recorded'}`;
+    console.log(`[Sippy] setSippyRateEntry: refusing portal fallback — ${why}`);
+    return {
+      success: false,
+      message: `Not applied: ${why}. Read tariff ${tariffId} before writing to it again.`,
+      method: 'upload_token',
+      verificationResult: 'skip',
+    };
+  }
   console.log(`[Sippy] setSippyRateEntry: all XML-RPC methods failed — falling back to portal CSV upload`);
   const portalResult = await pushRateViaPortalUpload(
     base, Number(tariffId), entry.prefix, entry.rate,
@@ -9977,7 +10027,7 @@ async function setSippyRateEntryInner(
     // Wait 3 seconds first — Sippy's portal import runs as a background job on the server;
     // reading the tariff immediately after upload returns the pre-upload value.
     await new Promise(r => setTimeout(r, 3000));
-    const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base);
+    const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base, { effectiveFrom: normaliseEntryDate(entry.effectiveFrom) });
     console.log(`[RateManager] Verification (portal_csv): ${verifyResult.message}`);
     if (verifyResult.confirmed) {
       return { ...portalResult, method: 'portal_csv', verificationResult: 'confirmed' };
