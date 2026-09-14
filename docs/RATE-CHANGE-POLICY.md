@@ -268,6 +268,49 @@ record — both beyond navigate-and-read, and neither done:
   outcome (that is `REJECT DESTINATION`), and it is not the `Pending` status codes.
 - **What "the currently offered rate" is compared against** in the old system.
 
+## THE CURRENTLY OFFERED RATE — read from the old system's Rate Manager, 2026-09-14
+
+`/rateeditor/rateeditor/` → Client · Product **First Class - Wholesale** · Carrier **1global** · Country
+Afghanistan. Read by the owner in their own browser; nothing applied, changed or blocked.
+
+Summary row: 1global · Afghanistan · Total Dest 6 · Special Dest 1 · Total Codes 13.
+
+Rate Details (Rates Period: Active):
+
+| Code | Destination | Rate (USD) | Active From | Active Till |
+|---|---|---|---|---|
+| 9371 | Afghanistan - Mobile Awcc | **0.16300** | April 18, 2017, 12:30 p.m. | None |
+| 9370 | Afghanistan - Mobile Awcc | **0.16300** | April 18, 2017, 12:30 p.m. | None |
+| 9376 | Afghanistan - Mobile Mtn | 0.16500 | Oct. 13, 2016, 7:45 a.m. | None |
+| 9372 | Afghanistan - Mobile Roshan | 0.16300 | April 18, 2017, 12:30 p.m. | None |
+| 937504 | Afghanistan - Mobile Wasel | 0.19500 | April 18, 2017, 12:30 p.m. | None |
+
+### What this settles
+
+- **Gap 2 — what "the currently offered rate" is.** In the old system it is the ACTIVE row on the
+  client's own tariff: `Active From <= now` and `Active Till = None`, per code. It is client-specific
+  (1global's AWCC is 0.163; a different client would show a different figure) and it carries its own
+  effective dating. The comparison base is therefore **per client, per code, from that client's
+  tariff** — not a product-wide price and not the supplier catalogue rate (AWCC's supplier rate is
+  0.133).
+- **Gap 4 — scope.** Per CODE. A destination with two codes (AWCC 9370 + 9371) carries two rows with
+  the same rate, which is consistent with "one price covers the destination's set" but is STORED
+  per code. Comparison should therefore be per code, and a destination-level decision is the
+  per-code decisions agreeing.
+- **Gap 3 — 50% of which value.** The active row is the only "offered" value the screen holds; a
+  superseded row would show under a different Rates Period. So the base is the currently ACTIVE
+  rate, not the originally offered one. (Two lawful −40% steps compounding to −64% remains possible
+  under this reading; that is a property of the rule, now known rather than assumed.)
+- **Gap 5 — a first rate.** A code with no active row has no base. Still not stated what happens;
+  the engine keeps reporting `no_comparison_base`.
+
+### What this does NOT settle
+
+The `>50%` vs `>=50%` boundary, what RELEASE is, and the threshold category. The engine's
+`priorRateSource: 'issued_offer'` is the value that corresponds to this source; obtaining it in the
+new platform means reading the old system's per-client tariff (the `sync-legacy` preview does
+exactly this, read-only) until real clients are provisioned here.
+
 ## UNDEFINED — must be sourced, not invented
 
 The rules above cannot be implemented as they stand. Each gap below changes the outcome for real
