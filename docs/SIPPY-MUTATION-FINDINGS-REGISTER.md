@@ -274,6 +274,41 @@ Adding `requireRole` route-by-route without that decision would encode 76 indivi
 
 ---
 
+### SMP-006 · Effective-dated pushes are applied twice: the future row AND the live row
+
+**Found:** 2026-09-14, on the first legitimate write since the freeze (`job-1789402775430`, Test-31,
+tariff 64, `19370` 0.133 → 0.196 effective 2026-09-22). Policy layer passed it correctly. The write path
+did not honour the date.
+
+**Mechanism.** `pushRateToSippy` (`server/sippy.ts`) uploads the XLSX via `getUploadToken`; Sippy
+created a NEW rate row `iRate 9175` @ 0.196 with activation `2026-09-22` — the correct result. The
+upload status settled at `FILE_UPLOADED`, so the code verified by reading the tariff back.
+`verifySippyRate` selects `result.rates.find(r => r.prefix === prefix)` — the FIRST row for the prefix,
+with no regard to activation date — and found the still-current row at 0.133. It reported
+`confirmed=false`, the primitive fell through fourteen XML-RPC method guesses, and the `portal_csv`
+fallback then EDITED the live row `iRate 9115` to 0.196 / 60/1 (from 0.133 / 1/1), Sippy setting its
+expiry to 2026-09-22. Read-back afterwards: two rows, both 0.196. **The rate changed today, not on the
+effective date, and the billing increment on the live row changed today too.**
+
+**Boundary semantics.** Two mutations occurred; the operation record shows one (`attempts: 1`,
+`method: portal_csv`, `verification: confirmed`). The first write is invisible to the record because
+its own verification called it a failure. This is the same family as the tariff-64 mechanism already
+recorded under `sippy-rate-upload-format`: a verifier that cannot see what it just wrote invites a
+second write.
+
+**Blast radius.** Any push with `effectiveFrom` in the future, on a prefix that already exists in the
+tariff. For a real client that is an early rate change with billing consequences and a customer notice
+that states a date the switch did not honour. Pushes with no effective date are unaffected (the
+future row and the live row are the same row).
+
+**Fix, when authorised.** In `verifySippyRate`, when an effective date was requested, confirm on the
+row whose activation equals that date (or the latest-activating row for the prefix), and treat a
+future-dated row at the expected rate as CONFIRMED. Then the fallback never runs. Do not "fix" it by
+removing the fallback: it is the path that makes same-day edits work on this Sippy build.
+
+**Remediation of the evidence.** Tariff 64 is disposable. Restoring `9115` to 0.133 / 1/1 until
+2026-09-22 is a Sippy write and the owner's decision; leaving both rows as evidence is equally valid.
+
 ## Existing controls
 
 Recorded so they are not re-audited, and so "no boundary" is not mistaken for "unsafe".
