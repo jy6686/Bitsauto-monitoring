@@ -311,6 +311,40 @@ The `>50%` vs `>=50%` boundary, what RELEASE is, and the threshold category. The
 new platform means reading the old system's per-client tariff (the `sync-legacy` preview does
 exactly this, read-only) until real clients are provisioned here.
 
+## THE CLIENT TAB — read 2026-09-14, the threshold category is settled
+
+Tools → Configuration Values, all three relevant tabs read by the owner. Vendor confirms the values
+recorded on 2026-09-10. **Client:**
+
+| Setting | Vendor | **Client** |
+|---|---|---|
+| Old Effective Date | 7 | **7** |
+| Future Effective Date | 14 | **15** |
+| Increase Notice Period | 7 | **7** |
+| Rate Increase Alert | 50.0 | **50.0** |
+| Rate Decrease Alert | 50.0 | **50.0** |
+| Acceptable Pending Increase | 3 | **10** |
+
+Client also carries `Standard Rate 5.0`, `Client Rate Rounding Extent 5`, `Rate Notifications allowed
+per day 10`. Global holds only formats and invoice thresholds — no rate rules.
+
+**Decision:** the vendor/client split is deliberate. The seeded `configuration_values` rows match the
+old system exactly on every key, so nothing is normalised. **Client rate sheets use
+`thresholdCategory = 'client'`** — 15-day future limit, 10 acceptable pending increases. The engine's
+"thresholds are global" was a simplification: they are global *per direction*.
+
+### Rate History, same day — what supersession looks like there
+
+The `View Details` popup for 1global / AWCC 9371 shows a `Selected` row (0.16300, active 18-Apr-17)
+and a `Previous-1` row (0.16300, active 21-Nov-15 → April 18, 2017). History is kept as dated rows,
+the same shape as `rate_policy_rules.supersedes_id`. Both rows carry **Increment 1/1** while the
+supplier catalogue says 60/1 for AWCC — direct evidence that the supplier increment and the
+commercial commitment are different facts.
+
+### Still deliberately unresolved
+
+`>50%` vs `>=50%`, and RELEASE. Neither screen states them; the engine keeps both `undecidable`.
+
 ## UNDEFINED — must be sourced, not invented
 
 The rules above cannot be implemented as they stand. Each gap below changes the outcome for real
