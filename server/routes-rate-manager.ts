@@ -23,6 +23,7 @@ import { db } from './db';
 import { eq, desc, and, gte, or, sql } from 'drizzle-orm';
 import { productRates, rateNotifications, companies, customerProductAssignments, productRegistry, ratePushJobs, globalDestinations } from '@shared/schema';
 import { reconcilePerRow } from './services/sippy/sippy-reconciliation.service';
+import { eligibilityStanding } from './services/products/eligibility-store';
 import { storage } from './storage';
 import * as sippy from './sippy';
 import * as XLSX from 'xlsx';
@@ -234,6 +235,25 @@ export function registerRateManagerRoutes(app: Express) {
             error: `Catalogue version ${versionId} is not active, so a price set against it would never be uploaded.`,
           });
         }
+
+        // ── The product must be DECLARED to sell it ──────────────────────────
+        // Pricing is not a commercial decision; eligibility is. Without this check a price can
+        // be entered for a destination nobody said the product sells, and the only thing that
+        // stops it is the expansion refusing it later as `not_eligible` — at push time, to
+        // whoever is running the push, about a decision somebody else made days earlier.
+        //
+        // The Product Rates dropdown already offers only declared destinations. That is a
+        // convenience, not a gate: it is one client of an open endpoint, and the same body
+        // posted directly bypasses it entirely. Refusing here is the gate.
+        const standing = await eligibilityStanding(db as any, Number(productId), Number(destinationId));
+        if (!standing.eligible) {
+          return res.status(409).json({
+            error: standing.reason === 'withdrawn'
+              ? `This product's eligibility for that destination was withdrawn${standing.withdrawnBy ? ` by ${standing.withdrawnBy}` : ''}. Re-declare it on the Eligibility screen before pricing it.`
+              : `This product is not declared eligible for that destination, so it cannot be priced. Declare it first — pricing does not decide what a product sells.`,
+            code: standing.reason === 'withdrawn' ? 'eligibility_withdrawn' : 'not_eligible',
+          });
+        }
       }
       // ── Effective TODAY unless a date is given ─────────────────────────────
       // effectiveFrom used to be mandatory, so a price entered without one was rejected
@@ -268,6 +288,43 @@ export function registerRateManagerRoutes(app: Express) {
     try {
       const id = Number(req.params.id);
       const { prefix, rate, currency, effectiveFrom, effectiveTo, notes, destinationId } = req.body ?? {};
+
+      // ── Repointing a price is the same decision as creating one ────────────
+      // Without this, every check on the create path is optional: price an eligible destination,
+      // then PUT `destinationId` to any other id. The row keeps its catalogue_version_id, so the
+      // expansion reads it as catalogue-keyed and uploads a destination nobody declared.
+      if (destinationId !== undefined && destinationId !== null) {
+        const [current]: any = (await db.execute(sql`
+          SELECT product_id, catalogue_version_id FROM product_rates WHERE id = ${id}`) as any).rows ?? [];
+        if (!current) return res.status(404).json({ error: 'Rate not found' });
+
+        // Legacy rows carry no catalogue identity and are left exactly as they were — this
+        // endpoint is not the place to migrate them into the catalogue id space.
+        if (current.catalogue_version_id !== null && current.catalogue_version_id !== undefined) {
+          const versionId = Number(current.catalogue_version_id);
+          const [dest]: any = (await db.execute(sql`
+            SELECT d.id, v.status
+              FROM commercial_destinations d
+              JOIN catalogue_versions v ON v.id = d.version_id
+             WHERE d.id = ${Number(destinationId)} AND d.version_id = ${versionId}`) as any).rows ?? [];
+          if (!dest) {
+            return res.status(404).json({ error: `Destination ${destinationId} is not in catalogue version ${versionId}.` });
+          }
+          if (String(dest.status) !== 'active') {
+            return res.status(409).json({ error: `Catalogue version ${versionId} is not active.` });
+          }
+          const standing = await eligibilityStanding(db as any, Number(current.product_id), Number(destinationId));
+          if (!standing.eligible) {
+            return res.status(409).json({
+              error: standing.reason === 'withdrawn'
+                ? `This product's eligibility for that destination was withdrawn${standing.withdrawnBy ? ` by ${standing.withdrawnBy}` : ''}. Re-declare it before pointing a price at it.`
+                : `This product is not declared eligible for that destination, so a price cannot be moved onto it.`,
+              code: standing.reason === 'withdrawn' ? 'eligibility_withdrawn' : 'not_eligible',
+            });
+          }
+        }
+      }
+
       const [row] = await db.update(productRates)
         .set({
           prefix:        prefix ?? undefined,

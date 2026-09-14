@@ -154,6 +154,42 @@ export async function withdrawEligibility(
   return { ok: true, row: toRow(row) };
 }
 
+/**
+ * Does this product sell this destination, right now?
+ *
+ * A tri-state rather than a boolean, because "never declared" and "withdrawn" are different
+ * commercial facts and an operator meeting a refusal deserves to know which one they hit. A
+ * withdrawal was somebody's decision and can be pointed at; a blank was nobody's.
+ *
+ * The single-pair companion to `listEligibleDestinations`. Both read the same rows; this one
+ * exists so a write path can ask about one pairing without listing everything a product sells.
+ */
+export type EligibilityStanding =
+  | { eligible: true; declaredBy: string | null; declaredAt: string | null }
+  | { eligible: false; reason: 'never_declared' }
+  | { eligible: false; reason: 'withdrawn'; withdrawnBy: string | null; withdrawnAt: string | null };
+
+export async function eligibilityStanding(
+  db: EligibilityQueryable,
+  productId: number,
+  destinationId: number,
+): Promise<EligibilityStanding> {
+  const [row] = rows(await db.execute(sql`
+    SELECT status, created_by, created_at, withdrawn_by, withdrawn_at
+      FROM product_destination_eligibility
+     WHERE product_id = ${productId} AND destination_id = ${destinationId}`));
+
+  if (!row) return { eligible: false, reason: 'never_declared' };
+  if (String(row.status) === 'withdrawn') {
+    return {
+      eligible: false, reason: 'withdrawn',
+      withdrawnBy: str(row.withdrawn_by),
+      withdrawnAt: str(row.withdrawn_at),
+    };
+  }
+  return { eligible: true, declaredBy: str(row.created_by), declaredAt: str(row.created_at) };
+}
+
 export interface EligibleDestination {
   destinationId: number;
   name: string;
