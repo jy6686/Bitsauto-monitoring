@@ -29,6 +29,7 @@ import { registerVendorRatesRoutes } from './routes-vendor-rates';
 import { registerCommercialCatalogueRoutes } from './routes-commercial-catalogue';
 import { registerProductEligibilityRoutes } from './routes-product-eligibility'
 import { registerIncrementChangeRoutes } from './routes-increment-changes';
+import { registerRatePolicyRoutes } from './routes-rate-policy';
 import { perClientPolicy } from './services/rates/policy-adapter';
 import { registerRateNotificationRoutes, createInitialRateJob } from './routes-rate-notifications';
 import { registerProductTemplatesRoutes } from './routes-product-templates';
@@ -41991,6 +41992,7 @@ ${footer}
   // The product dimension the catalogue module deliberately refuses to carry.
   registerProductEligibilityRoutes(app);
   registerIncrementChangeRoutes(app);
+  registerRatePolicyRoutes(app);
   registerVendorRatesRoutes(app);
   registerRateNotificationRoutes(app);
   registerProductTemplatesRoutes(app);

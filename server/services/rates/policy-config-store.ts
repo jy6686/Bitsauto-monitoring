@@ -119,6 +119,64 @@ export async function resolvePolicyConfig(
   };
 }
 
+export type DeclareOutcome =
+  | { ok: true; row: PolicyRuleRow }
+  | { ok: false; code: 'not_attributable' | 'invalid' | 'overlap' | 'unknown_client'; message: string };
+
+/**
+ * Declare one client+department+rule policy.
+ *
+ * The TABLE is the validator: rule and action vocabularies, the AUTO ADJUST scoping, date ordering,
+ * the one-open-per-rule index and the no-overlap trigger all live in migration 519, so a writer
+ * cannot produce a state the engine refuses. This function only attributes, inserts, and turns
+ * the database's refusal into a code a route can answer with. It never defaults an action: a
+ * caller declaring `selectedAction: null` is recording "considered, not decided", which is a
+ * legitimate declaration and not IGNORE.
+ */
+export async function declarePolicyRule(
+  db: PolicyQueryable,
+  input: {
+    clientId: number; department: string; ruleKey: RuleId; selectedAction: Outcome | null;
+    effectiveFrom: string; effectiveTo?: string | null; reason?: string | null;
+    supersedesId?: number | null; declaredBy: string;
+  },
+): Promise<DeclareOutcome> {
+  if (!input.declaredBy || !String(input.declaredBy).trim()) {
+    return { ok: false, code: 'not_attributable', message: 'A policy is a commercial claim, and the record has to say who made it.' };
+  }
+  try {
+    const res = await db.execute(sql`
+      INSERT INTO rate_policy_rules
+        (client_id, department, rule_key, selected_action, effective_from, effective_to,
+         created_by, reason, supersedes_id)
+      VALUES (${input.clientId}, ${input.department}, ${input.ruleKey}, ${input.selectedAction},
+              ${input.effectiveFrom}::date, ${input.effectiveTo ?? null},
+              ${input.declaredBy}, ${input.reason ?? null}, ${input.supersedesId ?? null})
+      RETURNING *`);
+    const [row] = rows(res);
+    return { ok: true, row: toRow(row) };
+  } catch (e: any) {
+    const m = String(e?.message ?? e);
+    // The trigger's own messages name the clash; pass them through rather than paraphrasing.
+    if (/already has a configuration covering that period|must be after effective_from/i.test(m)) {
+      return { ok: false, code: 'overlap', message: m };
+    }
+    if (/rpr_one_open_per_rule_ux/i.test(m)) {
+      return { ok: false, code: 'overlap', message: 'That rule already has an open-ended configuration for this client and department. Close it (set effective_to) before opening another.' };
+    }
+    if (/client_id_fkey/i.test(m)) {
+      return { ok: false, code: 'unknown_client', message: `No company with id ${input.clientId}.` };
+    }
+    if (/rpr_auto_adjust_only_on_notice/i.test(m)) {
+      return { ok: false, code: 'invalid', message: 'AUTO_ADJUST_EFFECTIVE_DATE is offered on rate_increase_notice_violation only.' };
+    }
+    if (/_check|violates check constraint|invalid input/i.test(m)) {
+      return { ok: false, code: 'invalid', message: m };
+    }
+    throw e;
+  }
+}
+
 /** Which `configuration_values` key each threshold is read from. */
 const THRESHOLD_KEYS = {
   rateDecreaseAlertPct:       'rate_decrease_alert',

@@ -15,7 +15,7 @@ import { sql } from "drizzle-orm";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  policyRulesInForce, resolvePolicyConfig, resolveThresholds,
+  policyRulesInForce, resolvePolicyConfig, resolveThresholds, declarePolicyRule,
 } from "./policy-config-store";
 import { validateRateChanges, type RateChange } from "./rate-validation";
 
@@ -339,5 +339,46 @@ describe("the migration is safe to apply", () => {
     // Drizzle diff can propose DROPPING.
     const schema = readFileSync(join(__dirname, '..', '..', '..', 'shared', 'schema.ts'), 'utf8');
     expect(schema).toContain('pgTable("rate_policy_rules"');
+  });
+});
+
+describe("declarePolicyRule — the table validates, the function attributes", () => {
+  const declare = (o: Partial<Parameters<typeof declarePolicyRule>[1]> = {}) =>
+    declarePolicyRule(db as any, { clientId: ACME, department: 'Wholesale', ruleKey: 'suspect_rate_decrease',
+      selectedAction: 'REJECT_DESTINATION', effectiveFrom: '2026-01-01', declaredBy: 'junaid', reason: 'controlled test', ...o });
+
+  it("declares, and the row carries the author and reason", async () => {
+    const r = await declare();
+    expect(r.ok).toBe(true);
+    if (r.ok) { expect(r.row.createdBy).toBe('junaid'); expect(r.row.reason).toBe('controlled test'); expect(r.row.selectedAction).toBe('REJECT_DESTINATION'); }
+  });
+
+  it("a NULL action is a legitimate declaration, not an error and not IGNORE", async () => {
+    const r = await declare({ selectedAction: null });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.row.selectedAction).toBeNull();
+  });
+
+  it("refuses without an author", async () => {
+    const r = await declare({ declaredBy: '  ' });
+    expect(r).toMatchObject({ ok: false, code: 'not_attributable' });
+  });
+
+  it("turns the trigger's overlap refusal into a code, keeping its message", async () => {
+    await declare({ effectiveFrom: '2026-01-01', effectiveTo: '2026-12-31' });
+    const r = await declare({ effectiveFrom: '2026-06-01', effectiveTo: '2026-07-01' });
+    expect(r).toMatchObject({ ok: false, code: 'overlap' });
+    if (!r.ok) expect(r.message).toMatch(/already has a configuration covering that period/);
+  });
+
+  it("refuses AUTO_ADJUST outside the notice rule with a legible message", async () => {
+    const r = await declare({ selectedAction: 'AUTO_ADJUST_EFFECTIVE_DATE' });
+    expect(r).toMatchObject({ ok: false, code: 'invalid' });
+    if (!r.ok) expect(r.message).toMatch(/rate_increase_notice_violation only/);
+  });
+
+  it("refuses an unknown client as 404-shaped, not a 500", async () => {
+    const r = await declare({ clientId: 999 });
+    expect(r).toMatchObject({ ok: false, code: 'unknown_client' });
   });
 });
