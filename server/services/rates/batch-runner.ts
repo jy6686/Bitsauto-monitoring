@@ -55,6 +55,15 @@ export interface RunnerOperation extends PreflightOperation {
    */
   destinationId?: number | null;
   country?: string | null;
+  /**
+   * Whose rate this is. A batch is destinations x CLIENTS, and policy is per client and
+   * department, so a per-client policy resolver needs these to know which policy governs the
+   * operation. Absent when the layer is per-client means the policy cannot be identified — which
+   * is refused, never treated as "no policy applies".
+   */
+  clientId?: number | null;
+  clientName?: string | null;
+  department?: string | null;
   priorRate?: number | null;
   priorRateSource?: RateChange['priorRateSource'];
   pendingIncreases?: number;
@@ -95,7 +104,26 @@ export interface BatchRunnerDeps {
    * it turns the layer on for this batch: thresholds are global, the rule config is the one for
    * this client and department, and `today` is injected so a retry tomorrow decides identically.
    */
-  policy?: { thresholds: Thresholds; config: RuleConfig | null; today: string };
+  policy?: PolicyInput | PolicyPerClient;
+}
+
+/** What the engine evaluates one client's operations against. */
+export interface PolicyInput { thresholds: Thresholds; config: RuleConfig | null; today: string }
+
+/**
+ * Policy resolved PER CLIENT, which is the granularity policy actually has.
+ *
+ * A batch is destinations x clients. One `PolicyInput` for the whole batch would apply one
+ * client's rules to every client — and a REJECT RATE-SHEET fired on client X's operation would
+ * drop client Y's, although a rate sheet is per client. With a resolver, operations are grouped by
+ * the key it returns and the policy, blast radii included, runs within each group.
+ *
+ * `null` means the operation's client could not be identified. That is refused, not passed:
+ * an operation nobody can attribute to a policy is not an operation no policy governs.
+ */
+export interface PolicyPerClient {
+  today: string;
+  resolve(op: RunnerOperation): Promise<{ key: string; policy: PolicyInput } | null>;
 }
 
 export interface BatchRunInput {
@@ -159,20 +187,34 @@ export async function runRateBatch(
   let afterPolicy: ReadonlyArray<RunnerOperation> = input.operations;
 
   if (deps.policy) {
-    const policy = deps.policy;
-    const changes: RateChange[] = input.operations.map(op => ({
-      key: op.operationKey,
-      destinationId: op.destinationId ?? null,
-      destinationName: op.destinationName ?? String(op.fullPrefix),
-      country: op.country ?? null,
-      newRate: op.rate,
-      priorRate: op.priorRate ?? null,
-      priorRateSource: op.priorRateSource ?? 'unknown',
-      effectiveDate: op.effectiveFrom ?? policy.today,
-      today: policy.today,
-      pendingIncreases: op.pendingIncreases,
-      incrementChange: op.incrementChange ?? null,
-    }));
+    const layer = deps.policy;
+    const today = layer.today;
+
+    // ── Group by the policy that governs each operation ──────────────────────
+    // Batch-wide input: one group, everything. Per-client resolver: one group per key it returns,
+    // so REJECT COUNTRY and REJECT RATE-SHEET reach exactly the operations on that client's sheet
+    // and no further. An operation the resolver cannot attribute is refused here and never
+    // evaluated — there is no policy to evaluate it against, and "no policy" is not permission.
+    const groups = new Map<string, { policy: PolicyInput; ops: RunnerOperation[] }>();
+    if ('resolve' in layer) {
+      for (const op of input.operations) {
+        const r = await layer.resolve(op);
+        if (!r) {
+          policyRefusals.push({
+            operationKey: op.operationKey,
+            code: 'policy_unresolved',
+            message: `No rate-change policy could be identified for ${op.accountName}: the operation does not `
+                   + `name a client and department, so no policy governs it and it cannot proceed. [subject: no_policy_scope]`,
+          });
+          continue;
+        }
+        const g = groups.get(r.key) ?? { policy: r.policy, ops: [] };
+        g.ops.push(op);
+        groups.set(r.key, g);
+      }
+    } else {
+      groups.set('*', { policy: layer, ops: [...input.operations] });
+    }
 
     const verdictCode: Record<Exclude<Disposition, 'proceed'>, string> = {
       dropped_destination: 'policy_reject_destination',
@@ -182,20 +224,37 @@ export async function runRateBatch(
       approval_required:   'policy_approval_required',
     };
 
-    const result = validateRateChanges(changes, policy.thresholds, policy.config);
-    const proceeding = new Set(result.proceeding.map(r => r.assessment.key));
+    const proceeding = new Set<string>();
+    for (const { policy, ops } of groups.values()) {
+      const changes: RateChange[] = ops.map(op => ({
+        key: op.operationKey,
+        destinationId: op.destinationId ?? null,
+        destinationName: op.destinationName ?? String(op.fullPrefix),
+        country: op.country ?? null,
+        newRate: op.rate,
+        priorRate: op.priorRate ?? null,
+        priorRateSource: op.priorRateSource ?? 'unknown',
+        effectiveDate: op.effectiveFrom ?? today,
+        today,
+        pendingIncreases: op.pendingIncreases,
+        incrementChange: op.incrementChange ?? null,
+      }));
 
-    for (const row of result.withheld) {
-      const d = row.disposition as Exclude<Disposition, 'proceed'>;
-      // The SUBJECT is named, so "why was this not pushed" has a deterministic answer that does
-      // not pretend the policy answered a question it does not currently answer.
-      const subject = row.assessment.findings.find(f => f.undecidable)?.rule
-                   ?? row.assessment.findings[0]?.rule ?? 'unknown';
-      policyRefusals.push({
-        operationKey: row.assessment.key,
-        code: verdictCode[d],
-        message: `${row.reason ?? 'Refused by the rate-change policy.'} [subject: ${subject}]`,
-      });
+      const result = validateRateChanges(changes, policy.thresholds, policy.config);
+      for (const r of result.proceeding) proceeding.add(r.assessment.key);
+
+      for (const row of result.withheld) {
+        const d = row.disposition as Exclude<Disposition, 'proceed'>;
+        // The SUBJECT is named, so "why was this not pushed" has a deterministic answer that does
+        // not pretend the policy answered a question it does not currently answer.
+        const subject = row.assessment.findings.find(f => f.undecidable)?.rule
+                     ?? row.assessment.findings[0]?.rule ?? 'unknown';
+        policyRefusals.push({
+          operationKey: row.assessment.key,
+          code: verdictCode[d],
+          message: `${row.reason ?? 'Refused by the rate-change policy.'} [subject: ${subject}]`,
+        });
+      }
     }
     afterPolicy = input.operations.filter(op => proceeding.has(op.operationKey));
   }
