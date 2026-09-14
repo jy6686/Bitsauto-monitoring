@@ -21376,13 +21376,19 @@ let _snapBusy = false;
         // Client: compare against tariff rates
         const sippyResult = await withSippyCredsRaw(
           settings,
-          (u, p) => sippy.getTariffRatesListFull(u, p, Number(tariffId), undefined, 0, 1000),
+          // Positional: (…, iTariff, offset, limit, iCustomer). This passed
+          // `undefined, 0, 1000` — one rate, of customer 1000 — and compared
+          // the whole card against that.
+          (u, p) => sippy.getTariffRatesListFull(u, p, Number(tariffId), 0, 1000),
           [],
         );
         const sippyRates: any[] = (sippyResult as any)?.rates ?? sippyResult ?? [];
         for (const r of sippyRates) {
           const pfx = String(r.prefix ?? r.destination ?? '').replace(/\D/g, '');
-          if (pfx) sippyMap.set(pfx, Number(r.price_1 ?? r.rate ?? 0));
+          // parseTariffRateStruct emits camelCase (`price1`); reading only
+          // `price_1` here scored every switch rate as 0 and every prefix as
+          // a mismatch.
+          if (pfx) sippyMap.set(pfx, Number(r.price1 ?? r.price_1 ?? r.rate ?? 0));
         }
       }
 
@@ -29495,7 +29501,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
       const settings  = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings as any);
       const portalUrl = sippyPortalUrl(settings as any);
-      const rates = await sippy.getTariffRatesListFull(username, password, tariffId, {}, portalUrl);
+      // Positional: (username, password, iTariff, offset?, limit?, iCustomer?, portalUrl?).
+      // This used to pass `{}` as offset and the portal URL as limit, and Sippy
+      // refused every company's tariff panel with "offset: Input should be a
+      // valid integer".
+      const rates = await sippy.getTariffRatesListFull(username, password, tariffId, undefined, undefined, undefined, portalUrl);
       res.json({ iTariff: tariffId, rates });
     } catch (e: any) { res.status(500).json({ message: e.message }); }
   });

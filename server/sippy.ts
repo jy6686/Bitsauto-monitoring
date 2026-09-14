@@ -49,6 +49,7 @@ import crypto from 'node:crypto';
 import { URL } from 'node:url';
 import * as XLSX from 'xlsx';
 import { resolveNewRateId } from './services/rates/portal-rate-id';
+import { tariffRatesParams } from './sippy-tariff-rates-params';
 import { classifyPortalWrite, type PortalReadBack } from './services/rates/portal-write-outcome';
 
 // ── Cookie jar type ───────────────────────────────────────────────────────────
@@ -6343,10 +6344,10 @@ export async function getTariffRatesListFull(
   if (!base) throw new Error('No active Sippy session');
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
-  const p: Record<string, string | number | boolean | null> = { i_tariff: iTariff };
-  if (offset    !== undefined) p.offset     = offset;
-  if (limit     !== undefined) p.limit      = Math.min(Math.max(1, limit), 1000);
-  if (iCustomer !== undefined) p.i_customer = iCustomer;
+  // Built by a pure helper that drops anything not a finite integer, so a
+  // mis-ordered caller (an object or a URL in the offset slot — see
+  // sippy-tariff-rates-params.ts) degrades to "no paging", never to a 500.
+  const p: Record<string, string | number | boolean | null> = tariffRatesParams({ iTariff, offset, limit, iCustomer });
 
   const resp = await sippyPost(apiUrl, xmlRpcCall('getTariffRatesList', p), username, password);
   const text = resp.body.toString?.() ?? resp.body;
