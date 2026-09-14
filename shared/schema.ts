@@ -4859,6 +4859,33 @@ export const ratePushNotifications = pgTable("rate_push_notifications", {
 export type RatePushNotification       = typeof ratePushNotifications.$inferSelect;
 export type InsertRatePushNotification = typeof ratePushNotifications.$inferInsert;
 
+// ── Per-client rate-change policy (migration 519) ─────────────────────────────
+// DECLARED HERE ONLY so a publish diff cannot propose dropping it. Migration 519 is the only
+// thing that creates it; this file never does.
+//
+// Distinct from `validation_rules` above, which is a platform-wide singleton stack with
+// `selected_action NOT NULL DEFAULT 'ignore'`. This table is per client AND department, and its
+// action is NULLABLE on purpose: absence is "undecided", never IGNORE. See
+// docs/RATE-POLICY-CONFIG-INVENTORY.md.
+export const ratePolicyRules = pgTable("rate_policy_rules", {
+  id:             serial("id").primaryKey(),
+  clientId:       integer("client_id").notNull(),
+  department:     text("department").notNull(),
+  ruleKey:        text("rule_key").notNull(),
+  /** NULL = considered, not decided. The engine reads that as undecided. */
+  selectedAction: text("selected_action"),
+  effectiveFrom:  date("effective_from").notNull(),
+  effectiveTo:    date("effective_to"),
+  createdAt:      timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  createdBy:      text("created_by").notNull(),
+  updatedAt:      timestamp("updated_at", { withTimezone: true }),
+  updatedBy:      text("updated_by"),
+  reason:         text("reason"),
+  supersedesId:   integer("supersedes_id"),
+});
+export type RatePolicyRule       = typeof ratePolicyRules.$inferSelect;
+export type InsertRatePolicyRule = typeof ratePolicyRules.$inferInsert;
+
 export const companyProducts = pgTable("company_products", {
   id:        serial("id").primaryKey(),
   companyId: integer("company_id").notNull(),
