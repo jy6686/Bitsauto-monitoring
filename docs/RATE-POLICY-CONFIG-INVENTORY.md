@@ -134,3 +134,40 @@ screen. The two do not overlap, because one is a default and the other is a per-
 and a per-client table with no row for a client is the "undeclared" the engine already handles.
 
 **Not built.** This is the inventory; the table is a decision, not a conclusion.
+
+---
+
+## Where "department" is authoritative — read from production 2026-09-14
+
+The per-client adapter needs `department` on each operation. Before adding a column, the question
+was where that concept already lives. Three candidates, read from the live database:
+
+| Candidate | Finding |
+|---|---|
+| `product_registry.segment` ("Retail \| Wholesale \| Both") | **null on all four products.** Not the authority. |
+| `companies.companyType` (default `'retail'`) | populated everywhere, but with a THIRD value: `retail` 21 · `wholesale` 17 · **`client` 11** |
+| `companies.department` | **the authority.** `retail` 19 · `wholesale` 17 · `NULL` 13. Written by the client wizard (`routes.ts:28169`). |
+
+**Where both are set they never disagree** (36 of 36). `companyType` is a superset with a value
+(`client`) that is not a department at all, so it is not a substitute.
+
+**The 13 with no department** are 11 `companyType = 'client'` rows that look like test or internal
+accounts (`acmetel`, `aircel`, `internal-afg`, `internal-bd`, `internal-eritrea`, `jytest1`,
+`ptcl`, `test2`, `test3`, `test9`, `testingaccount`), `uzair`, and **PUSHTOTALK** — which is a real,
+Sippy-linked client (tariff 2, the same one recorded in [billing readiness](../docs) as priced at
+tariff 33's rate while resolving to tariff 2).
+
+**What follows, and what does not.** The adapter should read `companies.department` — no new
+column. Under the policy layer, an operation for a company with a NULL department resolves to
+`policy_unresolved` and is refused before write. That is the correct behaviour, not a defect to
+route around: PUSHTOTALK has no department and therefore no policy scope until somebody sets
+one. Setting it is a commercial fact about the customer, entered through the wizard, not a
+backfill this work performs.
+
+Two things are not settled by this reading and are left open on purpose: whether the old system's
+"Department" (Whole-Sale / Retail on the Change Rate screen) is the same axis as
+`companies.department` — the vocabulary matches, the identity has not been proven — and the
+threshold category, for which the old system's **Client tab of Configuration Values has never
+been read** (recorded in RATE-CHANGE-POLICY.md). That tab is the most likely place the 14-vs-15
+question answers itself, and reading it requires the care that document describes: the old
+system has GETs that mutate.
