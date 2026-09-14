@@ -153,6 +153,19 @@ export interface Assessment {
   refusedBeforeWrite: true;
 }
 
+/**
+ * The threshold each rule is measured against. A rule cannot be evaluated without its threshold,
+ * and a rule that cannot be evaluated must not pass — see `unmeasurableRules`.
+ */
+export const THRESHOLD_FOR_RULE: Record<RuleId, keyof Thresholds> = {
+  suspect_rate_decrease:             'rateDecreaseAlertPct',
+  suspect_rate_increase:             'rateIncreaseAlertPct',
+  rate_increase_notice_violation:    'increaseNoticePeriodDays',
+  effective_date_greater_than_limit: 'futureEffectiveDateDays',
+  effective_date_older_than_limit:   'oldEffectiveDateDays',
+  pending_increases_exceeded:        'acceptablePendingIncreases',
+};
+
 const DAY = 86_400_000;
 const daysBetween = (from: string, to: string): number =>
   Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY);
@@ -240,6 +253,39 @@ export function assessRateChange(
         outcome: outcomeFor(suspectRule),
       });
     }
+  }
+
+  // ── A CONFIGURED RULE WITH NO THRESHOLD CANNOT BE EVALUATED ────────────────
+  //
+  // The same failure as an unconfigured outcome, one dimension over. A client who configured
+  // REJECT DESTINATION for suspect decreases, against a threshold absent from
+  // `configuration_values`, would otherwise have every decrease PROCEED — including a −98% one —
+  // because the rule simply never fires. Silence in the threshold is not permission either.
+  //
+  // Scoped to rules this change could actually breach: a missing decrease threshold is irrelevant
+  // to an increase, and reporting it would bury the real findings in noise.
+  const relevant: RuleId[] = [
+    'effective_date_greater_than_limit',
+    'effective_date_older_than_limit',
+    ...(direction === 'decrease' ? ['suspect_rate_decrease'] as RuleId[] : []),
+    ...(direction === 'increase' ? ['suspect_rate_increase', 'rate_increase_notice_violation'] as RuleId[] : []),
+    ...(change.pendingIncreases !== undefined ? ['pending_increases_exceeded'] as RuleId[] : []),
+  ];
+  for (const rule of relevant) {
+    // Only when the client DECLARED a consequence. A rule nobody configured is already undecided
+    // if it fires, and a missing threshold for it adds nothing.
+    if (outcomeFor(rule) === null) continue;
+    if (thresholds[THRESHOLD_FOR_RULE[rule]] !== undefined) continue;
+    findings.push({
+      rule,
+      detail: `${change.destinationName}: ${config?.clientName ?? 'this client'} configures `
+            + `${outcomeFor(rule)} for ${rule}, but its threshold (${THRESHOLD_FOR_RULE[rule]}) is not configured.`,
+      outcome: outcomeFor(rule),
+      undecidable: true,
+      undecidedBecause:
+        'The rule cannot be evaluated without the value it is measured against. Treating that as '
+      + 'a pass would let a declared consequence go unenforced silently.',
+    });
   }
 
   // ── Effective-date bounds ──────────────────────────────────────────────────
