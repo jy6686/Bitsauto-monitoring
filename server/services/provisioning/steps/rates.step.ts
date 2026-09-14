@@ -21,6 +21,7 @@
  */
 import { db } from "../../../db";
 import { companyProducts, companyMarkets, productRegistry, globalDestinations, productRates } from "../../../../shared/schema";
+import { preUploadGate } from "../rates-upload-gate";
 import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import * as sippy from "../../../sippy";
 import { generateRateMatrix, type CatalogueDestination, type GeneratorProduct, type GeneratorRate } from "../../rates/matrix-generator";
@@ -90,10 +91,16 @@ export const ratesStep: ProvisioningStep = {
         ? inArray(globalDestinations.id, marketIds)
         : and(eq(globalDestinations.commercialStatus, 'approved'), isNotNull(globalDestinations.dialPrefix)));
 
-    if (!products.length || !destinations.length) {
+    // The legacy destination list above serves ONLY the prefix-keyed fallback
+    // further down. Catalogue-keyed prices bring their own destination and
+    // version and become synthetic destinations after expansion, so an empty
+    // legacy list must not stop the upload — it did, for 1global on
+    // 2026-09-14, with seven prices effective that day.
+    const gate = preUploadGate({ productCount: products.length, legacyDestinationCount: destinations.length });
+    if (!gate.proceed) {
       return {
         status: 'skipped',
-        detail: [`No rates to load — ${products.length} product(s), ${destinations.length} destination(s).`],
+        detail: [gate.reason],
         metrics: { requested: 0, skipped: 1, products: products.length, destinations: destinations.length },
       };
     }
