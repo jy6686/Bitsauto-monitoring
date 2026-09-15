@@ -8,18 +8,36 @@
  *   Body:    professional intro, rate table, FULL/CHANGES explanation footer
  *   Attachment: {COMPANY}-{PRODUCT}-{YYYYMMDDHHMM}-FULL.xlsx (customer-facing sheet)
  *
- * The Excel is a clean 3-column customer sheet — NOT the Sippy upload format.
+ * The Excel is the customer-facing rate sheet in the industry layout (header block,
+ * status legend, Country/Destination/Prefix/Rate/Status/Increment/Effective table,
+ * terms) — NOT the Sippy upload format. It is built by rate-sheet-workbook.ts from a
+ * RateSheetModel assembled here; the model builder is pure and tested on its own.
  * The Sippy tariff is a single combined upload (handled by rates.step); these emails
  * are the commercial handover, not the switch instruction.
+ *
+ * Rows are resolved exactly the way rates.step resolves them for the switch: each
+ * price is expanded through the Destination Catalogue (one row per prefix of the
+ * priced destination, named by the catalogue) and anything the catalogue refuses is
+ * reported in `details` rather than sent. Before 2026-09-14 the names were joined on
+ * `product_rates.prefix`, which catalogue-keyed prices leave empty, and a customer
+ * received rows reading `null` / `+null`.
  *
  * Recipients: commercial contacts from company_contacts only.
  * Finance, billing and invoicing contacts are excluded (same rule as the account details
  * email). The rate sheet is a commercial document, not a system credential, so it goes to
  * a slightly wider set — "commercial" and "rates" contacts in addition to "technical".
  */
-import * as XLSX from "xlsx";
-import { pool } from "../../db";
+import { sql } from "drizzle-orm";
+import { db, pool } from "../../db";
 import { sendDirectEmailWithAttachment } from "../../email";
+import { expandRates, activeCatalogueVersionId, type Expansion } from "../rates/rate-prefix-expansion";
+import { lookupCatalogueIncrements } from "../rates/catalogue-increments";
+import { parseBillingIncrement, formatBillingIncrement } from "../rates/billing-increment";
+import {
+  buildRateSheetRows, changeEffectiveDates, formatSheetDate, formatSheetTime, technicalPrefix,
+  RATE_SHEET_TERMS, type PricedRate, type RateSheetModel, type RateSheetRow,
+} from "./rate-sheet-model";
+import { buildRateSheetWorkbook } from "./rate-sheet-workbook";
 
 /** Product display name as it appears in the subject and body. */
 const PRODUCT_LABELS: Record<string, string> = {
@@ -29,56 +47,17 @@ const PRODUCT_LABELS: Record<string, string> = {
   SC: "SPECIAL CHARLIE",
 };
 
-/** Rate row as resolved from product_rates + global_destinations. */
+/** Rate row as it appears in the email body's table: one line per prefix. */
 export type NotificationRate = {
   productCode:  string;
   productLabel: string;
   productDigit: string;   // trunk_prefix: FC=1, BC=2, SB=6, SC=7
-  prefix:       string;   // bare destination prefix, e.g. "92"
-  destination:  string;   // human name, e.g. "Pakistan"
+  prefix:       string;   // bare destination prefix, e.g. "9230"
+  destination:  string;   // catalogue name, e.g. "PAKISTAN - MOBILE MOBILINK"
   rate:         string;   // numeric string, e.g. "0.040000"
   currency:     string;
 };
 
-// ── Customer-facing Excel ──────────────────────────────────────────────────────
-// Three columns only: Destination, Prefix, Rate (USD/Min).
-// The Sippy upload format (Action/Id/Interval/…) is internal and would confuse a customer.
-export function buildRateNotificationXlsx(
-  companyName: string,
-  productLabel: string,
-  rows: NotificationRate[],
-): Buffer {
-  const date = new Date().toISOString().slice(0, 10);
-  const aoa: (string | number)[][] = [
-    // Title row — matches the email subject so the sheet is self-describing when detached
-    [`RATE NOTIFICATION (FULL) — ${companyName} — ${productLabel} — ${date}`],
-    [],
-    ["Destination", "Prefix", "Rate (USD/Min)"],
-    ...rows.map(r => [
-      r.destination || r.prefix,
-      `+${r.prefix}`,
-      Number(Number(r.rate).toFixed(6)),
-    ]),
-  ];
-
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-  // Column widths: Destination 28, Prefix 12, Rate 16
-  ws["!cols"] = [{ wch: 28 }, { wch: 12 }, { wch: 16 }];
-
-  // Bold the title and header row
-  const title = XLSX.utils.encode_cell({ r: 0, c: 0 });
-  const hDest = XLSX.utils.encode_cell({ r: 2, c: 0 });
-  const hPfx  = XLSX.utils.encode_cell({ r: 2, c: 1 });
-  const hRate = XLSX.utils.encode_cell({ r: 2, c: 2 });
-  for (const cell of [title, hDest, hPfx, hRate]) {
-    if (ws[cell]) ws[cell].s = { font: { bold: true } };
-  }
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Rate Sheet");
-  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
-}
 
 // ── Email HTML body ────────────────────────────────────────────────────────────
 // Matches the reference EML format: plain paragraphs, a simple rate table, footer notice.
@@ -189,19 +168,113 @@ function compactDateTime(d: Date): string {
   return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}`;
 }
 
-// ── Main export ────────────────────────────────────────────────────────────────
-export async function sendRateNotificationEmails(
+// ── KAM ────────────────────────────────────────────────────────────────────────
+/**
+ * The sheet header names the Key Account Manager. Assignments live in kam_accounts,
+ * keyed by the Sippy account id; a company without an assignment falls back to the
+ * free-text `companies.kam` name (matched to a KAM record for the email when it can be).
+ * Never fails the send: a sheet with a blank KAM line is still a correct rate sheet.
+ */
+async function resolveKam(
+  sippyIAccount: number | null,
+  kamText: string | null,
+): Promise<{ name: string; email: string; note?: string }> {
+  try {
+    if (sippyIAccount !== null && sippyIAccount !== undefined) {
+      const { rows } = await pool.query<any>(
+        `SELECT k.name, k.email FROM kam_accounts ka JOIN kams k ON k.id = ka.kam_id
+          WHERE ka.account_id = $1 ORDER BY ka.id LIMIT 1`,
+        [String(sippyIAccount)],
+      );
+      if (rows[0]) return { name: rows[0].name ?? "", email: rows[0].email ?? "" };
+    }
+    const name = (kamText ?? "").trim();
+    if (name) {
+      const { rows } = await pool.query<any>(
+        `SELECT name, email FROM kams WHERE LOWER(name) = LOWER($1) ORDER BY id LIMIT 1`, [name],
+      );
+      return rows[0] ? { name: rows[0].name, email: rows[0].email ?? "" } : { name, email: "" };
+    }
+    return { name: "", email: "", note: "No KAM assigned to this account — KAM lines on the sheet are blank." };
+  } catch (e: any) {
+    return { name: "", email: "", note: `KAM lookup failed (${e?.message ?? e}) — KAM lines on the sheet are blank.` };
+  }
+}
+
+/** Legacy (prefix-keyed) prices keep the name resolution they always had. */
+async function legacyNamesFor(prefixes: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (!prefixes.length) return out;
+  const { rows } = await pool.query<any>(
+    `SELECT p.prefix, COALESCE(d.name, gd.name) AS name
+       FROM unnest($1::text[]) AS p(prefix)
+       LEFT JOIN LATERAL (
+              SELECT name FROM destinations
+               WHERE dial_prefix = p.prefix
+               ORDER BY level DESC, id LIMIT 1
+       ) d ON true
+       LEFT JOIN LATERAL (
+              SELECT name FROM global_destinations
+               WHERE dial_prefix = p.prefix AND commercial_status = 'approved'
+               ORDER BY id LIMIT 1
+       ) gd ON true`,
+    [prefixes],
+  );
+  for (const r of rows) if (r.name) out.set(String(r.prefix), String(r.name));
+  return out;
+}
+
+// ── Assembly ───────────────────────────────────────────────────────────────────
+/** The four commercial products a sheet can be produced for. */
+export const RATE_SHEET_PRODUCT_CODES: readonly string[] = Object.keys(PRODUCT_LABELS);
+
+/** One product's notification, fully rendered and ready to send or download. */
+export type PreparedRateSheet = {
+  productCode:  string;
+  productLabel: string;
+  productDigit: string;
+  currency:     string;
+  subject:      string;
+  filename:     string;
+  html:         string;
+  xlsx:         Buffer;
+  rows:         RateSheetRow[];
+  /** Prices that were effective but could not be carried on this sheet, and why. */
+  excluded:     string[];
+};
+
+export type RateSheetAssembly = {
+  /** Null when the company does not exist. */
+  company: { id: number; name: string; accountPrefix: string; recipients: string[] } | null;
+  /** Products with at least one row — these are what a customer would receive. */
+  products: PreparedRateSheet[];
+  /** Products with effective prices but no row the sheet could carry. Never sent. */
+  unsendable: Array<{ productCode: string; productLabel: string; reasons: string[] }>;
+  /** Everything worth telling the operator (KAM fallback, excluded prices …). */
+  details: string[];
+};
+
+/**
+ * Everything the notification needs, computed but not delivered.
+ *
+ * Reads only. It is the single place the customer sheet is derived, so the
+ * download used for acceptance and the email a customer receives are the
+ * same bytes from the same rows. `productCode` narrows the assembly to one
+ * product (the download); the sender assembles all four.
+ */
+export async function assembleRateSheets(
   companyId: number,
-): Promise<{ sent: number; failed: number; skipped: number; details: string[] }> {
+  opts: { now?: Date; productCode?: string } = {},
+): Promise<RateSheetAssembly> {
   const details: string[] = [];
-  let sent = 0, failed = 0, skipped = 0;
+  const now = opts.now ?? new Date();
 
   // 1. Company info + recipients
   // Commercial + rates contacts receive rate notifications.
   // Technical contacts are excluded — they handle credentials, not pricing.
   // Finance/billing/invoicing are excluded as always.
   const { rows: compRows } = await pool.query<any>(
-    `SELECT c.name, c.account_prefix,
+    `SELECT c.id, c.name, c.account_prefix, c.kam, c.sippy_i_account,
             COALESCE(
               (SELECT array_agg(DISTINCT ct.email) FROM company_contacts ct
                 WHERE ct.company_id = c.id
@@ -213,88 +286,105 @@ export async function sendRateNotificationEmails(
   );
 
   const comp = compRows[0];
-  if (!comp) {
-    return { sent: 0, failed: 0, skipped: 1, details: [`Company ${companyId} not found.`] };
-  }
+  if (!comp) return { company: null, products: [], unsendable: [], details: [`Company ${companyId} not found.`] };
 
   const recipients: string[] = Array.from(new Set<string>(
     (comp.contact_emails ?? [])
       .filter((e: any) => typeof e === "string" && e.includes("@"))
       .map((e: string) => e.trim().toLowerCase()),
   ));
-
-  if (!recipients.length) {
-    return {
-      sent: 0, failed: 0, skipped: 1,
-      details: ["No commercial or technical contacts with email addresses — rate notifications not sent."],
-    };
-  }
-
-  const to = recipients.join(", ");
   const accountPrefix = comp.account_prefix ?? "";
+  const company = { id: Number(comp.id), name: String(comp.name), accountPrefix, recipients };
 
-  // 2. Effective rates today
-  const today = new Date().toISOString().slice(0, 10);
-  const { rows: rateRows } = await pool.query<any>(
-    `SELECT pr.code AS product_code,
+  // 2. Effective rates today — the same filter rates.step and Rate Manager use, so the
+  //    sheet a customer receives cannot disagree with what was uploaded to the switch.
+  const today = now.toISOString().slice(0, 10);
+  const { rows: allRateRows } = await pool.query<any>(
+    `SELECT pr.id   AS product_id,
+            pr.code AS product_code,
             pr.name AS product_name,
             pr.trunk_prefix AS product_digit,
+            r.destination_id,
+            r.catalogue_version_id,
             r.prefix,
             r.rate,
             r.currency,
-            -- Destination Catalogue is the ONE naming authority (owner rule):
-            -- the sheet's names must match the invoice, which resolves through
-            -- the same catalogue. Legacy global_destinations remains only as a
-            -- fallback for prefixes the canonical table doesn't carry yet, so
-            -- migrating the vocabulary never blanks a customer's sheet.
-            COALESCE(d.name, gd.name, r.prefix) AS destination
+            to_char(r.effective_from, 'YYYY-MM-DD') AS effective_from
        FROM product_rates r
        JOIN product_registry pr ON pr.id = r.product_id
-       LEFT JOIN LATERAL (
-              SELECT name FROM destinations
-               WHERE dial_prefix = r.prefix
-               ORDER BY level DESC, id LIMIT 1
-       ) d ON true
-       LEFT JOIN global_destinations gd
-              ON gd.dial_prefix = r.prefix AND gd.commercial_status = 'approved'
       WHERE r.effective_from <= $1
         AND (r.effective_to IS NULL OR r.effective_to >= $1)
         AND pr.code IN ('FC', 'BC', 'SB', 'SC')
       ORDER BY pr.code, r.prefix`,
     [today],
   );
+  const wanted = opts.productCode ? String(opts.productCode).toUpperCase() : null;
+  const rateRows = wanted ? allRateRows.filter((r: any) => String(r.product_code) === wanted) : allRateRows;
 
-  if (!rateRows.length) {
-    return {
-      sent: 0, failed: 0, skipped: 1,
-      details: ["No effective rates in product_rates — nothing to notify."],
-    };
+  if (!rateRows.length) return { company, products: [], unsendable: [], details };
+
+  // 3. Resolve every price the way the switch upload resolves it: through the
+  //    Destination Catalogue, one row per prefix, named by the catalogue. Legacy
+  //    prefix-keyed rows keep their old name lookup. Increments come from the
+  //    active catalogue; a prefix it does not carry prints a blank increment.
+  const priced: PricedRate[] = rateRows.map((r: any) => ({
+    destinationId:      r.destination_id === null || r.destination_id === undefined ? null : Number(r.destination_id),
+    prefix:             r.prefix === null || r.prefix === undefined ? null : String(r.prefix),
+    catalogueVersionId: r.catalogue_version_id === null || r.catalogue_version_id === undefined ? null : Number(r.catalogue_version_id),
+    productId:          Number(r.product_id),
+    productCode:        String(r.product_code),
+    productDigit:       String(r.product_digit ?? ""),
+    rate:               r.rate,
+    currency:           r.currency ?? "USD",
+    effectiveFrom:      String(r.effective_from ?? ""),
+  }));
+
+  const activeVersionId = await activeCatalogueVersionId(db as any, sql as any);
+  const expansions = await expandRates(db as any, priced, activeVersionId, sql as any);
+
+  const allPrefixes = Array.from(new Set(expansions.flatMap(e => e.prefixes)));
+  const rawIncrements = await lookupCatalogueIncrements(db as any, allPrefixes);
+  const increments = new Map<string, string>();
+  for (const [prefix, raw] of rawIncrements) {
+    const parsed = parseBillingIncrement(raw);
+    if (parsed) increments.set(prefix, formatBillingIncrement(parsed));
+  }
+  const legacyNames = await legacyNamesFor(
+    expansions.filter(e => e.verdict === "legacy_prefix").flatMap(e => e.prefixes),
+  );
+
+  const kam = await resolveKam(
+    comp.sippy_i_account === null || comp.sippy_i_account === undefined ? null : Number(comp.sippy_i_account),
+    comp.kam ?? null,
+  );
+  if (kam.note) details.push(kam.note);
+
+  // 4. Group by product code
+  const byProduct = new Map<string, Array<Expansion<PricedRate>>>();
+  for (const e of expansions) {
+    const code = e.row.productCode;
+    if (!byProduct.has(code)) byProduct.set(code, []);
+    byProduct.get(code)!.push(e);
   }
 
-  // 3. Group by product code
-  const byProduct = new Map<string, NotificationRate[]>();
-  for (const r of rateRows) {
-    if (!byProduct.has(r.product_code)) byProduct.set(r.product_code, []);
-    byProduct.get(r.product_code)!.push({
-      productCode:  r.product_code,
-      productLabel: PRODUCT_LABELS[r.product_code] ?? r.product_name.toUpperCase(),
-      productDigit: String(r.product_digit ?? ""),
-      prefix:       String(r.prefix),
-      destination:  r.destination,
-      rate:         r.rate,
-      currency:     r.currency ?? "USD",
-    });
-  }
-
-  // 4. One email per product
-  const now = new Date();
+  // 5. One sheet per product
   const issueDateStr  = friendlyDate(now);
   const compactDtStr  = compactDateTime(now);
   const safeCompany   = comp.name.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const products: PreparedRateSheet[] = [];
+  const unsendable: RateSheetAssembly["unsendable"] = [];
 
-  for (const [productCode, rows] of byProduct) {
+  for (const [productCode, productExpansions] of byProduct) {
     const productLabel = PRODUCT_LABELS[productCode] ?? productCode;
-    const productDigit = rows[0].productDigit;
+    const productDigit = productExpansions[0].row.productDigit;
+    const currency     = productExpansions[0].row.currency ?? "USD";
+
+    const { rows: sheetRows, excluded } = buildRateSheetRows({ expansions: productExpansions, increments, legacyNames });
+    for (const line of excluded) details.push(`${productLabel}: not on the sheet — ${line}`);
+    if (!sheetRows.length) {
+      unsendable.push({ productCode, productLabel, reasons: excluded.length ? excluded : ["no effective price reached a named destination"] });
+      continue;
+    }
 
     // Dial format: accountPrefix + productDigit + [Country Code] + [Number]
     const dialFormat = accountPrefix
@@ -304,24 +394,90 @@ export async function sendRateNotificationEmails(
     const subject  = `RATE NOTIFICATION (FULL) | ${comp.name.toUpperCase()} | ${productLabel} | ${issueDateStr}`;
     const filename = `${safeCompany}-${productLabel.replace(/\s+/g, "_")}-${compactDtStr}-FULL.xlsx`;
 
-    const html  = renderRateNotificationHtml({ companyName: comp.name, productLabel, dialFormat, issueDate: issueDateStr, rows });
-    const xlsx  = buildRateNotificationXlsx(comp.name, productLabel, rows);
+    // The body's table lists the same rows as the sheet, so the two cannot disagree.
+    const rows: NotificationRate[] = sheetRows.map(r => ({
+      productCode, productLabel, productDigit,
+      prefix: r.prefix, destination: r.destination, rate: String(r.rate), currency,
+    }));
+    const html = renderRateNotificationHtml({ companyName: comp.name, productLabel, dialFormat, issueDate: issueDateStr, rows });
 
+    const change = changeEffectiveDates(sheetRows);
+    const model: RateSheetModel = {
+      header: {
+        companyName:           comp.name,
+        productLabel,
+        sendDate:              formatSheetDate(today),
+        sendTime:              formatSheetTime(now),
+        increaseEffectiveDate: change.increase,
+        decreaseEffectiveDate: change.decrease,
+        technicalPrefix:       technicalPrefix(accountPrefix, productDigit),
+        kamName:               kam.name,
+        kamEmail:              kam.email,
+      },
+      rows: sheetRows,
+      terms: RATE_SHEET_TERMS,
+    };
+    const xlsx = await buildRateSheetWorkbook(model);
+
+    products.push({ productCode, productLabel, productDigit, currency, subject, filename, html, xlsx, rows: sheetRows, excluded });
+  }
+
+  return { company, products, unsendable, details };
+}
+
+// ── Main export ────────────────────────────────────────────────────────────────
+/**
+ * Sends one notification per product to the company's commercial contacts.
+ * The provisioning account-email step calls this after the account details go
+ * out; the company card's "Resend rate notification" calls it on its own, with
+ * no account details and no switch write.
+ */
+export async function sendRateNotificationEmails(
+  companyId: number,
+): Promise<{ sent: number; failed: number; skipped: number; details: string[] }> {
+  const details: string[] = [];
+  let sent = 0, failed = 0, skipped = 0;
+
+  const assembly = await assembleRateSheets(companyId);
+  if (!assembly.company) {
+    return { sent: 0, failed: 0, skipped: 1, details: [`Company ${companyId} not found.`] };
+  }
+  if (!assembly.company.recipients.length) {
+    return {
+      sent: 0, failed: 0, skipped: 1,
+      details: ["No commercial or technical contacts with email addresses — rate notifications not sent."],
+    };
+  }
+  if (!assembly.products.length && !assembly.unsendable.length) {
+    return {
+      sent: 0, failed: 0, skipped: 1,
+      details: ["No effective rates in product_rates — nothing to notify."],
+    };
+  }
+
+  details.push(...assembly.details);
+  for (const u of assembly.unsendable) {
+    skipped++;
+    details.push(`${u.productLabel}: no destination could be named for the sheet — notification not sent.`);
+  }
+
+  const to = assembly.company.recipients.join(", ");
+  for (const p of assembly.products) {
     const res = await sendDirectEmailWithAttachment({
       to,
-      subject,
-      html,
+      subject:     p.subject,
+      html:        p.html,
       fromName:    "Ichibaan Rates",
       fromAddress: "pricing@ichibaanlogic.com",
-      attachment: { filename, content: xlsx, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+      attachment: { filename: p.filename, content: p.xlsx, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
     });
 
     if (res.ok) {
       sent++;
-      details.push(`✓ ${productLabel} → ${to} (${filename})`);
+      details.push(`✓ ${p.productLabel} → ${to} (${p.filename}, ${p.rows.length} prefix row(s))`);
     } else {
       failed++;
-      details.push(`✗ ${productLabel} failed: ${res.error}`);
+      details.push(`✗ ${p.productLabel} failed: ${res.error}`);
     }
   }
 

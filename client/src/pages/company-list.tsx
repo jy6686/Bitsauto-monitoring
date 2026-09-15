@@ -16,6 +16,7 @@ import {
   Zap, Loader2, Clock, CheckCircle2, XCircle, ShieldCheck, AlertTriangle,
   PlusCircle, ShieldPlus, Tag, Package, MapPin, DollarSign, Cpu, ExternalLink,
   RefreshCw, Play, AlertCircle, Server, Upload, List, Trash, ShieldAlert, Sliders,
+  Download, Send,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -505,6 +506,65 @@ function ProvisioningPanel({ company }: { company: Company }) {
     pushRatesMutation.mutate(valid.map(r => ({ prefix: r.prefix.trim(), rate: Number(r.rate) })));
   };
 
+  // ── Customer rate sheet (download / resend) ─────────────────────────────
+  // Download derives the sheet exactly as the notification email would and returns the
+  // file — no email, no Sippy write. Resend delivers the rate notification emails alone,
+  // without the account-details email a provisioning run would send first.
+  const RATE_SHEET_PRODUCTS: Array<[string, string]> = [
+    ["FC", "First Class"], ["BC", "Business Class"], ["SB", "Special Bravo"], ["SC", "Special Charlie"],
+  ];
+  const [sheetProduct, setSheetProduct] = useState("FC");
+  const [sheetBusy, setSheetBusy] = useState<null | "download" | "resend">(null);
+
+  const downloadRateSheet = async () => {
+    setSheetBusy("download");
+    try {
+      const r = await fetch(`/api/companies/${company.id}/rate-sheet?product=${sheetProduct}`, { credentials: "include" });
+      if (!r.ok) {
+        let msg = `${r.status} ${r.statusText}`;
+        try { const j = await r.json(); msg = [j.error ?? j.message, ...(j.details ?? [])].filter(Boolean).join(" · "); } catch { /* not JSON */ }
+        throw new Error(msg);
+      }
+      const blob = await r.blob();
+      const m = /filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") ?? "");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = m?.[1] ?? `${company.name}-${sheetProduct}-rate-sheet.xlsx`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast({
+        title: "Rate sheet downloaded",
+        description: `${a.download} · ${r.headers.get("X-Rate-Sheet-Rows") ?? "?"} prefix row(s). Nothing was sent.`,
+      });
+    } catch (e: any) {
+      toast({ title: "Rate sheet not produced", description: e.message, variant: "destructive" });
+    } finally {
+      setSheetBusy(null);
+    }
+  };
+
+  const resendRateNotification = async () => {
+    if (!confirm(
+      `Resend rate notification emails for "${company.name}"?\n\n` +
+      `One email per priced product goes to the company's commercial, rates, technical, support and NOC contacts ` +
+      `with the rate sheet attached.\n\nNo account details are sent and nothing is written to Sippy.`,
+    )) return;
+    setSheetBusy("resend");
+    try {
+      const res = await apiRequest("POST", `/api/companies/${company.id}/rate-notifications/resend`, {});
+      const data = await res.json();
+      toast({
+        title: `Rate notifications: ${data.sent} sent, ${data.failed} failed, ${data.skipped} skipped`,
+        description: (data.details ?? []).slice(0, 4).join(" · "),
+        variant: data.failed || (!data.sent && data.skipped) ? "destructive" : undefined,
+      });
+    } catch (e: any) {
+      toast({ title: "Resend failed", description: e.message, variant: "destructive" });
+    } finally {
+      setSheetBusy(null);
+    }
+  };
+
   // ── Product Assignment state ──────────────────────────────────────────────
   const [showProductPanel, setShowProductPanel] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string>("");
@@ -820,6 +880,43 @@ function ProvisioningPanel({ company }: { company: Company }) {
               {showRatePanel ? "Hide" : "Manage"}
             </button>
           </div>
+
+          {showRatePanel && (
+            <div className="mt-1.5 flex items-center gap-1.5 rounded border border-border/30 bg-background/40 px-2 py-1">
+              <span className="text-[10px] text-muted-foreground shrink-0">Customer sheet</span>
+              <select
+                data-testid={`select-rate-sheet-product-${company.id}`}
+                value={sheetProduct}
+                onChange={e => setSheetProduct(e.target.value)}
+                disabled={sheetBusy !== null}
+                className="h-6 text-[10px] rounded border border-border/40 bg-transparent px-1"
+              >
+                {RATE_SHEET_PRODUCTS.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+              </select>
+              <button
+                data-testid={`btn-download-rate-sheet-${company.id}`}
+                onClick={downloadRateSheet}
+                disabled={sheetBusy !== null}
+                title="Download the customer rate sheet for this product. Nothing is emailed and nothing is written to Sippy."
+                className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 border border-blue-500/30 hover:bg-blue-500/10 rounded px-2 py-0.5 transition-colors disabled:opacity-40"
+              >
+                {sheetBusy === "download"
+                  ? <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Building…</>
+                  : <><Download className="h-2.5 w-2.5" /> Download</>}
+              </button>
+              <button
+                data-testid={`btn-resend-rate-notification-${company.id}`}
+                onClick={resendRateNotification}
+                disabled={sheetBusy !== null}
+                title="Email the rate notification (all priced products) to the company's contacts. No account details, no Sippy write."
+                className="ml-auto flex items-center gap-1 text-[10px] text-amber-400 hover:text-amber-300 border border-amber-500/30 hover:bg-amber-500/10 rounded px-2 py-0.5 transition-colors disabled:opacity-40"
+              >
+                {sheetBusy === "resend"
+                  ? <><Loader2 className="h-2.5 w-2.5 animate-spin" /> Sending…</>
+                  : <><Send className="h-2.5 w-2.5" /> Resend notification</>}
+              </button>
+            </div>
+          )}
 
           {showRatePanel && !hasTariff && (
             <p className="mt-1 text-[10px] text-amber-400 flex items-center gap-1 bg-amber-500/5 border border-amber-500/20 rounded px-2 py-1.5">

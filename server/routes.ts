@@ -32,6 +32,7 @@ import { registerIncrementChangeRoutes } from './routes-increment-changes';
 import { registerRatePolicyRoutes } from './routes-rate-policy';
 import { perClientPolicy } from './services/rates/policy-adapter';
 import { registerRateNotificationRoutes, createInitialRateJob } from './routes-rate-notifications';
+import { registerRateSheetRoutes } from './routes-rate-sheet';
 import { registerProductTemplatesRoutes } from './routes-product-templates';
 import { registerMetaFlowsRoutes } from './routes-meta-flows';
 import { registerAiCopilotRoutes } from './routes-ai-copilot';
@@ -42005,6 +42006,7 @@ ${footer}
   registerRatePolicyRoutes(app);
   registerVendorRatesRoutes(app);
   registerRateNotificationRoutes(app);
+  registerRateSheetRoutes(app);
   registerProductTemplatesRoutes(app);
 
   // ── AI Route Copilot ──────────────────────────────────────────────────────
