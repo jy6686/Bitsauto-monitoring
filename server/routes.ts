@@ -28716,6 +28716,25 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   // their traffic under a number the switch no longer knows. That is why PUT
   // /api/companies/:id already strips accountPrefix, and why this endpoint refuses an
   // overwrite rather than offering a confirmation.
+  // PATCH /api/companies/:id/auth-rule-mode — which authentication planner builds this
+  // customer's rules (migration 521). 'country' is the frozen v1.0 set; 'breakout' is one
+  // rule per priced prefix. Explicit per company; takes effect on the next preflight /
+  // provisioning run. Never touches Sippy.
+  app.patch('/api/companies/:id/auth-rule-mode', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
+    try {
+      const companyId = parseInt(req.params.id, 10);
+      if (!Number.isInteger(companyId) || companyId <= 0) return res.status(400).json({ message: 'Company id must be a positive integer.' });
+      const mode = String(req.body?.mode ?? '').trim().toLowerCase();
+      if (mode !== 'country' && mode !== 'breakout') return res.status(400).json({ message: "mode must be 'country' or 'breakout'." });
+      const company = await storage.getCompany(companyId);
+      if (!company) return res.status(404).json({ message: 'Company not found.' });
+      await pool.query(`UPDATE companies SET auth_rule_mode = $2 WHERE id = $1`, [companyId, mode]);
+      res.json({ id: companyId, authRuleMode: mode, note: mode === 'breakout'
+        ? 'Rules will be planned per priced prefix on the next preflight or provisioning run. Existing rules on Sippy are never deleted by a run.'
+        : 'Rules will be planned per routing-package cell (country × product) on the next run.' });
+    } catch (e: any) { res.status(500).json({ message: e.message }); }
+  });
+
   app.post('/api/companies/:id/account-prefix', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       const id = parseInt(req.params.id, 10);

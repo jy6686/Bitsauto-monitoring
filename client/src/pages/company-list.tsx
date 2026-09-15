@@ -772,6 +772,32 @@ function ProvisioningPanel({ company }: { company: Company }) {
       <PreProvisionChecks company={company} />
       {isProvisioned && <ProvisionHistory companyId={company.id} />}
 
+      {/* Authentication planner mode (migration 521). Explicit per customer: 'country' is the
+          frozen v1.0 set (IPs × package cells), 'breakout' is one rule per priced prefix. */}
+      <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+        <span className="uppercase tracking-wide font-medium flex items-center gap-1"><ShieldCheck className="h-2.5 w-2.5" /> Auth rules</span>
+        <select
+          data-testid={`select-auth-rule-mode-${company.id}`}
+          value={(companyAny.authRuleMode as string) ?? "country"}
+          onChange={async e => {
+            const mode = e.target.value;
+            try {
+              const r = await apiRequest("PATCH", `/api/companies/${company.id}/auth-rule-mode`, { mode });
+              const data = await r.json();
+              queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+              toast({ title: `Auth rules: per ${mode}`, description: data.note });
+            } catch (err: any) {
+              toast({ title: "Mode not changed", description: err.message, variant: "destructive" });
+            }
+          }}
+          className="h-6 text-[10px] rounded border border-border/40 bg-transparent px-1"
+          title="Which planner builds this customer's Sippy authentication rules. Takes effect on the next preflight or provisioning run; runs never delete existing rules."
+        >
+          <option value="country">per country (package cells)</option>
+          <option value="breakout">per breakout (priced prefixes)</option>
+        </select>
+      </div>
+
       {canProvision ? (
         <Button
           data-testid={`btn-provision-company-${company.id}`}
