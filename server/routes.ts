@@ -8644,6 +8644,20 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/sippy/upload/report?token= — the importer's own report for an upload. READ-ONLY.
+  // The reason a rates upload FAILed lives here and nowhere else on the platform.
+  app.get('/api/sippy/upload/report',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const settings = await storage.getSettings();
+        const token = String(req.query.token ?? '');
+        if (!token) return res.status(400).json({ error: 'token is required' });
+        const base = sippy.sippyBase(sippyPortalUrl(settings));
+        const result = await sippy.fetchUploadReport(base, token);
+        res.status(result.ok ? 200 : 502).json(result);
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    });
   // POST /api/sippy/upload/file — proxy a binary file to a Sippy upload URL (docs 3000073010)
   // Query params: url (required) — the upload URL returned by /api/sippy/upload/token
   //               filename (optional) — original filename for Content-Disposition

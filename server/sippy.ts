@@ -10084,6 +10084,36 @@ async function setSippyRateEntryInner(
   };
 }
 
+// ── fetchUploadReport ────────────────────────────────────────────────────────
+/**
+ * Read the report Sippy writes for a rates upload — the one place the importer explains a FAIL.
+ *
+ * `getUploadStatus` returns the report's URL and nothing of its content, and until 2026-09-15 the
+ * push discarded even the URL. The first closing pilot for SMP-006 failed at +9 s with a report
+ * nobody on the platform could read: it lives on the Sippy host behind the portal login. This
+ * fetches it with the provisioning session, READ-ONLY, and returns the text so the reason can go
+ * into a trace or an operator's hands instead of staying on the switch.
+ *
+ * The token is validated as a UUID so this cannot be pointed at any other path on the host.
+ */
+export async function fetchUploadReport(
+  base: string,
+  token: string,
+): Promise<{ ok: boolean; statusCode?: number; text: string; message: string }> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) {
+    return { ok: false, text: '', message: 'token must be a Sippy upload token (UUID)' };
+  }
+  const cookies = await provisioningLogin(base);
+  const url = `${base}/download/reports/${token}`;
+  const resp = await rawRequest('GET', url, null, { 'User-Agent': PORTAL_USER_AGENT }, cookies);
+  const text = String(resp.body ?? '');
+  const loginPage = /accounts\/login|name="login"|<title>[^<]*login/i.test(text);
+  if (resp.statusCode !== 200 || loginPage) {
+    return { ok: false, statusCode: resp.statusCode, text: text.slice(0, 2000), message: loginPage ? 'portal session was not accepted for the report download' : `HTTP ${resp.statusCode}` };
+  }
+  return { ok: true, statusCode: 200, text: text.slice(0, 8000), message: text.trim() ? `report: ${text.length} bytes` : 'report is EMPTY — Sippy wrote no rows, which is what an import refused before parsing (e.g. a locked tariff) produces' };
+}
+
 // ── rawGetBinary ─────────────────────────────────────────────────────────────
 // Binary-safe HTTP GET — collects Buffer chunks so XLSX bytes are not corrupted.
 // rawRequest uses string concat which mangles non-UTF8 bytes in binary files.

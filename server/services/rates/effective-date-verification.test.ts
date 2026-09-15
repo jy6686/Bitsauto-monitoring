@@ -127,3 +127,31 @@ describe("the upload poller, after the 2026-09-15 pilot", () => {
     expect(branch).not.toContain('lastErrors.push');
   });
 });
+
+describe("the importer's report is readable from the platform", () => {
+  const SIPPY = readFileSync(join(__dirname, '..', '..', 'sippy.ts'), 'utf8').split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+  const ROUTES = readFileSync(join(__dirname, '..', '..', 'routes.ts'), 'utf8').split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+
+  it("fetchUploadReport is READ-ONLY: a GET with the provisioning session, token pinned to a UUID", () => {
+    const at = SIPPY.indexOf('export async function fetchUploadReport(');
+    const end = SIPPY.indexOf('\nexport ', at + 10);
+    const fn = SIPPY.slice(at, end);
+    expect(fn).toContain("rawRequest('GET', url, null,");
+    expect(fn).toContain('await provisioningLogin(base)');
+    expect(fn).toMatch(/\^\[0-9a-f\]\{8\}-/);                  // UUID gate
+    // Nothing that writes: no POST, no upload-token issuance, no file upload, no rate mutation.
+    for (const forbidden of ["'POST'", 'getUploadToken', 'uploadFile', 'setRate', 'deleteAll', 'pushRate']) expect(fn, forbidden).not.toContain(forbidden);
+  });
+
+  it("an EMPTY report is named as such — it is evidence, not an error", () => {
+    expect(SIPPY).toMatch(/report is EMPTY/);
+  });
+
+  it("the route is gated and only GETs", () => {
+    const at = ROUTES.indexOf("app.get('/api/sippy/upload/report'");
+    expect(at).toBeGreaterThan(-1);
+    const route = ROUTES.slice(at, at + 900);
+    expect(route).toContain("requireRole(['admin', 'management'], req, res, next)");
+    expect(route).toContain('sippy.fetchUploadReport(base, token)');
+  });
+});
