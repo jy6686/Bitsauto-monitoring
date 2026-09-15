@@ -464,6 +464,54 @@ verifier, the same `1/1`, the same activation instant and the same rate succeed 
 tariff 65 refuses this identical content, the file is exonerated and the difference is the tariff or
 Sippy-side state associated with it.
 
+### The tariff-64/65 discriminator, COMPLETE — 2026-09-15 15:26Z. The file is exonerated.
+
+Test B, the subject leg. **Byte-for-byte the same logical change as Test A** — `19233 @ 0.05`,
+`1/1`, effective 2026-09-17 10:00 GMT, product First Class, same builder, same transport, same
+verifier. The only variable is the tariff.
+
+| | Test A · tariff 64 | Test B · tariff 65 |
+|---|---|---|
+| verdict | **success** | **failure** |
+| importer | DONE, 21.9 s | **FAIL, 33 s** |
+| report | n/a | **0 bytes** |
+| result | row 9218 created, activation 2026-09-17 10:00 | **nothing; tariff still holds 1 rate** |
+
+**Conclusion: the uploaded file is not the cause, and the platform is not the cause.** The same
+bytes, the same code path and the same instant succeed one tariff over. Whatever refuses on tariff
+65 is a property of that tariff or of Sippy-side state associated with it.
+
+**Three refusals on tariff 65, all identical in kind:**
+
+| pilot | processing → FAIL | report |
+|---|---|---|
+| #1 (`192`, 08:39Z) | 9 s | 0 bytes |
+| #2 (`192`, 14:53Z) | 17 s | 0 bytes |
+| #3 (`19233`, 15:26Z) | **33 s** | 0 bytes |
+
+The prefix changed, the rate changed, the date changed, the increment stayed; the refusal did not.
+A zero-byte report means the refusal precedes any row being read, which is consistent with all of
+it and inconsistent with a content defect.
+
+**LEADING HYPOTHESIS, not established: a stuck import on tariff 65.** From 2026-09-07 onward this
+project recorded failures reading *"Tariff N is locked — processing of uploaded file is in
+progress"*, and tariff 65 was the target of jobs #44 and #45 on 2026-09-09, both of which failed.
+An import record left pending would refuse every later upload for that tariff before parsing, would
+be persistent, and would be invisible to us: the lock BANNER is universal for the ssp-root session
+and is not per-tariff evidence, and no API on this build lists a tariff's import queue. The rising
+durations (9 → 17 → 33 s) are an observation, not a finding; three points cannot establish a
+pattern.
+
+**This is now outside the platform.** Resolving it needs Sippy-side inspection of tariff 65's import
+queue — the operator's panel or Sippy support. No code change here will clear it, and no further
+push to tariff 65 will produce new information; the fixture has been fully controlled and the
+answer did not change.
+
+**What the platform has proven today.** Catalogue → eligibility → pricing gate → per-client policy →
+preflight → mutation boundary → `upload_token` → date-aware verification → scheduled row, end to
+end, on a healthy tariff, with the refusal path exercised three times on an unhealthy one and the
+tariff left untouched every single time.
+
 **Remediation of the evidence.** Tariff 64 is disposable. Restoring `9115` to 0.133 / 1/1 until
 2026-09-22 is a Sippy write and the owner's decision; leaving both rows as evidence is equally valid.
 
