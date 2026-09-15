@@ -21,10 +21,12 @@
  * and neither the database nor the mail transport is touched by a test.
  */
 import type { Express } from 'express';
+import { pool } from './db';
 import { storage } from './storage';
 import {
   assembleRateSheets, sendRateNotificationEmails, RATE_SHEET_PRODUCT_CODES,
 } from './services/provisioning/rate-notification-email';
+import { planIdentityBackfill, parseStepResult } from './services/provisioning/identity-backfill';
 
 export interface RateSheetRouteDeps {
   assemble:    typeof assembleRateSheets;
@@ -90,6 +92,60 @@ export function registerRateSheetRoutes(app: Express, overrides: Partial<RateShe
     } catch (e: any) {
       return res.status(500).json({ error: e?.message ?? String(e) });
     }
+  });
+
+  // ── Platform repair: record the Sippy identity provisioning already proved ──
+  // GET reports what would change; POST {apply:true} writes it. Reads the same plan either
+  // way, so the report an operator approves is computed by the code that performs it.
+  //
+  // Why this exists (2026-09-15): the runner only began recording the account and tariff ids
+  // today, so every customer provisioned before that still has them missing — 14 companies
+  // with a tariff and no account id, 21 the other way. Each one refuses every Rate Manager
+  // push as `no_stored_tariff`. The repair reads each company's OWN provisioning runs and
+  // never matches a Sippy account to a customer by name.
+  const identityPlan = async () => {
+    const { rows: companies } = await pool.query<any>(
+      `SELECT id, name, sippy_i_account, sippy_i_tariff FROM companies ORDER BY name`);
+    const { rows: steps } = await pool.query<any>(
+      `SELECT r.company_id, s.step_key, s.status, s.result, s.completed_at
+         FROM provisioning_steps s
+         JOIN provisioning_runs r ON r.id = s.run_id
+        WHERE s.step_key IN ('account', 'tariff') AND s.status = 'success' AND s.result IS NOT NULL`);
+    return planIdentityBackfill(
+      companies.map((c: any) => ({ id: Number(c.id), name: String(c.name), sippyIAccount: c.sippy_i_account, sippyITariff: c.sippy_i_tariff })),
+      steps.map((s: any) => ({ companyId: Number(s.company_id), stepKey: String(s.step_key), status: String(s.status), result: parseStepResult(s.result), completedAt: s.completed_at })),
+    );
+  };
+
+  app.get('/api/provisioning/identity-backfill', adminOnly, async (_req: any, res: any) => {
+    try {
+      const plan = await identityPlan();
+      res.json({ dryRun: true, wouldRepair: plan.patches.length, ...plan });
+    } catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
+  });
+
+  app.post('/api/provisioning/identity-backfill', adminOnly, async (req: any, res: any) => {
+    try {
+      if (req.body?.apply !== true) {
+        const plan = await identityPlan();
+        return res.status(400).json({ error: 'Pass {"apply": true} to write. Nothing was changed.', wouldRepair: plan.patches.length, ...plan });
+      }
+      const plan = await identityPlan();
+      const repaired: string[] = [];
+      const failed: string[] = [];
+      for (const p of plan.patches) {
+        const sets: string[] = []; const vals: any[] = [p.companyId];
+        // Guarded by `IS NULL`: a value written between the plan and this statement wins.
+        if (p.sippyIAccount !== undefined) { vals.push(p.sippyIAccount); sets.push(`sippy_i_account = COALESCE(sippy_i_account, $${vals.length})`); }
+        if (p.sippyITariff !== undefined)  { vals.push(p.sippyITariff);  sets.push(`sippy_i_tariff  = COALESCE(sippy_i_tariff,  $${vals.length})`); }
+        if (!sets.length) continue;
+        try {
+          await pool.query(`UPDATE companies SET ${sets.join(', ')} WHERE id = $1`, vals);
+          repaired.push(`${p.companyName}: ${p.because.join('; ')}`);
+        } catch (e: any) { failed.push(`${p.companyName}: ${e?.message ?? e}`); }
+      }
+      res.json({ applied: true, repaired: repaired.length, failed: failed.length, details: repaired, failures: failed, conflicts: plan.conflicts, noEvidence: plan.noEvidence });
+    } catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
   });
 
   // ── Resend ────────────────────────────────────────────────────────────────
