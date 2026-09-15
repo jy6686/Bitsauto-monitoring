@@ -8644,6 +8644,26 @@ export async function registerRoutes(
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // GET /api/sippy/tariffs/:id/lock-state — is Sippy holding the tariff locked? READ-ONLY.
+  // Reads the lock banner from the tariff's rates page; nothing is submitted.
+  app.get('/api/sippy/tariffs/:id/lock-state',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
+      try {
+        const iTariff = Number(req.params.id);
+        if (!Number.isInteger(iTariff)) return res.status(400).json({ error: 'tariff id must be an integer' });
+        const settings = await storage.getSettings();
+        const adminCreds = {
+          adminUser:        (settings as any).apiAdminUsername   ?? '',
+          adminPass:        (settings as any).apiAdminPassword   ?? '',
+          portalUser:       (settings as any).portalUsername     ?? '',
+          portalPass:       (settings as any).portalPassword     ?? '',
+          adminWebPassword: (settings as any).adminWebPassword   ?? undefined,
+        };
+        const result = await sippy.readTariffLockState(sippy.sippyBase(sippyPortalUrl(settings)), iTariff, adminCreds);
+        res.status(result.ok ? 200 : 502).json({ iTariff, ...result });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    });
   // GET /api/sippy/upload/report?token= — the importer's own report for an upload. READ-ONLY.
   // The reason a rates upload FAILed lives here and nowhere else on the platform.
   app.get('/api/sippy/upload/report',

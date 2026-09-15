@@ -155,3 +155,28 @@ describe("the importer's report is readable from the platform", () => {
     expect(route).toContain('sippy.fetchUploadReport(base, token)');
   });
 });
+
+describe("a tariff's lock state is readable before anyone writes to it", () => {
+  const SIPPY = readFileSync(join(__dirname, '..', '..', 'sippy.ts'), 'utf8').split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+  const ROUTES = readFileSync(join(__dirname, '..', '..', 'routes.ts'), 'utf8').split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+
+  it("readTariffLockState only reads the rates page and the banner", () => {
+    const at = SIPPY.indexOf('export async function readTariffLockState(');
+    const end = SIPPY.indexOf('\nexport ', at + 10);
+    const fn = SIPPY.slice(at, end);
+    expect(fn).toContain('await findRatesCapableSession(base, iTariff, adminCreds)');
+    expect(fn).toContain('tariffLockedMessage(session.ratesBody)');
+    for (const forbidden of ["'POST'", 'getUploadToken', 'uploadFile', 'setRate', 'deleteAll', 'pushRate', 'action=']) expect(fn, forbidden).not.toContain(forbidden);
+    // Not established is null, never false: "we could not look" is not "not locked".
+    expect(fn).toContain('locked: null');
+  });
+
+  it("the route is gated, integer-checked, and only GETs", () => {
+    const at = ROUTES.indexOf("app.get('/api/sippy/tariffs/:id/lock-state'");
+    expect(at).toBeGreaterThan(-1);
+    const route = ROUTES.slice(at, at + 1200);
+    expect(route).toContain("requireRole(['admin', 'management'], req, res, next)");
+    expect(route).toContain("if (!Number.isInteger(iTariff)) return res.status(400)");
+    expect(route).toContain('sippy.readTariffLockState(');
+  });
+});

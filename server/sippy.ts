@@ -10084,6 +10084,33 @@ async function setSippyRateEntryInner(
   };
 }
 
+// ── readTariffLockState ──────────────────────────────────────────────────────
+/**
+ * Is Sippy holding this tariff locked? READ-ONLY.
+ *
+ * "Tariff is locked for making changes, processing of uploaded file is in progress." is a banner
+ * on the tariff's rates page. The platform only ever saw it on a WRITE response — the moment a
+ * portal edit had already been attempted. On 2026-09-15 an upload to tariff 65 was refused
+ * before parsing with an empty report, which is what a lock produces, and there was no way to
+ * ask. This fetches the rates page with the same rates-capable session the upload uses and reads
+ * the banner, so a stuck tariff is a fact an operator can see before pushing to it.
+ */
+export async function readTariffLockState(
+  base: string,
+  iTariff: number,
+  adminCreds?: RateAdminCreds,
+): Promise<{ ok: boolean; locked: boolean | null; banner: string | null; user?: string; ratesPageUrl?: string; message: string }> {
+  const session = await findRatesCapableSession(base, iTariff, adminCreds);
+  if (!session) {
+    return { ok: false, locked: null, banner: null, message: 'No rates-capable portal session could reach the tariff rates page, so the lock state is not established.' };
+  }
+  const banner = tariffLockedMessage(session.ratesBody);
+  return {
+    ok: true, locked: banner !== null, banner, user: session.user, ratesPageUrl: session.ratesPageUrl,
+    message: banner ? `LOCKED — ${banner}` : 'not locked (no lock banner on the rates page)',
+  };
+}
+
 // ── fetchUploadReport ────────────────────────────────────────────────────────
 /**
  * Read the report Sippy writes for a rates upload — the one place the importer explains a FAIL.
