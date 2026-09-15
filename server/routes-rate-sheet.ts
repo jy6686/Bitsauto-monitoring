@@ -27,6 +27,7 @@ import {
   assembleRateSheets, sendRateNotificationEmails, RATE_SHEET_PRODUCT_CODES,
 } from './services/provisioning/rate-notification-email';
 import { planIdentityBackfill, parseStepResult } from './services/provisioning/identity-backfill';
+import { buildIdentityInventory } from './services/provisioning/identity-inventory';
 
 export interface RateSheetRouteDeps {
   assemble:    typeof assembleRateSheets;
@@ -145,6 +146,54 @@ export function registerRateSheetRoutes(app: Express, overrides: Partial<RateShe
         } catch (e: any) { failed.push(`${p.companyName}: ${e?.message ?? e}`); }
       }
       res.json({ applied: true, repaired: repaired.length, failed: failed.length, details: repaired, failures: failed, conflicts: plan.conflicts, noEvidence: plan.noEvidence });
+    } catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
+  });
+
+  // ── Platform reconciliation: who is who on the switch, and what is configured ──
+  // GET only. No write of any kind, no Sippy call. Answers, for every company: what
+  // identity the platform records, what that company's own runs proved, which products
+  // were bought, which are configured under the account, and what remains to be done.
+  //
+  // Product-agnostic on purpose: it reads product_registry, so a product added tomorrow
+  // appears in the rollup with no code change and no second reconciliation project.
+  app.get('/api/provisioning/identity-inventory', adminOnly, async (_req: any, res: any) => {
+    try {
+      const [companies, steps, products, bought, assigned, priced] = await Promise.all([
+        pool.query<any>(`SELECT id, name, sippy_i_account, sippy_i_tariff, provisioning_status FROM companies ORDER BY name`),
+        pool.query<any>(
+          `SELECT r.company_id, s.step_key, s.status, s.result, s.completed_at
+             FROM provisioning_steps s
+             JOIN provisioning_runs r ON r.id = s.run_id
+            WHERE s.step_key IN ('account','tariff') AND s.status = 'success' AND s.result IS NOT NULL`),
+        pool.query<any>(`SELECT id, code, name, trunk_prefix FROM product_registry ORDER BY sort_order, code`),
+        pool.query<any>(`SELECT company_id, product_id FROM company_products`),
+        pool.query<any>(`SELECT i_account, product_id FROM customer_product_assignments WHERE status = 'active'`),
+        // Platform-wide: product_rates carries no company id — it IS the default matrix.
+        pool.query<any>(
+          `SELECT DISTINCT p.code
+             FROM product_rates pr JOIN product_registry p ON p.id = pr.product_id
+            WHERE pr.effective_from <= CURRENT_DATE
+              AND (pr.effective_to IS NULL OR pr.effective_to >= CURRENT_DATE)`),
+      ]);
+
+      const report = buildIdentityInventory({
+        companies: companies.rows.map((c: any) => ({
+          id: Number(c.id), name: String(c.name),
+          sippyIAccount: c.sippy_i_account === null ? null : Number(c.sippy_i_account),
+          sippyITariff:  c.sippy_i_tariff  === null ? null : Number(c.sippy_i_tariff),
+          provisioningStatus: c.provisioning_status ?? null,
+        })),
+        evidence: steps.rows.map((s: any) => ({
+          companyId: Number(s.company_id), stepKey: String(s.step_key), status: String(s.status),
+          result: parseStepResult(s.result), completedAt: s.completed_at,
+        })),
+        products: products.rows.map((p: any) => ({ id: Number(p.id), code: String(p.code), name: String(p.name), trunkPrefix: p.trunk_prefix ?? null })),
+        bought:   bought.rows.map((b: any) => ({ companyId: Number(b.company_id), productId: Number(b.product_id) })),
+        assigned: assigned.rows.map((a: any) => ({ iAccount: Number(a.i_account), productId: Number(a.product_id) })),
+        pricedProductCodes: priced.rows.map((r: any) => String(r.code)),
+      });
+
+      res.json({ readOnly: true, generatedAt: new Date().toISOString(), ...report });
     } catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
   });
 
