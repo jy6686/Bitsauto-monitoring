@@ -234,6 +234,9 @@ export async function runRateBatch(
         newRate: op.rate,
         priorRate: op.priorRate ?? null,
         priorRateSource: op.priorRateSource ?? 'unknown',
+        // The engine's date rules are day-granular and refuse what they cannot parse; the
+        // operator's value may carry a time ('2026-09-15 10:00'), which is passed through so the
+        // engine, not the runner, decides what it is.
         effectiveDate: op.effectiveFrom ?? today,
         today,
         pendingIncreases: op.pendingIncreases,

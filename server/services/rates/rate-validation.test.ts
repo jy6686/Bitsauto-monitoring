@@ -273,3 +273,26 @@ describe("it reports what a decision was made from", () => {
     expect(code).not.toMatch(/new Date\(\)/);
   });
 });
+
+describe("EFFECTIVE DATES WITH A TIME — day-granular rules must still fire", () => {
+  it("a datetime effective date reaches the notice rule exactly as the bare day does", () => {
+    // Found 2026-09-15: "2026-09-15 10:00" parsed to NaN and every date rule quietly skipped —
+    // permission by arithmetic. Same day as today ⇒ 0 days' notice ⇒ the rule must fire.
+    const a = assessRateChange(change({ newRate: 0.08, effectiveDate: '2026-09-14 10:00', today: '2026-09-14' }), GLOBAL, ONEGLOBAL);
+    expect(a.findings.map(f => f.rule)).toContain('rate_increase_notice_violation');
+    const b = assessRateChange(change({ newRate: 0.08, effectiveDate: '2026-09-14T10:00:00Z', today: '2026-09-14' }), GLOBAL, ONEGLOBAL);
+    expect(b.findings.map(f => f.rule)).toContain('rate_increase_notice_violation');
+  });
+
+  it("an UNPARSEABLE effective date is undecidable, never a pass", () => {
+    const v = validateRateChanges([change({ newRate: 0.08, effectiveDate: '15/09/2026' })], GLOBAL, ONEGLOBAL);
+    expect(v.rows[0].disposition).toBe('undecided');
+    expect(v.rows[0].reason).toMatch(/not a YYYY-MM-DD date/);
+    expect(v.rows[0].assessment.findings.some(f => f.rule === 'unparseable_effective_date')).toBe(true);
+  });
+
+  it("a timed date 16 days out still breaches the 15-day future limit", () => {
+    const v = validateRateChanges([change({ newRate: 0.049, effectiveDate: '2026-09-30 09:00', today: '2026-09-14' })], GLOBAL, ONEGLOBAL);
+    expect(v.rows[0].disposition).toBe('dropped_destination');
+  });
+});

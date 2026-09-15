@@ -265,3 +265,22 @@ describe("an unconfigured client refuses rather than sails through", () => {
     expect(push).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("a timed effectiveFrom on the operation is still policed", () => {
+  it("'2026-09-14 10:00' effective today breaches the 7-day notice and is refused, not skipped", async () => {
+    // A client that has NOT decided the notice rule (1GLOBAL configures IGNORE, which would be a
+    // correct proceed). Firing-but-undecided must refuse; the defect was that it never fired.
+    const undecidedNotice: RuleConfig = { ...ONEGLOBAL, outcomes: { suspect_rate_decrease: 'REJECT_DESTINATION' } };
+    const push = vi.fn(confirms);
+    await runRateBatch({ db, push, policy: { ...policy(), config: undecidedNotice } }, {
+      jobId: JOB,
+      operations: [op({ operationKey: 'timed', rate: 0.08, priorRate: 0.05, effectiveFrom: '2026-09-14 10:00' })],
+    });
+    const r = await rows();
+    // Message first, so a wrong disposition prints WHAT the runner decided rather than only that
+    // the push ran.
+    expect(String(r[0].message)).toContain('policy_undecided');
+    expect(String(r[0].message)).toMatch(/\[subject: (rate_increase_notice_violation|suspect_rate_increase)\]/);
+    expect(push).not.toHaveBeenCalled();
+  });
+});

@@ -117,7 +117,7 @@ export type Direction = 'increase' | 'decrease' | 'unchanged' | 'first_rate';
  * no percentage, so "is this suspect?" cannot be put at all — which is a different thing from
  * putting it and getting "no".
  */
-export type FindingSubject = RuleId | 'no_comparison_base';
+export type FindingSubject = RuleId | 'no_comparison_base' | 'unparseable_effective_date';
 
 export interface Finding {
   rule: FindingSubject;
@@ -167,6 +167,19 @@ export const THRESHOLD_FOR_RULE: Record<RuleId, keyof Thresholds> = {
 };
 
 const DAY = 86_400_000;
+/**
+ * The DAY part of a date string, whatever else it carries. The route hands the engine the
+ * operator's `effectiveFrom`, which may be "2026-09-15 10:00" or "2026-09-15T10:00:00"; the
+ * date rules are day-granular. Anything that is not a YYYY-MM-DD prefix is returned as null so the
+ * caller can refuse it: on 2026-09-15 a datetime reached `Date.parse` as
+ * "2026-09-15 10:00T00:00:00Z", parsed to NaN, and every date comparison was quietly false — the
+ * notice rule never fired. An unparseable date must be an open question, not a pass.
+ */
+export const isoDayOf = (v: string | null | undefined): string | null => {
+  const m = String(v ?? '').trim().match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+};
+
 const daysBetween = (from: string, to: string): number =>
   Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY);
 
@@ -289,7 +302,18 @@ export function assessRateChange(
   }
 
   // ── Effective-date bounds ──────────────────────────────────────────────────
-  const offset = daysBetween(change.today, change.effectiveDate);
+  const effDay = isoDayOf(change.effectiveDate);
+  const todayDay = isoDayOf(change.today);
+  if (!effDay || !todayDay) {
+    findings.push({
+      rule: 'unparseable_effective_date',
+      detail: `${change.destinationName}: effective date "${change.effectiveDate}" (today "${change.today}") is not a YYYY-MM-DD date, so no date rule can be evaluated.`,
+      outcome: null,
+      undecidable: true,
+      undecidedBecause: 'A date the rules cannot read is an open question, not a pass: the notice period and the effective-date limits all depend on it.',
+    });
+  }
+  const offset = effDay && todayDay ? daysBetween(todayDay, effDay) : Number.NaN;
 
   if (thresholds.futureEffectiveDateDays !== undefined && offset > thresholds.futureEffectiveDateDays) {
     findings.push({
@@ -339,7 +363,7 @@ export function assessRateChange(
   // no entry, and treating silence as IGNORE would make an unconfigured client the most permissive
   // one on the platform.
   for (const f of findings) {
-    if (f.rule === 'no_comparison_base') continue;   // already carries its own explanation
+    if (f.rule === 'no_comparison_base' || f.rule === 'unparseable_effective_date') continue;   // carry their own explanation
     if (f.outcome === null && !f.undecidable) {
       f.undecidable = true;
       f.undecidedBecause = config === null
