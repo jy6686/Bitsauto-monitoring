@@ -120,6 +120,8 @@ export type BuildRowsInput = {
   increments: Map<string, string | null | undefined>;
   /** prefix → legacy destination name, for prefix-keyed (pre-catalogue) prices only. */
   legacyNames: Map<string, string>;
+  /** prefix → why it must not appear (e.g. the switch holds no rate for it). Reported, never printed. */
+  excludedPrefixes?: Map<string, string>;
 };
 
 export type BuildRowsResult = {
@@ -166,6 +168,8 @@ export function buildRateSheetRows(input: BuildRowsInput): BuildRowsResult {
     }
 
     for (const prefix of prefixes) {
+      const veto = input.excludedPrefixes?.get(prefix);
+      if (veto) { excluded.push(`${r.productCode} ${name} ${prefix}: ${veto}`); continue; }
       const key = `${r.productCode}|${prefix}`;
       if (seen.has(key)) { excluded.push(`${r.productCode} ${name} ${prefix}: duplicate prefix, second price ignored`); continue; }
       seen.add(key);

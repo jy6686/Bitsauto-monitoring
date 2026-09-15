@@ -22,6 +22,11 @@
  * `product_rates.prefix`, which catalogue-keyed prices leave empty, and a customer
  * received rows reading `null` / `+null`.
  *
+ * Billing increments are read back from the customer's Sippy tariff at assembly time
+ * (2026-09-15): the sheet prints what the switch enforces, and a priced prefix the switch
+ * does not hold is left off with a reason. Reads only; the commercial increment itself
+ * reaches the switch through its own gated apply path, never through this module.
+ *
  * Recipients: commercial contacts from company_contacts only.
  * Finance, billing and invoicing contacts are excluded (same rule as the account details
  * email). The rate sheet is a commercial document, not a system credential, so it goes to
@@ -31,8 +36,9 @@ import { sql } from "drizzle-orm";
 import { db, pool } from "../../db";
 import { sendDirectEmailWithAttachment } from "../../email";
 import { expandRates, activeCatalogueVersionId, type Expansion } from "../rates/rate-prefix-expansion";
-import { lookupCatalogueIncrements } from "../rates/catalogue-increments";
-import { parseBillingIncrement, formatBillingIncrement } from "../rates/billing-increment";
+import { storage } from "../../storage";
+import * as sippy from "../../sippy";
+import { incrementsFromTariff, type TariffRateRow } from "./tariff-increments";
 import {
   buildRateSheetRows, changeEffectiveDates, formatSheetDate, formatSheetTime, technicalPrefix,
   RATE_SHEET_TERMS, type PricedRate, type RateSheetModel, type RateSheetRow,
@@ -201,6 +207,28 @@ async function resolveKam(
   }
 }
 
+/** A tariff row as the sheet needs it: the read-back's price rides along so drift can be reported. */
+export type SheetTariffRow = TariffRateRow & { price1?: number | null };
+
+/**
+ * Read the customer's tariff from the switch. Same call and same credential
+ * resolution as the company card's tariff panel and the provisioning runner
+ * (api-admin first, portal login second). A read, never a write.
+ */
+async function readTariffRates(iTariff: number): Promise<SheetTariffRow[]> {
+  const s: any = await storage.getSippySettings();
+  if (!s) throw new Error("Sippy settings are not configured");
+  const username  = s.apiAdminUsername || s.portalUsername || "";
+  const password  = s.apiAdminPassword || s.portalPassword || "";
+  const portalUrl = (s.portalUrl as string | undefined) || "https://191.101.30.107";
+  const rows = await sippy.getTariffRatesListFull(username, password, iTariff, undefined, undefined, undefined, portalUrl);
+  return rows.map(r => ({
+    prefix: String(r.prefix ?? ""), interval1: r.interval1, intervalN: r.intervalN,
+    activationDate: r.activationDate ?? null, expirationDate: r.expirationDate ?? null,
+    forbidden: r.forbidden ?? null, price1: r.price1,
+  }));
+}
+
 /** Legacy (prefix-keyed) prices keep the name resolution they always had. */
 async function legacyNamesFor(prefixes: string[]): Promise<Map<string, string>> {
   const out = new Map<string, string>();
@@ -246,6 +274,12 @@ export type PreparedRateSheet = {
 export type RateSheetAssembly = {
   /** Null when the company does not exist. */
   company: { id: number; name: string; accountPrefix: string; recipients: string[] } | null;
+  /**
+   * The switch read-back the sheet was derived from. Billing increments on the sheet are
+   * what the tariff holds, never the catalogue's supplier value (decided 2026-09-15 after
+   * tariff 68 billed 1/1 while the sheet said 60/1). When the read fails nothing is sendable.
+   */
+  readBack: { iTariff: number | null; ok: boolean; rowsOnTariff: number; error: string | null };
   /** Products with at least one row — these are what a customer would receive. */
   products: PreparedRateSheet[];
   /** Products with effective prices but no row the sheet could carry. Never sent. */
@@ -264,17 +298,18 @@ export type RateSheetAssembly = {
  */
 export async function assembleRateSheets(
   companyId: number,
-  opts: { now?: Date; productCode?: string } = {},
+  opts: { now?: Date; productCode?: string; readTariff?: (iTariff: number) => Promise<SheetTariffRow[]> } = {},
 ): Promise<RateSheetAssembly> {
   const details: string[] = [];
   const now = opts.now ?? new Date();
+  const noReadBack = { iTariff: null, ok: false, rowsOnTariff: 0, error: null };
 
   // 1. Company info + recipients
   // Commercial + rates contacts receive rate notifications.
   // Technical contacts are excluded — they handle credentials, not pricing.
   // Finance/billing/invoicing are excluded as always.
   const { rows: compRows } = await pool.query<any>(
-    `SELECT c.id, c.name, c.account_prefix, c.kam, c.sippy_i_account,
+    `SELECT c.id, c.name, c.account_prefix, c.kam, c.sippy_i_account, c.sippy_i_tariff,
             COALESCE(
               (SELECT array_agg(DISTINCT ct.email) FROM company_contacts ct
                 WHERE ct.company_id = c.id
@@ -286,7 +321,7 @@ export async function assembleRateSheets(
   );
 
   const comp = compRows[0];
-  if (!comp) return { company: null, products: [], unsendable: [], details: [`Company ${companyId} not found.`] };
+  if (!comp) return { company: null, readBack: noReadBack, products: [], unsendable: [], details: [`Company ${companyId} not found.`] };
 
   const recipients: string[] = Array.from(new Set<string>(
     (comp.contact_emails ?? [])
@@ -321,7 +356,7 @@ export async function assembleRateSheets(
   const wanted = opts.productCode ? String(opts.productCode).toUpperCase() : null;
   const rateRows = wanted ? allRateRows.filter((r: any) => String(r.product_code) === wanted) : allRateRows;
 
-  if (!rateRows.length) return { company, products: [], unsendable: [], details };
+  if (!rateRows.length) return { company, readBack: noReadBack, products: [], unsendable: [], details };
 
   // 3. Resolve every price the way the switch upload resolves it: through the
   //    Destination Catalogue, one row per prefix, named by the catalogue. Legacy
@@ -342,13 +377,24 @@ export async function assembleRateSheets(
   const activeVersionId = await activeCatalogueVersionId(db as any, sql as any);
   const expansions = await expandRates(db as any, priced, activeVersionId, sql as any);
 
-  const allPrefixes = Array.from(new Set(expansions.flatMap(e => e.prefixes)));
-  const rawIncrements = await lookupCatalogueIncrements(db as any, allPrefixes);
-  const increments = new Map<string, string>();
-  for (const [prefix, raw] of rawIncrements) {
-    const parsed = parseBillingIncrement(raw);
-    if (parsed) increments.set(prefix, formatBillingIncrement(parsed));
+  // ── Billing increments: what the switch holds, read back now ─────────────
+  // Not the catalogue. Its billing_increment is the supplier's value and is replaced on
+  // every re-import; the commercial commitment is declared separately and reaches the
+  // switch through its own gated apply. The customer sheet sits at the end of that chain
+  // (commitment → apply → read-back → sheet), so it can only ever print what the tariff
+  // enforces today: 1/1 until a commitment is applied, 60/1 once the read-back says so.
+  const iTariff = comp.sippy_i_tariff === null || comp.sippy_i_tariff === undefined ? null : Number(comp.sippy_i_tariff);
+  let tariffRows: SheetTariffRow[] | null = null;
+  let readBackError: string | null = null;
+  if (iTariff === null) {
+    readBackError = "no Sippy tariff is linked to this company";
+  } else {
+    try { tariffRows = await (opts.readTariff ?? readTariffRates)(iTariff); }
+    catch (e: any) { readBackError = e?.message ?? String(e); }
   }
+  const readBack = { iTariff, ok: tariffRows !== null, rowsOnTariff: tariffRows?.length ?? 0, error: readBackError };
+  if (readBackError) details.push(`Tariff read-back failed (${readBackError}) — no sheet can state a billing increment, so nothing is sendable.`);
+
   const legacyNames = await legacyNamesFor(
     expansions.filter(e => e.verdict === "legacy_prefix").flatMap(e => e.prefixes),
   );
@@ -379,10 +425,34 @@ export async function assembleRateSheets(
     const productDigit = productExpansions[0].row.productDigit;
     const currency     = productExpansions[0].row.currency ?? "USD";
 
-    const { rows: sheetRows, excluded } = buildRateSheetRows({ expansions: productExpansions, increments, legacyNames });
+    if (!tariffRows) {
+      unsendable.push({ productCode, productLabel, reasons: [`tariff read-back failed: ${readBackError}`] });
+      continue;
+    }
+
+    // Increments for this product's digit only; a priced prefix the switch does not hold is
+    // left off the sheet with a reason, never printed with an invented increment.
+    const productPrefixes = Array.from(new Set(productExpansions.flatMap(e => e.prefixes)));
+    const lookup = incrementsFromTariff(tariffRows, productDigit, productPrefixes, now);
+    const excludedPrefixes = new Map(lookup.missing.map(p => [p, `not on tariff ${iTariff} — the switch holds no active rate for ${productDigit}${p}, so it is not offered`]));
+
+    const { rows: sheetRows, excluded } = buildRateSheetRows({ expansions: productExpansions, increments: lookup.increments, legacyNames, excludedPrefixes });
     for (const line of excluded) details.push(`${productLabel}: not on the sheet — ${line}`);
+
+    // Price drift between what was priced and what the switch bills is reported, not hidden.
+    const onSwitch = new Map(tariffRows.filter(r => r.prefix.startsWith(productDigit)).map(r => [r.prefix.slice(productDigit.length), r]));
+    for (const row of sheetRows) {
+      const t = onSwitch.get(row.prefix);
+      if (t && t.price1 !== null && t.price1 !== undefined && Math.abs(Number(t.price1) - row.rate) > 1e-6) {
+        details.push(`${productLabel}: ${row.destination} ${row.prefix} is priced ${row.rate} but tariff ${iTariff} bills ${t.price1} — the sheet shows the price, the switch bills the tariff.`);
+      }
+    }
+
     if (!sheetRows.length) {
-      unsendable.push({ productCode, productLabel, reasons: excluded.length ? excluded : ["no effective price reached a named destination"] });
+      unsendable.push({
+        productCode, productLabel,
+        reasons: excluded.length ? excluded : ["no effective price reached a named destination"],
+      });
       continue;
     }
 
@@ -422,7 +492,7 @@ export async function assembleRateSheets(
     products.push({ productCode, productLabel, productDigit, currency, subject, filename, html, xlsx, rows: sheetRows, excluded });
   }
 
-  return { company, products, unsendable, details };
+  return { company, readBack, products, unsendable, details };
 }
 
 // ── Main export ────────────────────────────────────────────────────────────────
