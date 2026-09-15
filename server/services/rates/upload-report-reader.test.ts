@@ -12,7 +12,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
-import { interpretUploadReport } from '../../sippy';
+import { interpretUploadReport, reportCellText } from '../../sippy';
 
 const workbook = async (rows: any[][]): Promise<Buffer> => {
   const wb = new ExcelJS.Workbook();
@@ -91,5 +91,34 @@ describe('everything that is not a workbook', () => {
     const r = await interpretUploadReport(Buffer.from('nope'), 404);
     expect(r.ok).toBe(false);
     expect(r.message).toBe('HTTP 404');
+  });
+});
+
+describe('a cell is rendered as the value it is, never decorated', () => {
+  it('a DATE cell reads as the switch writes it, with no JSON quotes', () => {
+    // The first report ever read on this platform showed `"2026-09-15T14:30:00.000Z"` for an
+    // activation that had been uploaded, and accepted, as 2026-09-15 14:30:00. The quotes were
+    // the reader's, and they pointed suspicion at the upload instead of at the conflict the
+    // importer had actually reported.
+    const out = reportCellText(new Date(Date.UTC(2026, 8, 15, 14, 30, 0)));
+    expect(out).toBe('2026-09-15 14:30:00');
+    expect(out).not.toContain('"');
+    expect(out).not.toContain('T');
+    expect(out).not.toContain('Z');
+  });
+
+  it('a date INSIDE a workbook survives the round trip', async () => {
+    const buf = await workbook([['Activation Date'], [new Date(Date.UTC(2026, 8, 22, 0, 0, 0))]]);
+    const r = await interpretUploadReport(buf, 200);
+    expect(r.rows?.[1]).toEqual(['2026-09-22 00:00:00']);
+  });
+
+  it('rich text, formula results and plain values all read as text', () => {
+    expect(reportCellText({ richText: [{ text: 'Another Rate with ' }, { text: 'conflicting' }] }))
+      .toBe('Another Rate with conflicting');
+    expect(reportCellText({ formula: 'A1', result: 0.2 })).toBe('0.2');
+    expect(reportCellText({ error: '#REF!' })).toBe('#REF!');
+    expect(reportCellText(60)).toBe('60');
+    expect(reportCellText(null)).toBe('');
   });
 });

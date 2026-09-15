@@ -340,28 +340,47 @@ Read-back: tariff 64 unchanged, both rows still 0.196 / 60/1, `9115` expiring an
 2026-09-22. Verdict `failure` (retryable), method `upload_token`. The message names the date logic
 explicitly: *no row activating 20260915; judged the latest-activating row (20260922)*.
 
-**What this settles.** The FAIL is NOT a property of tariff 65. Two different tariffs, two different
-clients, two different prefixes, two different destinations — same pre-parse refusal on a
-future-dated import. The remaining fault is in the **future-dated import path itself**, not in any
-one tariff, and not in the tariff lock (whose banner is universal and was already shown to be
-non-evidence).
+**The reason, read 2026-09-15 after the report reader was fixed.** The importer's own words, one
+row, echoing the upload back: `A | | 19370 | | 60 | 1 | 0.2 | 0.2 | 0 | 1 | 2026-09-15 14:30:00 | |`
+— **"Another Rate with conflicting \"Prefix\" or \"Activation/Expiration Date\" already exists."**
 
-**What this proves that pilot #1 could not.** The 60 × 2 s poller observed a FAIL at +64.8 s that the
-old 15 × 2 s budget would have missed entirely, verifying a tariff mid-import. The safety properties
-all held under a real refusal: no premature live-price mutation, no increment change, no `portal_csv`
-fallback, correct tariff and prefix, and an honest retryable verdict rather than a false success.
-**SMP-006's negative path is now proven twice; its positive path remains unproven**, because no
-future-dated import has yet succeeded on this build.
+The upload was well-formed. Sippy parsed it, echoed the activation back as a proper date cell, and
+rejected it on a **date conflict**, which the tariff's own rows explain completely: `9115` occupies
+2026-07-31 17:00 → 2026-09-22 00:00 and `9175` occupies 2026-09-22 00:00 → ∞. An added row
+activating 2026-09-15 14:30 with no expiration overlaps both. There was no gap to add into.
 
-**The reason is in the report, and the report was unreadable.** Unlike pilot #1 (empty report), this
-FAIL produced `7ec17c1a-fdbe-43e3-8c06-d2ebacad744b` — a real document. `fetchUploadReport` returned
-it as mangled text beginning `PK\u0003\u0004`: the report is an **XLSX workbook**, and the reader
-decoded a ZIP as UTF-8. Fixed by reading through `rawGetBinary` and parsing with exceljs; the
-judgement is extracted as the pure `interpretUploadReport`, which keeps four outcomes distinct — a
-login page, zero bytes (refused before parsing), a workbook (the reason), and an unparseable
-workbook (a failure to READ, never reported as an empty report). Covered by
-`server/services/rates/upload-report-reader.test.ts`. **The reason for the FAIL is still unread**
-until that fix is deployed and the token fetched.
+**PREVIOUS CONCLUSION WITHDRAWN.** On first reading this FAIL — before the report was legible — this
+entry said the fault was "the future-dated import path itself" and that tariff 65 was eliminated as
+special. **Both claims were wrong**, and the error is instructive: the discriminator was run against
+the very state SMP-006 had damaged, so it tested a tariff that already held two rows covering the
+requested date. It measured the damage, not the path.
+
+**What is actually established.**
+1. **Future-dated A-uploads DO work on this build.** The 2026-09-14 push created `9175` with
+   activation 2026-09-22 correctly. That was never the defect; the extra portal edit was.
+2. **Tariff 64's refusal is legitimate and specific** — a real overlap, correctly refused, correctly
+   reported. Sippy behaved well here.
+3. **Tariff 65 is NOT eliminated.** Its report is genuinely zero bytes and its FAIL came at +9 s
+   against +64.8 s here. Different timing, different report, different mode. Pilot #1's cause
+   remains UNKNOWN.
+
+**What still held, and is worth keeping.** Under a real refusal the boundary behaved: tariff
+unchanged, no `portal_csv` fallback, verdict `failure` (retryable), correct tariff and prefix, no
+premature increment change. And the 60 × 2 s poller observed a FAIL at +64.8 s that the old 15 × 2 s
+budget would have missed entirely — the exact second cause of SMP-006.
+
+**Reading the report at all required a fix.** It is an XLSX workbook; `fetchUploadReport` decoded
+the ZIP as UTF-8 and returned `PK` followed by replacement characters. Fixed in `a7103a82`
+(`rawGetBinary` + exceljs, judgement extracted as the pure `interpretUploadReport`, which keeps a
+login page, zero bytes, a workbook and an UNPARSEABLE workbook distinct — the last must never be
+reported as the first). A second defect in the reader itself was found by reading this very report:
+a date cell rendered as `"2026-09-15T14:30:00.000Z"`, JSON quotes included, which is what first
+made the upload look malformed. `reportCellText` now renders dates in the switch's own form.
+**A reader that decorates evidence manufactures a false lead, and this one did, for one reading.**
+
+**To prove SMP-006's positive path** the push must go somewhere with no conflicting window: a prefix
+with a single open-ended row, or an activation after the last row's. That is a Sippy write and needs
+the owner's word.
 
 **Remediation of the evidence.** Tariff 64 is disposable. Restoring `9115` to 0.133 / 1/1 until
 2026-09-22 is a Sippy write and the owner's decision; leaving both rows as evidence is equally valid.
