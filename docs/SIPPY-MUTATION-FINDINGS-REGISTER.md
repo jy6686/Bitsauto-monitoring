@@ -28,6 +28,7 @@ register classifies rather than counts, so that "no boundary" is not read as "un
 
 | ID | Finding | Severity | Status | Required decision |
 |----|---------|----------|--------|-------------------|
+| SMP-007 | **Tariff 65's importer refuses every rates upload before parsing.** Three attempts (2026-09-15, differing prefix, rate and date) each FAILed with a **zero-byte report**; the identical operation SUCCEEDED on tariff 64. Not a platform defect and not a content defect — the paired test eliminates both | Medium | **OPEN — external** | Sippy-side inspection of the importer state attached to tariff 65. **No application change may be made to compensate.** Do not push to tariff 65 for diagnosis; the fixture is already fully controlled |
 | SMP-005 | `POST /api/sippy/upload/file` sends caller-supplied bytes to a **caller-supplied URL** (`?url=`) with no allowlist and `rejectUnauthorized: false`, and returns the response body. Paired with `POST /api/sippy/upload/token`, which accepts an arbitrary `i_tariff`, the two compose into a generic rate-rewrite capability. Both currently ungated | **Critical** (proposed) | OPEN | Not fixable by a role floor alone — needs a destination allowlist. Assess before the create/update pass |
 | SMP-004 | Two further shadowed route registrations — `GET /api/reports/asr-acd` and `GET /api/sippy/accounts/:id/info` each registered twice, the second copy unreachable. **Neither carries authorization, so neither is an authorization exposure**: divergent dead implementations, not an open door | Low | OPEN | Decide which implementation is intended, then remove the other |
 | SMP-003 | **57 of 160** `/api/sippy` write routes have no gate of any kind, and `/api/sippy` is absent from `PLATFORM_ROUTE_GROUPS` so `requirePlatformAccess` never runs; the tariff-rate DELETE is reachable by any authenticated session, `portal_only` included. Includes a **shadowed gate**: `DELETE /api/sippy/tariffs/:id` is registered twice and the `requireRole(['admin'])` copy is unreachable | **Critical** | OPEN — audited, policy not yet decided | Separate authorization-hardening decision. Evidence: [SMP-003-AUTHORIZATION-AUDIT.md](SMP-003-AUTHORIZATION-AUDIT.md) |
@@ -274,7 +275,7 @@ Adding `requireRole` route-by-route without that decision would encode 76 indivi
 
 ---
 
-### SMP-006 · Effective-dated pushes are applied twice: the future row AND the live row
+### SMP-006 · Effective-dated pushes are applied twice: the future row AND the live row — **CLOSED / VERIFIED 2026-09-15**
 
 **Found:** 2026-09-14, on the first legitimate write since the freeze (`job-1789402775430`, Test-31,
 tariff 64, `19370` 0.133 → 0.196 effective 2026-09-22). Policy layer passed it correctly. The write path
@@ -477,9 +478,11 @@ verifier. The only variable is the tariff.
 | report | n/a | **0 bytes** |
 | result | row 9218 created, activation 2026-09-17 10:00 | **nothing; tariff still holds 1 rate** |
 
-**Conclusion: the uploaded file is not the cause, and the platform is not the cause.** The same
-bytes, the same code path and the same instant succeed one tariff over. Whatever refuses on tariff
-65 is a property of that tariff or of Sippy-side state associated with it.
+**Conclusion, stated to its exact reach.** The test exonerates the uploaded CONTENT and this
+application's write path **for the tested healthy tariff**. It does not establish what Sippy has
+internally attached to tariff 65, and nothing here should be read as doing so. What it does settle
+is that no change to the file or to this code can account for the difference, because neither
+varied.
 
 **Three refusals on tariff 65, all identical in kind:**
 
@@ -502,7 +505,9 @@ and is not per-tariff evidence, and no API on this build lists a tariff's import
 durations (9 → 17 → 33 s) are an observation, not a finding; three points cannot establish a
 pattern.
 
-**This is now outside the platform.** Resolving it needs Sippy-side inspection of tariff 65's import
+**This is SMP-007, and it is OUTSIDE the platform.** It is tracked separately from SMP-006 on
+purpose: SMP-006 is a defect in this code that a controlled A/B experiment has closed, and an
+unresolved Sippy-side condition must not be allowed to reopen it. Resolving SMP-007 needs Sippy-side inspection of tariff 65's import
 queue — the operator's panel or Sippy support. No code change here will clear it, and no further
 push to tariff 65 will produce new information; the fixture has been fully controlled and the
 answer did not change.
