@@ -10123,22 +10123,95 @@ export async function readTariffLockState(
  *
  * The token is validated as a UUID so this cannot be pointed at any other path on the host.
  */
-export async function fetchUploadReport(
-  base: string,
-  token: string,
-): Promise<{ ok: boolean; statusCode?: number; text: string; message: string }> {
+export interface UploadReport {
+  ok: boolean;
+  statusCode?: number;
+  text: string;
+  message: string;
+  format?: 'xlsx' | 'text';
+  rows?: string[][];
+}
+
+/**
+ * Interpret the bytes Sippy served for a report. Pure, and separated from the download for the
+ * same reason `selectVerificationRow` was: the judgement about what the importer said is the part
+ * that must be testable, and it must never claim a reason it did not read.
+ *
+ * Four outcomes, kept distinct because they mean different things operationally:
+ *   - a login page  → the session was not accepted; nothing about the import was learned
+ *   - zero bytes    → the importer wrote no report, which is what a refusal BEFORE parsing does
+ *   - a workbook    → the importer's own rows, which is the reason
+ *   - anything else → served as the text it is
+ */
+export async function interpretUploadReport(body: Buffer, statusCode: number): Promise<UploadReport> {
+  const head = body.subarray(0, 2048).toString('utf8');
+  const loginPage = /accounts\/login|name="login"|<title>[^<]*login/i.test(head);
+  if (statusCode !== 200 || loginPage) {
+    return {
+      ok: false, statusCode, text: head.slice(0, 2000),
+      message: loginPage ? 'portal session was not accepted for the report download' : `HTTP ${statusCode}`,
+    };
+  }
+  if (body.length === 0) {
+    return {
+      ok: true, statusCode: 200, text: '', format: 'text',
+      message: 'report is EMPTY — Sippy wrote no rows, which is what an import refused before parsing (e.g. a locked tariff) produces',
+    };
+  }
+
+  // A zip local-file header means a workbook. Anything else is served as the text it is.
+  const isXlsx = body.length > 4 && body[0] === 0x50 && body[1] === 0x4b && body[2] === 0x03 && body[3] === 0x04;
+  if (!isXlsx) {
+    const text = body.toString('utf8');
+    return { ok: true, statusCode: 200, format: 'text', text: text.slice(0, 8000), message: `report: ${body.length} bytes of text` };
+  }
+
+  try {
+    const ExcelJS = (await import('exceljs')).default as any;
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(body);
+    const rows: string[][] = [];
+    wb.eachSheet((ws: any) => {
+      ws.eachRow({ includeEmpty: false }, (row: any) => {
+        const cells: string[] = [];
+        row.eachCell({ includeEmpty: true }, (cell: any) => {
+          const v = cell?.value;
+          cells.push(v == null ? '' : (typeof v === 'object' ? String((v as any).text ?? (v as any).result ?? JSON.stringify(v)) : String(v)));
+        });
+        // Trailing empties carry no information and make the text form unreadable.
+        while (cells.length && cells[cells.length - 1] === '') cells.pop();
+        if (cells.length) rows.push(cells);
+      });
+    });
+    const text = rows.map(r => r.join(' | ')).join('\n');
+    return {
+      ok: true, statusCode: 200, format: 'xlsx', rows: rows.slice(0, 500),
+      text: text.slice(0, 8000),
+      message: rows.length
+        ? `report: ${rows.length} row(s) in a workbook of ${body.length} bytes`
+        : `report workbook is EMPTY (${body.length} bytes) — the importer wrote no rows`,
+    };
+  } catch (e: any) {
+    // Never claim a reason that was not read. An unparseable workbook is reported as such.
+    return {
+      ok: false, statusCode: 200, format: 'xlsx', text: '',
+      message: `report is a workbook of ${body.length} bytes that could not be parsed: ${String(e?.message ?? e)}`,
+    };
+  }
+}
+
+export async function fetchUploadReport(base: string, token: string): Promise<UploadReport> {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) {
     return { ok: false, text: '', message: 'token must be a Sippy upload token (UUID)' };
   }
   const cookies = await provisioningLogin(base);
   const url = `${base}/download/reports/${token}`;
-  const resp = await rawRequest('GET', url, null, { 'User-Agent': PORTAL_USER_AGENT }, cookies);
-  const text = String(resp.body ?? '');
-  const loginPage = /accounts\/login|name="login"|<title>[^<]*login/i.test(text);
-  if (resp.statusCode !== 200 || loginPage) {
-    return { ok: false, statusCode: resp.statusCode, text: text.slice(0, 2000), message: loginPage ? 'portal session was not accepted for the report download' : `HTTP ${resp.statusCode}` };
-  }
-  return { ok: true, statusCode: 200, text: text.slice(0, 8000), message: text.trim() ? `report: ${text.length} bytes` : 'report is EMPTY — Sippy wrote no rows, which is what an import refused before parsing (e.g. a locked tariff) produces' };
+
+  // Binary-safe. The report is an XLSX workbook, not text: read through rawRequest's string
+  // concatenation and the zip bytes are mangled beyond parsing, which is how the first attempt to
+  // read one produced a screenful of replacement characters and no reason for the FAIL.
+  const resp = await rawGetBinary(url, cookies);
+  return interpretUploadReport(resp.body ?? Buffer.alloc(0), resp.statusCode);
 }
 
 // ── rawGetBinary ─────────────────────────────────────────────────────────────

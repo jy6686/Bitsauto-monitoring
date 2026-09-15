@@ -324,6 +324,45 @@ FAIL is at `https://191.101.30.107/download/reports/eedf88b9-f448-40a6-8ee1-53ce
 login); the code that discarded it is the code fixed above. Positive path (scheduled row created,
 live row untouched, verified as DONE) still to be shown.
 
+**Tariff-64 state re-read 2026-09-15 13:09Z, under owner authorisation, before the proposed
+discriminating write.** Two rows for `19370`, both at 0.196 and both `60/1`: `iRate 9115` activated
+2026-07-31 17:00 with an `expirationDate` of 2026-09-22 00:00, and `iRate 9175` activating
+2026-09-22 00:00. This is the damaged state SMP-006 produced, unchanged since. Note the live row now
+carries an explicit expiry, so the scheduled row supersedes it cleanly — the defect is the rate and
+increment that changed on 09-14, not the succession.
+
+**Discriminating write, 2026-09-15 13:26Z — tariff 64, `19370` 0.133-era row untouched, requested
+0.200 effective 2026-09-15 14:30 GMT (owner-authorised, run from the owner's browser after the
+session's permission classifier refused it locally).**
+
+Result: Sippy's importer refused the upload again. `FAIL` at 13:26:29 GMT, 64.8 s into the push.
+Read-back: tariff 64 unchanged, both rows still 0.196 / 60/1, `9115` expiring and `9175` activating
+2026-09-22. Verdict `failure` (retryable), method `upload_token`. The message names the date logic
+explicitly: *no row activating 20260915; judged the latest-activating row (20260922)*.
+
+**What this settles.** The FAIL is NOT a property of tariff 65. Two different tariffs, two different
+clients, two different prefixes, two different destinations — same pre-parse refusal on a
+future-dated import. The remaining fault is in the **future-dated import path itself**, not in any
+one tariff, and not in the tariff lock (whose banner is universal and was already shown to be
+non-evidence).
+
+**What this proves that pilot #1 could not.** The 60 × 2 s poller observed a FAIL at +64.8 s that the
+old 15 × 2 s budget would have missed entirely, verifying a tariff mid-import. The safety properties
+all held under a real refusal: no premature live-price mutation, no increment change, no `portal_csv`
+fallback, correct tariff and prefix, and an honest retryable verdict rather than a false success.
+**SMP-006's negative path is now proven twice; its positive path remains unproven**, because no
+future-dated import has yet succeeded on this build.
+
+**The reason is in the report, and the report was unreadable.** Unlike pilot #1 (empty report), this
+FAIL produced `7ec17c1a-fdbe-43e3-8c06-d2ebacad744b` — a real document. `fetchUploadReport` returned
+it as mangled text beginning `PK\u0003\u0004`: the report is an **XLSX workbook**, and the reader
+decoded a ZIP as UTF-8. Fixed by reading through `rawGetBinary` and parsing with exceljs; the
+judgement is extracted as the pure `interpretUploadReport`, which keeps four outcomes distinct — a
+login page, zero bytes (refused before parsing), a workbook (the reason), and an unparseable
+workbook (a failure to READ, never reported as an empty report). Covered by
+`server/services/rates/upload-report-reader.test.ts`. **The reason for the FAIL is still unread**
+until that fix is deployed and the token fetched.
+
 **Remediation of the evidence.** Tariff 64 is disposable. Restoring `9115` to 0.133 / 1/1 until
 2026-09-22 is a Sippy write and the owner's decision; leaving both rows as evidence is equally valid.
 
