@@ -3090,7 +3090,10 @@ function JobsTab() {
               const clientDisplay = j.clientNames || (
                 j.totalClients > 0 ? `${j.pushedClients ?? 0}/${j.totalClients} client${j.totalClients > 1 ? 's' : ''}` : '—'
               );
-              const moduleLabel = j.notificationType ? 'Notifications' : 'Send Rate';
+              // A provisioning run's bulk upload is recorded as its own source (push_method
+              // 'provisioning_upload'); it is neither a Send Rate push nor a notification.
+              const moduleLabel = j.pushMethod === 'provisioning_upload' ? 'Provisioning'
+                : j.notificationType ? 'Notifications' : 'Send Rate';
               // COMMERCIAL destinations, not prefixes. `destinationName` holds the names the
               // operator queued; `fullPrefix` holds the transport codes they expand to, and
               // counting those would report Zong as two. Neither `destinationCount` nor
