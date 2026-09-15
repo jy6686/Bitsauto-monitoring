@@ -425,6 +425,45 @@ uploaded workbook (`push-xlsx-list` is empty), so the bytes cannot be diffed aft
 and 65 dies pre-parse, the tariff is implicated and the file is exonerated for good. Two Sippy
 writes; the owner's word is required for each.
 
+### SMP-006 POSITIVE PATH PROVEN — 2026-09-15 15:07Z, tariff 64, `19233`
+
+The control leg of the tariff-64/65 discriminator, and the first `upload_token` success since
+2026-09-02. Fixture chosen to carry no confound: PAKISTAN - MOBILE UFONE, a single-prefix
+destination already eligible for First Class, at `1/1`, **absent from both tariffs**, so no
+declaration was written, no overlap was possible and no increment could move.
+
+`19233 @ 0.05`, effective **2026-09-17 10:00 GMT**. Result: `success`, `upload_token`, 21.9 s,
+*"Rate updated — upload token DONE, verified (prefix=19233 rate=0.05)"*.
+
+**Read back at 15:22Z — every acceptance condition met:**
+
+| iRate | prefix | rate | incr | activation | expiration |
+|---|---|---|---|---|---|
+| **9218** | **19233** | **0.05** | **1/1** | **2026-09-17 10:00:00** | none |
+| 9175 | 19370 | 0.196 | 60/1 | 2026-09-22 00:00 | none |
+| 9115 | 19370 | 0.196 | 60/1 | 2026-07-31 17:00 | 2026-09-22 00:00 |
+
+A scheduled row at the requested activation, **nothing applied today**, both `19370` rows byte-for-byte
+as they were, `upload_token` throughout and **no `portal_csv` anywhere in the trace**.
+
+**This closes SMP-006.** The defect was a verifier that could not see what it had just written: it
+looked for the new rate on the first row for the prefix, found the old one, called its own
+successful write a failure, and let the portal fallback edit the live row. Today the date-aware
+verifier found row 9218 by its activation, confirmed it, and the push stopped there. Under the old
+code this exact operation would have fallen through to `portal_csv` and changed a price today that
+the customer was told changes on the 17th.
+
+**A second, older question closes with it: NEW-PREFIX CREATION WORKS on `upload_token`.** `19233`
+did not exist on tariff 64 and now does. The standing record in [[sippy-rate-upload-format]] — "our
+Rate Manager has never successfully created a NEW prefix in a Sippy tariff" — was true of the
+PORTAL path, whose add form scrapes an `i_rate` from a blank form. It is **not** true of the upload
+path. Do not carry that claim forward unqualified.
+
+**What is now unambiguous about tariff 65.** The same builder, the same transport, the same
+verifier, the same `1/1`, the same activation instant and the same rate succeed on tariff 64. If
+tariff 65 refuses this identical content, the file is exonerated and the difference is the tariff or
+Sippy-side state associated with it.
+
 **Remediation of the evidence.** Tariff 64 is disposable. Restoring `9115` to 0.133 / 1/1 until
 2026-09-22 is a Sippy write and the owner's decision; leaving both rows as evidence is equally valid.
 
