@@ -133,6 +133,10 @@ describe("verdict, folded into generation", () => {
     const m = generateRateMatrix({ destinations: [PK], products: PRODUCTS, rates });
     expect(m.ok).toBe(false);
     expect(m.errors.join(" ")).toMatch(/SC .*produced no rows/);
+    // Named structurally as well, so a caller can diagnose "selected but unpriced"
+    // without matching on the message.
+    expect(m.unpricedProducts).toMatchObject([{ code: "SC" }]);
+    expect(m.errors).toHaveLength(m.unpricedProducts.length);
   });
 
   it("fails on an empty matrix", () => {
