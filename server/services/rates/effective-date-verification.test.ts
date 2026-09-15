@@ -136,11 +136,34 @@ describe("the importer's report is readable from the platform", () => {
     const at = SIPPY.indexOf('export async function fetchUploadReport(');
     const end = SIPPY.indexOf('\nexport ', at + 10);
     const fn = SIPPY.slice(at, end);
-    expect(fn).toContain("rawRequest('GET', url, null,");
+    // rawGetBinary, not rawRequest: the report is an XLSX and string concatenation mangles it.
+    // It is still a GET and nothing else — asserted on the primitive itself, below.
+    expect(fn).toContain('await rawGetBinary(url, cookies)');
     expect(fn).toContain('await provisioningLogin(base)');
     expect(fn).toMatch(/\^\[0-9a-f\]\{8\}-/);                  // UUID gate
     // Nothing that writes: no POST, no upload-token issuance, no file upload, no rate mutation.
     for (const forbidden of ["'POST'", 'getUploadToken', 'uploadFile', 'setRate', 'deleteAll', 'pushRate']) expect(fn, forbidden).not.toContain(forbidden);
+  });
+
+  it("rawGetBinary is a GET and cannot become anything else", () => {
+    const at = SIPPY.indexOf('export function rawGetBinary(');
+    const end = SIPPY.indexOf('\nexport ', at + 10);
+    const fn = SIPPY.slice(at, end);
+    expect(at).toBeGreaterThan(-1);
+    expect(fn).toContain("method:   'GET'");
+    for (const forbidden of ["'POST'", "'PUT'", "'DELETE'"]) expect(fn, forbidden).not.toContain(forbidden);
+  });
+
+  it("an unreadable report is never reported as an EMPTY one", () => {
+    // The distinction the reader exists to preserve: "the importer wrote nothing" is evidence
+    // about the import; "I could not parse this" is evidence about the reader. Collapsing them
+    // would manufacture a reason nobody read.
+    const at = SIPPY.indexOf('export async function interpretUploadReport(');
+    const end = SIPPY.indexOf('\nexport ', at + 10);
+    const fn = SIPPY.slice(at, end);
+    expect(at).toBeGreaterThan(-1);
+    expect(fn).toContain('could not be parsed');
+    expect(fn).toMatch(/catch[\s\S]*ok: false/);
   });
 
   it("an EMPTY report is named as such — it is evidence, not an error", () => {
