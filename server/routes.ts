@@ -33,6 +33,7 @@ import { registerRatePolicyRoutes } from './routes-rate-policy';
 import { perClientPolicy } from './services/rates/policy-adapter';
 import { registerRateNotificationRoutes, createInitialRateJob } from './routes-rate-notifications';
 import { registerRateSheetRoutes } from './routes-rate-sheet';
+import { canonicalCell, COUNTRY_DISPLAY, PRODUCT_DISPLAY } from './services/provisioning/auth-rule-vocab';
 import { registerProductTemplatesRoutes } from './routes-product-templates';
 import { registerMetaFlowsRoutes } from './routes-meta-flows';
 import { registerAiCopilotRoutes } from './routes-ai-copilot';
@@ -1829,7 +1830,11 @@ export async function registerRoutes(
           };
         });
 
-        res.json({ package: pkg[0] ?? null, entries: rows, groups, unmapped: rows.filter((r: any) => r.i_routing_group == null).length });
+        res.json({
+          package: pkg[0] ?? null, entries: rows, groups, unmapped: rows.filter((r: any) => r.i_routing_group == null).length,
+          // What a new cell may be made of: the countries and products both planners resolve.
+          vocab: { countries: Object.values(COUNTRY_DISPLAY), products: Object.values(PRODUCT_DISPLAY) },
+        });
       } catch (err: any) {
         res.status(500).json({ error: err?.message ?? 'Could not read the routing matrix' });
       }
@@ -1882,6 +1887,53 @@ export async function registerRoutes(
         res.json(rows[0]);
       } catch (err: any) {
         res.status(500).json({ error: err?.message ?? 'Could not save the mapping' });
+      }
+    });
+
+  // Add one (country, product) cell to a routing package. Admin only. The cell is created
+  // UNMAPPED — mapping it to a routing group is the existing PUT above, a separate decision.
+  //
+  // Added 2026-09-15 for the breakout authentication mode: 1global prices Afghanistan First
+  // Class, the default package has no Afghanistan row, and until now rows came only from the
+  // migration 038 seed. An operator adds the cell here, once the routing group it will map to
+  // actually exists on Sippy — a cell that claims routing the switch cannot provide is the
+  // same defect in reverse.
+  app.post('/api/routing-packages/:id/entries',
+    (req: any, res: any, next: any) => requireRole(['admin', 'super_admin'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const packageId = parseInt(req.params.id, 10);
+        if (!Number.isFinite(packageId)) return res.status(400).json({ error: 'Invalid package id' });
+        const cell = canonicalCell({ country: req.body?.country, product: req.body?.product });
+        if (!cell.ok) return res.status(400).json({ error: cell.error });
+
+        const { rows: pkg } = await pool.query(`SELECT id, name FROM routing_packages WHERE id = $1`, [packageId]);
+        if (!pkg[0]) return res.status(404).json({ error: 'Routing package not found' });
+
+        const { rows: existing } = await pool.query(
+          `SELECT id, active FROM routing_package_entries WHERE package_id = $1 AND country = $2 AND product = $3`,
+          [packageId, cell.country, cell.product]);
+        if (existing[0]) {
+          return res.status(409).json({ error: `${cell.country} / ${cell.product} already exists in ${pkg[0].name}${existing[0].active ? '' : ' (inactive)'}.`, id: existing[0].id });
+        }
+
+        const { rows } = await pool.query(
+          `INSERT INTO routing_package_entries (package_id, country, product, priority, active)
+           VALUES ($1, $2, $3, 0, TRUE)
+           RETURNING id, package_id, country, product, priority, active, i_routing_group, routing_group_name`,
+          [packageId, cell.country, cell.product]);
+
+        void writeAudit({
+          category: 'operational', action: 'routing.matrix.cell_added',
+          actor: req.user?.email ?? req.user?.claims?.email, actorType: 'user',
+          targetType: 'routing_package_entry', targetId: String(rows[0].id),
+          targetName: `${cell.country} / ${cell.product}`,
+          metadata: { packageId, packageName: pkg[0].name, countryCode: cell.countryCode, productDigit: cell.productDigit },
+        });
+
+        res.status(201).json({ ...rows[0], note: `Cell created unmapped. Map it to the Sippy routing group that carries ${cell.country} ${cell.product} traffic; provisioning refuses an unmapped cell.` });
+      } catch (err: any) {
+        res.status(500).json({ error: err?.message ?? 'Could not add the cell' });
       }
     });
 

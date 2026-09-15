@@ -30,6 +30,8 @@ interface Group { i_routing_group: number; name: string; members_count: number |
 interface Matrix {
   package: { id: number; name: string } | null;
   entries: Entry[]; groups: Group[]; unmapped: number;
+  /** Countries and products the authentication planners can resolve — what a new cell may be. */
+  vocab?: { countries: string[]; products: string[] };
 }
 interface PackageRow { id: number; name: string; is_default: boolean; cells: number; unmapped: number }
 
@@ -56,6 +58,22 @@ export default function RoutingMatrixPage() {
     onError: (e: any) => toast({
       title: "Mapping not saved", description: e?.message ?? "Unknown error", variant: "destructive",
     }),
+  });
+
+  // A new (country, product) cell, created unmapped. Sequencing matters: add the cell only
+  // once the routing group it will map to exists in Sippy — a cell that claims routing the
+  // switch cannot provide is the same defect as a priced prefix with no rule, in reverse.
+  const [newCountry, setNewCountry] = useState("");
+  const [newProduct, setNewProduct] = useState<string>(PRODUCTS[0]);
+  const addCell = useMutation({
+    mutationFn: ({ country, product }: { country: string; product: string }) =>
+      apiRequest("POST", `/api/routing-packages/${active}/entries`, { country, product }).then(r => r.json()),
+    onSuccess: (data: any) => {
+      qc.invalidateQueries({ queryKey: [`/api/routing-packages/${active}/matrix`] });
+      qc.invalidateQueries({ queryKey: ["/api/routing-packages"] });
+      toast({ title: `Added ${data.country} / ${data.product}`, description: data.note });
+    },
+    onError: (e: any) => toast({ title: "Cell not added", description: e?.message ?? "Unknown error", variant: "destructive" }),
   });
 
   if (pkgs.isLoading) return <div className="p-8 text-slate-400">Loading routing packages…</div>;
@@ -138,7 +156,17 @@ export default function RoutingMatrixPage() {
                   <td className="px-4 py-2 text-slate-200 font-medium whitespace-nowrap">{country}</td>
                   {PRODUCTS.map(product => {
                     const cell = cellFor(country, product);
-                    if (!cell) return <td key={product} className="px-4 py-2 text-slate-600">—</td>;
+                    if (!cell) return (
+                      <td key={product} className="px-4 py-2 text-slate-600">
+                        <button
+                          data-testid={`btn-add-cell-${country}-${product}`}
+                          className="text-xs text-slate-500 hover:text-slate-200 border border-dashed border-slate-700 rounded px-2 py-1"
+                          disabled={addCell.isPending}
+                          title={`Add the ${country} / ${product} cell (unmapped) — only once its routing group exists in Sippy`}
+                          onClick={() => addCell.mutate({ country, product })}
+                        >+ add cell</button>
+                      </td>
+                    );
                     return (
                       <td key={product} className="px-4 py-2">
                         <select
@@ -177,6 +205,43 @@ export default function RoutingMatrixPage() {
           </table>
         </div>
       )}
+
+      <div className="rounded-lg border border-slate-700 p-4 space-y-2">
+        <div className="text-sm text-slate-200 font-medium">Add a destination row</div>
+        <p className="text-xs text-slate-400">
+          Creates one unmapped cell for a country the authentication planner can resolve. Add it
+          only after the routing group it will carry exists in Sippy and the cache has synced,
+          then map it above. Provisioning refuses an unmapped cell, so an unfinished row blocks a
+          run rather than misrouting one.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            data-testid="select-new-cell-country"
+            className="rounded border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-slate-200"
+            value={newCountry}
+            onChange={e => setNewCountry(e.target.value)}
+          >
+            <option value="">— country —</option>
+            {(matrix.data?.vocab?.countries ?? []).map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select
+            data-testid="select-new-cell-product"
+            className="rounded border border-slate-700 bg-slate-900/60 px-2 py-1.5 text-sm text-slate-200"
+            value={newProduct}
+            onChange={e => setNewProduct(e.target.value)}
+          >
+            {(matrix.data?.vocab?.products ?? [...PRODUCTS]).map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+          <button
+            data-testid="btn-add-new-cell"
+            className="rounded-md border border-slate-500 px-3 py-1.5 text-sm text-slate-100 hover:bg-slate-700/50 disabled:opacity-40"
+            disabled={!newCountry || !newProduct || addCell.isPending || active == null}
+            onClick={() => addCell.mutate({ country: newCountry, product: newProduct })}
+          >
+            {addCell.isPending ? "Adding…" : "Add cell (unmapped)"}
+          </button>
+        </div>
+      </div>
 
       <p className="text-xs text-slate-500">
         Groups listed come from the routing cache, synced from Sippy every 15 minutes. If a group
