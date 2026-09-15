@@ -69,6 +69,17 @@ describe('buildRateSheetRows', () => {
     expect(r.excluded[0]).toMatch(/duplicate prefix/);
   });
 
+  it('leaves a vetoed prefix off the sheet and says why — a prefix the switch does not hold is not offered', () => {
+    const r = buildRateSheetRows({
+      expansions: [exp(price({ destinationId: 891 }), 'catalogue', ['9231', '9237'], 'PAKISTAN - MOBILE ZONG')],
+      increments: new Map([['9231', '1/1']]),
+      legacyNames: new Map(),
+      excludedPrefixes: new Map([['9237', 'not on tariff 68 — the switch holds no active rate for 19237, so it is not offered']]),
+    });
+    expect(r.rows.map(x => x.prefix)).toEqual(['9231']);
+    expect(r.excluded).toEqual(['FC PAKISTAN - MOBILE ZONG 9237: not on tariff 68 — the switch holds no active rate for 19237, so it is not offered']);
+  });
+
   it('sorts by country, destination, then prefix numerically', () => {
     const r = buildRateSheetRows({
       expansions: [

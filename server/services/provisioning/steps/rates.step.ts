@@ -22,6 +22,7 @@
 import { db } from "../../../db";
 import { companyProducts, companyMarkets, productRegistry, globalDestinations, productRates } from "../../../../shared/schema";
 import { preUploadGate } from "../rates-upload-gate";
+import { classifyMatrixRefusal } from "../rates-refusal";
 import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import * as sippy from "../../../sippy";
 import { generateRateMatrix, type CatalogueDestination, type GeneratorProduct, type GeneratorRate } from "../../rates/matrix-generator";
@@ -281,22 +282,25 @@ export const ratesStep: ProvisioningStep = {
     }
 
     if (!matrix.ok) {
-      // Rows exist AND the matrix is malformed — a duplicate prefix, so one row would
-      // overwrite another in the tariff. Reported, never uploaded: a tariff nobody can
-      // reason about is worse than no tariff, and the errors name exactly which cells.
+      // Rows exist AND the generator refused. Two different diagnoses share this branch:
+      //   - UNPRICED_SELECTED_PRODUCT: the matrix is sound, but a product the customer
+      //     bought has no priced rows. Commercial intent and prices disagree; fix the
+      //     selection or the prices. (1global, 2026-09-15: four products selected, one priced.)
+      //   - RATE_MATRIX_INVALID: the matrix itself is wrong — a duplicate prefix, so one row
+      //     would overwrite another in the tariff.
+      // Both are reported and never uploaded: a tariff nobody can reason about, or one that
+      // silently carries a selected product with no rates, is worse than no tariff.
+      const refusal = classifyMatrixRefusal(matrix);
       return {
         status: 'failed',
-        reasonCode: 'RATE_MATRIX_INVALID',
-        error: matrix.errors.slice(0, 3).join(' · '),
-        detail: [
-          `${matrix.summary.rowsGenerated} row(s) generated, ${matrix.summary.rowsSkipped} skipped`,
-          ...matrix.errors.slice(0, 5),
-        ],
+        reasonCode: refusal.reasonCode,
+        error: refusal.error,
+        detail: refusal.detail,
         metrics: {
           requested: matrix.summary.rowsGenerated,
           created: 0, verified: 0, failed: matrix.summary.rowsGenerated,
           products: products.length, destinations: destinations.length,
-          failures: [{ cause: 'rate matrix invalid', count: matrix.errors.length }],
+          failures: [{ cause: refusal.cause, count: matrix.errors.length }],
         },
       };
     }

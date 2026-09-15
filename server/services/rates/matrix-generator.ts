@@ -80,6 +80,12 @@ export interface GeneratedMatrix {
   errors: string[];
   /** Conditions worth an operator's attention that do not make the tariff wrong. */
   warnings: string[];
+  /**
+   * Selected products that produced no rows. Each one also contributes exactly one entry to
+   * `errors`, so a caller can tell "commercial intent does not match the prices" apart from a
+   * structurally wrong matrix (a duplicate prefix) without reading message text.
+   */
+  unpricedProducts: Array<{ code: string; name: string }>;
   /** Counts for the UI, so a summary panel needs no arithmetic of its own. */
   summary: {
     destinationsProcessed: number;
@@ -207,9 +213,11 @@ export function generateRateMatrix(opts: GenerateOptions): GeneratedMatrix {
   if (!rows.length) {
     errors.push('No rows generated — no approved destination has a price for any product.');
   }
+  const unpricedProducts: Array<{ code: string; name: string }> = [];
   for (const p of products) {
     if ((counts.get(p.code) ?? 0) === 0) {
       errors.push(`Product ${p.code} (${p.name}) produced no rows — a customer would carry it unpriced.`);
+      unpricedProducts.push({ code: p.code, name: p.name });
     }
   }
 
@@ -233,6 +241,7 @@ export function generateRateMatrix(opts: GenerateOptions): GeneratedMatrix {
     ok: errors.length === 0,
     errors,
     warnings,
+    unpricedProducts,
     summary: {
       destinationsProcessed: destinations.length,
       destinationsApproved:  destinations.filter(d => d.commercialStatus === 'approved').length,
