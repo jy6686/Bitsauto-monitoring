@@ -512,6 +512,17 @@ queue — the operator's panel or Sippy support. No code change here will clear 
 push to tariff 65 will produce new information; the fixture has been fully controlled and the
 answer did not change.
 
+**Two live residues of the experiment, deliberately left in place.**
+1. **Tariff 64, `iRate 9218`** — `19233 @ 0.05 / 1/1`, activating **2026-09-17 10:00 GMT**. A real
+   Sippy row. Leave it: removing it is another mutation for cleanup's sake. **At or after that
+   instant, one READ establishes the last unobserved step** — that a scheduled row activates as
+   written. Nothing else in this investigation can show that, because every push so far was read
+   back before its activation.
+2. **Eligibility id 37**, product 1 (First Class) → destination 5 (AFGHANISTAN - MOBILE MTN,
+   `9376`/`9377`), declared 2026-09-15 15:12:35Z for a fixture that was then set aside. Active and
+   unused. It is a standing commercial claim that First Class sells Afghanistan MTN; withdrawing it
+   is an eligibility-governance write and belongs to neither SMP-006 nor SMP-007.
+
 **What the platform has proven today.** Catalogue → eligibility → pricing gate → per-client policy →
 preflight → mutation boundary → `upload_token` → date-aware verification → scheduled row, end to
 end, on a healthy tariff, with the refusal path exercised three times on an unhealthy one and the
