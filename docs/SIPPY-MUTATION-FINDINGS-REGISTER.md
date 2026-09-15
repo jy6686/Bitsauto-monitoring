@@ -28,6 +28,7 @@ register classifies rather than counts, so that "no boundary" is not read as "un
 
 | ID | Finding | Severity | Status | Required decision |
 |----|---------|----------|--------|-------------------|
+| SMP-007 | **Tariff 65's importer refuses every rates upload before parsing.** Three attempts (2026-09-15, differing prefix, rate and date) each FAILed with a **zero-byte report**; the identical operation SUCCEEDED on tariff 64. Not a platform defect and not a content defect — the paired test eliminates both | Medium | **OPEN — external** | Sippy-side inspection of the importer state attached to tariff 65. **No application change may be made to compensate.** Do not push to tariff 65 for diagnosis; the fixture is already fully controlled |
 | SMP-005 | `POST /api/sippy/upload/file` sends caller-supplied bytes to a **caller-supplied URL** (`?url=`) with no allowlist and `rejectUnauthorized: false`, and returns the response body. Paired with `POST /api/sippy/upload/token`, which accepts an arbitrary `i_tariff`, the two compose into a generic rate-rewrite capability. Both currently ungated | **Critical** (proposed) | OPEN | Not fixable by a role floor alone — needs a destination allowlist. Assess before the create/update pass |
 | SMP-004 | Two further shadowed route registrations — `GET /api/reports/asr-acd` and `GET /api/sippy/accounts/:id/info` each registered twice, the second copy unreachable. **Neither carries authorization, so neither is an authorization exposure**: divergent dead implementations, not an open door | Low | OPEN | Decide which implementation is intended, then remove the other |
 | SMP-003 | **57 of 160** `/api/sippy` write routes have no gate of any kind, and `/api/sippy` is absent from `PLATFORM_ROUTE_GROUPS` so `requirePlatformAccess` never runs; the tariff-rate DELETE is reachable by any authenticated session, `portal_only` included. Includes a **shadowed gate**: `DELETE /api/sippy/tariffs/:id` is registered twice and the `requireRole(['admin'])` copy is unreachable | **Critical** | OPEN — audited, policy not yet decided | Separate authorization-hardening decision. Evidence: [SMP-003-AUTHORIZATION-AUDIT.md](SMP-003-AUTHORIZATION-AUDIT.md) |
@@ -274,7 +275,7 @@ Adding `requireRole` route-by-route without that decision would encode 76 indivi
 
 ---
 
-### SMP-006 · Effective-dated pushes are applied twice: the future row AND the live row
+### SMP-006 · Effective-dated pushes are applied twice: the future row AND the live row — **CLOSED / VERIFIED 2026-09-15**
 
 **Found:** 2026-09-14, on the first legitimate write since the freeze (`job-1789402775430`, Test-31,
 tariff 64, `19370` 0.133 → 0.196 effective 2026-09-22). Policy layer passed it correctly. The write path
@@ -340,28 +341,192 @@ Read-back: tariff 64 unchanged, both rows still 0.196 / 60/1, `9115` expiring an
 2026-09-22. Verdict `failure` (retryable), method `upload_token`. The message names the date logic
 explicitly: *no row activating 20260915; judged the latest-activating row (20260922)*.
 
-**What this settles.** The FAIL is NOT a property of tariff 65. Two different tariffs, two different
-clients, two different prefixes, two different destinations — same pre-parse refusal on a
-future-dated import. The remaining fault is in the **future-dated import path itself**, not in any
-one tariff, and not in the tariff lock (whose banner is universal and was already shown to be
-non-evidence).
+**The reason, read 2026-09-15 after the report reader was fixed.** The importer's own words, one
+row, echoing the upload back: `A | | 19370 | | 60 | 1 | 0.2 | 0.2 | 0 | 1 | 2026-09-15 14:30:00 | |`
+— **"Another Rate with conflicting \"Prefix\" or \"Activation/Expiration Date\" already exists."**
 
-**What this proves that pilot #1 could not.** The 60 × 2 s poller observed a FAIL at +64.8 s that the
-old 15 × 2 s budget would have missed entirely, verifying a tariff mid-import. The safety properties
-all held under a real refusal: no premature live-price mutation, no increment change, no `portal_csv`
-fallback, correct tariff and prefix, and an honest retryable verdict rather than a false success.
-**SMP-006's negative path is now proven twice; its positive path remains unproven**, because no
-future-dated import has yet succeeded on this build.
+The upload was well-formed. Sippy parsed it, echoed the activation back as a proper date cell, and
+rejected it on a **date conflict**, which the tariff's own rows explain completely: `9115` occupies
+2026-07-31 17:00 → 2026-09-22 00:00 and `9175` occupies 2026-09-22 00:00 → ∞. An added row
+activating 2026-09-15 14:30 with no expiration overlaps both. There was no gap to add into.
 
-**The reason is in the report, and the report was unreadable.** Unlike pilot #1 (empty report), this
-FAIL produced `7ec17c1a-fdbe-43e3-8c06-d2ebacad744b` — a real document. `fetchUploadReport` returned
-it as mangled text beginning `PK\u0003\u0004`: the report is an **XLSX workbook**, and the reader
-decoded a ZIP as UTF-8. Fixed by reading through `rawGetBinary` and parsing with exceljs; the
-judgement is extracted as the pure `interpretUploadReport`, which keeps four outcomes distinct — a
-login page, zero bytes (refused before parsing), a workbook (the reason), and an unparseable
-workbook (a failure to READ, never reported as an empty report). Covered by
-`server/services/rates/upload-report-reader.test.ts`. **The reason for the FAIL is still unread**
-until that fix is deployed and the token fetched.
+**PREVIOUS CONCLUSION WITHDRAWN.** On first reading this FAIL — before the report was legible — this
+entry said the fault was "the future-dated import path itself" and that tariff 65 was eliminated as
+special. **Both claims were wrong**, and the error is instructive: the discriminator was run against
+the very state SMP-006 had damaged, so it tested a tariff that already held two rows covering the
+requested date. It measured the damage, not the path.
+
+**What is actually established.**
+1. **Future-dated A-uploads DO work on this build.** The 2026-09-14 push created `9175` with
+   activation 2026-09-22 correctly. That was never the defect; the extra portal edit was.
+2. **Tariff 64's refusal is legitimate and specific** — a real overlap, correctly refused, correctly
+   reported. Sippy behaved well here.
+3. **Tariff 65 is NOT eliminated.** Its report is genuinely zero bytes and its FAIL came at +9 s
+   against +64.8 s here. Different timing, different report, different mode. Pilot #1's cause
+   remains UNKNOWN.
+
+**What still held, and is worth keeping.** Under a real refusal the boundary behaved: tariff
+unchanged, no `portal_csv` fallback, verdict `failure` (retryable), correct tariff and prefix, no
+premature increment change. And the 60 × 2 s poller observed a FAIL at +64.8 s that the old 15 × 2 s
+budget would have missed entirely — the exact second cause of SMP-006.
+
+**Reading the report at all required a fix.** It is an XLSX workbook; `fetchUploadReport` decoded
+the ZIP as UTF-8 and returned `PK` followed by replacement characters. Fixed in `a7103a82`
+(`rawGetBinary` + exceljs, judgement extracted as the pure `interpretUploadReport`, which keeps a
+login page, zero bytes, a workbook and an UNPARSEABLE workbook distinct — the last must never be
+reported as the first). A second defect in the reader itself was found by reading this very report:
+a date cell rendered as `"2026-09-15T14:30:00.000Z"`, JSON quotes included, which is what first
+made the upload look malformed. `reportCellText` now renders dates in the switch's own form.
+**A reader that decorates evidence manufactures a false lead, and this one did, for one reading.**
+
+**To prove SMP-006's positive path** the push must go somewhere with no conflicting window: a prefix
+with a single open-ended row, or an activation after the last row's. That is a Sippy write and needs
+the owner's word.
+
+**Closing pilot #2, 2026-09-15 14:53Z — the clean fixture, and the t65 mode REPRODUCED.**
+Tariff 65, Test-312, `192` 0.04 → 0.05, effective 2026-09-16 10:00 GMT. Chosen after a read-only
+survey precisely to remove every confound the tariff-64 attempt carried: the tariff holds **one**
+row for `192` (`9116`, 0.04, 1/1, activating 2026-07-31 17:00, **no expiration**), so no overlap is
+possible; and the catalogue increment for destination 883 (PAKISTAN - FIXED, prefix `92`) is `1/1`,
+identical to the switch row, so the increment does not move either. Only the price changes.
+
+**Result: refused again, pre-parse, with a ZERO-BYTE report.** `FAIL` 17 s after processing began.
+Tariff unchanged: `9116` still 0.04 / 1/1 / no expiration. Verdict `failure`, method `upload_token`,
+no `portal_csv`.
+
+| | t65 pilot #1 | t65 pilot #2 | t64 discriminator |
+|---|---|---|---|
+| processing → FAIL | **9 s** | **17 s** | **52 s** |
+| report | **0 bytes** | **0 bytes** | 1 row, a real error |
+| overlap possible? | no | **no** | yes |
+| verdict | indeterminate (gate) | failure | failure |
+
+**This is the important outcome: the unknown mode is now REPRODUCIBLE ON DEMAND**, on a fixture with
+no overlap, no increment change and a known-good shape. A defect that can be summoned is a defect
+that can be found; before today it had happened twice and could not be distinguished from bad luck.
+
+**Eliminated by this run.**
+- *Overlap.* There was nothing to overlap. The tariff-64 explanation does not transfer.
+- *Increment mismatch.* Catalogue and switch agree at 1/1 here.
+- *Tariff configuration.* `getTariff` for 64, 65 and **66** (the only tariff that has ever accepted
+  an `upload_token` import) is **byte-identical** across every field: currency USD, type 1, connect
+  fee 0, free seconds 0, grace 0, **lossProtection true**, maxLoss 0, costRoundUp true, precision 20,
+  averageDuration 200, localCalling false, empty extra. Whatever separates these tariffs is not in
+  their configuration.
+- *Loss protection specifically.* True on the tariff that parses AND the tariff that does not.
+
+**Still unknown: why tariff 65's importer dies before parsing.** A zero-byte report is the signature
+of a refusal that happens before any row is read, so the file's contents cannot be the cause — and
+tariff 64 proves the same builder produces a file this importer will parse. The remaining difference
+is the tariff itself, or something the importer holds about it. The platform retains no copy of the
+uploaded workbook (`push-xlsx-list` is empty), so the bytes cannot be diffed after the fact.
+
+**The discriminator that would settle it** is one logical change — a prefix absent from both tariffs,
+1/1, future-dated — pushed to tariff 64 AND tariff 65. Identical content, two tariffs. If 64 parses
+and 65 dies pre-parse, the tariff is implicated and the file is exonerated for good. Two Sippy
+writes; the owner's word is required for each.
+
+### SMP-006 POSITIVE PATH PROVEN — 2026-09-15 15:07Z, tariff 64, `19233`
+
+The control leg of the tariff-64/65 discriminator, and the first `upload_token` success since
+2026-09-02. Fixture chosen to carry no confound: PAKISTAN - MOBILE UFONE, a single-prefix
+destination already eligible for First Class, at `1/1`, **absent from both tariffs**, so no
+declaration was written, no overlap was possible and no increment could move.
+
+`19233 @ 0.05`, effective **2026-09-17 10:00 GMT**. Result: `success`, `upload_token`, 21.9 s,
+*"Rate updated — upload token DONE, verified (prefix=19233 rate=0.05)"*.
+
+**Read back at 15:22Z — every acceptance condition met:**
+
+| iRate | prefix | rate | incr | activation | expiration |
+|---|---|---|---|---|---|
+| **9218** | **19233** | **0.05** | **1/1** | **2026-09-17 10:00:00** | none |
+| 9175 | 19370 | 0.196 | 60/1 | 2026-09-22 00:00 | none |
+| 9115 | 19370 | 0.196 | 60/1 | 2026-07-31 17:00 | 2026-09-22 00:00 |
+
+A scheduled row at the requested activation, **nothing applied today**, both `19370` rows byte-for-byte
+as they were, `upload_token` throughout and **no `portal_csv` anywhere in the trace**.
+
+**This closes SMP-006.** The defect was a verifier that could not see what it had just written: it
+looked for the new rate on the first row for the prefix, found the old one, called its own
+successful write a failure, and let the portal fallback edit the live row. Today the date-aware
+verifier found row 9218 by its activation, confirmed it, and the push stopped there. Under the old
+code this exact operation would have fallen through to `portal_csv` and changed a price today that
+the customer was told changes on the 17th.
+
+**A second, older question closes with it: NEW-PREFIX CREATION WORKS on `upload_token`.** `19233`
+did not exist on tariff 64 and now does. The standing record in [[sippy-rate-upload-format]] — "our
+Rate Manager has never successfully created a NEW prefix in a Sippy tariff" — was true of the
+PORTAL path, whose add form scrapes an `i_rate` from a blank form. It is **not** true of the upload
+path. Do not carry that claim forward unqualified.
+
+**What is now unambiguous about tariff 65.** The same builder, the same transport, the same
+verifier, the same `1/1`, the same activation instant and the same rate succeed on tariff 64. If
+tariff 65 refuses this identical content, the file is exonerated and the difference is the tariff or
+Sippy-side state associated with it.
+
+### The tariff-64/65 discriminator, COMPLETE — 2026-09-15 15:26Z. The file is exonerated.
+
+Test B, the subject leg. **Byte-for-byte the same logical change as Test A** — `19233 @ 0.05`,
+`1/1`, effective 2026-09-17 10:00 GMT, product First Class, same builder, same transport, same
+verifier. The only variable is the tariff.
+
+| | Test A · tariff 64 | Test B · tariff 65 |
+|---|---|---|
+| verdict | **success** | **failure** |
+| importer | DONE, 21.9 s | **FAIL, 33 s** |
+| report | n/a | **0 bytes** |
+| result | row 9218 created, activation 2026-09-17 10:00 | **nothing; tariff still holds 1 rate** |
+
+**Conclusion, stated to its exact reach.** The test exonerates the uploaded CONTENT and this
+application's write path **for the tested healthy tariff**. It does not establish what Sippy has
+internally attached to tariff 65, and nothing here should be read as doing so. What it does settle
+is that no change to the file or to this code can account for the difference, because neither
+varied.
+
+**Three refusals on tariff 65, all identical in kind:**
+
+| pilot | processing → FAIL | report |
+|---|---|---|
+| #1 (`192`, 08:39Z) | 9 s | 0 bytes |
+| #2 (`192`, 14:53Z) | 17 s | 0 bytes |
+| #3 (`19233`, 15:26Z) | **33 s** | 0 bytes |
+
+The prefix changed, the rate changed, the date changed, the increment stayed; the refusal did not.
+A zero-byte report means the refusal precedes any row being read, which is consistent with all of
+it and inconsistent with a content defect.
+
+**LEADING HYPOTHESIS, not established: a stuck import on tariff 65.** From 2026-09-07 onward this
+project recorded failures reading *"Tariff N is locked — processing of uploaded file is in
+progress"*, and tariff 65 was the target of jobs #44 and #45 on 2026-09-09, both of which failed.
+An import record left pending would refuse every later upload for that tariff before parsing, would
+be persistent, and would be invisible to us: the lock BANNER is universal for the ssp-root session
+and is not per-tariff evidence, and no API on this build lists a tariff's import queue. The rising
+durations (9 → 17 → 33 s) are an observation, not a finding; three points cannot establish a
+pattern.
+
+**This is SMP-007, and it is OUTSIDE the platform.** It is tracked separately from SMP-006 on
+purpose: SMP-006 is a defect in this code that a controlled A/B experiment has closed, and an
+unresolved Sippy-side condition must not be allowed to reopen it. Resolving SMP-007 needs Sippy-side inspection of tariff 65's import
+queue — the operator's panel or Sippy support. No code change here will clear it, and no further
+push to tariff 65 will produce new information; the fixture has been fully controlled and the
+answer did not change.
+
+**Two live residues of the experiment, deliberately left in place.**
+1. **Tariff 64, `iRate 9218`** — `19233 @ 0.05 / 1/1`, activating **2026-09-17 10:00 GMT**. A real
+   Sippy row. Leave it: removing it is another mutation for cleanup's sake. **At or after that
+   instant, one READ establishes the last unobserved step** — that a scheduled row activates as
+   written. Nothing else in this investigation can show that, because every push so far was read
+   back before its activation.
+2. **Eligibility id 37**, product 1 (First Class) → destination 5 (AFGHANISTAN - MOBILE MTN,
+   `9376`/`9377`), declared 2026-09-15 15:12:35Z for a fixture that was then set aside. Active and
+   unused. It is a standing commercial claim that First Class sells Afghanistan MTN; withdrawing it
+   is an eligibility-governance write and belongs to neither SMP-006 nor SMP-007.
+
+**What the platform has proven today.** Catalogue → eligibility → pricing gate → per-client policy →
+preflight → mutation boundary → `upload_token` → date-aware verification → scheduled row, end to
+end, on a healthy tariff, with the refusal path exercised three times on an unhealthy one and the
+tariff left untouched every single time.
 
 **Remediation of the evidence.** Tariff 64 is disposable. Restoring `9115` to 0.133 / 1/1 until
 2026-09-22 is a Sippy write and the owner's decision; leaving both rows as evidence is equally valid.

@@ -34,6 +34,7 @@ import { provisioningRuns, provisioningSteps } from "../../../shared/schema";
 import { eq, and, asc } from "drizzle-orm";
 import { storage } from "../../storage";
 import type { ProvisioningStep, StepContext, ProvisioningInput } from "./types";
+import { identityPatchFor, hasPatch, shouldMarkProvisioned } from "./identity-writeback";
 
 type SippySettings = Awaited<ReturnType<typeof storage.getSippySettings>>;
 
@@ -253,6 +254,27 @@ export async function executeRun(
 
       if (outcome.status === 'success' && outcome.result) {
         ctx.results[row.stepKey] = outcome.result;
+
+        // ── Record on the customer what this step proved on the switch ──────────
+        // Written per step, not at the end: a run that halts later still created a real
+        // Sippy account, and a platform that does not know its id cannot find the customer
+        // again. Missing this write left 1global with sippy_i_account NULL after two
+        // successful runs, which made Rate Manager refuse every push for them
+        // (`no_stored_tariff`), emptied the card's Products panel and dropped the KAM from
+        // their rate sheets. Never fatal: the switch state is already what it is.
+        try {
+          const company = await storage.getCompany(run.companyId);
+          const patch = identityPatchFor(
+            { stepKey: row.stepKey, status: outcome.status, result: outcome.result },
+            { sippyIAccount: (company as any)?.sippyIAccount ?? null, sippyITariff: (company as any)?.sippyITariff ?? null },
+          );
+          if (hasPatch(patch)) {
+            await storage.updateCompany(run.companyId, patch as any);
+            console.log(`[provisioning] ${run.runRef} recorded on company ${run.companyId}: ${JSON.stringify(patch)}`);
+          }
+        } catch (e: any) {
+          console.warn(`[provisioning] ${run.runRef} could not record identity from step=${row.stepKey}: ${e?.message ?? e}`);
+        }
       }
       summary.push({ key: row.stepKey, status: outcome.status, error: outcome.error });
 
@@ -287,6 +309,25 @@ export async function executeRun(
     completedAt: finalStatus === 'failed' ? new Date() : new Date(),
     currentStep: null,
   }).where(eq(provisioningRuns.id, runId));
+
+  // A customer whose account exists on the switch is provisioned, even when a later
+  // non-blocking stage was skipped. Leaving them 'draft' is what hid 1global from every
+  // surface that filters on provisioning status after two successful runs.
+  if (shouldMarkProvisioned(finalStatus, summary)) {
+    try {
+      const company = await storage.getCompany(run.companyId);
+      if ((company as any)?.provisioningStatus !== 'provisioned') {
+        await storage.updateCompany(run.companyId, {
+          provisioningStatus: 'provisioned',
+          provisionedAt: new Date(),
+          provisionedBy: ctx.actor ?? 'provisioning',
+        } as any);
+        console.log(`[provisioning] ${run.runRef} company ${run.companyId} marked provisioned`);
+      }
+    } catch (e: any) {
+      console.warn(`[provisioning] ${run.runRef} could not mark company ${run.companyId} provisioned: ${e?.message ?? e}`);
+    }
+  }
 
   console.log(`[provisioning] ${run.runRef} → ${finalStatus}`);
   return { status: finalStatus, steps: summary };

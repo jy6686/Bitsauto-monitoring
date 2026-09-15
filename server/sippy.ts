@@ -10143,6 +10143,31 @@ export interface UploadReport {
  *   - a workbook    → the importer's own rows, which is the reason
  *   - anything else → served as the text it is
  */
+/**
+ * Render one report cell as the text a person should read.
+ *
+ * A date cell arrives from exceljs as a `Date`, and stringifying it produced
+ * `"2026-09-15T14:30:00.000Z"` — quotes and all — in the first report ever read on this platform.
+ * That is not what was uploaded; it is JSON punctuation around a value the importer echoed back
+ * correctly. A reader that decorates the evidence invites exactly the wrong conclusion about the
+ * upload, so dates are rendered in the switch's own `YYYY-MM-DD HH:MM:SS` UTC form.
+ */
+export function reportCellText(v: unknown): string {
+  if (v == null) return '';
+  if (v instanceof Date) return v.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+  if (typeof v === 'object') {
+    const o = v as any;
+    // Rich text, formula results and hyperlinks each carry their readable value elsewhere.
+    if (typeof o.text === 'string') return o.text;
+    if (Array.isArray(o.richText)) return o.richText.map((r: any) => String(r?.text ?? '')).join('');
+    if (o.result !== undefined) return reportCellText(o.result);
+    if (o.hyperlink && o.text == null) return String(o.hyperlink);
+    if (o.error) return String(o.error);
+    return JSON.stringify(v);
+  }
+  return String(v);
+}
+
 export async function interpretUploadReport(body: Buffer, statusCode: number): Promise<UploadReport> {
   const head = body.subarray(0, 2048).toString('utf8');
   const loginPage = /accounts\/login|name="login"|<title>[^<]*login/i.test(head);
@@ -10175,8 +10200,7 @@ export async function interpretUploadReport(body: Buffer, statusCode: number): P
       ws.eachRow({ includeEmpty: false }, (row: any) => {
         const cells: string[] = [];
         row.eachCell({ includeEmpty: true }, (cell: any) => {
-          const v = cell?.value;
-          cells.push(v == null ? '' : (typeof v === 'object' ? String((v as any).text ?? (v as any).result ?? JSON.stringify(v)) : String(v)));
+          cells.push(reportCellText(cell?.value));
         });
         // Trailing empties carry no information and make the text form unreadable.
         while (cells.length && cells[cells.length - 1] === '') cells.pop();
