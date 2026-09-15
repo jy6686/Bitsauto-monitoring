@@ -58,8 +58,9 @@ describe("the write path, asserted against server/sippy.ts", () => {
 
   it("every in-function verification passes the requested effective date", () => {
     // Four call sites inside setSippyRateEntry: direct edit, two after upload, and portal_csv.
+    // Five call sites inside setSippyRateEntryInner: direct edit, after FAIL, two after upload, portal_csv.
     const withDate = (code.match(/verifySippyRate\([\s\S]{0,140}?\{ effectiveFrom: normaliseEntryDate\(entry\.effectiveFrom\) \}/g) || []).length;
-    expect(withDate).toBe(4);
+    expect(withDate).toBe(5);
     // And none of those four still calls it WITHOUT the date.
     expect(code).not.toMatch(/verifySippyRate\(username, password, tariffId, entry\.prefix, entry\.rate, base\);/);
   });
@@ -83,5 +84,46 @@ describe("the write path, asserted against server/sippy.ts", () => {
 
   it("the gate does not remove the fallback for same-day edits", () => {
     expect(code).toContain('const portalResult = await pushRateViaPortalUpload(');
+  });
+});
+
+describe("the upload poller, after the 2026-09-15 pilot", () => {
+  const SRC = readFileSync(join(__dirname, '..', '..', 'sippy.ts'), 'utf8');
+  const code = SRC.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+
+  /** One function's text, from its declaration to the next top-level function. */
+  const fn = (decl: string) => {
+    const at = code.indexOf(decl);
+    expect(at, `${decl} must exist`).toBeGreaterThan(-1);
+    const next = code.indexOf('\nexport async function ', at + decl.length);
+    return code.slice(at, next < 0 ? undefined : next);
+  };
+  const INNER = fn('async function setSippyRateEntryInner(');
+  const WORKBOOK = fn('export async function uploadRatesWorkbook(');
+
+  it("BOTH pollers wait long enough to see DONE — the import took 43 s and the loops gave up at ~36 s", () => {
+    for (const [name, body] of [['setSippyRateEntryInner', INNER], ['uploadRatesWorkbook', WORKBOOK]] as const) {
+      const m = body.match(/for \(let poll = 1; poll <= (\d+); poll\+\+\)/);
+      expect(m, `${name} must have a poll loop`).not.toBeNull();
+      expect(Number(m![1]), name).toBeGreaterThanOrEqual(60);   // 60 x 2 s sleeps ≈ 2 min
+    }
+  });
+
+  it("keeps what Sippy said — the report URL and when it settled reach the trace", () => {
+    expect(code).toContain("lastStatus = sm;");
+    expect(code).toMatch(/note\(`upload status settled at \$\{finalStatus\}`[\s\S]{0,200}status_changed_on[\s\S]{0,200}report=\$\{lastStatus\['url'\]\}/);
+  });
+
+  it("on FAIL, reads the tariff back and reports an unchanged tariff as a retryable MISMATCH", () => {
+    const at = INNER.indexOf("if (finalStatus === 'FAIL') {");
+    const done = INNER.indexOf("if (finalStatus === 'DONE') {", at);
+    expect(at).toBeGreaterThan(-1);
+    expect(done).toBeGreaterThan(at);
+    const branch = INNER.slice(at, done);
+    expect(branch).toContain("await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base, { effectiveFrom: normaliseEntryDate(entry.effectiveFrom) })");
+    expect(branch).toContain("verificationResult: 'mismatch'");
+    // And it RETURNS — a refused import never continues into the XML-RPC guesses or the fallback.
+    expect(branch).toMatch(/return \{[\s\S]*success: false[\s\S]*verificationResult: 'mismatch'/);
+    expect(branch).not.toContain('lastErrors.push');
   });
 });

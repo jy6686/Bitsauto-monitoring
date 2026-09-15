@@ -306,6 +306,24 @@ row whose activation equals that date (or the latest-activating row for the pref
 future-dated row at the expected rate as CONFIRMED. Then the fallback never runs. Do not "fix" it by
 removing the fallback: it is the path that makes same-day edits work on this Sippy build.
 
+**Second cause, found 2026-09-15.** Sippy's `getUploadStatus` for the 2026-09-14 token shows the
+import reached `DONE` at 16:20:29 — 43 s after processing began — while the push's poll loop (15 × 2 s)
+gave up at ~36 s and verified a tariff the import had not finished writing. The verifier was early as
+well as date-blind. The same 15-poll budget sat in `uploadRatesWorkbook`, the provisioning path.
+
+**Fix (local, commit after ac296ddb).** Both pollers wait up to 60 × 2 s. The status struct is kept:
+the trace now records `status_changed_on` and the report URL instead of one word. On `FAIL` the push
+reads the tariff back and, if unchanged, returns `verificationResult: 'mismatch'` — a retryable
+failure that never continues into the XML-RPC guesses or the portal fallback.
+
+**Closing pilot #1, 2026-09-15 08:39Z (`job-1789461549245`, Test-312, tariff 65, `192` 0.04 → 0.05
+effective 10:00 GMT).** Sippy's importer refused the file (`FAIL` at +9 s); tariff 65 unchanged; the
+fallback gate REFUSED the future-dated portal edit and returned `indeterminate`. Under the pre-fix
+code the live row would have been edited. **Negative path proven on production.** The reason for the
+FAIL is at `https://191.101.30.107/download/reports/eedf88b9-f448-40a6-8ee1-53cef0465522` (Sippy
+login); the code that discarded it is the code fixed above. Positive path (scheduled row created,
+live row untouched, verified as DONE) still to be shown.
+
 **Remediation of the evidence.** Tariff 64 is disposable. Restoring `9115` to 0.133 / 1/1 until
 2026-09-22 is a Sippy write and the owner's decision; leaving both rows as evidence is equally valid.
 

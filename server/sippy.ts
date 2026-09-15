@@ -9519,7 +9519,10 @@ export async function uploadRatesWorkbook(
   }
 
   let status = 'FILE_UPLOADED';
-  for (let poll = 1; poll <= 15; poll++) {
+  // Two minutes: on 2026-09-14 a single-row import reached DONE 43 s after processing began,
+  // past the 30 s this loop used to allow. Verifying before the import finishes reads the old
+  // rows and reports an upload that worked as indeterminate.
+  for (let poll = 1; poll <= 60; poll++) {
     await new Promise(r => setTimeout(r, 2000));
     try {
       const sr = await sippyPost(apiUrl, xmlRpcCall('getUploadStatus', { token: m['token'] }), username, password, 8000);
@@ -9803,7 +9806,11 @@ async function setSippyRateEntryInner(
           // The FILE_UPLOADED path below already handles this case by verifying the tariff
           // directly, and that is how these pushes have been succeeding all along.
           step('polling');
-          for (let poll = 1; poll <= 15; poll++) {
+          // Two minutes, not thirty seconds. On 2026-09-14 the import reached DONE 43 s after
+          // processing began; the loop had given up at ~36 s, verified a tariff the import had not
+          // finished writing, and fell through to a second write (SMP-006, second cause).
+          let lastStatus: Record<string, string> = {};
+          for (let poll = 1; poll <= 60; poll++) {
             let answering = false;
             try {
               const statusXml  = xmlRpcCall('getUploadStatus', { token: uploadToken });
@@ -9812,6 +9819,7 @@ async function setSippyRateEntryInner(
                 answering = true;
                 const sm = extractStructMembers(extractAllTags(statusResp.body, 'struct')[0] ?? '');
                 if (sm['status']) finalStatus = sm['status'];
+                lastStatus = sm;
               } else if (poll === 1) {
                 console.log(`[RateManager] getUploadStatus poll#1: HTTP ${statusResp.statusCode} body=${statusResp.body.substring(0, 200)}`);
               }
@@ -9833,7 +9841,30 @@ async function setSippyRateEntryInner(
             await new Promise(res => setTimeout(res, 2000));
           }
 
-          note(`upload status settled at ${finalStatus}`);
+          // Sippy says WHEN it settled and WHERE the report is. Both used to be discarded, so a
+          // FAIL reached the record as one word and its reason stayed on the switch.
+          note(`upload status settled at ${finalStatus}` +
+               (lastStatus['status_changed_on'] ? ` at ${lastStatus['status_changed_on']}` : '') +
+               (lastStatus['url'] ? ` report=${lastStatus['url']}` : ''));
+          if (finalStatus === 'FAIL') {
+            // The importer refused the file. Read the tariff: if the requested row is not there,
+            // nothing was applied and this is a FAILURE — safe to report, safe to retry once the
+            // reason in the report is fixed. It is not indeterminate, and it must not proceed to
+            // the XML-RPC guesses or the portal fallback, which is how a refused import became a
+            // live-row edit.
+            step('verifying', `tariff ${tariffId}`);
+            const after = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base, { effectiveFrom: normaliseEntryDate(entry.effectiveFrom) });
+            note(`verification after FAIL: confirmed=${after.confirmed} — ${after.message}`);
+            const report = lastStatus['url'] ? ` Report: ${lastStatus['url']}.` : '';
+            if (after.confirmed) {
+              return { success: true, message: `Sippy reported FAIL but the tariff holds the requested rate (${after.message}).${report}`, method: 'upload_token', uploadToken, uploadStatus: finalStatus, verificationResult: 'confirmed' };
+            }
+            return {
+              success: false,
+              message: `Sippy's importer refused the upload (FAIL${lastStatus['status_changed_on'] ? ` at ${lastStatus['status_changed_on']}` : ''}) and the tariff is unchanged (${after.message}). Nothing was applied.${report}`,
+              method: 'upload_token', uploadToken, uploadStatus: finalStatus, verificationResult: 'mismatch',
+            };
+          }
           if (finalStatus === 'DONE') {
             step('verifying', `tariff ${tariffId}`);
             const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base, { effectiveFrom: normaliseEntryDate(entry.effectiveFrom) });
