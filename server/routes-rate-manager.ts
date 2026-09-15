@@ -848,6 +848,12 @@ export function registerRateManagerRoutes(app: Express) {
       }
 
       if (!job) return res.status(404).json({ success: false, message: "Job not found" });
+      if (jobTable === "rate_push_jobs" && job.push_method === "provisioning_upload") {
+        // A provisioning upload is a whole-tariff workbook built from the company's products
+        // and prices at run time. Re-queuing it here would replay a snapshot nobody can
+        // inspect; the run is repeated from the company card instead.
+        return res.status(400).json({ success: false, message: "This row records a provisioning upload. Re-run provisioning from the company card instead of retrying it here." });
+      }
       if (!["failed","partial"].includes(job.status)) {
         return res.status(400).json({ success: false, message: `Cannot retry job with status: ${job.status}` });
       }

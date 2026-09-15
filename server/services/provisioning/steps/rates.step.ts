@@ -23,6 +23,7 @@ import { db } from "../../../db";
 import { companyProducts, companyMarkets, productRegistry, globalDestinations, productRates } from "../../../../shared/schema";
 import { preUploadGate } from "../rates-upload-gate";
 import { classifyMatrixRefusal } from "../rates-refusal";
+import { recordProvisioningPush } from "../push-history-record";
 import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import * as sippy from "../../../sippy";
 import { generateRateMatrix, type CatalogueDestination, type GeneratorProduct, type GeneratorRate } from "../../rates/matrix-generator";
@@ -312,12 +313,30 @@ export const ratesStep: ProvisioningStep = {
       .filter(Boolean)
       .map(r => ({ prefix: r.prefix, rate: r.rate }));
 
+    const uploadStartedAt = new Date();
     const res = await sippy.uploadRatesWorkbook(
       ctx.sippy.username, ctx.sippy.password, ctx.sippy.portalUrl,
       iTariff,
       buildBulkRateXlsx(rows.map(r => ({ prefix: r.prefix, country: r.country, rate: r.rate }))),
       sample,
     );
+
+    // Push History. Recorded whatever the outcome, as the upload's own source, so an
+    // operator reading that page sees what provisioning did to the tariff. Never fails
+    // the stage: the switch's state is already what it is.
+    const indeterminateUpload = !res.success && (res.verdict === 'indeterminate' || res.refusedBeforeWrite === false);
+    const historyRecord = await recordProvisioningPush({
+      runId: ctx.runId, companyId, iTariff,
+      switchName: ctx.sippy.portalUrl.replace(/^https?:\/\//, ''),
+      rows: rows.map(r => ({ prefix: r.prefix, destinationName: r.destinationName, productCode: r.productCode })),
+      byProduct: matrix.byProduct.map(p => ({ code: p.code, count: p.count })),
+      outcome: res.success ? 'completed' : (indeterminateUpload ? 'needs_review' : 'failed'),
+      message: res.message, uploadStatus: res.uploadStatus ?? null, verified: !!res.verified,
+      startedAt: uploadStartedAt, finishedAt: new Date(),
+    });
+    const historyLine = historyRecord.ok
+      ? `Recorded in Push History as ${historyRecord.jobId} (source: provisioning upload).`
+      : `Push History record ${historyRecord.jobId} could not be written (${historyRecord.error}) — the tariff state above is unaffected.`;
 
     if (!res.success) {
       // ── FAILURE AND INDETERMINATE ARE NOT THE SAME OUTCOME ─────────────────
@@ -327,7 +346,7 @@ export const ratesStep: ProvisioningStep = {
       // confirm it: the file was sent, the tariff may already hold it, and re-running would
       // write it a second time. `refusedBeforeWrite` is structural, from where the boundary
       // sits in the upload, and is never read off the message text.
-      const indeterminate = res.verdict === 'indeterminate' || res.refusedBeforeWrite === false;
+      const indeterminate = indeterminateUpload;
       return {
         status: 'failed',
         reasonCode: indeterminate ? 'RATE_UPLOAD_INDETERMINATE' : 'RATE_UPLOAD_FAILED',
@@ -335,6 +354,7 @@ export const ratesStep: ProvisioningStep = {
         detail: [
           `${rows.length} row(s) built from ${destinations.length} destination(s) x ${products.length} product(s)`,
           `Tariff ${iTariff} — ${res.message}`,
+          historyLine,
           ...(indeterminate
             ? [
                 `The workbook WAS sent to tariff ${iTariff}. What it now holds is unknown, so this step must NOT be re-run blindly — read the tariff back first.`,
@@ -365,6 +385,7 @@ export const ratesStep: ProvisioningStep = {
         'Effective immediately — no activation date set',
         `${matrix.byProduct.map(p => `${p.code} ${p.count}`).join(' · ')}`,
         res.message,
+        historyLine,
         // WHAT DID NOT GO. A partly-priced matrix uploaded silently: "12 rate(s) uploaded"
         // is true, reads as success, and says nothing about the 56 cells dropped for having
         // no price. The customer ends up with a tariff covering a fifth of what they bought

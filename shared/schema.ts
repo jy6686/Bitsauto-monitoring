@@ -1507,6 +1507,12 @@ export const companies = pgTable("companies", {
   /** Resolved from the routing package during preparation — NULL until then. */
   routingGroupId:         integer("routing_group_id"),
   routingGroupName:       varchar("routing_group_name",   { length: 128 }),
+  /** Which authentication planner builds this customer's rules (migration 521):
+   *  'country' = the frozen v1.0 set, approved IPs × package (country, product) cells;
+   *  'breakout' = one rule per priced prefix, from the same catalogue expansion as the
+   *  tariff rows, routing group inherited from the prefix's country cell. Explicit per
+   *  company; no customer changes mode by default. */
+  authRuleMode:           varchar("auth_rule_mode",       { length: 16 }).notNull().default('country'),
   /** The single accountable owner of preparation (migration 045). A user reference, never
    *  a role snapshot — authorisation always comes from RBAC, not from these columns. */
   ownerUserId:            varchar("owner_user_id",    { length: 255 }),

@@ -118,3 +118,29 @@ The owner's Definition of Done, unchanged:
 7. Rating matches the uploaded tariff
 
 1–4 hold today. 5 and 6 need one call. 7 needs the 128 prices first — the rates step correctly skips while `product_rates` is empty, so an unpriced tariff rates at zero.
+
+---
+
+## Change under control: breakout authentication mode (2026-09-15)
+
+**Freeze area:** authentication planner (`auth-rule-set.ts`).
+**Reason (observed):** tariff 68 (1global, account 1069) held the priced Afghanistan First
+Class prefixes 19370 and 19371 while the account's twelve rules covered only 880, 91 and 92
+— read back through `listAuthRules` and confirmed on the Sippy portal. A call to a priced
+destination failed authentication before it could be rated. The country planner's unit is a
+package cell; it cannot express a breakout.
+**Impact:** schema — `companies.auth_rule_mode` (migration 521, default `'country'`); API —
+`PATCH /api/companies/:id/auth-rule-mode`; UI — a per-company select on the company card.
+**What changed in the frozen file:** the two lookup tables moved to `auth-rule-vocab.ts`
+unchanged, and `planAuthRuleSet` dispatches to `auth-rule-set-breakout.ts` when the company
+has chosen `'breakout'`. Every company not opted in gets the v1.0 set exactly as before.
+**Breakout planner:** rules = approved IPs × (product digit, priced prefix), the prefixes
+taken from the same catalogue expansion that builds the tariff rows, the routing group from
+the package cell of the prefix's country. A prefix whose country has no cell, or whose cell
+has no group, is a gap that blocks the stage — nothing is invented, nothing partial is pushed.
+Runs never delete rules; retiring the parent country rules is a separate, separately
+authorised operation once the breakout set is proven on a real call.
+**Evidence:** `auth-rule-set-breakout.test.ts` (1global fixture: 8 Pakistan rules, the
+Afghanistan gap named with its remedy, 10 rules once the cell is mapped); then a preflight
+and provisioning run on 1global in breakout mode with `listAuthRules` + `getAuthRuleInfo`
+read-back, and a real call.
