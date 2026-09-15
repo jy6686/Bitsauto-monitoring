@@ -382,6 +382,49 @@ made the upload look malformed. `reportCellText` now renders dates in the switch
 with a single open-ended row, or an activation after the last row's. That is a Sippy write and needs
 the owner's word.
 
+**Closing pilot #2, 2026-09-15 14:53Z — the clean fixture, and the t65 mode REPRODUCED.**
+Tariff 65, Test-312, `192` 0.04 → 0.05, effective 2026-09-16 10:00 GMT. Chosen after a read-only
+survey precisely to remove every confound the tariff-64 attempt carried: the tariff holds **one**
+row for `192` (`9116`, 0.04, 1/1, activating 2026-07-31 17:00, **no expiration**), so no overlap is
+possible; and the catalogue increment for destination 883 (PAKISTAN - FIXED, prefix `92`) is `1/1`,
+identical to the switch row, so the increment does not move either. Only the price changes.
+
+**Result: refused again, pre-parse, with a ZERO-BYTE report.** `FAIL` 17 s after processing began.
+Tariff unchanged: `9116` still 0.04 / 1/1 / no expiration. Verdict `failure`, method `upload_token`,
+no `portal_csv`.
+
+| | t65 pilot #1 | t65 pilot #2 | t64 discriminator |
+|---|---|---|---|
+| processing → FAIL | **9 s** | **17 s** | **52 s** |
+| report | **0 bytes** | **0 bytes** | 1 row, a real error |
+| overlap possible? | no | **no** | yes |
+| verdict | indeterminate (gate) | failure | failure |
+
+**This is the important outcome: the unknown mode is now REPRODUCIBLE ON DEMAND**, on a fixture with
+no overlap, no increment change and a known-good shape. A defect that can be summoned is a defect
+that can be found; before today it had happened twice and could not be distinguished from bad luck.
+
+**Eliminated by this run.**
+- *Overlap.* There was nothing to overlap. The tariff-64 explanation does not transfer.
+- *Increment mismatch.* Catalogue and switch agree at 1/1 here.
+- *Tariff configuration.* `getTariff` for 64, 65 and **66** (the only tariff that has ever accepted
+  an `upload_token` import) is **byte-identical** across every field: currency USD, type 1, connect
+  fee 0, free seconds 0, grace 0, **lossProtection true**, maxLoss 0, costRoundUp true, precision 20,
+  averageDuration 200, localCalling false, empty extra. Whatever separates these tariffs is not in
+  their configuration.
+- *Loss protection specifically.* True on the tariff that parses AND the tariff that does not.
+
+**Still unknown: why tariff 65's importer dies before parsing.** A zero-byte report is the signature
+of a refusal that happens before any row is read, so the file's contents cannot be the cause — and
+tariff 64 proves the same builder produces a file this importer will parse. The remaining difference
+is the tariff itself, or something the importer holds about it. The platform retains no copy of the
+uploaded workbook (`push-xlsx-list` is empty), so the bytes cannot be diffed after the fact.
+
+**The discriminator that would settle it** is one logical change — a prefix absent from both tariffs,
+1/1, future-dated — pushed to tariff 64 AND tariff 65. Identical content, two tariffs. If 64 parses
+and 65 dies pre-parse, the tariff is implicated and the file is exonerated for good. Two Sippy
+writes; the owner's word is required for each.
+
 **Remediation of the evidence.** Tariff 64 is disposable. Restoring `9115` to 0.133 / 1/1 until
 2026-09-22 is a Sippy write and the owner's decision; leaving both rows as evidence is equally valid.
 
