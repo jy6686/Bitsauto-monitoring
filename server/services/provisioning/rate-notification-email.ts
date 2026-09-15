@@ -35,7 +35,7 @@ import { lookupCatalogueIncrements } from "../rates/catalogue-increments";
 import { parseBillingIncrement, formatBillingIncrement } from "../rates/billing-increment";
 import {
   buildRateSheetRows, changeEffectiveDates, formatSheetDate, formatSheetTime, technicalPrefix,
-  RATE_SHEET_TERMS, type PricedRate, type RateSheetModel,
+  RATE_SHEET_TERMS, type PricedRate, type RateSheetModel, type RateSheetRow,
 } from "./rate-sheet-model";
 import { buildRateSheetWorkbook } from "./rate-sheet-workbook";
 
@@ -224,19 +224,57 @@ async function legacyNamesFor(prefixes: string[]): Promise<Map<string, string>> 
   return out;
 }
 
-// ── Main export ────────────────────────────────────────────────────────────────
-export async function sendRateNotificationEmails(
+// ── Assembly ───────────────────────────────────────────────────────────────────
+/** The four commercial products a sheet can be produced for. */
+export const RATE_SHEET_PRODUCT_CODES: readonly string[] = Object.keys(PRODUCT_LABELS);
+
+/** One product's notification, fully rendered and ready to send or download. */
+export type PreparedRateSheet = {
+  productCode:  string;
+  productLabel: string;
+  productDigit: string;
+  currency:     string;
+  subject:      string;
+  filename:     string;
+  html:         string;
+  xlsx:         Buffer;
+  rows:         RateSheetRow[];
+  /** Prices that were effective but could not be carried on this sheet, and why. */
+  excluded:     string[];
+};
+
+export type RateSheetAssembly = {
+  /** Null when the company does not exist. */
+  company: { id: number; name: string; accountPrefix: string; recipients: string[] } | null;
+  /** Products with at least one row — these are what a customer would receive. */
+  products: PreparedRateSheet[];
+  /** Products with effective prices but no row the sheet could carry. Never sent. */
+  unsendable: Array<{ productCode: string; productLabel: string; reasons: string[] }>;
+  /** Everything worth telling the operator (KAM fallback, excluded prices …). */
+  details: string[];
+};
+
+/**
+ * Everything the notification needs, computed but not delivered.
+ *
+ * Reads only. It is the single place the customer sheet is derived, so the
+ * download used for acceptance and the email a customer receives are the
+ * same bytes from the same rows. `productCode` narrows the assembly to one
+ * product (the download); the sender assembles all four.
+ */
+export async function assembleRateSheets(
   companyId: number,
-): Promise<{ sent: number; failed: number; skipped: number; details: string[] }> {
+  opts: { now?: Date; productCode?: string } = {},
+): Promise<RateSheetAssembly> {
   const details: string[] = [];
-  let sent = 0, failed = 0, skipped = 0;
+  const now = opts.now ?? new Date();
 
   // 1. Company info + recipients
   // Commercial + rates contacts receive rate notifications.
   // Technical contacts are excluded — they handle credentials, not pricing.
   // Finance/billing/invoicing are excluded as always.
   const { rows: compRows } = await pool.query<any>(
-    `SELECT c.name, c.account_prefix, c.kam, c.sippy_i_account,
+    `SELECT c.id, c.name, c.account_prefix, c.kam, c.sippy_i_account,
             COALESCE(
               (SELECT array_agg(DISTINCT ct.email) FROM company_contacts ct
                 WHERE ct.company_id = c.id
@@ -248,31 +286,20 @@ export async function sendRateNotificationEmails(
   );
 
   const comp = compRows[0];
-  if (!comp) {
-    return { sent: 0, failed: 0, skipped: 1, details: [`Company ${companyId} not found.`] };
-  }
+  if (!comp) return { company: null, products: [], unsendable: [], details: [`Company ${companyId} not found.`] };
 
   const recipients: string[] = Array.from(new Set<string>(
     (comp.contact_emails ?? [])
       .filter((e: any) => typeof e === "string" && e.includes("@"))
       .map((e: string) => e.trim().toLowerCase()),
   ));
-
-  if (!recipients.length) {
-    return {
-      sent: 0, failed: 0, skipped: 1,
-      details: ["No commercial or technical contacts with email addresses — rate notifications not sent."],
-    };
-  }
-
-  const to = recipients.join(", ");
   const accountPrefix = comp.account_prefix ?? "";
+  const company = { id: Number(comp.id), name: String(comp.name), accountPrefix, recipients };
 
   // 2. Effective rates today — the same filter rates.step and Rate Manager use, so the
   //    sheet a customer receives cannot disagree with what was uploaded to the switch.
-  const now = new Date();
   const today = now.toISOString().slice(0, 10);
-  const { rows: rateRows } = await pool.query<any>(
+  const { rows: allRateRows } = await pool.query<any>(
     `SELECT pr.id   AS product_id,
             pr.code AS product_code,
             pr.name AS product_name,
@@ -291,13 +318,10 @@ export async function sendRateNotificationEmails(
       ORDER BY pr.code, r.prefix`,
     [today],
   );
+  const wanted = opts.productCode ? String(opts.productCode).toUpperCase() : null;
+  const rateRows = wanted ? allRateRows.filter((r: any) => String(r.product_code) === wanted) : allRateRows;
 
-  if (!rateRows.length) {
-    return {
-      sent: 0, failed: 0, skipped: 1,
-      details: ["No effective rates in product_rates — nothing to notify."],
-    };
-  }
+  if (!rateRows.length) return { company, products: [], unsendable: [], details };
 
   // 3. Resolve every price the way the switch upload resolves it: through the
   //    Destination Catalogue, one row per prefix, named by the catalogue. Legacy
@@ -343,10 +367,12 @@ export async function sendRateNotificationEmails(
     byProduct.get(code)!.push(e);
   }
 
-  // 5. One email per product
+  // 5. One sheet per product
   const issueDateStr  = friendlyDate(now);
   const compactDtStr  = compactDateTime(now);
   const safeCompany   = comp.name.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const products: PreparedRateSheet[] = [];
+  const unsendable: RateSheetAssembly["unsendable"] = [];
 
   for (const [productCode, productExpansions] of byProduct) {
     const productLabel = PRODUCT_LABELS[productCode] ?? productCode;
@@ -356,8 +382,7 @@ export async function sendRateNotificationEmails(
     const { rows: sheetRows, excluded } = buildRateSheetRows({ expansions: productExpansions, increments, legacyNames });
     for (const line of excluded) details.push(`${productLabel}: not on the sheet — ${line}`);
     if (!sheetRows.length) {
-      skipped++;
-      details.push(`${productLabel}: no destination could be named for the sheet — notification not sent.`);
+      unsendable.push({ productCode, productLabel, reasons: excluded.length ? excluded : ["no effective price reached a named destination"] });
       continue;
     }
 
@@ -394,21 +419,65 @@ export async function sendRateNotificationEmails(
     };
     const xlsx = await buildRateSheetWorkbook(model);
 
+    products.push({ productCode, productLabel, productDigit, currency, subject, filename, html, xlsx, rows: sheetRows, excluded });
+  }
+
+  return { company, products, unsendable, details };
+}
+
+// ── Main export ────────────────────────────────────────────────────────────────
+/**
+ * Sends one notification per product to the company's commercial contacts.
+ * The provisioning account-email step calls this after the account details go
+ * out; the company card's "Resend rate notification" calls it on its own, with
+ * no account details and no switch write.
+ */
+export async function sendRateNotificationEmails(
+  companyId: number,
+): Promise<{ sent: number; failed: number; skipped: number; details: string[] }> {
+  const details: string[] = [];
+  let sent = 0, failed = 0, skipped = 0;
+
+  const assembly = await assembleRateSheets(companyId);
+  if (!assembly.company) {
+    return { sent: 0, failed: 0, skipped: 1, details: [`Company ${companyId} not found.`] };
+  }
+  if (!assembly.company.recipients.length) {
+    return {
+      sent: 0, failed: 0, skipped: 1,
+      details: ["No commercial or technical contacts with email addresses — rate notifications not sent."],
+    };
+  }
+  if (!assembly.products.length && !assembly.unsendable.length) {
+    return {
+      sent: 0, failed: 0, skipped: 1,
+      details: ["No effective rates in product_rates — nothing to notify."],
+    };
+  }
+
+  details.push(...assembly.details);
+  for (const u of assembly.unsendable) {
+    skipped++;
+    details.push(`${u.productLabel}: no destination could be named for the sheet — notification not sent.`);
+  }
+
+  const to = assembly.company.recipients.join(", ");
+  for (const p of assembly.products) {
     const res = await sendDirectEmailWithAttachment({
       to,
-      subject,
-      html,
+      subject:     p.subject,
+      html:        p.html,
       fromName:    "Ichibaan Rates",
       fromAddress: "pricing@ichibaanlogic.com",
-      attachment: { filename, content: xlsx, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+      attachment: { filename: p.filename, content: p.xlsx, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
     });
 
     if (res.ok) {
       sent++;
-      details.push(`✓ ${productLabel} → ${to} (${filename}, ${sheetRows.length} prefix row(s))`);
+      details.push(`✓ ${p.productLabel} → ${to} (${p.filename}, ${p.rows.length} prefix row(s))`);
     } else {
       failed++;
-      details.push(`✗ ${productLabel} failed: ${res.error}`);
+      details.push(`✗ ${p.productLabel} failed: ${res.error}`);
     }
   }
 
