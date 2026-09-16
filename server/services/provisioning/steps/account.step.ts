@@ -188,13 +188,33 @@ export const accountStep: ProvisioningStep = {
       `Account ${iAccount} (${info.username ?? "?"}) — service plan ${actual ?? "(none)"}, tariff ${info.iTariff ?? "(none)"}`,
     ];
 
+    // CHANGE CONTROL — Provisioning Freeze v1.0, 2026-09-16
+    //   Freeze area:     Customer Account (steps/account.step.ts), Runner contract (metrics).
+    //   Reason observed: this verify already asks Sippy which tariff the account bills on,
+    //                    then keeps the answer only inside the sentence above. Nothing
+    //                    structured records it, so the platform cannot answer "does this
+    //                    account bill on the tariff we loaded its rates into?" without a
+    //                    person reading prose. Run #32 loaded 42 rates into tariff 68 for
+    //                    1global; whether account 1069 bills on 68 is NOT provable from the
+    //                    stored evidence, and on this deployment the service-plan step
+    //                    produces nothing, so Sippy's default tariff is the likely answer.
+    //                    Rates loaded into a tariff the account does not bill on are never
+    //                    consulted, and the customer is charged by a tariff nobody chose.
+    //   Impact:          additive only. Two new optional metric keys; no branch, no request,
+    //                    no existing field's meaning changed. The freeze permits exactly
+    //                    this ("a new optional field on StepOutcome/VerifyReport is allowed").
+    //   Evidence:        info.iTariff / info.iBillingPlan are already read from
+    //                    sippy.getAccountInfo two lines above and already printed.
+    const switchTariff = info.iTariff == null ? null : Number(info.iTariff);
+    const identityMetrics = { accountTariff: switchTariff, accountBillingPlan: actual };
+
     if (intended != null && actual !== intended) {
       return {
         reason: actual == null
           ? `account ${iAccount} has NO service plan — expected ${intended}. Sippy bills it on a default tariff, so the rates loaded for this customer are never consulted.`
           : `account ${iAccount} is on service plan ${actual}, expected ${intended} — it bills on another customer's tariff, so its own rates are never consulted.`,
         detail,
-        metrics: { verified: 0, servicePlanExpected: intended, servicePlanActual: actual },
+        metrics: { verified: 0, servicePlanExpected: intended, servicePlanActual: actual, ...identityMetrics },
       };
     }
 
@@ -207,10 +227,10 @@ export const accountStep: ProvisioningStep = {
         `No service plan was provisioned for this account, so Sippy's default (${actual ?? "unknown"}) applies.`,
         `Its tariff is ${info.iTariff ?? "unknown"} — confirm this is intended before the customer carries billable traffic.`,
       );
-      return { detail, metrics: { verified: 1, servicePlanExpected: null, servicePlanActual: actual } };
+      return { detail, metrics: { verified: 1, servicePlanExpected: null, servicePlanActual: actual, ...identityMetrics } };
     }
 
     detail.push(`Service plan ${actual} matches the plan provisioned for this customer.`);
-    return { detail, metrics: { verified: 1, servicePlanExpected: intended, servicePlanActual: actual } };
+    return { detail, metrics: { verified: 1, servicePlanExpected: intended, servicePlanActual: actual, ...identityMetrics } };
   },
 };
