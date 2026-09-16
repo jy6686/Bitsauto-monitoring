@@ -169,8 +169,9 @@ export function registerRateSheetRoutes(app: Express, overrides: Partial<RateShe
       const [companies, steps, products, bought, assigned, priced] = await Promise.all([
         pool.query<any>(`SELECT id, name, sippy_i_account, sippy_i_tariff, provisioning_status FROM companies ORDER BY name`),
         pool.query<any>(
-          // detail and metrics carry the account read-back: which tariff Sippy says the
-          // account BILLS ON, which is a different claim from which tariff was built.
+          // result, detail and metrics are three generations of the same evidence: which
+          // BILLING PLAN Sippy read back for the account. Runs 1-8 predate the detail and
+          // metrics columns and recorded it only in result, so all three are selected.
           `SELECT r.company_id, s.step_key, s.status, s.result, s.detail, s.metrics, s.completed_at
              FROM provisioning_steps s
              JOIN provisioning_runs r ON r.id = s.run_id
@@ -185,6 +186,34 @@ export function registerRateSheetRoutes(app: Express, overrides: Partial<RateShe
             WHERE pr.effective_from <= CURRENT_DATE
               AND (pr.effective_to IS NULL OR pr.effective_to >= CURRENT_DATE)`),
       ]);
+
+      // Live billing plans, each carrying the tariff it bills on. Undefined (not empty)
+      // when the switch cannot be reached, so the report says the link is unresolvable
+      // instead of silently reporting every account as having no billing evidence.
+      let livePlans: Array<{ id: number; name: string; iTariff: number | null }> | undefined;
+      try {
+        const { listSippyBillingPlans } = await import('./sippy');
+        const s: any = await storage.getSettings();
+        const portalUrl: string = s?.portalUrl || '';
+        // Same pair order the billing-plans route uses: admin first, portal second, then
+        // the web password combos. Only one of them can read getServicePlanInfo.
+        const pairs = [
+          [s?.apiAdminUsername, s?.apiAdminPassword],
+          [s?.portalUsername,   s?.portalPassword],
+          [s?.apiAdminUsername, s?.adminWebPassword],
+          [s?.portalUsername,   s?.adminWebPassword],
+        ].filter(([u, p]) => u && p) as Array<[string, string]>;
+        for (const [u, p] of pairs) {
+          const r = await listSippyBillingPlans(u, p, portalUrl);
+          if (r?.plans?.length) {
+            livePlans = r.plans.map((x: any) => ({
+              id: Number(x.id), name: String(x.name ?? ''),
+              iTariff: x.iTariff === null || x.iTariff === undefined ? null : Number(x.iTariff),
+            }));
+            break;
+          }
+        }
+      } catch { livePlans = undefined; }
 
       const report = buildIdentityInventory({
         companies: companies.rows.map((c: any) => ({
@@ -202,6 +231,10 @@ export function registerRateSheetRoutes(app: Express, overrides: Partial<RateShe
         bought:   bought.rows.map((b: any) => ({ companyId: Number(b.company_id), productId: Number(b.product_id) })),
         assigned: assigned.rows.map((a: any) => ({ iAccount: Number(a.i_account), productId: Number(a.product_id) })),
         pricedProductCodes: priced.rows.map((r: any) => String(r.code)),
+        // The billing hop. On this switch the tariff hangs off the BILLING PLAN, not the
+        // account, so without this list every company reports NO_EVIDENCE. Read-only, and
+        // a failure is reported as "could not be read" rather than as a clean bill.
+        plans: livePlans,
       });
 
       const generatedAt = new Date().toISOString();

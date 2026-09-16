@@ -13,11 +13,12 @@ const report = () => buildIdentityInventory({
     { id: 105, name: '1global', sippyIAccount: null, sippyITariff: 68, provisioningStatus: 'draft' },
     { id: 7,   name: 'Acme',    sippyIAccount: 900,  sippyITariff: 61, provisioningStatus: 'provisioned' },
   ],
+  plans: [{ id: 38, name: '1global', iTariff: 68 }, { id: 4, name: 'Shared', iTariff: 12 }],
   evidence: [
     { companyId: 105, stepKey: 'account', status: 'success', result: { iAccount: 1069 },
-      detail: ['Account 1069 (1gloabl) — service plan (none), tariff 68'], completedAt: '2026-09-15T09:50:00Z' },
+      detail: ['Account 1069 (1gloabl) — service plan 38, tariff (none)'], completedAt: '2026-09-15T09:50:00Z' },
     { companyId: 7, stepKey: 'account', status: 'success', result: { iAccount: 900 },
-      metrics: { accountTariff: 12, accountBillingPlan: 4 }, completedAt: '2026-09-15T09:50:00Z' },
+      metrics: { accountBillingPlan: 4 }, completedAt: '2026-09-15T09:50:00Z' },
   ],
   bought:   [{ companyId: 105, productId: 1 }, { companyId: 7, productId: 1 }, { companyId: 7, productId: 2 }],
   assigned: [{ iAccount: 900, productId: 1 }],
@@ -55,12 +56,13 @@ describe('renderIdentityInventoryText', () => {
     expect(block).toMatch(/Identity evidence\s*: VERIFIED/);
     expect(block).toMatch(/Billing-link evidence\s*: DIFFERS \(from verify metrics\)/);
     expect(block).toMatch(/Rates loaded into 61 are never consulted/);
+    expect(block).toMatch(/bills through plan 4 \("Shared"\) on tariff 12/);
     expect(block).toMatch(/Settle\s+which tariff is theirs/);   // \s+ because the line wraps
   });
 
   it('counts the three billing verdicts and flags an unpriced product', () => {
     const t = renderIdentityInventoryText(report());
-    expect(t).toMatch(/Billing link\s+MATCHES 1 · DIFFERS 1 · NO_EVIDENCE 0/);
+    expect(t).toMatch(/Billing link\s+MATCHES 1 · DIFFERS 1 · PLAN_MISSING 0 · NO_EVIDENCE 0/);
     expect(t).toMatch(/BC\s+Business Class.*NO — nothing sendable/);
     expect(t).toMatch(/FC\s+First Class.*yes/);
   });

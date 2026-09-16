@@ -63,7 +63,7 @@ export function renderIdentityInventoryText(report: InventoryReport & { generate
   const s = report.byStatus;
   L.push(`  Identity      VERIFIED ${s.VERIFIED} · REPAIRABLE ${s.REPAIRABLE} · CONFLICT ${s.CONFLICT} · UNRESOLVED ${s.UNRESOLVED} · NOT_PROVISIONED ${s.NOT_PROVISIONED}`);
   const b = report.billingLinks;
-  L.push(`  Billing link  MATCHES ${b.matches} · DIFFERS ${b.differs} · NO_EVIDENCE ${b.noEvidence}`);
+  L.push(`  Billing link  MATCHES ${b.matches} · DIFFERS ${b.differs} · PLAN_MISSING ${b.planMissing} · NO_EVIDENCE ${b.noEvidence}`);
   L.push(`  Products      ${report.products.length} in the registry · ${report.productGaps} compan${report.productGaps === 1 ? 'y' : 'ies'} with a product gap`);
   L.push('');
   L.push('An identity the platform records is not a billing relationship, and a billing');
