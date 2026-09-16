@@ -107,7 +107,110 @@ describe('products under the identity', () => {
     const after  = buildIdentityInventory({ ...shared, companies: [{ id: 105, name: '1global', sippyIAccount: 1069, sippyITariff: 68, provisioningStatus: 'provisioned' }] });
     expect(before.companies[0].products.assigned).toBeNull();
     expect(after.companies[0].products.assigned).toEqual(['FC']);
-    expect(after.companies[0].nextAction).toMatch(/^None\./);
+    // Repairing the id reveals the products, but it does NOT prove the billing tariff:
+    // no run recorded a read-back here, so the report refuses to say "nothing to do".
+    expect(after.companies[0].products.state).toEqual([
+      { code: 'FC', state: 'CONFIGURED' }, { code: 'BC', state: 'NOT_SOLD' }, { code: 'SB', state: 'NOT_SOLD' },
+    ]);
+    expect(after.companies[0].nextAction).toMatch(/that link is unverified/);
+  });
+});
+
+describe('billing link — which tariff the account BILLS ON', () => {
+  const acct = (extra: Record<string, unknown>) => ({
+    companyId: 105, stepKey: 'account', status: 'success',
+    result: { iAccount: 1069 }, completedAt: '2026-09-15T09:50:00Z', ...extra,
+  });
+  const company = (tariff: number | null) =>
+    [{ id: 105, name: '1global', sippyIAccount: 1069, sippyITariff: tariff, provisioningStatus: 'provisioned' }];
+
+  it('is NO_EVIDENCE when only the tariff step ran — building a tariff never proves the account bills on it', () => {
+    const r = buildIdentityInventory({ ...base, companies: company(68),
+      evidence: [step(105, 'tariff', { iTariff: 68 }), acct({})] });
+    expect(only(r).billing).toMatchObject({ verdict: 'NO_EVIDENCE', switchTariff: null, source: null });
+    expect(only(r).billing.note).toMatch(/not evidence the account bills on it/);
+    expect(only(r).nextAction).toMatch(/that link is unverified/);
+  });
+
+  it('reads the structured verify metric when a run recorded one', () => {
+    const r = buildIdentityInventory({ ...base, companies: company(68),
+      evidence: [acct({ metrics: { accountTariff: 68, accountBillingPlan: 35 } })] });
+    expect(only(r).billing).toMatchObject({ verdict: 'MATCHES', switchTariff: 68, servicePlan: 35, source: 'verify metrics' });
+  });
+
+  it('falls back to the read-back line an older run recorded, and says so', () => {
+    const r = buildIdentityInventory({ ...base, companies: company(68),
+      evidence: [acct({ detail: ['Created account "1gloabl" (i_account=1069)',
+                                 'Account 1069 (1gloabl) — service plan (none), tariff 68'] })] });
+    expect(only(r).billing).toMatchObject({ verdict: 'MATCHES', switchTariff: 68, servicePlan: null, source: 'recorded read-back line' });
+    expect(only(r).billing.note).toMatch(/NO service plan, so this is Sippy's default/);
+  });
+
+  it('DIFFERS is the dangerous one: rates loaded into the stored tariff are never consulted', () => {
+    const r = buildIdentityInventory({ ...base, companies: company(68),
+      evidence: [acct({ detail: ['Account 1069 (1gloabl) — service plan (none), tariff 12'] })] });
+    expect(only(r).billing).toMatchObject({ verdict: 'DIFFERS', switchTariff: 12 });
+    expect(only(r).billing.note).toMatch(/Rates loaded into 68 are never consulted/);
+    expect(only(r).nextAction).toMatch(/Settle which tariff is theirs before pushing any rate/);
+  });
+
+  it('a read-back of "(none)" is no evidence, not a zero', () => {
+    const r = buildIdentityInventory({ ...base, companies: company(68),
+      evidence: [acct({ detail: ['Account 1069 (1gloabl) — service plan (none), tariff (none)'] })] });
+    expect(only(r).billing.verdict).toBe('NO_EVIDENCE');
+    expect(only(r).billing.switchTariff).toBeNull();
+  });
+
+  it('prefers the metric over the prose when a run carries both', () => {
+    const r = buildIdentityInventory({ ...base, companies: company(68),
+      evidence: [acct({ metrics: { accountTariff: 68 }, detail: ['Account 1069 (x) — service plan 35, tariff 12'] })] });
+    expect(only(r).billing).toMatchObject({ switchTariff: 68, source: 'verify metrics' });
+  });
+
+  it('counts the three verdicts across the platform', () => {
+    const r = buildIdentityInventory({ ...base,
+      companies: [
+        { id: 1, name: 'A', sippyIAccount: 10, sippyITariff: 60, provisioningStatus: 'provisioned' },
+        { id: 2, name: 'B', sippyIAccount: 20, sippyITariff: 61, provisioningStatus: 'provisioned' },
+        { id: 3, name: 'C', sippyIAccount: 30, sippyITariff: 62, provisioningStatus: 'provisioned' },
+      ],
+      evidence: [
+        { companyId: 1, stepKey: 'account', status: 'success', result: { iAccount: 10 }, metrics: { accountTariff: 60 } },
+        { companyId: 2, stepKey: 'account', status: 'success', result: { iAccount: 20 }, metrics: { accountTariff: 99 } },
+      ] });
+    expect(r.billingLinks).toEqual({ matches: 1, differs: 1, noEvidence: 1 });
+  });
+});
+
+describe('per-product state', () => {
+  it('names every registry product, and UNKNOWN is not MISSING', () => {
+    const r = buildIdentityInventory({ ...base,
+      companies: [{ id: 105, name: '1global', sippyIAccount: null, sippyITariff: 68, provisioningStatus: 'draft' }],
+      bought: [{ companyId: 105, productId: 1 }, { companyId: 105, productId: 6 }],
+      assigned: [{ iAccount: 1069, productId: 1 }] });
+    // Account unresolved: the platform cannot see assignments, and that is not absence.
+    expect(only(r).products.state).toEqual([
+      { code: 'FC', state: 'UNKNOWN' }, { code: 'BC', state: 'UNKNOWN' }, { code: 'SB', state: 'UNKNOWN' },
+    ]);
+  });
+
+  it('separates configured, missing, unexpected and not-sold once the account is known', () => {
+    const r = buildIdentityInventory({ ...base,
+      companies: [{ id: 1, name: 'Acme', sippyIAccount: 900, sippyITariff: 61, provisioningStatus: 'provisioned' }],
+      bought:   [{ companyId: 1, productId: 1 }, { companyId: 1, productId: 2 }],
+      assigned: [{ iAccount: 900, productId: 1 }, { iAccount: 900, productId: 6 }] });
+    expect(only(r).products.state).toEqual([
+      { code: 'FC', state: 'CONFIGURED' },   // bought and configured
+      { code: 'BC', state: 'MISSING' },      // bought, not configured
+      { code: 'SB', state: 'UNEXPECTED' },   // configured, never bought
+    ]);
+  });
+
+  it('NOT_SOLD where nothing is owed', () => {
+    const r = buildIdentityInventory({ ...base,
+      companies: [{ id: 1, name: 'Acme', sippyIAccount: 900, sippyITariff: 61, provisioningStatus: 'provisioned' }],
+      bought: [{ companyId: 1, productId: 1 }], assigned: [{ iAccount: 900, productId: 1 }] });
+    expect(only(r).products.state.map(s => s.state)).toEqual(['CONFIGURED', 'NOT_SOLD', 'NOT_SOLD']);
   });
 });
 

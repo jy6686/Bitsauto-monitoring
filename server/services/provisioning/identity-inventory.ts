@@ -42,6 +42,29 @@ export interface InventoryCompany {
 export interface InventoryEvidence {
   companyId: number; stepKey: string; status: string;
   result: Record<string, unknown> | null; completedAt?: string | Date | null;
+  /** provisioning_steps.metrics. Carries the read-back tariff on runs from 2026-09-16. */
+  metrics?: Record<string, unknown> | null;
+  /** provisioning_steps.detail. Older runs recorded the read-back only in this prose. */
+  detail?: string[] | null;
+}
+
+/**
+ * Whether the account bills on the tariff the platform stores for it.
+ *
+ * Separate from identity on purpose. Knowing WHICH account belongs to a customer says
+ * nothing about whether that account bills on the tariff we loaded their rates into, and
+ * on this deployment the service-plan step produces nothing, so Sippy assigns a default.
+ * Rates loaded into a tariff the account does not bill on are never consulted.
+ */
+export interface BillingLink {
+  /** The tariff Sippy said the account bills on, when a run recorded it. */
+  switchTariff: number | null;
+  /** The service plan Sippy reported. Null means Sippy's default tariff applies. */
+  servicePlan: number | null;
+  /** Where the number came from. Never inferred from the run's tariff step. */
+  source: 'verify metrics' | 'recorded read-back line' | null;
+  verdict: 'MATCHES' | 'DIFFERS' | 'NO_EVIDENCE';
+  note: string;
 }
 export interface InventoryProduct { id: number; code: string; name: string; trunkPrefix: string | null }
 /** What the customer bought — company_products, written by the onboarding wizard. */
@@ -61,6 +84,7 @@ export interface CompanyInventory {
     provisioningStatus: string | null;
     note: string;
   };
+  billing: BillingLink;
   products: {
     /** Product codes the customer bought. */
     bought: string[];
@@ -70,9 +94,27 @@ export interface CompanyInventory {
     missing: string[];
     /** Recorded against the account but not bought. */
     unexpected: string[];
+    /**
+     * One state per registry product, so the answer is never read off an omission.
+     * UNKNOWN is the whole point: with no account id the platform cannot see the
+     * assignments, and not seeing them is not evidence they are absent on Sippy.
+     */
+    state: Array<{ code: string; state: ProductState }>;
   };
   nextAction: string;
 }
+
+export type ProductState =
+  /** Bought, and configured under this company's account. */
+  | 'CONFIGURED'
+  /** Bought, account known, and NOT configured under it. A real gap. */
+  | 'MISSING'
+  /** The account is unresolved, so the platform cannot see any assignment at all. */
+  | 'UNKNOWN'
+  /** Configured under the account but never bought. */
+  | 'UNEXPECTED'
+  /** Not bought and not configured. Nothing owed. */
+  | 'NOT_SOLD';
 
 /**
  * One row per product in the registry — including a product added tomorrow, which appears
@@ -95,6 +137,8 @@ export interface ProductRollup {
 export interface InventoryReport {
   generatedFor: number;
   byStatus: Record<IdentityStatus, number>;
+  /** How many accounts are proven to bill on the tariff the platform stores for them. */
+  billingLinks: { matches: number; differs: number; noEvidence: number };
   /** Companies whose products do not line up, regardless of identity status. */
   productGaps: number;
   products: ProductRollup[];
@@ -118,6 +162,68 @@ function provenId(evidence: InventoryEvidence[], companyId: number, stepKey: str
     .sort((a, b) => time(b.completedAt) - time(a.completedAt));
   for (const r of rows) { const v = posInt(r.result![field]); if (v !== null) return v; }
   return null;
+}
+
+/**
+ * What the account step's read-back actually said. Structured metrics first; for runs that
+ * predate those, the line it printed — "Account 1069 (1gloabl) — service plan (none),
+ * tariff 68" — which is a record of a real Sippy read, not an inference.
+ *
+ * It is never filled from the tariff step. That step proves which tariff was BUILT, which
+ * is a different claim from which tariff the account BILLS ON, and conflating the two is
+ * how a customer ends up charged by a tariff nobody provisioned for them.
+ */
+function readBillingLink(
+  evidence: InventoryEvidence[], companyId: number, storedTariff: number | null,
+): BillingLink {
+  const rows = evidence
+    .filter(e => e.companyId === companyId && e.stepKey === 'account' && e.status === 'success')
+    .sort((a, b) => time(b.completedAt) - time(a.completedAt));
+
+  let switchTariff: number | null = null;
+  let servicePlan: number | null = null;
+  let source: BillingLink['source'] = null;
+
+  for (const r of rows) {
+    const m = r.metrics ?? null;
+    if (m && posInt(m.accountTariff) !== null) {
+      switchTariff = posInt(m.accountTariff);
+      servicePlan = posInt(m.accountBillingPlan);
+      source = 'verify metrics';
+      break;
+    }
+    // "Account <id> (<user>) — service plan <n|(none)>, tariff <n|(none)>"
+    for (const line of r.detail ?? []) {
+      const hit = /^Account\s+\d+\b.*?service plan\s+(\(none\)|\d+).*?tariff\s+(\(none\)|\d+)/i.exec(String(line));
+      if (!hit) continue;
+      const t = posInt(hit[2]);
+      if (t === null) continue;
+      switchTariff = t;
+      servicePlan = posInt(hit[1]);
+      source = 'recorded read-back line';
+      break;
+    }
+    if (switchTariff !== null) break;
+  }
+
+  const noPlan = switchTariff !== null && servicePlan === null
+    ? ' The account carries NO service plan, so this is Sippy\'s default rather than one provisioned for this customer.'
+    : '';
+
+  if (switchTariff === null) {
+    return { switchTariff: null, servicePlan: null, source: null, verdict: 'NO_EVIDENCE',
+      note: 'No run recorded which tariff Sippy bills this account on. That a tariff was built for this company is not evidence the account bills on it.' };
+  }
+  if (storedTariff === null) {
+    return { switchTariff, servicePlan, source, verdict: 'NO_EVIDENCE',
+      note: `Sippy reported this account billing on tariff ${switchTariff}, but the platform stores no tariff to compare it against.${noPlan}` };
+  }
+  if (switchTariff === storedTariff) {
+    return { switchTariff, servicePlan, source, verdict: 'MATCHES',
+      note: `Sippy reported this account billing on tariff ${switchTariff}, which is the tariff the platform stores.${noPlan}` };
+  }
+  return { switchTariff, servicePlan, source, verdict: 'DIFFERS',
+    note: `Sippy reported this account billing on tariff ${switchTariff}, but the platform stores ${storedTariff}. Rates loaded into ${storedTariff} are never consulted for this customer's calls.${noPlan}` };
 }
 
 export function buildIdentityInventory(input: {
@@ -175,25 +281,40 @@ export function buildIdentityInventory(input: {
     }
     byStatus[status]++;
 
+    const billing = readBillingLink(input.evidence, c.id, storedTariff);
+
     const boughtCodes = codes(boughtBy.get(c.id) ?? []);
     const assignedCodes = stored !== null ? codes(assignedBy.get(stored) ?? []) : null;
     const missing = assignedCodes === null ? [] : boughtCodes.filter(x => !assignedCodes.includes(x));
     const unexpected = assignedCodes === null ? [] : assignedCodes.filter(x => !boughtCodes.includes(x));
     if (missing.length || unexpected.length) productGaps++;
 
+    const state = input.products.map(p => ({
+      code: p.code,
+      state: (assignedCodes === null ? 'UNKNOWN'
+        : assignedCodes.includes(p.code) ? (boughtCodes.includes(p.code) ? 'CONFIGURED' : 'UNEXPECTED')
+        : boughtCodes.includes(p.code) ? 'MISSING'
+        : 'NOT_SOLD') as ProductState,
+    }));
+
     let nextAction: string;
     if (status === 'CONFLICT')            nextAction = 'Decide which Sippy account belongs to this customer. Nothing may be written until then.';
     else if (status === 'REPAIRABLE')     nextAction = 'Run the identity repair — it writes only the account id its own run proved.';
     else if (status === 'UNRESOLVED')     nextAction = 'Controlled reconciliation against Sippy to establish the account, then a provisioning run.';
     else if (status === 'NOT_PROVISIONED') nextAction = 'Provision this customer. The runner now records the identity as it goes.';
+    // Ranked above a product gap: a customer billing on the wrong tariff is charged wrongly
+    // today, whereas a missing product assignment only withholds something they bought.
+    else if (billing.verdict === 'DIFFERS') nextAction = `Identity is known, but the account bills on tariff ${billing.switchTariff} while the platform stores ${storedTariff}. Settle which tariff is theirs before pushing any rate.`;
     else if (missing.length)              nextAction = `Identity is known. Products bought but not configured under it: ${missing.join(', ')}.`;
     else if (unexpected.length)           nextAction = `Identity is known. Configured under the account but not bought: ${unexpected.join(', ')}.`;
-    else                                  nextAction = 'None. Identity known and products line up.';
+    else if (billing.verdict === 'NO_EVIDENCE') nextAction = 'Identity known and products line up. No run recorded which tariff the account bills on, so that link is unverified.';
+    else                                  nextAction = 'None. Identity known, billing tariff confirmed, products line up.';
 
     companies.push({
       companyId: c.id, companyName: c.name,
       identity: { status, storedAccount: stored, storedTariff, evidenceAccount: evAccount, evidenceTariff: evTariff, provisioningStatus: c.provisioningStatus, note },
-      products: { bought: boughtCodes, assigned: assignedCodes, missing, unexpected },
+      billing,
+      products: { bought: boughtCodes, assigned: assignedCodes, missing, unexpected, state },
       nextAction,
     });
   }
@@ -212,5 +333,11 @@ export function buildIdentityInventory(input: {
     priced:   priced.has(p.code),
   }));
 
-  return { generatedFor: input.companies.length, byStatus, productGaps, products, companies };
+  const billingLinks = {
+    matches:    companies.filter(c => c.billing.verdict === 'MATCHES').length,
+    differs:    companies.filter(c => c.billing.verdict === 'DIFFERS').length,
+    noEvidence: companies.filter(c => c.billing.verdict === 'NO_EVIDENCE').length,
+  };
+
+  return { generatedFor: input.companies.length, byStatus, billingLinks, productGaps, products, companies };
 }

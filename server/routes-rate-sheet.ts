@@ -48,6 +48,13 @@ async function defaultRequireRole(roles: string[], req: any, res: any, next: any
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+/** provisioning_steps.detail is a JSON array of lines. One malformed row must not fail a report. */
+function parseStepDetail(raw: unknown): string[] | null {
+  if (raw === null || raw === undefined) return null;
+  if (Array.isArray(raw)) return raw.map(String);
+  try { const v = JSON.parse(String(raw)); return Array.isArray(v) ? v.map(String) : null; } catch { return null; }
+}
+
 function companyIdOf(req: any): number | null {
   const id = Number(req.params.id);
   return Number.isInteger(id) && id > 0 ? id : null;
@@ -161,7 +168,9 @@ export function registerRateSheetRoutes(app: Express, overrides: Partial<RateShe
       const [companies, steps, products, bought, assigned, priced] = await Promise.all([
         pool.query<any>(`SELECT id, name, sippy_i_account, sippy_i_tariff, provisioning_status FROM companies ORDER BY name`),
         pool.query<any>(
-          `SELECT r.company_id, s.step_key, s.status, s.result, s.completed_at
+          // detail and metrics carry the account read-back: which tariff Sippy says the
+          // account BILLS ON, which is a different claim from which tariff was built.
+          `SELECT r.company_id, s.step_key, s.status, s.result, s.detail, s.metrics, s.completed_at
              FROM provisioning_steps s
              JOIN provisioning_runs r ON r.id = s.run_id
             WHERE s.step_key IN ('account','tariff') AND s.status = 'success' AND s.result IS NOT NULL`),
@@ -185,7 +194,8 @@ export function registerRateSheetRoutes(app: Express, overrides: Partial<RateShe
         })),
         evidence: steps.rows.map((s: any) => ({
           companyId: Number(s.company_id), stepKey: String(s.step_key), status: String(s.status),
-          result: parseStepResult(s.result), completedAt: s.completed_at,
+          result: parseStepResult(s.result), metrics: parseStepResult(s.metrics),
+          detail: parseStepDetail(s.detail), completedAt: s.completed_at,
         })),
         products: products.rows.map((p: any) => ({ id: Number(p.id), code: String(p.code), name: String(p.name), trunkPrefix: p.trunk_prefix ?? null })),
         bought:   bought.rows.map((b: any) => ({ companyId: Number(b.company_id), productId: Number(b.product_id) })),
