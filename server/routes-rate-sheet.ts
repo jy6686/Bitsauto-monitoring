@@ -28,6 +28,7 @@ import {
 } from './services/provisioning/rate-notification-email';
 import { planIdentityBackfill, parseStepResult } from './services/provisioning/identity-backfill';
 import { buildIdentityInventory } from './services/provisioning/identity-inventory';
+import { renderIdentityInventoryText } from './services/provisioning/identity-inventory-text';
 
 export interface RateSheetRouteDeps {
   assemble:    typeof assembleRateSheets;
@@ -163,7 +164,7 @@ export function registerRateSheetRoutes(app: Express, overrides: Partial<RateShe
   //
   // Product-agnostic on purpose: it reads product_registry, so a product added tomorrow
   // appears in the rollup with no code change and no second reconciliation project.
-  app.get('/api/provisioning/identity-inventory', adminOnly, async (_req: any, res: any) => {
+  app.get('/api/provisioning/identity-inventory', adminOnly, async (req: any, res: any) => {
     try {
       const [companies, steps, products, bought, assigned, priced] = await Promise.all([
         pool.query<any>(`SELECT id, name, sippy_i_account, sippy_i_tariff, provisioning_status FROM companies ORDER BY name`),
@@ -203,7 +204,15 @@ export function registerRateSheetRoutes(app: Express, overrides: Partial<RateShe
         pricedProductCodes: priced.rows.map((r: any) => String(r.code)),
       });
 
-      res.json({ readOnly: true, generatedAt: new Date().toISOString(), ...report });
+      const generatedAt = new Date().toISOString();
+      // ?format=text renders the same object as the matrix it is meant to be read as —
+      // openable in a browser tab and pasteable into a message, without a JSON viewer.
+      if (String(req.query?.format ?? '').toLowerCase() === 'text') {
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        return res.send(renderIdentityInventoryText({ ...report, generatedAt }));
+      }
+      res.json({ readOnly: true, generatedAt, ...report });
     } catch (e: any) { res.status(500).json({ error: e?.message ?? String(e) }); }
   });
 
