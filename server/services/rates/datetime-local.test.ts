@@ -38,13 +38,29 @@ describe('localInputToUtcPayload — the five-hour defect', () => {
     expect(localInputToUtcPayload('2026-09-17T09:30')).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
   });
 
-  it('is NOT a fixed five-hour subtraction — it goes through the platform offset', () => {
-    // The delta must equal the environment's own offset, whatever that is. If someone
-    // reintroduces a hard-coded -5, this fails everywhere except Karachi.
-    const local = new Date('2026-06-15T12:00');           // mid-year, so a DST zone would differ
-    const utc = localInputToUtcPayload('2026-06-15T12:00')!;
-    const parsed = Date.parse(utc.replace(' ', 'T') + 'Z');
-    expect(parsed - local.getTime()).toBe(0);
+  /**
+   * THE GUARD THAT ACTUALLY CATCHES A HARD-CODED OFFSET.
+   *
+   * My first attempt at this compared the output against `new Date(input)` and asserted the
+   * delta was zero. That is tautological — it restates what the function does — and worse, a
+   * hard-coded `-5` PASSES it, because this file runs in Asia/Karachi where minus five hours
+   * and the real conversion agree on every value. It would have proved nothing.
+   *
+   * Node re-reads process.env.TZ per Date construction, so the same input can be converted
+   * from three different zones in one process. A constant offset cannot satisfy all three.
+   */
+  it('converts by the ACTUAL zone, not a constant — proven from three of them', () => {
+    const at = (tz: string, v: string) => { process.env.TZ = tz; return localInputToUtcPayload(v); };
+    try {
+      expect(at('Asia/Karachi',     '2026-09-17T09:30')).toBe('2026-09-17 04:30');  // +5
+      expect(at('UTC',              '2026-09-17T09:30')).toBe('2026-09-17 09:30');  // 0, no shift
+      expect(at('America/New_York', '2026-09-17T09:30')).toBe('2026-09-17 13:30');  // -4 (EDT)
+      // And the same zone in January, when New York is -5: a build that ignored DST would
+      // return 13:30 here too.
+      expect(at('America/New_York', '2026-01-15T09:30')).toBe('2026-01-15 14:30');  // -5 (EST)
+    } finally {
+      process.env.TZ = 'Asia/Karachi';
+    }
   });
 });
 
