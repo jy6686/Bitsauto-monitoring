@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { toLocalInputValue, localInputToUtcPayload, localInputUtcHint } from "@shared/datetime-local";
 import { cn } from "@/lib/utils";
 import {
   ChevronDown, Search, X, RefreshCw, Check, AlertTriangle, Send,
@@ -783,7 +784,7 @@ function ChangeClientRateModal({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [rate, setRate] = useState("");
-  const [effectiveFrom, setEffectiveFrom] = useState<string>(() => new Date(Date.now() + 5 * 60_000).toISOString().slice(0, 16));
+  const [effectiveFrom, setEffectiveFrom] = useState<string>(() => toLocalInputValue(new Date(Date.now() + 5 * 60_000)));
   const [effectiveTill, setEffectiveTill] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<{ prefix: string; success: boolean; message: string; method?: string; detail?: string }[] | null>(null);
@@ -809,7 +810,9 @@ function ChangeClientRateModal({
     const rateNum = Number(rate);
     // Always send the full Sippy prefix (r.prefix e.g. "192"), NOT rawPrefix ("92")
     const prefixes = selectedRates.map(r => String(r.prefix));
-    const fmtDate = (v: string) => v ? v.replace("T", " ") : undefined;
+    // The control returns LOCAL wall clock and the server parses what it receives as UTC.
+    // Converting here is the whole fix: see shared/datetime-local.ts.
+    const fmtDate = (v: string) => localInputToUtcPayload(v);
     const reqBody = {
       accountName: account.username,
       iTariff: iTariff ?? undefined,
@@ -970,22 +973,30 @@ function ChangeClientRateModal({
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Active From</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Active From <span className="text-muted-foreground/70">(your local time)</span></label>
               <input
                 type="datetime-local"
                 value={effectiveFrom}
                 onChange={(e) => setEffectiveFrom(e.target.value)}
                 className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm"
               />
+              {/* The switch runs on UTC. Stating the converted instant is what makes a
+                  five-hour mistake visible BEFORE the rate is scheduled, not after. */}
+              <div className="text-[10px] text-muted-foreground/80 mt-1 font-mono" data-testid="text-effective-from-utc">
+                {localInputUtcHint(effectiveFrom) ?? "immediate"}
+              </div>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground mb-1 block">Active Till</label>
+              <label className="text-xs text-muted-foreground mb-1 block">Active Till <span className="text-muted-foreground/70">(your local time)</span></label>
               <input
                 type="datetime-local"
                 value={effectiveTill}
                 onChange={(e) => setEffectiveTill(e.target.value)}
                 className="w-full bg-muted/30 border border-border rounded px-2 py-1.5 text-sm"
               />
+              <div className="text-[10px] text-muted-foreground/80 mt-1 font-mono" data-testid="text-effective-till-utc">
+                {localInputUtcHint(effectiveTill) ?? "no end date"}
+              </div>
             </div>
           </div>
             </>
