@@ -21,7 +21,7 @@ externalPort = 80
 [env]
 
 [deployment]
-deploymentTarget = "vm"
+deploymentTarget = "cloudrun"
 run = ["sh", "scripts/start-prod.sh"]
 build = ["npm", "run", "build"]
 
