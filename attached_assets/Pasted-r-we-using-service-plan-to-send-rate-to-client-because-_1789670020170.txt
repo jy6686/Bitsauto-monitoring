@@ -1,0 +1,114 @@
+r we using service plan to send rate to client because in account service plan would be call in service plan it tariff
+Yes — based on the flow we just traced, Service Plan is part of the Sippy-side account → tariff resolution, but we should distinguish that from what actually sends the client rate.
+The relationship we've established is:
+
+Client / Company
+      ↓
+Sippy Account 1069
+      ↓
+Service Plan 38
+      ↓
+Tariff 68
+      ↓
+Client rate / tariff data
+For 1global, the independent billing check showed:
+Sippy Account 1069 → Service Plan 38 → Tariff 68
+But Send Rate itself
+The important question is whether Send Rate changes the Service Plan or changes the tariff/rate data associated with the tariff.
+From the behavior we've already observed, the integrity preflight does this:
+
+Send Rate
+   ↓
+Sippy account ID
+   ↓
+Find BitsAuto company
+   ↓
+Read stored tariff = 68
+   ↓
+Resolve Sippy-side tariff = 68
+   ↓
+Integrity check
+   ↓
+Rate upload/change
+So the Service Plan is being used to establish/verify which tariff the Sippy account is operating on. It doesn't mean the client rate is sent by changing the Service Plan itself.
+For 1global:
+Account 1069 is assigned to Service Plan 38, and Service Plan 38 uses Tariff 68.
+The rate we just changed was on Tariff 68, which is why the Sippy account ultimately sees the new rate.
+This distinction is important
+We should think of it as:
+Service Plan = account's commercial/tariff assignment
+Tariff = actual destination pricing
+Rate Manager / Send Rate = mechanism that publishes the client pricing into that tariff
+So we should not modify Service Plan 38 merely to send a rate.
+And this is exactly why the account mapping repair matters: Send Rate needs to identify which Sippy account it is operating for, then verify that the company's stored tariff agrees with the tariff Sippy resolves through its account/service-plan relationship.
+For 1global, that chain is currently:
+1069 → Plan 38 → Tariff 68
+and all three pieces agree.
+If you want, the next useful check is to trace the actual Send Rate write after the integrity check and confirm whether it writes directly to Tariff 68 or performs any Service Plan operation. That would remove the last ambiguity in the publishing architecture.
+Yes — this screenshot changes an important detail in our understanding of the Sippy hierarchy.
+On the Sippy Accounts page, 1gloabl shows:
+
+Account: 1gloabl
+Service Plan: 1gloabl
+The Sippy page is operating in Etc/UTC
+This is the account's assigned Service Plan.
+So the actual relationship visible here is:
+
+Sippy Account
+   1gloabl
+      │
+      ▼
+Service Plan
+   1gloabl
+      │
+      ▼
+Tariff
+   68
+The Service Plan is the account-level assignment, while the Tariff is what contains the actual destination rates.
+Therefore, for Send Rate
+We should be careful with the wording:
+Send Rate does not need to change Service Plan 38/1gloabl in order to publish the rate.
+Rather, the Service Plan is part of how Sippy determines the tariff associated with the account.
+Our already-proven client rate operation was:
+
+1gloabl
+   ↓
+Tariff 68
+   ↓
+Prefix 192
+   ↓
+0.04567
+And Sippy accepted that scheduled rate.
+One thing I would verify before we touch the account mapping
+The screenshot shows Service Plan = 1gloabl, not a numeric 38.
+The earlier plan 38 result appears to be an internal Service Plan ID, while Sippy's Accounts UI displays the Service Plan name. Those can both be correct:
+
+Service Plan ID:   38
+Service Plan name: 1gloabl
+Tariff:            68
+So I would not change anything based on the screenshot alone.
+The useful next verification is to open the 1gloabl Service Plan and confirm that its configuration actually points to Tariff 68. If it does, we have the complete Sippy relationship:
+Account 1069 → Service Plan 38 (1gloabl) → Tariff 68.
+That is the exact relationship the Send Rate integrity check should be validating.
+ChatGPT can make mistakes. Check important info.
+
+Good question, and the answer is no. Let me confirm the plan's configuration live so it is evidence rather than inference.
+
+Ran page script
+No, we do not send rates through the service plan. The service plan is read, never written.
+
+The plan is confirmed, and it reconciles the screenshot. Plan 38 is named "1global" and points at tariff 68. The Sippy accounts page shows the name while the API shows the id, so both are the same object. Plan 38 is also the only plan pointing at tariff 68, so nothing else shares it.
+
+Where the rate actually goes. The write is scoped to the tariff, not the account and not the plan. The upload token is requested with i_tariff as its only scope, and the workbook carries prefixes and prices. No part of that path reads or modifies a service plan, and this morning's push proved it: the rate went to tariff 68 and the account saw it without plan 38 being touched.
+
+read  →  account 1069 → plan 38 → tariff 68     (to find the destination)
+write →  tariff 68                              (the rate itself)
+So the plan's only job here is to answer "which tariff does this account bill on". That is why the integrity check matters. It compares the tariff the platform recorded against the tariff Sippy reaches through the plan, and refuses if they disagree, because writing to the resolved one would price a tariff the customer does not own, and writing to the stored one would price a tariff they do not use.
+
+And that is exactly what the two test companies expose. Both sit on plan 1, named "Junaid", which points at tariff 2. So Sippy bills them through a plan named after a person, on a tariff shared with whatever else uses plan 1, while the platform believes they have tariffs 62 and 63. The plan assignment, not the rate, is what is wrong for those two.
+
+That distinction also answers the design question underneath yours: giving a customer their own pricing means giving them their own plan pointing at their own tariff, which 1global has and those two do not.
+
+
+
+vo-ip-watcher--junaid70.replit.app
