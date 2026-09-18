@@ -1,0 +1,28 @@
+You asked for all accounts, not one, so let me answer Aura as part of the whole population rather than one at a time. Checking whether a bulk read exists.
+
+Used 3 tools (1 failed)
+
+The bulk list has no plan field, so alignment still needs one call per account. Let me answer Aura now.
+
+Used 2 tools (1 failed)
+
+Aura will pass. Account 1067, plan 36, Sippy tariff 66, and the platform stores 66 for that company. Both known and identical, so the integrity gate is satisfied.
+
+On your larger point, you are right and it is already partly done. The identity rule is universal, not a 1global special case. Two mechanisms cover it:
+
+Future accounts. The provisioning write-back records the Sippy account on the company as each run proves it. That applies to every customer provisioned from 15 September onward, with no repair needed.
+Existing accounts. The backfill I ran is population-wide, not selective. It repaired every company whose own run proved an account, which was three, and it now reports zero remaining. There is no fourth company waiting.
+
+So the missing-identity problem is closed platform-wide. 1global was only the case we traced in detail.
+
+What is not known platform-wide is a different thing: alignment. Whether the tariff the platform records equals the tariff Sippy resolves through the plan. That is what refuses Test-37 and Test-73, and it is unmeasured for the rest.
+
+Company	Account	Plan	Sippy tariff	Stored	Verdict
+1global	1069	38	68	68	Passes
+Aura	1067	36	66	66	Passes
+Test-37	1062	1	2	62	Refuses
+Test-73	1063	1	2	63	Refuses
+
+Sweeping the rest is possible but slow. The bulk account list carries no plan field, so alignment needs one portal read per account, and those take four to fifteen seconds each with occasional timeouts. Thirty-four accounts is several minutes of sustained portal logins, which is the load pattern the audit warned about.
+
+I can run that sweep read-only and give you the full send-ready matrix, pacing it to avoid the session herd. Say the word and I will, or name specific customers and I will check those instead.
