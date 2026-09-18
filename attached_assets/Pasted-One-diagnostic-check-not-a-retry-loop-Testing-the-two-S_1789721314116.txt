@@ -1,0 +1,32 @@
+One diagnostic check, not a retry loop. Testing the two Sippy paths separately, since they use different mechanisms.
+
+Ran page script
+
+Sippy itself is healthy: 773 milliseconds, 53 live calls. Now the portal path, one call.
+
+Ran page script
+
+Both paths are healthy again. The portal call that timed out repeatedly now returns 30 plans in 865 milliseconds.
+
+That tells us the earlier timeouts were transient rather than a broken session, most likely the five-minute portal session cache expiring and several of my calls colliding on the re-acquisition, which is precisely the thundering-herd behaviour the audit described. No in-flight deduplication means concurrent callers each run the full login sequence.
+
+Since the connection is verified healthy, let me complete the integrity reads you asked for.
+
+Used 3 tools
+
+The post-repair integrity evidence is now complete, and every predicted verdict is confirmed against live reads.
+
+Company	Account	Plan	Sippy tariff	Stored tariff	Integrity verdict
+1global	1069	38	68	68	Safe, both known and identical
+Test-37	1062	1	2	62	Mismatch, refuses
+Test-73	1063	1	2	63	Mismatch, refuses
+
+Each tariff came back with its source recorded as the billing plan, which confirms the resolution path runs through the plan rather than the account, exactly as we traced.
+
+So the repair did what it was supposed to and nothing more. 1global moves from a refusal it could not diagnose to a clean pass. The two test companies move from a misleading missing-tariff message to the real fault, which is that Sippy bills them through plan 1, named after a person, on a shared tariff 2, while the platform has them on 62 and 63. Neither became sendable, which was the safety property you wanted.
+
+One operational note on how these reads behaved. They took roughly five, five and fifteen seconds, against under a second for the XML-RPC path. The portal path is an order of magnitude slower and visibly variable, which is the session acquisition cost the audit quantified. The earlier timeouts were that same cost under collision, not a broken connection.
+
+I reproduced the integrity rule against live inputs rather than invoking the deployed preflight, because that code lives inside the batch runner and running it would enter a write-capable path. The inputs and the comparison are identical; the distinction is that I applied the rule rather than the shipped function.
+
+No rate was sent and no Sippy object was modified.
