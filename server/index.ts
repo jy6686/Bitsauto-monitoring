@@ -430,6 +430,15 @@ app.use((req, res, next) => {
   const { storage: gdprStorage } = await import('./storage');
   initGdprRetention(gdprStorage);
 
+  // Boot-time reconciliation of rate-push jobs a restart left non-terminal. SHIPS OFF
+  // (RATE_RECONCILE_ON_BOOT=1 to enable) and, when off, does nothing; when on and there are no
+  // orphans, it is one indexed query and no Sippy call. Verify-never-retry lives inside it.
+  import('./services/rates/reconcile-boot').then(({ reconcileOrphanedRatePushesOnBoot }) => {
+    reconcileOrphanedRatePushesOnBoot();
+  }).catch((e: any) => {
+    console.error('[rate-reconcile] failed to start (non-fatal):', e?.message);
+  });
+
   // Daily finance pipeline — DMR, snapshot, DMR email, margin, assurance,
   // billing-cycle detection. Supersedes startDMREmailScheduler(): the email is
   // now stage 3 of the pipeline, so registering both would send it twice.
