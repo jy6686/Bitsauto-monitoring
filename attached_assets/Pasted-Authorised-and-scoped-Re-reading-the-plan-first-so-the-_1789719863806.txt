@@ -1,0 +1,48 @@
+Authorised and scoped. Re-reading the plan first so the abort conditions are checked against live evidence, not yesterday's.
+
+Used 2 tools
+
+All abort conditions clear: exactly three patches, exactly the approved ids, no tariff field, no conflicts. Applying.
+
+Ran page script
+
+Applied: three repaired, zero failed, zero conflicts. Now the read-back.
+
+Used 2 tools (1 failed)
+
+Backfill confirmed: zero remaining patches, complete count up from nine to twelve. Now the preflight. Let me find the real endpoint rather than reimplement the check.
+
+Found a read-only rate preflight endpoint
+
+No standalone preflight endpoint exists; it lives inside the batch runner, which is a write path. Let me verify the lookup the preflight depends on instead.
+
+Used 4 tools (2 failed)
+
+The app itself responds in a second, but the Sippy-touching calls are timing out. Retrying one.
+
+Used 2 tools
+
+I am stopping the retries rather than continuing. Each of those calls triggers a full portal login sequence, and the audit showed retries multiply connections, so hammering would aggravate exactly the condition I am observing.
+
+Saved a memory
+
+The repair is applied and verified. The preflight half is blocked by something new.
+
+The write, exactly as authorised. The plan was recomputed immediately before applying and checked against your abort conditions: three patches, the three approved ids, no tariff field, no conflicts. Applying it repaired three, failed none.
+
+Company	Written
+1global (105)	sippy_i_account 1069
+Test-37 (98)	sippy_i_account 1062
+Test-73 (99)	sippy_i_account 1063
+
+Nothing else changed. Remaining patches are now zero and the already-complete count moved from nine to twelve.
+
+The lookup that Send Rate depends on now resolves. Querying by each Sippy account returns the right company, where before it returned nothing. That was the whole failure chain.
+
+I could not complete the preflight verdicts, and the reason is worth more than the result. Immediately after the repair, every Sippy-touching endpoint began timing out beyond forty-five seconds, including the account info and the billing plan list that both answered within seconds yesterday. The application itself is healthy and replies in about one second, so this is the Sippy side or the session layer between us and it.
+
+That is consistent with the connection and session findings from yesterday, and it is why I stopped after three attempts instead of retrying. Each of those calls can trigger a login sequence of up to eighty requests, and the audit specifically warned that retries multiply connections and can lock further tariffs.
+
+One more thing while checking. Production restarted again overnight, process start 07:26:38 today, same commit and deployment. That is a sixth unexplained restart.
+
+The predicted verdicts from yesterday's live dry run still stand and remain unverified: a pass for 1global, and mismatches of 62 and 63 against 2 for the other two. No rate was submitted and no Sippy object was modified.
