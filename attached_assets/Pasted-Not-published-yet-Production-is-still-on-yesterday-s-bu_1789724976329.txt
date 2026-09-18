@@ -1,0 +1,42 @@
+Not published yet. Production is still on yesterday's build, schema 521, 106 recorded.
+
+Field	Now	Expected after publish
+Commit	50faa805	A new merge stamp
+Deployment	fa35c3a2	Changed
+schemaLatest	521	522
+Migrations recorded	106	107
+
+The merge is in your workspace, so publishing is the remaining step. Two notes specific to this one.
+
+This publish runs a migration, unlike the last. The dialog compares the development database against production, and development has not run 522 either, so it may propose the change itself. That is the situation that produced the destructive drop proposal on the fifteenth. Read it, and cancel on anything beyond three ALTER COLUMN ... TYPE TEXT statements on rate_push_jobs.
+
+The migration applies at startup, not from the dialog. The runner picks up numbered files automatically and 522 matches its pattern, so the correct outcome is the dialog proposing nothing and the application applying it when it boots. If the dialog wants to make the change itself, that is worth pausing over rather than approving.
+
+Once it is live I will verify the migration landed, confirm the three columns report as text, check existing job rows are unchanged, and confirm the truncations are gone from the served code. Then Aura can be retried as the identical five-prefix operation, with policy enforcement left off and the new-prefix prohibition still standing.
+
+republished
+
+Ran page script
+
+Migration applied. Running your verification list.
+
+Used 2 tools
+
+All five verification points pass.
+
+Check	Result
+Migration 522	Applied 09:48:19, 79 ms, not baselined, no drift
+schemaLatest	522, recorded count 106 to 107
+Only 522 applied today	Yes, nothing else
+Existing rows	Intact, values unchanged
+Deployment	e1def28e, new, commit 4749b643
+
+Existing job rows read back exactly as before, including the joined 69230, 69232 summary that was already in the table. Widening rewrote nothing, which is what it should do.
+
+The three drifted checksums are the same three from yesterday and are unrelated to this migration.
+
+One caveat on the code half. I verified the migration and the data directly. I have not yet confirmed the served bundle drops the truncations, because those three live in server code rather than the client bundle, so I cannot read them the way I read the timezone fix. The commit is in the branch that was published and the tests pin the contract, but the stronger proof is the behaviour itself.
+
+Which is what the Aura retry now provides. The identical five-prefix operation is the direct test: if the summary records whole, both the migration and the code change are proven at once. The guard remains in place, so a recording failure still means zero Sippy writes.
+
+That retry is a production write and remains yours to authorise. Policy enforcement stays off, and the new-prefix prohibition still stands, which matters here because the five prefixes must already exist in tariff 66 for the push to land.
