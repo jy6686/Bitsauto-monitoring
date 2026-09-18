@@ -4569,7 +4569,9 @@ export const ratePushJobs = pgTable("rate_push_jobs", {
   // ── Diagnostic fields (Phase A/C/E of Task #327) ───────────────────────────
   switchName:         varchar("switch_name",        { length: 128 }),
   iTariff:            integer("i_tariff"),
-  fullPrefix:         varchar("full_prefix",        { length: 32  }),
+  // Joined summary, one entry per destination in the batch — no business maximum, so TEXT.
+  // A fixed width here is a cap on how many destinations may be pushed at once (migration 522).
+  fullPrefix:         text("full_prefix"),
   oldRate:            varchar("old_rate",           { length: 32  }),
   newRate:            varchar("new_rate",           { length: 32  }),
   effectiveAt:        varchar("effective_at",       { length: 32  }),
@@ -4579,8 +4581,8 @@ export const ratePushJobs = pgTable("rate_push_jobs", {
   pushMethod:         varchar("push_method",        { length: 32  }),
   // ── Business-facing fields ──────────────────────────────────────────────────
   clientNames:        text("client_names"),          // comma-sep account names
-  dialPrefix:         varchar("dial_prefix",         { length: 128 }), // stripped (no trunk digit)
-  destinationName:    varchar("destination_name",    { length: 256 }), // frozen at push time
+  dialPrefix:         text("dial_prefix"),                       // stripped (no trunk digit); joined summary, see 522
+  destinationName:    text("destination_name"),                  // frozen at push time; joined summary, see 522
   notificationType:   varchar("notification_type",   { length: 32  }), // Default|Changes Only|Full Sheet
 });
 export type RatePushJob       = typeof ratePushJobs.$inferSelect;

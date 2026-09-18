@@ -44328,9 +44328,13 @@ ${footer}
         // the state that made "did the push run?" unanswerable.
         const jobId   = `job-${Date.now()}`;
         const totalOps = destList.length * accountNames.length;
+        // No truncation: these three fields are joined summaries with one entry per
+        // destination, so any cap is a limit on how many destinations may be pushed at once.
+        // The columns are TEXT as of migration 522. See the migration for why a truncated
+        // audit row is worse than a rejected one.
         const destNames = destList.length === 1
           ? (destList[0] as any).destinationName ?? null
-          : destList.map(d => (d as any).destinationName ?? d.dialPrefix).join(', ').substring(0, 255);
+          : destList.map(d => (d as any).destinationName ?? d.dialPrefix).join(', ');
         try {
           await db.insert(ratePushJobs).values({
             jobId,
@@ -44350,7 +44354,7 @@ ${footer}
             failedClients:    0,
             status:           'processing',
             switchName:       String(switchName).substring(0, 128),
-            fullPrefix:       destList.map(d => d.fullPrefix).join(', ').substring(0, 255),
+            fullPrefix:       destList.map(d => d.fullPrefix).join(', '),
             // Null rather than a misleading single value when the batch carries more than one
             // effective time. Stamping the first destination's time on the whole job is how a
             // rate sheet and a switch end up disagreeing.
@@ -44359,7 +44363,7 @@ ${footer}
                                 : null,
             createdBy:        (req as any).user?.claims?.sub ?? 'system',
             clientNames:      accountNames.join(', '),
-            dialPrefix:       destList.map(d => d.dialPrefix).join(', ').substring(0, 128),
+            dialPrefix:       destList.map(d => d.dialPrefix).join(', '),
             destinationName:  destNames || null,
             notificationType: (req.body as any).notificationType ?? null,
             notes:            `Started: ${destList.length} destination(s) × ${accountNames.length} client(s) = ${totalOps} op(s)`,
