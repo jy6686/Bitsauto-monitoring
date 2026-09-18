@@ -44745,12 +44745,36 @@ ${footer}
             createdBy:    (req as any).user?.claims?.sub ?? 'system',
             clientNames:  accountName,
             notes:        `Pending: changing ${prefixes.length} rate(s) for ${accountName} to ${rate}`,
+            // Durable position from the first moment, as push-batch does. Until 2026-09-18 this
+            // route wrote nothing between insert and the terminal update, so a process death
+            // mid-push left a row that could not say whether Sippy had been reached. With
+            // lastStepAt never NULL, a stranded row is dated from birth.
+            startedAt:    new Date(),
+            lastStep:     'queued',
+            lastStepAt:   new Date(),
           });
         } catch (e: any) { console.error('[rate_push_jobs] change-client-rates pending insert failed:', e?.message || e); }
 
         // ── Push loop ─────────────────────────────────────────────────────────────
         const results: { prefix: string; success: boolean; message: string; method?: string; detail?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string }[] = [];
         for (const prefix of prefixes) {
+          // Same closure push-batch keeps per operation: the Sippy client reports each real phase
+          // boundary (editing → token → uploading → polling → verifying) and this writes it to the
+          // job row. 'uploading' lands BEFORE the mutation-capable request, so after a restart the
+          // row itself says whether the boundary was crossed. Fire-and-forget: position reporting
+          // must never fail a push.
+          const mark = (step: string) => {
+            db.update(ratePushJobs)
+              .set({
+                lastStep: step, lastStepAt: new Date(),
+                lastClient: String(accountName).substring(0, 160),
+                lastPrefix: String(prefix).substring(0, 32),
+                iTariff: iTariff ?? null,
+              })
+              .where(eq(ratePushJobs.jobId, jobId))
+              .catch(() => { /* position reporting must never fail a push */ });
+          };
+          mark('queued');
           try {
             let r: { success: boolean; message: string; method?: string; detail?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string };
             if (iTariff) {
@@ -44771,6 +44795,12 @@ ${footer}
                   portalUser: (settings as any).portalUsername ?? '',
                   portalPass: (settings as any).portalPassword ?? '',
                   adminWebPassword: (settings as any).adminWebPassword ?? undefined,
+                },
+                // Real phase boundaries, reported from inside the Sippy client. The client has
+                // emitted these since the step() reporter existed; this route just never listened.
+                (step, detail) => {
+                  console.log(`[RateManager] change-client-rates ${prefix} → ${accountName}: ${step}${detail ? ` (${detail})` : ''}`);
+                  mark(step);
                 },
               );
               r = { ...sr, detail: `i_tariff=${iTariff} iRate=${iRateMap[String(prefix)] ?? 'new'}` };
