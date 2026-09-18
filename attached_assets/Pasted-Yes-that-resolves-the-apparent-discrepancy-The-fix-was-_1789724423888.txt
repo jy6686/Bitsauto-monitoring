@@ -1,0 +1,53 @@
+Yes — that resolves the apparent discrepancy.
+The fix was intentionally isolated on fix/rate-push-summary-unbounded, and the earlier workspace check was simply looking at feature/portal-framework before the fast-forward. Now the publish branch is at 0a06b989, so the correct next step is deployment verification, not another code investigation.
+Publish verification
+After publishing, verify these in order:
+1. Migration
+   - schemaLatest = 522
+   - migration count moves 106 → 107
+   - 522_rate_push_summary_unbounded.sql is applied successfully.
+2. Database schema
+   Confirm these three rate_push_jobs columns are now text:
+   - full_prefix
+   - dial_prefix
+   - destination_name
+   No other schema change should be present.
+3. Existing data
+   Confirm existing rate_push_jobs rows are unchanged.
+   The migration is only a widening operation (varchar → text), so it should not rewrite or truncate existing values.
+4. Code
+   Confirm the three parent batch-summary fields no longer have arbitrary .substring() limits:
+   - full_prefix
+   - dial_prefix
+   - destination_name
+   Keep the genuine bounds on fields such as switch_name and the per-operation rate_push_operations.full_prefix.
+5. Regression
+   The new rate-push-summary-unbounded.test.ts should pass, along with the existing suite/typecheck baseline.
+Then retry Aura
+Use the same controlled operation:
+- Client: Aura
+- Product: Business Class
+- 5 prefixes/operations total
+- Rate: 0.06000
+- Same effective date/time as the failed attempt
+The important thing is that this is not merely a test of whether PostgreSQL accepts a longer string. The original failure happened before the Sippy write, and the guard correctly refused to proceed because the audit record could not be persisted.
+So the success chain should now be:
+5-prefix batch → complete summary recorded → job accepted → Sippy push executes → verification → completed
+And if recording the batch somehow still fails, the existing safety invariant must hold:
+record failure → refuse → zero Sippy writes.
+Also, do not enable rate_policy_enforcement for this retry. That remains OFF; this is a write-path/audit-summary fix, not a policy-enforcement test.
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+ChatGPT can make mistakes. Check important info.
