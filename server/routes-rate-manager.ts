@@ -154,7 +154,11 @@ export function registerRateManagerRoutes(app: Express) {
   // ── Debug: list and download auto-saved rate-push XLSX files ─────────────
   // GET /api/rate-manager/push-xlsx-list   → lists files in /tmp/rate-push-*.xlsx
   // GET /api/rate-manager/push-xlsx-download?file=<name>  → downloads one file
-  app.get('/api/rate-manager/push-xlsx-list', async (_req: any, res) => {
+  // The generated rate workbooks hold real prices. Listing and downloading them is the same
+  // disclosure as reading Push History, and takes the same guard.
+  app.get('/api/rate-manager/push-xlsx-list',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (_req: any, res) => {
     try {
       const { readdirSync, statSync } = await import('fs');
       const files = readdirSync('/tmp')
@@ -169,7 +173,10 @@ export function registerRateManagerRoutes(app: Express) {
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get('/api/rate-manager/push-xlsx-download', async (req: any, res) => {
+  // Guarded in its own right, never on the strength of the listing endpoint beside it.
+  app.get('/api/rate-manager/push-xlsx-download',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
     try {
       const { readFileSync } = await import('fs');
       const name = String(req.query.file ?? '').replace(/[^a-zA-Z0-9._-]/g, '');
@@ -749,7 +756,10 @@ export function registerRateManagerRoutes(app: Express) {
   );
 
   // ── GET /api/rate-manager/export — Download rate sheet as XLSX ──────────────
-  app.get('/api/rate-manager/export', async (req: any, res) => {
+  // A full rate export is the whole price list in one file — the most disclosive of the set.
+  app.get('/api/rate-manager/export',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res) => {
     try {
       const { productId, country, format = 'xlsx', type = 'full' } = req.query;
       // Query built below with parameterised WHERE clause

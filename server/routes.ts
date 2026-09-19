@@ -45033,7 +45033,13 @@ ${footer}
       } catch (e: any) { res.status(500).json({ error: e.message }); }
     });
 
-  app.get('/api/rate-manager/jobs', async (_req, res) => {
+  // Push History carries every client's name, prefixes, rates, tariff ids and upload tokens —
+  // the same data /jobs/:jobId/operations serves, and guarded the same way. It was never
+  // anonymous (the /api session gate and requirePlatformAccess both run first), but any
+  // authenticated platform ROLE could read it: viewer, noc_operator, finance, training_admin.
+  app.get('/api/rate-manager/jobs',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (_req, res) => {
     try {
       const jobs = await db.select().from(ratePushJobs).orderBy(desc(ratePushJobs.createdAt)).limit(100);
       // For historic records missing destinationName, fall back to catalog lookup by dialPrefix
