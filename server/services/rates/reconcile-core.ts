@@ -27,6 +27,18 @@
 
 /** Non-terminal statuses a boot may find and must reconcile. Terminal states are never swept. */
 export const NON_TERMINAL_STATUSES = ['pending', 'processing'] as const;
+
+/**
+ * THE stale floor for a non-terminal rate-push job: 2× the 15-minute upload-token processing
+ * window, so a job Sippy may still be processing is never read back mid-flight.
+ *
+ * One constant, two consumers that must never disagree: the boot sweep treats a job OLDER than
+ * this as an orphan to reconcile, and the submit-time in-flight guard treats a job YOUNGER than
+ * this as a live push to refuse behind. A guard with its own floor could let a push start on a
+ * tariff the sweep is about to read back — or refuse behind a job the sweep has already settled.
+ * Import it; never re-type the duration.
+ */
+export const RATE_JOB_STALE_MS = 30 * 60_000;
 export type NonTerminalStatus = (typeof NON_TERMINAL_STATUSES)[number];
 
 export type ReconcileVerdict = 'success' | 'failure' | 'indeterminate';

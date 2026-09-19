@@ -4586,6 +4586,9 @@ export const ratePushJobs = pgTable("rate_push_jobs", {
   // inside the Sippy client at real phase boundaries, so it cannot claim a step it is not in.
   lastStep:           varchar("last_step",          { length: 24  }),
   lastStepAt:         timestamp("last_step_at"),
+  // Migration 525. The client's own id for a submit: a repeat is answered with this job, and a
+  // lost response is recovered by looking the job up here. Nullable — legacy callers send none.
+  clientRequestId:    varchar("client_request_id",  { length: 64  }),
   errorMessage:       text("error_message"),
   // ── Diagnostic fields (Phase A/C/E of Task #327) ───────────────────────────
   switchName:         varchar("switch_name",        { length: 128 }),

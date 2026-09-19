@@ -20,6 +20,7 @@ import * as sippy from '../../sippy';
 import {
   isOrphanEligible,
   deriveOperationIntent,
+  RATE_JOB_STALE_MS,
   RECONCILE_STATE,
   type RateIntent,
   type ReconcileVerdict,
@@ -35,8 +36,8 @@ import {
 import { buildRunRecord } from './reconcile-record';
 import { loadOperationRows, writeOperationOutcome } from './reconcile-operation-store';
 
-/** 2× the 15-min upload-token processing window: never read back a job Sippy may still process. */
-const STALE_MS = 30 * 60_000;
+/** The shared floor (reconcile-core) — the submit-time in-flight guard uses the same constant. */
+const STALE_MS = RATE_JOB_STALE_MS;
 const UNAVAILABLE_CEILING = 6; // ~6 unreachable boots before a job is escalated to human review
 const READBACK_LIMIT = 1000;   // rows.length >= this ⇒ a truncated read ⇒ classifier says indeterminate
 

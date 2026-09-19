@@ -51,7 +51,9 @@ import { checkTariffIntegrity } from './services/rates/tariff-integrity';
 import { runRateBatch, type RunnerOperation, type InjectedPush, type InjectedGroupPush } from './services/rates/batch-runner';
 import { validateProductInput, describeTrunkSharing } from './services/products/product-identity';
 import { createPostgresTariffLock } from './services/rates/tariff-lock';
-import { getJobOperations, resolveOperation, listUnresolvedOperations } from './services/rates/operation-store';
+import { getJobOperations, resolveOperation, listUnresolvedOperations, deriveJobStatus } from './services/rates/operation-store';
+import { submitGuards, isValidClientRequestId } from './services/rates/submit-guards';
+import { findJobByClientRequestId, listNonTerminalJobsForTariffs } from './services/rates/job-lookup-store';
 import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
 import { seedWorkspacesIfEmpty } from "./workspace-seed";
@@ -44282,6 +44284,36 @@ ${footer}
         //
         // A record that only exists on success cannot describe a failure, which is exactly
         // the state that made "did the push run?" unanswerable.
+        // ── Submit-time guards, decided BEFORE the job row exists ──────────────
+        // A refusal here is provably a non-event: nothing recorded, nothing sent. Two questions:
+        // has this exact submit (clientRequestId) already produced a job — answer with it, never
+        // start a second; and is a LIVE push (non-terminal, younger than the shared stale floor)
+        // already writing one of the target tariffs — refuse, naming it. A stale one is the boot
+        // sweep's orphan, not a live push, and does not block. See submit-guards.ts.
+        const rawClientRequestId = (req.body as any).clientRequestId;
+        if (rawClientRequestId !== undefined && rawClientRequestId !== null && !isValidClientRequestId(rawClientRequestId)) {
+          return res.status(400).json({ error: 'clientRequestId must be 8–64 URL-safe characters (letters, digits, _ -)' });
+        }
+        const clientRequestId: string | null = isValidClientRequestId(rawClientRequestId) ? rawClientRequestId : null;
+        const targetTariffs = [...new Set([...iTariffByAccountName.values()].map(Number).filter(Number.isFinite))];
+        const decision = submitGuards({
+          clientRequestId,
+          existingByKey: clientRequestId ? await findJobByClientRequestId(db as any, clientRequestId) : null,
+          liveJobs: await listNonTerminalJobsForTariffs(db as any, targetTariffs),
+          targetTariffs,
+          now: new Date(),
+        });
+        if (decision.kind === 'duplicate') {
+          console.log(`[push-batch] duplicate submit ${clientRequestId} → answering with ${decision.jobId} (${decision.status})`);
+          return res.status(409).json({ jobId: decision.jobId, status: decision.status, duplicate: true,
+            message: `This submit was already received as ${decision.jobId} (${decision.status}). Nothing was started again.` });
+        }
+        if (decision.kind === 'in_flight') {
+          console.log(`[push-batch] refused: tariff ${decision.iTariff} has live job ${decision.jobId} (${Math.round(decision.ageMs / 1000)}s)`);
+          return res.status(409).json({ jobId: decision.jobId, iTariff: decision.iTariff, ageMs: decision.ageMs, inFlight: true,
+            message: `Tariff ${decision.iTariff} is being written by job ${decision.jobId} (started ${Math.round(decision.ageMs / 1000)}s ago). Nothing was started; wait for it to finish.` });
+        }
+
         const jobId   = `job-${Date.now()}`;
         const totalOps = destList.length * accountNames.length;
         // No truncation: these three fields are joined summaries with one entry per
@@ -44326,6 +44358,8 @@ ${footer}
             startedAt:        new Date(),
             lastStep:         'queued',
             lastStepAt:       new Date(),
+            // Recorded with the row, before the first mutation, so a lost response can find it.
+            clientRequestId:  clientRequestId,
           });
         } catch (e: any) {
           // Now FATAL, where it used to be tolerated. Every operation gets a durable row before the
@@ -44675,7 +44709,9 @@ ${footer}
         const sippyMs = results.reduce((a, r) => a + (r.ms ?? 0), 0);
         console.log(`[push-batch] done — ${ok}/${total} ok in ${(requestMs / 1000).toFixed(1)}s total (${(sippyMs / 1000).toFixed(1)}s in Sippy, ${((requestMs - sippyMs) / 1000).toFixed(1)}s elsewhere)`);
 
-        res.json({ results, ok, total, requestMs, sippyMs, policy: { enforced: policyEnforced, resolutions: policyResolutions } });
+        // Additive: every field the client already reads keeps its place; `job` is appended so a
+        // caller that did get the response can confirm against the row by id (the lifecycle does).
+        res.json({ results, ok, total, requestMs, sippyMs, policy: { enforced: policyEnforced, resolutions: policyResolutions }, job: { jobId } });
       } catch (e: any) { res.status(500).json({ error: e.message }); }
     },
   );
@@ -44872,6 +44908,24 @@ ${footer}
    * `:jobId` accepts either the business key (job-1788973684344) or the numeric id the UI shows.
    * The parent status is DERIVED from the rows on every read, so it cannot drift from them.
    */
+  // GET /api/rate-manager/jobs/by-request/:clientRequestId — how the operator's screen finds the
+  // job it started when the HTTP response was lost (504, network). READ-ONLY: the row plus the
+  // status derived from its operation rows. 404 means no job was recorded under that id — the
+  // submit never reached the insert, so nothing was sent.
+  app.get('/api/rate-manager/jobs/by-request/:clientRequestId',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (req: any, res: any) => {
+      try {
+        const key = String(req.params.clientRequestId ?? '');
+        if (!isValidClientRequestId(key)) return res.status(400).json({ error: 'invalid clientRequestId' });
+        const job = await findJobByClientRequestId(db as any, key);
+        if (!job) return res.status(404).json({ error: 'no job recorded for that request id' });
+        const summary = await deriveJobStatus(db as any, job.jobId);
+        res.json({ job, summary });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    },
+  );
+
   app.get('/api/rate-manager/jobs/:jobId/operations',
     (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
     async (req: any, res: any) => {

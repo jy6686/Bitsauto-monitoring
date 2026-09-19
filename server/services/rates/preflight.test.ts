@@ -172,7 +172,17 @@ describe("the push-batch route, after wiring", () => {
   it("no longer refuses the whole request on a tariff-integrity failure", () => {
     // A misprovisioned account is now one refused operation, not a cancelled batch. The request
     // itself is well formed, so it is not a request-level HTTP failure.
-    expect(handler.text).not.toContain('res.status(409)');
+    //
+    // The ONLY 409s left in the handler are the submit guards' (duplicate submit, live job on the
+    // target tariff — submit-guards-wiring.test.ts), issued before the job row exists. None may
+    // sit anywhere else, and in particular none on the integrity check.
+    const guardsAt  = handler.text.indexOf('submitGuards(');
+    const guardsEnd = handler.text.indexOf('const jobId   = ', guardsAt);
+    expect(guardsAt).toBeGreaterThan(-1);
+    const inGuards = (handler.text.slice(guardsAt, guardsEnd).match(/res\.status\(409\)/g) || []).length;
+    const total    = (handler.text.match(/res\.status\(409\)/g) || []).length;
+    expect(inGuards).toBe(2);
+    expect(total).toBe(inGuards);
     expect(handler.text).toContain('will be refused per-operation');
   });
 

@@ -1,4 +1,9 @@
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect, useReducer } from "react";
+import {
+  submitReducer, initialSubmitState, canSubmit as lifecycleCanSubmit, isPushing, shouldClearQueue,
+  pollIntervalMs, statusMessage,
+} from "@/lib/submit-lifecycle";
+import { pushHistoryPollInterval } from "@/lib/push-history-poll";
 import { useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -2259,7 +2264,57 @@ function SendRateTab({
   // Multi-destination queue
   const [destQueue, setDestQueue] = useState<QueuedDest[]>([]);
   const [pushResults, setPushResults] = useState<{ accountName: string; prefix: string; rate: number; success: boolean; message: string }[] | null>(null);
-  const [pushing, setPushing] = useState(false);
+
+  // ── The submit lifecycle: the job row is the truth, the HTTP response a courtesy ────────
+  // `pushing` used to be a boolean flipped off in the request's `finally`, so a 504 re-enabled
+  // Submit while the server was still pushing (2026-09-19: the second click made a second batch).
+  // Now the button is locked until the job the operator started is TERMINAL on the server. The
+  // page names its submit up front (clientRequestId) and, whatever the response does, polls the
+  // job by that id until the row settles. See client/src/lib/submit-lifecycle.ts.
+  const [submitState, dispatchSubmit] = useReducer(submitReducer, initialSubmitState);
+  const pushing = isPushing(submitState);
+  const submitKey = 'key' in submitState ? submitState.key : null;
+  const submitPhase = submitState.phase;
+
+  // Poll the job by request id while anything is in flight. A 404 is "no job recorded" — after a
+  // few of those the lifecycle concludes nothing was sent and unlocks; a row settles it either way.
+  useEffect(() => {
+    const every = pollIntervalMs(submitState);
+    if (!every || !submitKey) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await fetch(`/api/rate-manager/jobs/by-request/${encodeURIComponent(submitKey)}`, { credentials: "include" });
+        if (cancelled) return;
+        if (r.status === 404) { dispatchSubmit({ type: 'JOB_NOT_FOUND' }); return; }
+        if (!r.ok) return;   // transient; keep polling
+        const d = await r.json();
+        const status = d?.summary?.total > 0 ? d.summary.status : d?.job?.status;
+        if (d?.job?.jobId && status) dispatchSubmit({ type: 'JOB', jobId: d.job.jobId, status });
+      } catch { /* transient; keep polling */ }
+    };
+    void tick();
+    const h = setInterval(tick, every);
+    return () => { cancelled = true; clearInterval(h); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submitKey, submitPhase]);
+
+  // The row settled: report it, refresh Push History, and only now clear the operator's queue.
+  useEffect(() => {
+    if (submitState.phase !== 'terminal') return;
+    qc.invalidateQueries({ queryKey: ["/api/rate-manager/jobs"] });
+    toast({
+      title: `Rate Push — ${submitState.jobId}: ${submitState.status}`,
+      description: statusMessage(submitState),
+      variant: submitState.status === 'completed' ? "default" : "destructive",
+    });
+    if (shouldClearQueue(submitState)) {
+      setDestQueue([]);
+      setPushResults(null);
+      setPickCountry(""); setPickType(""); setPickOperatorIds([]); setPrice("");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submitState]);
 
   const product = products.find(p => String(p.id) === selectedProduct);
   const trunkPrefix = product?.trunkPrefix ?? "";
@@ -2383,8 +2438,11 @@ function SendRateTab({
   };
 
   const handleSubmit = async () => {
-    if (!canSubmit) return;
-    setPushing(true);
+    if (!canSubmit || !lifecycleCanSubmit(submitState)) return;
+    // Named before it is sent: a repeat with this id is answered with the same job, and a lost
+    // response is recovered by looking the job up under it — never by clicking again.
+    const clientRequestId = crypto.randomUUID();
+    dispatchSubmit({ type: 'SUBMIT', key: clientRequestId });
     setPushResults(null);
     try {
       const fmtToSippy: Record<string, string> = { "Default": "default", "Changes Only": "partial", "Full Sheet": "full" };
@@ -2405,24 +2463,31 @@ function SendRateTab({
         productName: product ? (product.segment ? `${product.name} - ${product.segment}` : product.name) : undefined,
         productId: product?.id,
         rateType: rateType.toLowerCase(),
+        clientRequestId,
       };
       const res = await apiRequest("POST", "/api/rate-manager/push-batch", body);
       const data = await res.json();
       setPushResults(data.results ?? []);
-      qc.invalidateQueries({ queryKey: ["/api/rate-manager/jobs"] });
-      toast({
-        title: `Rate Push — ${data.ok}/${data.total} succeeded`,
-        description: `${destQueue.length} destination${destQueue.length > 1 ? "s" : ""} × ${selectedClients.length} client${selectedClients.length > 1 ? "s" : ""}`,
-        variant: data.ok === data.total ? "default" : "destructive",
-      });
-      // Auto-reset: return to clean state — results visible in Push History
-      setDestQueue([]);
-      setPushResults(null);
-      setPickCountry(""); setPickType(""); setPickOperatorIds([]); setPrice("");
+      // The server answered — but the row decides. The lifecycle keeps the button locked and the
+      // poll running until the job is terminal; the terminal effect reports and clears the queue.
+      dispatchSubmit({ type: 'RESPONSE_OK', jobId: data?.job?.jobId });
     } catch (e: any) {
-      toast({ title: "Push failed", description: e.message, variant: "destructive" });
-    } finally {
-      setPushing(false);
+      const status = typeof e?.status === 'number' ? e.status : 0;
+      if (status >= 400 && status < 500) {
+        // Refused BEFORE anything was recorded (bad input, a duplicate, a live job on that
+        // tariff): nothing is running, so the button comes back with the server's own reason.
+        dispatchSubmit({ type: 'RESPONSE_REJECTED', error: e.message });
+        toast({ title: "Push not started", description: e.message, variant: "destructive" });
+      } else {
+        // A 504 or a dropped connection says nothing about the push: the server is very likely
+        // still writing. Stay locked, keep the queue, and watch the job by its request id.
+        dispatchSubmit({ type: 'RESPONSE_LOST', error: e.message });
+        toast({
+          title: "Response lost — push still running",
+          description: "The request timed out, but the push continues on the server. Do not submit again; this screen is watching the job and will report when it finishes.",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -2515,6 +2580,13 @@ function SendRateTab({
             {pushing ? "Pushing…" : "Submit"}
           </button>
         </div>
+        {/* What the lifecycle knows — especially after a lost response, when the honest answer is
+            "still running, watching the job", not "failed". */}
+        {(pushing || submitState.phase === 'terminal' || ('lastError' in submitState && submitState.lastError)) && (
+          <div className={`text-[10px] px-1 pt-1 ${pushing ? 'text-amber-400' : 'text-muted-foreground'}`} data-testid="submit-lifecycle-status">
+            {statusMessage(submitState)}
+          </div>
+        )}
 
         {/* Readiness checklist */}
         <div className="text-[10px] space-y-0.5 px-1 pt-0.5">
@@ -3073,7 +3145,14 @@ function PushJobDrawer({ job, onClose, statusBg }: { job: any; onClose: () => vo
 }
 
 function JobsTab() {
-  const { data: jobs = [], isLoading } = useQuery<any[]>({ queryKey: ["/api/rate-manager/jobs"] });
+  // Polls while a RECENT job is processing, so a push in flight is visible without a manual
+  // refresh. Recent matters: legacy rows sit at `processing` forever, and keying on status alone
+  // would make this tab poll every 3 s for as long as it is open. The window is a UI heuristic
+  // (see push-history-poll.ts) — not the server's stale / in-flight rule.
+  const { data: jobs = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/rate-manager/jobs"],
+    refetchInterval: (query: any) => pushHistoryPollInterval(query.state.data),
+  });
   const [drawerJob, setDrawerJob] = useState<any>(null);
   const STATUS_BG: Record<string, string> = {
     completed:  "bg-green-400/10 text-green-400 border-green-400/30",
