@@ -54,21 +54,13 @@ describe('ONE registration — a shadowed route cannot silently come back', () =
   });
 });
 
-describe('the surviving handler answers with every field the UI reads', () => {
-  it('returns the four it already had plus totalCountries and totalProducts', () => {
+describe('the surviving handler answers with the fields it can answer truthfully', () => {
+  it('returns the four it already had, plus totalProducts', () => {
     const body = KPI();
     const send = body.slice(body.indexOf('res.json({'));
-    for (const f of ['totalClients', 'totalDestinations', 'todayPushes', 'successRate', 'totalCountries', 'totalProducts']) {
+    for (const f of ['totalClients', 'totalDestinations', 'todayPushes', 'successRate', 'totalProducts']) {
       expect(send, f).toContain(f);
     }
-  });
-
-  it('sources totalCountries from distinct level-1 country codes, as the dead handler did', () => {
-    const k = KPI();
-    expect(k).toMatch(/count\(distinct country_code\)/i);
-    expect(k).toMatch(/level\s*=\s*1/);
-    expect(k).toMatch(/country_code\s+is\s+not\s+null/i);
-    expect(k).toContain('totalCountries');
   });
 
   it('sources totalProducts from commercial products in the registry', () => {
@@ -78,11 +70,36 @@ describe('the surviving handler answers with every field the UI reads', () => {
     expect(k).toContain('totalProducts');
   });
 
-  it('a failure in either new query degrades to a number, never a 500 for the whole strip', () => {
-    // totalDestinations already tolerates a missing table; the additions must be no more fragile
-    // than the tile they sit beside.
+  it('a failure in the new query degrades to a number, never a 500 for the whole strip', () => {
+    // totalDestinations already tolerates a missing table; the addition must be no more fragile
+    // than the tile it sits beside.
     const k = KPI();
     expect((k.match(/catch\s*\{/g) || []).length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('totalCountries is NOT part of the contract — a dash beats a confident zero', () => {
+  /**
+   * Deployed once, in c9e07b6b, carried over from the dead handler: distinct level-1
+   * `country_code` in `global_destinations`, a table whose level-1 rows have none. It answered 0.
+   * The UI renders `kpiStats?.totalCountries ?? "—"`, so an ABSENT field says "unavailable" while
+   * a zero asserts there are no countries. The data exists in `destinationsView` but duplicates
+   * each country (Albania as both `AL` and `355`), so the count needs a definition first.
+   */
+  it('the response does not carry totalCountries', () => {
+    const body = KPI();
+    expect(body.slice(body.indexOf('res.json({'))).not.toContain('totalCountries');
+  });
+
+  it('the query that produced the false zero is gone from the handler', () => {
+    const k = KPI();
+    expect(k).not.toMatch(/count\(distinct country_code\)/i);
+    expect(k).not.toMatch(/FROM global_destinations\s+WHERE level = 1/i);
+  });
+
+  it('and is not lurking anywhere else in the route files', () => {
+    expect(ROUTES).not.toContain('totalCountries');
+    expect(RM).not.toContain('totalCountries');
   });
 });
 

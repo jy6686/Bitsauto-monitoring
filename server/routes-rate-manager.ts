@@ -734,27 +734,28 @@ export function registerRateManagerRoutes(app: Express) {
           totalDestinations = Number(dRows[0]?.n ?? 0);
         } catch { /* table may not exist yet */ }
 
-        // Countries and products
+        // Products
         //
-        // These two are read by the Rate Manager KPI strip and were never returned here: a SECOND,
+        // This is read by the Rate Manager KPI strip and was never returned here: a SECOND,
         // unguarded registration of this same path existed in routes.ts, and that one — dead,
         // because Express serves the first registration — was the shape the UI had been written
-        // against. So `totalCountries` rendered as "—". The duplicate is deleted with this change
-        // and its two figures are computed here instead, behind this route's own guard.
+        // against. The duplicate is deleted and its product count is computed here instead,
+        // behind this route's own guard.
         //
-        // Deliberately NOT adopted from it: its `totalDestinations` counted level-2 rows only and
-        // its `totalClients` counted distinct active assignments. Both differ from what this
-        // handler already returns and both are already on screen, so changing them is a separate
-        // decision from restoring a missing one.
-        let totalCountries = 0;
-        try {
-          const cRows = await db.execute(sql`
-            SELECT COUNT(DISTINCT country_code)::int AS n
-              FROM global_destinations
-             WHERE level = 1 AND country_code IS NOT NULL`);
-          totalCountries = Number(((cRows as any).rows ?? [])[0]?.n ?? 0);
-        } catch { /* same tolerance as totalDestinations: a missing table is a zero, not a 500 */ }
-
+        // `totalCountries` IS NOT RETURNED, deliberately. The dead handler counted distinct
+        // level-1 `country_code` in `global_destinations`, and that table's level-1 rows carry no
+        // country code at all — it answered 0, and so did this handler for the one deploy
+        // (c9e07b6b) where the query was carried over. Zero is not the country count; it is a
+        // falsehood a KPI tile would state confidently, where the absent field renders "—" and
+        // says only that the figure is unavailable. The data does exist in `destinationsView`
+        // (364 level-1 rows, 352 distinct country codes) but carries duplicate representations of
+        // the same country — Albania appears as both `AL` and `355` — so what BitsAuto counts as
+        // a country is a definition to settle before a number is shown. Until then, nothing.
+        //
+        // Deliberately NOT adopted from the dead handler either: its `totalDestinations` counted
+        // level-2 rows only and its `totalClients` counted distinct active assignments. Both
+        // differ from what this handler already returns and both are already on screen, so
+        // changing them is a separate decision from restoring a missing one.
         let totalProducts = 0;
         try {
           const pRows = await db.select({ n: sql<number>`count(*)::int` })
@@ -776,7 +777,7 @@ export function registerRateManagerRoutes(app: Express) {
         const success30 = rRows.filter(r => r.status === 'completed').reduce((s, r) => s + Number(r.n), 0);
         const successRate = total30 > 0 ? Math.round((success30 / total30) * 100) : null;
 
-        res.json({ totalClients, totalDestinations, totalCountries, totalProducts, todayPushes, successRate });
+        res.json({ totalClients, totalDestinations, totalProducts, todayPushes, successRate });
       } catch (e: any) {
         res.status(500).json({ error: e.message });
       }
