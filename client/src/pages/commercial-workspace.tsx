@@ -16,6 +16,7 @@
  */
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery }                              from "@tanstack/react-query";
+import { asJobList, jobCounts, filterJobs, jobClientLabel, jobProgress, type RatePushJobRow } from "@/lib/rate-push-jobs";
 import { Link }                                  from "wouter";
 import {
   LayoutDashboard, Users, Phone, Activity, Wallet, Layers,
@@ -701,17 +702,9 @@ function BalanceSection() {
 
 type ProductsTab = 'analysis' | 'history' | 'send';
 
-interface RatePushJob {
-  id:           number;
-  status:       string;
-  iAccount?:    number;
-  clientName?:  string;
-  createdAt?:   string;
-  completedAt?: string;
-  totalRates?:  number;
-  pushedRates?: number;
-  failedRates?: number;
-}
+// The row's real shape lives in @/lib/rate-push-jobs, alongside the derivations. The interface
+// that used to sit here described a response nobody serves — `clientName`, `iAccount`,
+// `totalRates`/`pushedRates`/`failedRates` are not fields of a rate_push_jobs row.
 
 interface RateKpi {
   totalCountries:    number;
@@ -736,25 +729,17 @@ function ProductsSection() {
 
   const kpiQ  = useQuery<RateKpi>({ queryKey: ['/api/rate-manager/kpi'],      staleTime: 60_000 });
   const prodsQ = useQuery<Product[]>({ queryKey: ['/api/rate-manager/products'], staleTime: 60_000 });
-  const jobsQ  = useQuery<{ jobs: RatePushJob[] }>({ queryKey: ['/api/rate-manager/jobs'], staleTime: 30_000 });
+  // The route returns a bare array; `asJobList` is what makes that explicit rather than assumed.
+  const jobsQ  = useQuery<RatePushJobRow[]>({ queryKey: ['/api/rate-manager/jobs'], staleTime: 30_000 });
 
   const kpi     = kpiQ.data;
   const products = prodsQ.data ?? [];
-  const allJobs  = jobsQ.data?.jobs ?? [];
+  const allJobs  = asJobList(jobsQ.data);
 
-  const filteredJobs = useMemo(() => {
-    if (!jobSearch.trim()) return allJobs;
-    const lq = jobSearch.toLowerCase();
-    return allJobs.filter(j =>
-      (j.clientName ?? '').toLowerCase().includes(lq) ||
-      String(j.iAccount ?? '').includes(lq) ||
-      j.status.includes(lq)
-    );
-  }, [allJobs, jobSearch]);
+  const filteredJobs = useMemo(() => filterJobs(allJobs, jobSearch), [allJobs, jobSearch]);
 
-  const completedJobs  = allJobs.filter(j => j.status === 'completed').length;
-  const failedJobs     = allJobs.filter(j => j.status === 'failed').length;
-  const pendingJobs    = allJobs.filter(j => ['pending', 'running'].includes(j.status)).length;
+  // `partial` and `needs_review` are counted in none of the three — see jobCounts.
+  const { completed: completedJobs, failed: failedJobs, pending: pendingJobs } = jobCounts(allJobs);
 
   return (
     <div className="space-y-4">
@@ -888,29 +873,31 @@ function ProductsSection() {
                 {jobsQ.isLoading && (
                   <tr><td colSpan={6} className="text-center py-8 text-xs text-muted-foreground"><Activity className="w-4 h-4 animate-pulse mx-auto mb-1" />Loading…</td></tr>
                 )}
-                {!jobsQ.isLoading && filteredJobs.slice(0, 20).map((j, i) => (
+                {!jobsQ.isLoading && filteredJobs.slice(0, 20).map((j, i) => {
+                  const p = jobProgress(j);
+                  return (
                   <tr key={j.id} className={`border-b border-border/25 hover:bg-muted/20 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
                     <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">#{j.id}</td>
-                    <td className="px-3 py-2 text-xs font-medium">{j.clientName ?? `Acct.${j.iAccount ?? '—'}`}</td>
+                    <td className="px-3 py-2 text-xs font-medium">{jobClientLabel(j)}</td>
                     <td className="px-3 py-2">
                       <span className={`text-[10px] font-semibold uppercase tracking-wider ${
-                        j.status === 'completed' ? 'text-emerald-400' :
-                        j.status === 'failed'    ? 'text-red-400'     :
-                        j.status === 'running'   ? 'text-sky-400'     : 'text-amber-400'
+                        j.status === 'completed'  ? 'text-emerald-400' :
+                        j.status === 'failed'     ? 'text-red-400'     :
+                        j.status === 'processing' ? 'text-sky-400'     : 'text-amber-400'
                       }`}>{j.status}</span>
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-muted-foreground tabular-nums">
-                          {j.pushedRates ?? 0}/{j.totalRates ?? '—'}
+                          {p.pushed}/{p.total ?? '—'}
                         </span>
-                        {j.totalRates && j.pushedRates != null && (
+                        {p.pct != null && (
                           <div className="w-12 h-1 rounded-full bg-muted/40">
-                            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.round((j.pushedRates / j.totalRates) * 100)}%` }} />
+                            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${p.pct}%` }} />
                           </div>
                         )}
-                        {(j.failedRates ?? 0) > 0 && (
-                          <span className="text-[10px] text-red-400">{j.failedRates} failed</span>
+                        {p.failed > 0 && (
+                          <span className="text-[10px] text-red-400">{p.failed} failed</span>
                         )}
                       </div>
                     </td>
@@ -921,7 +908,8 @@ function ProductsSection() {
                       {j.completedAt ? new Date(j.completedAt).toLocaleString() : '—'}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {!jobsQ.isLoading && filteredJobs.length === 0 && (
                   <tr><td colSpan={6} className="text-center py-8 text-xs text-muted-foreground">No push jobs found.</td></tr>
                 )}
