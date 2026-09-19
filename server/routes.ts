@@ -10586,34 +10586,11 @@ export async function registerRoutes(
   }
 
   // GET /api/sippy/accounts-by-product/:productId
-  // Returns ALL Sippy clients with their actual tariff names read from Sippy
-  // Product selection controls which rate card to send — not which clients appear
-  /**
-   * companies.status keyed by Sippy account, for the accounts asked about.
-   *
-   * An account with no companies row is ABSENT from the map rather than defaulted here —
-   * "unknown" and "active" are different facts, and flattening them at this layer would stop
-   * the caller from ever telling them apart. The Rate Manager shows unmatched accounts under
-   * Active so nothing vanishes from a list it is already in; that is a display choice, made
-   * where it is visible, not a lookup result.
-   */
-  async function lifecycleByIAccount(iAccounts: number[]): Promise<Map<number, string>> {
-    const ids = Array.from(new Set(iAccounts.filter(n => Number.isFinite(n) && n > 0)));
-    if (!ids.length) return new Map();
-    try {
-      const r = await db.execute(sql`
-        SELECT sippy_i_account, status
-          FROM companies
-         WHERE sippy_i_account IS NOT NULL
-           AND sippy_i_account IN (${sql.join(ids.map(i => sql`${i}`), sql`, `)})`);
-      return new Map((r.rows as any[]).map(row => [Number(row.sippy_i_account), String(row.status ?? '').toLowerCase()]));
-    } catch (e: any) {
-      // A lifecycle lookup failing must not empty the client dropdown. Unmatched reads as
-      // active downstream, so the list degrades to exactly its old behaviour.
-      console.warn('[accounts-by-product] lifecycle lookup failed; treating all as unclassified:', e?.message || e);
-      return new Map();
-    }
-  }
+  // Returns ALL managed clients (every company with a Sippy account), each flagged with whether
+  // the selected product is assigned. Product selection controls which rate card to send — not
+  // which clients appear. (That was always this endpoint's stated intent; an assignment-only
+  // filter had drifted from it and hid accounts. Restored as Option C, 2026-09-19 — see
+  // services/rates/account-list.ts.)
 
   // PATCH /api/companies/:id/status — the Rate Manager's lifecycle control, persisted.
   //
@@ -10722,60 +10699,43 @@ export async function registerRoutes(
       const product = productRows[0];
       const cache = (global as any).__bitsautoAccountCache as Map<string, string> | undefined;
 
-      if (!cache || cache.size === 0) {
-        // Cache still warming — return DB assignments so dropdown isn't empty
-        const fallbackRows = await db.select({
-          iAccount: customerProductAssignments.iAccount,
-          customerName: customerProductAssignments.customerName,
-        }).from(customerProductAssignments)
-          .where(and(
-            eq(customerProductAssignments.productId, productId),
-            eq(customerProductAssignments.status, 'active')
-          ));
-        const fallbackLifecycle = await lifecycleByIAccount(fallbackRows.map((a: any) => Number(a.iAccount)));
-        const fallbackAccounts = fallbackRows
-          .filter((a: any) => Number(a.iAccount) > 0)
-          .map((a: any) => ({
-            iAccount:   Number(a.iAccount),
-            username:   a.customerName ?? `Account ${a.iAccount}`,
-            tariffName: null,
-            balance:    null,
-            lifecycle:  fallbackLifecycle.get(Number(a.iAccount)) ?? null,
-          }));
-        return res.json({
-          accounts:    fallbackAccounts,
-          productName: product?.name ?? null,
-          syncing:     true,
-        });
-      }
+      // No cache-warming fallback any more. The old one returned ONLY active-assignment rows while
+      // the Sippy account cache warmed, so the dropdown would briefly show the filtered "3" and
+      // then the full list — the exact inconsistency Option C removes. The list below is built
+      // from the DB alone; the cache only supplies a username fallback and may be empty.
 
-      // Fetch all DB-assigned accounts for this product
-      // DB is the source of truth — cache supplements with live data but is not required
+      // Option C (2026-09-19): list EVERY managed company with a Sippy account, and mark whether
+      // THIS product is assigned — strictly from customer_product_assignments. Until now the list
+      // was only the assignment rows, so an account configured on Sippy for the product but never
+      // given a row was invisible ("Business Class: 3 clients"), and that filter was the only
+      // product-assignment check in the path (push-batch verifies tariff identity, not
+      // assignment). Showing everyone with the flag keeps the boundary visible without letting
+      // missing bookkeeping hide a customer. checkTariffIntegrity at push time is unchanged.
+      const { buildAccountList } = await import('./services/rates/account-list');
+      const managed = await db.select({
+        id: companies.id, name: companies.name, sippyIAccount: companies.sippyIAccount, status: companies.status,
+      }).from(companies).where(isNotNull(companies.sippyIAccount));
       const assignments = await db.select({
+        productId: customerProductAssignments.productId,
         iAccount: customerProductAssignments.iAccount,
         customerName: customerProductAssignments.customerName,
+        status: customerProductAssignments.status,
       }).from(customerProductAssignments)
-        .where(and(
-          eq(customerProductAssignments.productId, productId),
-          eq(customerProductAssignments.status, 'active')
-        ));
-      // The customer's LIFECYCLE, joined from companies.sippy_i_account. Distinct from
-      // customer_product_assignments.status just filtered above — that one says whether the
-      // product is assigned, this one says whether the customer is trading. Two different
-      // questions that both happen to be spelled "status".
-      const lifecycleMap = await lifecycleByIAccount(assignments.map((a: any) => Number(a.iAccount)));
-      console.log(`[accounts-by-product] productId=${productId} db_assignments=${assignments.length} cache.size=${cache?.size ?? 0} lifecycle_matched=${lifecycleMap.size}`);
-      const accounts = assignments
-        .filter((a: any) => Number(a.iAccount) > 0)
-        .map((a: any) => {
-          const iAccount = Number(a.iAccount);
-          // DB customerName is the operator-configured display name — always prefer it.
-          // Cache (Sippy username/description) is a fallback only when DB name is blank.
-          const username = a.customerName?.trim() || cache?.get(String(iAccount)) || `Account ${iAccount}`;
+        .where(eq(customerProductAssignments.productId, productId));
+      const listed = buildAccountList(managed as any, assignments as any, productId);
+      console.log(`[accounts-by-product] productId=${productId} managed=${managed.length} assigned=${listed.filter(a => a.assigned).length} unassigned=${listed.filter(a => !a.assigned).length} cache.size=${cache?.size ?? 0}`);
+      const accounts = listed
+        .map((a) => {
+          const iAccount = a.iAccount;
+          // Assignment customerName / company name is the operator-facing display name.
+          // Cache (Sippy username/description) is a fallback only when both are blank.
+          const username = a.username?.trim() || cache?.get(String(iAccount)) || `Account ${iAccount}`;
           const tariffName = _tariffProductCache?.labels?.get(iAccount) ?? null;
-          // null means "no companies row for this account" — NOT inactive. The caller treats
-          // unmatched as active so an assignment without a company row keeps showing up.
-          return { iAccount, username, tariffName, balance: null, lifecycle: lifecycleMap.get(iAccount) ?? null };
+          // lifecycle comes from companies.status (the customer's trading state) — distinct from
+          // the assignment's status, which says whether the PRODUCT is assigned. `assigned` is that
+          // second fact, strictly from customer_product_assignments; a false here still lists the
+          // account so missing bookkeeping cannot hide a customer.
+          return { iAccount, username, tariffName, balance: null, lifecycle: a.lifecycle ?? null, assigned: a.assigned };
         })
         .sort((a: any, b: any) => a.username.localeCompare(b.username));
 
@@ -10785,7 +10745,8 @@ export async function registerRoutes(
         productCode:  product?.code       ?? null,
         trunkPrefix:  product?.trunkPrefix ?? null,
         total:        accounts.length,
-        assignedCount: accounts.length,
+        assignedCount: accounts.filter((a: any) => a.assigned).length,
+        unassignedCount: accounts.filter((a: any) => !a.assigned).length,
         syncedAt:     _tariffProductCache.builtAt,
       });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
