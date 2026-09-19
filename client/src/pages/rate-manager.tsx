@@ -3,6 +3,7 @@ import {
   submitReducer, initialSubmitState, canSubmit as lifecycleCanSubmit, isPushing, shouldClearQueue,
   pollIntervalMs, statusMessage,
 } from "@/lib/submit-lifecycle";
+import { pushHistoryPollInterval } from "@/lib/push-history-poll";
 import { useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -3144,13 +3145,13 @@ function PushJobDrawer({ job, onClose, statusBg }: { job: any; onClose: () => vo
 }
 
 function JobsTab() {
-  // Polls while any job is processing, so a push in flight is visible without a manual refresh.
+  // Polls while a RECENT job is processing, so a push in flight is visible without a manual
+  // refresh. Recent matters: legacy rows sit at `processing` forever, and keying on status alone
+  // would make this tab poll every 3 s for as long as it is open. The window is a UI heuristic
+  // (see push-history-poll.ts) — not the server's stale / in-flight rule.
   const { data: jobs = [], isLoading } = useQuery<any[]>({
     queryKey: ["/api/rate-manager/jobs"],
-    refetchInterval: (query: any) => {
-      const rows: any[] = Array.isArray(query.state.data) ? query.state.data : [];
-      return rows.some(j => j.status === 'processing') ? 3000 : false;
-    },
+    refetchInterval: (query: any) => pushHistoryPollInterval(query.state.data),
   });
   const [drawerJob, setDrawerJob] = useState<any>(null);
   const STATUS_BG: Record<string, string> = {

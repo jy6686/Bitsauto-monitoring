@@ -58,13 +58,10 @@ describe('Send Rate submit is terminal-state-driven', () => {
     expect(SUBMIT).not.toContain('setDestQueue([])');
   });
 
-  it('Push History polls while a job is processing', () => {
+  it('Push History polls while a RECENT job is processing — via the pure helper (push-history-poll.test.ts owns the rule)', () => {
     const at = PAGE.indexOf('function JobsTab()');
     const tab = PAGE.slice(at, at + 800);
-    const ri = tab.indexOf('refetchInterval');
-    expect(ri).toBeGreaterThan(-1);
-    // The interval function itself keys on 'processing' and returns a real interval — not the
-    // status colour map further down, which also happens to mention processing.
-    expect(tab.slice(ri, ri + 320)).toMatch(/status === 'processing'[\s\S]{0,40}\?\s*\d{3,5}\s*:\s*false/);
+    expect(tab).toMatch(/refetchInterval:\s*\(query: any\)\s*=>\s*pushHistoryPollInterval\(/);
+    expect(PAGE).toMatch(/from ["']@\/lib\/push-history-poll["']/);
   });
 });
