@@ -734,6 +734,34 @@ export function registerRateManagerRoutes(app: Express) {
           totalDestinations = Number(dRows[0]?.n ?? 0);
         } catch { /* table may not exist yet */ }
 
+        // Countries and products
+        //
+        // These two are read by the Rate Manager KPI strip and were never returned here: a SECOND,
+        // unguarded registration of this same path existed in routes.ts, and that one — dead,
+        // because Express serves the first registration — was the shape the UI had been written
+        // against. So `totalCountries` rendered as "—". The duplicate is deleted with this change
+        // and its two figures are computed here instead, behind this route's own guard.
+        //
+        // Deliberately NOT adopted from it: its `totalDestinations` counted level-2 rows only and
+        // its `totalClients` counted distinct active assignments. Both differ from what this
+        // handler already returns and both are already on screen, so changing them is a separate
+        // decision from restoring a missing one.
+        let totalCountries = 0;
+        try {
+          const cRows = await db.execute(sql`
+            SELECT COUNT(DISTINCT country_code)::int AS n
+              FROM global_destinations
+             WHERE level = 1 AND country_code IS NOT NULL`);
+          totalCountries = Number(((cRows as any).rows ?? [])[0]?.n ?? 0);
+        } catch { /* same tolerance as totalDestinations: a missing table is a zero, not a 500 */ }
+
+        let totalProducts = 0;
+        try {
+          const pRows = await db.select({ n: sql<number>`count(*)::int` })
+            .from(productRegistry).where(eq(productRegistry.status, 'commercial'));
+          totalProducts = Number(pRows[0]?.n ?? 0);
+        } catch { /* ditto — one tile must not take the strip down */ }
+
         // Today pushes
         const tRows      = await db.select({ n: sql<number>`count(*)::int` })
           .from(ratePushJobs).where(gte(ratePushJobs.createdAt, todayStart));
@@ -748,7 +776,7 @@ export function registerRateManagerRoutes(app: Express) {
         const success30 = rRows.filter(r => r.status === 'completed').reduce((s, r) => s + Number(r.n), 0);
         const successRate = total30 > 0 ? Math.round((success30 / total30) * 100) : null;
 
-        res.json({ totalClients, totalDestinations, todayPushes, successRate });
+        res.json({ totalClients, totalDestinations, totalCountries, totalProducts, todayPushes, successRate });
       } catch (e: any) {
         res.status(500).json({ error: e.message });
       }
