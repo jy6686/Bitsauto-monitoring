@@ -87,12 +87,30 @@ export interface BatchOutcome {
   complete: boolean;
 }
 
+/**
+ * A set of operations that share ONE upload. The shape belongs to whoever splits the lane (the
+ * real one carries the verb and activation date); the executor needs only the operations.
+ */
+export interface OperationGroupLike { operations: RateOperation[] }
+export type GroupSplit = (lane: BatchPlan['lanes'][number]) => OperationGroupLike[];
+/** Runs one group and returns EXACTLY one outcome per operation, in the group's order. */
+export type GroupRunner = (group: OperationGroupLike, ctx: { iTariff: number }) => Promise<OperationOutcome[]>;
+
 export interface ExecuteOptions {
   /**
    * Attempts per operation. Applies ONLY to `failure`; an `indeterminate` outcome is terminal at
-   * one attempt regardless of this value.
+   * one attempt regardless of this value. Groups are never retried: a group is one upload, and
+   * "retry the rows that failed" is a different upload the caller has to decide on.
    */
   maxAttempts?: number;
+  /**
+   * GROUPED execution. When supplied, a lane is walked group by group instead of operation by
+   * operation: `split` decides which operations share an upload, `run` performs that upload and
+   * answers for each row. Every rule above still holds per OPERATION — one durable result each,
+   * an unknown outcome halts the lane — the group is invisible in the results. Omitted leaves the
+   * per-operation path exactly as it was.
+   */
+  groups?: { split: GroupSplit; run: GroupRunner };
   /**
    * Called after every operation settles, for progress persistence. Awaited, so a durable record
    * exists before the lane continues; a rejection is contained and never fails the batch.
@@ -191,14 +209,94 @@ export async function executeRateBatch(
     }
   };
 
+  /**
+   * One lane, group by group. Same contract as `runLane`, with two rules specific to groups:
+   *
+   *  - The runner must answer for every row. Fewer or more outcomes than operations is a code
+   *    defect, and it is treated as an UNKNOWN outcome for the whole group rather than guessed at —
+   *    the upload may well have been sent by then.
+   *  - One unknown row halts the lane after the whole group is recorded. The rows beside it in the
+   *    same upload keep their own verdicts (they were read back individually); only the groups
+   *    that had not started are `not_attempted`.
+   */
+  const runGroupedLane = async (lane: BatchPlan['lanes'][number]): Promise<void> => {
+    const { split, run } = opts.groups!;
+    const groups = split(lane);
+    for (let gi = 0; gi < groups.length; gi++) {
+      const group = groups[gi];
+      if (!group.operations.length) continue;
+      const startedAt = now();
+      let outcomes: OperationOutcome[];
+      try {
+        const got = await run(group, { iTariff: lane.iTariff });
+        outcomes = got.length === group.operations.length
+          ? got
+          : group.operations.map(() => ({
+              verdict: 'indeterminate' as Verdict,
+              message: `The group push returned ${got.length} outcome(s) for ${group.operations.length} operation(s) — a code defect, not an outcome. The upload may have been sent, so the tariff must be read before anything further is written to it.`,
+            }));
+      } catch (e: any) {
+        outcomes = group.operations.map(() => ({
+          verdict: 'indeterminate' as Verdict,
+          message: `Push threw before an outcome could be established: ${e?.message ?? String(e)}. The write may still have been applied — read the tariff before any further action.`,
+          trace: Array.isArray(e?.trace) ? e.trace : undefined,
+        }));
+      }
+      const ms = now() - startedAt;
+
+      for (let i = 0; i < group.operations.length; i++) {
+        const operation = group.operations[i];
+        const settled = outcomes[i];
+        await record({
+          operationKey: operation.operationKey,
+          iTariff: lane.iTariff,
+          prefix: operation.prefix,
+          accountName: operation.accountName,
+          verdict: settled.verdict,
+          message: settled.message,
+          method: settled.method,
+          iRate: settled.iRate,
+          verificationResult: settled.verificationResult,
+          refusedBeforeWrite: settled.refusedBeforeWrite,
+          trace: settled.trace,
+          attempts: 1,
+          ms,
+        });
+      }
+
+      const unknownAt = group.operations.findIndex((_, i) => outcomes[i].verdict === 'indeterminate');
+      if (unknownAt === -1) continue;
+
+      const halt = group.operations[unknownAt];
+      const remaining = groups.slice(gi + 1).flatMap(g => g.operations);
+      if (remaining.length) {
+        haltedLanes.push({ iTariff: lane.iTariff, atOperationKey: halt.operationKey, remaining: remaining.length });
+        for (const skipped of remaining) {
+          await record({
+            operationKey: skipped.operationKey,
+            iTariff: lane.iTariff,
+            prefix: skipped.prefix,
+            accountName: skipped.accountName,
+            verdict: 'not_attempted',
+            message: `Not attempted: tariff ${lane.iTariff} was left in an unknown state by ${halt.operationKey}, so no further write to it is safe until that is resolved by reading the tariff.`,
+            attempts: 0,
+            ms: 0,
+          });
+        }
+      }
+      return;   // this lane stops; other lanes are unaffected
+    }
+  };
+
   // Bounded worker pool over lanes. Each worker takes the next lane and owns it to completion,
   // which is what keeps a tariff's operations on a single thread of execution.
   const queue = [...plan.lanes];
+  const walk = opts.groups ? runGroupedLane : runLane;
   const workers = Array.from({ length: Math.max(1, plan.concurrency) }, async () => {
     for (;;) {
       const lane = queue.shift();
       if (!lane) return;
-      await runLane(lane);
+      await walk(lane);
     }
   });
   await Promise.all(workers);

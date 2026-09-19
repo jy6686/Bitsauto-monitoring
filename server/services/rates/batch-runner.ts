@@ -39,6 +39,8 @@ import {
   type OperationQueryable, type PersistContext, type JobSummary,
 } from './operation-store';
 import { acquireTariff, type TariffLockProvider, type AcquireOptions } from './tariff-lock';
+import { groupLane, type OperationGroup } from './group-plan';
+import type { GroupPushResult } from './group-readback';
 
 /** One operation as the route knows it: what preflight needs, plus what the record should carry. */
 export interface RunnerOperation extends PreflightOperation {
@@ -86,9 +88,36 @@ export type InjectedPush = (
   ctx: { attempt: number },
 ) => Promise<PushPrimitiveResult>;
 
+/**
+ * The GROUP push, injected: one upload for several operations on one tariff that share a verb and
+ * an activation date. Must answer with exactly one result per operation, each carrying its
+ * `operationKey`; the executor treats any other cardinality as an unknown outcome for the group.
+ */
+export type InjectedGroupPush = (
+  ops: Array<{
+    operationKey: string;
+    accountName: string;
+    iTariff: number;
+    prefix: string;
+    rate: number;
+    interval1?: number;
+    intervalN?: number;
+    effectiveFrom?: string;
+    effectiveTill?: string;
+  }>,
+  ctx: { iTariff: number; action: 'A' | 'SA'; activation: string },
+) => Promise<GroupPushResult[]>;
+
 export interface BatchRunnerDeps {
   db: OperationQueryable;
   push: InjectedPush;
+  /**
+   * Bulk transport, OPTIONAL. When present, a lane is split into groups (see group-plan.ts) and a
+   * group of two or more rows goes through this in ONE upload. A group of one keeps using `push`,
+   * so enabling this changes nothing for a single-prefix push — the path proven on 09-18 stays
+   * the path. Omitted leaves the runner exactly as it was.
+   */
+  pushGroup?: InjectedGroupPush;
   /**
    * Cross-BATCH exclusion on a tariff. The planner already serialises a tariff within one batch;
    * this is what stops a second batch, in another request or process, writing the same tariff at
@@ -359,8 +388,66 @@ export async function runRateBatch(
     return { ...outcome, verificationResult: raw.verificationResult, refusedBeforeWrite: raw.refusedBeforeWrite, trace: raw.trace };
   };
 
+  // ── 4b. Grouped execution, when a group push is available ───────────────────
+  // The tariff is claimed ONCE per group — one upload is one write to the tariff — and released
+  // whatever happens. A group that cannot claim it is reported exactly as a single operation
+  // would be: a failure with nothing sent, for every row.
+  const groups = deps.pushGroup ? {
+    split: (lane: BatchPlan['lanes'][number]) => groupLane(lane),
+    run: async (raw: { operations: RateOperation[] }, ctx: { iTariff: number }) => {
+      const group = raw as OperationGroup;
+      const release = deps.lock
+        ? await acquireTariff(deps.lock, ctx.iTariff, deps.lockOptions)
+        : (async () => {}) as (() => Promise<void>);
+
+      if (!release) {
+        return group.operations.map(o => ({
+          verdict: 'failure' as const,
+          message: `Tariff ${ctx.iTariff} is being written by another push and did not become free in time. Nothing was sent for ${o.prefix}; the tariff is unchanged by this operation.`,
+          refusedBeforeWrite: true,
+        }));
+      }
+
+      try {
+        // One row is the proven single-row upload, unchanged. Grouping only ever merges.
+        if (group.operations.length === 1) {
+          return [await runOnePush(group.operations[0], { attempt: 1, iTariff: ctx.iTariff })];
+        }
+
+        for (const o of group.operations) await markOperationRunning(deps.db, input.jobId, o.operationKey);
+        const results = await deps.pushGroup!(
+          group.operations.map(o => ({
+            operationKey:  o.operationKey,
+            accountName:   o.accountName,
+            iTariff:       ctx.iTariff,
+            prefix:        o.prefix,
+            rate:          o.rate,
+            interval1:     o.interval1,
+            intervalN:     o.intervalN,
+            effectiveFrom: o.effectiveFrom,
+            effectiveTill: o.effectiveTill,
+          })),
+          { iTariff: ctx.iTariff, action: group.action, activation: group.activation },
+        );
+
+        // Matched by key, never by position. A result set that does not cover every row is handed
+        // back short so the executor records the whole group as unknown, which it is.
+        const byKey = new Map(results.map(r => [r.operationKey, r]));
+        if (results.length !== group.operations.length || group.operations.some(o => !byKey.has(o.operationKey))) return [];
+        return group.operations.map(o => {
+          const r = byKey.get(o.operationKey)!;
+          const outcome = verdictFromPush(r);
+          return { ...outcome, verificationResult: r.verificationResult, refusedBeforeWrite: r.refusedBeforeWrite, trace: r.trace };
+        });
+      } finally {
+        await release();
+      }
+    },
+  } : undefined;
+
   const executed = await executeRateBatch(plan, runner, {
     maxAttempts: input.maxAttempts,
+    groups,
     // Awaited by the executor, so an operation is durably recorded before its lane moves on.
     onResult: async (r: OperationResult) => {
       await recordOperationResult(deps.db, input.jobId, r, {

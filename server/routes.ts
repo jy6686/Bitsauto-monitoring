@@ -48,7 +48,7 @@ import { validateTrunkPrefix } from './services/rates/product-trunk';
 import { parseBillingIncrement } from './services/rates/billing-increment';
 import { lookupCatalogueIncrements } from './services/rates/catalogue-increments';
 import { checkTariffIntegrity } from './services/rates/tariff-integrity';
-import { runRateBatch, type RunnerOperation, type InjectedPush } from './services/rates/batch-runner';
+import { runRateBatch, type RunnerOperation, type InjectedPush, type InjectedGroupPush } from './services/rates/batch-runner';
 import { validateProductInput, describeTrunkSharing } from './services/products/product-identity';
 import { createPostgresTariffLock } from './services/rates/tariff-lock';
 import { getJobOperations, resolveOperation, listUnresolvedOperations } from './services/rates/operation-store';
@@ -44499,6 +44499,59 @@ ${footer}
           });
         }
 
+        // ── Grouped uploads, gated by an audited flag ─────────────────────────
+        //
+        // OFF by default and off when the flag cannot be read, for the same reason the policy flag
+        // is: a transport that switched itself on by accident would put every push through a
+        // workbook shape proven on one tariff. When on, the rows of one tariff that share a verb
+        // and an activation date go to Sippy as ONE upload with ONE read-back, and every row still
+        // gets its own verdict and its own operation record. A group of one keeps the single-row
+        // path, so a one-prefix push is byte-for-byte what it was on 09-18.
+        let bulkGroups = false;
+        try {
+          const { platformFeatureFlags } = await import('@shared/schema');
+          const row = await db.select({ enabled: platformFeatureFlags.enabled })
+            .from(platformFeatureFlags)
+            .where(eq(platformFeatureFlags.key, 'rate_push_bulk_groups')).limit(1);
+          bulkGroups = row.length ? Boolean(row[0].enabled) : false;
+        } catch {
+          bulkGroups = false;   // fail to UNCHANGED behaviour: one upload per prefix
+        }
+
+        const pushGroup: InjectedGroupPush = async (ops, ctx) => {
+          // The same fire-and-forget position trail the per-operation push writes, so a restart
+          // mid-group leaves a row that names the tariff, the phase and how many rows were in flight.
+          const mark = (step: string) => {
+            db.update(ratePushJobs)
+              .set({
+                lastStep: step, lastStepAt: new Date(),
+                lastClient: (ops[0]?.accountName ?? '').substring(0, 160),
+                lastPrefix: `${ops.length} prefixes`.substring(0, 32),
+                iTariff: ctx.iTariff,
+              })
+              .where(eq(ratePushJobs.jobId, jobId))
+              .catch(() => { /* position reporting must never fail a push */ });
+          };
+          console.log(`[push-batch] group ${ctx.action}@${ctx.activation || 'immediate'} → tariff ${ctx.iTariff}: ${ops.map(o => o.prefix).join(',')}`);
+          mark('queued');
+          const startedAt = Date.now();
+          const rs = await sippy.uploadRateGroup(
+            username, password, portalUrl, ctx.iTariff, ctx.action,
+            ops.map(o => ({
+              operationKey: o.operationKey, prefix: o.prefix, rate: o.rate,
+              interval1: o.interval1, intervalN: o.intervalN,
+              effectiveFrom: o.effectiveFrom, effectiveTill: o.effectiveTill,
+            })),
+            (step, detail) => {
+              console.log(`[push-batch] group → tariff ${ctx.iTariff}: ${step}${detail ? ` (${detail})` : ''}`);
+              mark(step);
+            },
+          );
+          const okN = rs.filter(r => r.success).length;
+          console.log(`[push-batch] group → tariff ${ctx.iTariff}: ${okN}/${ops.length} confirmed in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+          return rs;
+        };
+
         // One serial lane per tariff, concurrent across tariffs, every operation on a durable row
         // before the first push, and an outcome nobody established never retried.
         const runOutcome = await runRateBatch(
@@ -44506,7 +44559,7 @@ ${footer}
           // 2026-09-09 jobs 46 and 47 wrote tariff 65 concurrently for ~44s because the planner's
           // serialisation stops at the batch boundary; a Postgres advisory lock is visible to every
           // request and process, and Postgres frees it if this one dies.
-          { db, push, lock: createPostgresTariffLock(pool), policy },
+          { db, push, pushGroup: bulkGroups ? pushGroup : undefined, lock: createPostgresTariffLock(pool), policy },
           {
             jobId,
             operations,

@@ -49,7 +49,8 @@ describe("it ships OFF, and fails to unchanged behaviour", () => {
     expect(ROUTE).toContain('if (policyEnforced) {');
     expect(ROUTE.indexOf('policy = perClientPolicy(')).toBeGreaterThan(ROUTE.indexOf('if (policyEnforced) {'));
     // Passed by reference: undefined when off, so runRateBatch sees no policy at all.
-    expect(ROUTE).toContain('{ db, push, lock: createPostgresTariffLock(pool), policy }');
+    // The group push sits beside it under its own flag (bulk-groups-wiring.test.ts owns that gate).
+    expect(ROUTE).toContain('{ db, push, pushGroup: bulkGroups ? pushGroup : undefined, lock: createPostgresTariffLock(pool), policy }');
   });
 });
 
