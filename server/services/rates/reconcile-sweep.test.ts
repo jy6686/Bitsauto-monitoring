@@ -35,6 +35,10 @@ function harness(jobs: ReconcileJob[], opts: {
         ? opts.readback(job)
         : { reachable: true, readback: { ok: true, complete: true, rows: [{ prefix: job.intents[0].prefix, price1: job.intents[0].newRate }] } };
     },
+    // The operation-row path (1b) — never reached by job-level fixtures; asserted in
+    // reconcile-sweep-operations.test.ts.
+    readbackByTariff: async () => { throw new Error('job-level fixtures must not read by tariff'); },
+    writeOperationOutcome: async () => { throw new Error('job-level fixtures must not write operation outcomes'); },
     writeVerdict: async (jobId, verdict) => { rec.verdicts.push({ jobId, verdict }); },
     writeUnavailable: async (job, outcome) => {
       rec.unavailable.push({ jobId: job.jobId, status: outcome.status, verificationResult: outcome.verificationResult });
