@@ -1489,29 +1489,17 @@ export async function registerRoutes(
   });
 
   // Sensitive fields that are stripped from settings responses for non-admin users
-  const SETTINGS_SENSITIVE_FIELDS = [
-    'portalPassword',
-    'apiAdminPassword',
-    'adminWebPassword',
-    'alertGmailAppPass',
-    'whatsappApiKey',
-    'portalSessionToken',
-    'metaAccessToken',
-    'approvalExpirySlackWebhookUrl',
-  ] as const;
-
-  // Settings — GET (authenticated; admins see all fields, others get passwords redacted)
+  // Settings — GET (authenticated). No caller receives a plaintext secret: non-admins get null,
+  // admins get a presence mask. The sensitive-field list and the drift guard that keeps it in
+  // step with the table live in services/settings/secret-fields.ts — the inline list that used to
+  // sit here fell four columns behind the schema and leaked a live switch credential (2026-09-18).
   app.get(api.settings.get.path, async (req: any, res) => {
     const userId = req.user?.claims?.sub;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+    const { redactForRole } = await import('./services/settings/secret-fields');
     const settings = await storage.getSettings();
     const role = await storage.getUserRole(userId);
-    if (role !== 'admin') {
-      const redacted: any = { ...settings };
-      for (const field of SETTINGS_SENSITIVE_FIELDS) redacted[field] = null;
-      return res.json(redacted);
-    }
-    res.json(settings);
+    res.json(redactForRole(settings as any, role));
   });
 
   // Settings — PATCH (admin only)
@@ -1525,10 +1513,17 @@ export async function registerRoutes(
           return res.status(400).json({ message: 'Approval timeout must be between 5 and 480 minutes.', field: 'dualApprovalTtlMinutes' });
         }
       }
-      const updated = await storage.updateSettings(input);
-      res.json(updated);
+      // The admin form is useForm({ values: settings }) and submits the WHOLE form, so whatever GET
+      // returned comes straight back here. Strip any secret arriving as the mask or blank BEFORE it
+      // can reach the database — otherwise redacting the read side would store the mask as the
+      // password, or '' would wipe it. A genuinely new value still lands, so rotation works.
+      const { stripUnchangedSecrets, redactForRole } = await import('./services/settings/secret-fields');
+      const cleaned = stripUnchangedSecrets(input as any);
+      const updated = await storage.updateSettings(cleaned as any);
+      // The written row must not come back in plaintext either.
+      res.json(redactForRole(updated as any, 'admin'));
       regenDataflowDoc();
-      writeAudit({ category: 'system', action: 'SETTINGS_UPDATED', actor: (req as any).user?.claims?.sub ?? 'unknown', actorType: 'user', severity: 'warning', metadata: { changedFields: Object.keys(input) } });
+      writeAudit({ category: 'system', action: 'SETTINGS_UPDATED', actor: (req as any).user?.claims?.sub ?? 'unknown', actorType: 'user', severity: 'warning', metadata: { changedFields: Object.keys(cleaned) } });
     } catch (err) {
       if (err instanceof z.ZodError) {
         return res.status(400).json({
