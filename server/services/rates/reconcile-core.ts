@@ -88,6 +88,24 @@ export interface RateIntent {
   oldRate: number | null;
 }
 
+/**
+ * Does a job carry enough recorded intent to be verified by a read-back? Reconciliation exists
+ * for a push that recorded WHAT it was doing (target tariff + prefix + rate) and then died before
+ * confirming it. A row that recorded none of that — a pre-instrumentation `job-*` orphan with a
+ * NULL `i_tariff` and no rate, or a refusal that never reached the write — is NOT that class.
+ *
+ * The sweep must leave such a row untouched: never call Sippy for it, never write a terminal
+ * verdict, never overwrite its existing diagnostic. Fabricating `indeterminate` ("may have
+ * landed, needs review") from a job that recorded no mutation intent is a false verdict — worst
+ * of all for a row already marked `mismatch`/`skip`, which is a KNOWN refusal that landed nothing.
+ *
+ * `intents.length > 0` already implies a prefix and a parseable rate (parseIntents drops the row
+ * otherwise); this adds the tariff the read-back needs.
+ */
+export function hasVerifiableIntent(iTariff: number | null, intents: RateIntent[]): boolean {
+  return iTariff != null && intents.length > 0;
+}
+
 export interface Readback {
   /** The read itself succeeded (no fault, no transport error). */
   ok: boolean;

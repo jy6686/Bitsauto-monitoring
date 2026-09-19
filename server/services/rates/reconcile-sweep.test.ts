@@ -49,6 +49,11 @@ const job = (jobId: string, over: Partial<ReconcileJob> = {}): ReconcileJob => (
   intents: [{ prefix: '1990', newRate: 0.0199, oldRate: null }], ...over,
 });
 
+/** A pre-instrumentation job-* orphan: no tariff, no parsed intent, carrying an old diagnostic. */
+const noIntentJob = (jobId: string, over: Partial<ReconcileJob> = {}): ReconcileJob => ({
+  jobId, status: 'pending', verificationResult: 'mismatch', iTariff: null, intents: [], ...over,
+});
+
 describe('happy path — each stale job is read back and given a verdict', () => {
   it('classifies a landed mutation as success and writes it', async () => {
     const { deps, rec } = harness([job('change-1')]);
@@ -65,6 +70,46 @@ describe('happy path — each stale job is read back and given a verdict', () =>
     expect(Object.keys(deps)).not.toContain('pushRate');
     expect(Object.keys(deps)).not.toContain('reupload');
     expect(Object.keys(deps).some(k => /push|upload|retry|resend/i.test(k))).toBe(false);
+  });
+});
+
+describe('no-intent jobs are left entirely untouched — never a fabricated verdict', () => {
+  it('skips a no-intent job: no read-back, no verdict, no defer, counted as skippedNoIntent', async () => {
+    const { deps, rec } = harness([noIntentJob('job-legacy')]);
+    const s = await runReconcileSweep(deps);
+    expect(s.skippedNoIntent).toBe(1);
+    expect(s.examined).toBe(0);
+    expect(rec.readbackCalls).toEqual([]);   // never queried Sippy
+    expect(rec.verdicts).toEqual([]);        // never wrote a terminal verdict
+    expect(rec.unavailable).toEqual([]);     // never deferred / touched verification_result
+  });
+
+  it('makes NO Sippy probe at all when every stale job is no-intent', async () => {
+    let probed = false;
+    const { deps } = harness([noIntentJob('a'), noIntentJob('b')]);
+    const realProbe = deps.probeSippy;
+    deps.probeSippy = async () => { probed = true; return realProbe(); };
+    const s = await runReconcileSweep(deps);
+    expect(probed).toBe(false);              // returned before the probe
+    expect(s.skippedNoIntent).toBe(2);
+    expect(s.sippyReachable).toBe(false);
+  });
+
+  it('processes verifiable jobs and skips no-intent ones in the same sweep', async () => {
+    const { deps, rec } = harness([job('change-ok'), noIntentJob('job-legacy')]);
+    const s = await runReconcileSweep(deps);
+    expect(s.examined).toBe(1);
+    expect(s.skippedNoIntent).toBe(1);
+    expect(rec.verdicts).toEqual([{ jobId: 'change-ok', verdict: 'success' }]);
+    expect(rec.readbackCalls).toEqual(['change-ok']); // the legacy row was never read
+  });
+
+  it('a no-intent job is not deferred even when Sippy is down', async () => {
+    const { deps, rec } = harness([noIntentJob('a')], { probe: false });
+    const s = await runReconcileSweep(deps);
+    expect(rec.unavailable).toEqual([]);     // its mismatch/skip diagnostic is preserved
+    expect(s.deferred).toBe(0);
+    expect(s.skippedNoIntent).toBe(1);
   });
 });
 

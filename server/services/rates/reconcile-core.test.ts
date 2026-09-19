@@ -13,6 +13,7 @@ import {
   classifyReadback,
   parseUnavailableCount,
   advanceUnavailable,
+  hasVerifiableIntent,
   RECONCILE_STATE,
   type OrphanCandidate,
   type RateIntent,
@@ -75,6 +76,30 @@ describe('legacy rows: NULL lastStepAt falls back to createdAt, never reads as f
     const oldOne = { status: 'processing', lastStepAt: null, createdAt: ago(STALE * 10) };
     expect(isOrphanEligible(recent, now, STALE)).toBe(false); // not "always stale"
     expect(isOrphanEligible(oldOne, now, STALE)).toBe(true);  // not "never stale"
+  });
+});
+
+// ── 1b. Verifiable intent ──────────────────────────────────────────────────────────────────────
+
+describe('hasVerifiableIntent — reconciliation only acts on a recorded mutation intent', () => {
+  const intent: RateIntent[] = [{ prefix: '1990', newRate: 0.0199, oldRate: null }];
+
+  it('true when a target tariff AND at least one parsed intent are present', () => {
+    expect(hasVerifiableIntent(68, intent)).toBe(true);
+  });
+
+  it('false when the tariff is missing — a read-back has no target to check against', () => {
+    expect(hasVerifiableIntent(null, intent)).toBe(false);
+  });
+
+  it('false when no intent parsed (no prefix / unparseable rate)', () => {
+    expect(hasVerifiableIntent(68, [])).toBe(false);
+  });
+
+  it('false when BOTH are absent — the pre-instrumentation job-* orphan shape', () => {
+    // These are the production legacy rows: i_tariff NULL, no rate. The sweep must not fabricate
+    // a verdict for them, and must not overwrite a mismatch/skip diagnostic they already carry.
+    expect(hasVerifiableIntent(null, [])).toBe(false);
   });
 });
 

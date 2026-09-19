@@ -17,6 +17,7 @@
 import {
   classifyReadback,
   advanceUnavailable,
+  hasVerifiableIntent,
   type RateIntent,
   type Readback,
   type ReconcileVerdict,
@@ -56,6 +57,7 @@ export interface ReconcileDeps {
 
 export interface ReconcileSummary {
   sippyReachable: boolean;
+  /** Jobs with enough recorded intent to reconcile — the ones actually probed and read back. */
   examined: number;
   success: number;
   failure: number;
@@ -64,13 +66,15 @@ export interface ReconcileSummary {
   deferred: number;
   /** Jobs escalated to human review after too many unavailable boots. */
   escalated: number;
+  /** Stale non-terminal jobs that recorded no verifiable intent — left entirely untouched. */
+  skippedNoIntent: number;
   /** True when a mid-sweep read-back revealed Sippy had gone down and the sweep stopped early. */
   circuitTripped: boolean;
 }
 
 const empty = (): ReconcileSummary => ({
   sippyReachable: false, examined: 0, success: 0, failure: 0,
-  indeterminate: 0, deferred: 0, escalated: 0, circuitTripped: false,
+  indeterminate: 0, deferred: 0, escalated: 0, skippedNoIntent: 0, circuitTripped: false,
 });
 
 /** Bump the unavailable counter for a set of jobs (probe-down path, or mid-sweep tail). */
@@ -91,19 +95,34 @@ export async function runReconcileSweep(deps: ReconcileDeps): Promise<ReconcileS
   const summary = empty();
   const now = deps.now();
 
+  // Partition BEFORE any probe or write. A stale non-terminal job that recorded no verifiable
+  // intent (no target tariff / no rate — the pre-instrumentation `job-*` orphans, and refusals
+  // that never wrote) is left ENTIRELY untouched: not probed, not read, not deferred, not
+  // verdicted. Reconciliation must not manufacture an outcome the original push never recorded.
+  const all = await deps.listStaleJobs(now, deps.staleMs);
+  const jobs = all.filter(j => hasVerifiableIntent(j.iTariff, j.intents));
+  summary.skippedNoIntent = all.length - jobs.length;
+  for (const s of all) {
+    if (!hasVerifiableIntent(s.iTariff, s.intents)) {
+      deps.log(`[rate-reconcile] ${s.jobId} → skipped (no verifiable intent — left unchanged)`);
+    }
+  }
+  summary.examined = jobs.length;
+
+  // Nothing verifiable ⇒ no probe, no Sippy call at all.
+  if (jobs.length === 0) {
+    deps.log('[rate-reconcile] no jobs with verifiable intent — nothing to reconcile');
+    return summary;
+  }
+
   // Circuit breaker: one probe. If Sippy is down, no job is queried — each is left eligible with
   // its unavailable counter advanced (or escalated once the ceiling is reached).
   if (!(await deps.probeSippy())) {
-    const candidates = await deps.listStaleJobs(now, deps.staleMs);
-    summary.examined = candidates.length;
-    await deferAll(deps, candidates, summary);
-    deps.log(`[rate-reconcile] Sippy unreachable — ${candidates.length} job(s) left eligible, ${summary.escalated} escalated`);
+    await deferAll(deps, jobs, summary);
+    deps.log(`[rate-reconcile] Sippy unreachable — ${jobs.length} job(s) left eligible, ${summary.escalated} escalated`);
     return summary;
   }
   summary.sippyReachable = true;
-
-  const jobs = await deps.listStaleJobs(now, deps.staleMs);
-  summary.examined = jobs.length;
 
   for (let i = 0; i < jobs.length; i++) {
     const job = jobs[i];
