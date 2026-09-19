@@ -53,6 +53,12 @@ import { tariffRatesParams } from './sippy-tariff-rates-params';
 import { classifyPortalWrite, type PortalReadBack } from './services/rates/portal-write-outcome';
 import { buildGroupRateXlsx } from './services/rates/rate-matrix';
 import { groupVerdicts, type GroupRow, type GroupPushResult } from './services/rates/group-readback';
+import {
+  classifyVerificationRead, uploadVerdict, shouldRetryRead, readRetryDelayMs,
+  rateListFailureKind, faultFailureKind,
+  READBACK_TIMEOUT_MS, READBACK_MAX_ATTEMPTS,
+  type ReadbackOutcome, type RateListFailureKind, type RateListRead, type VerificationReading,
+} from './services/rates/readback-outcome';
 
 // ── Cookie jar type ───────────────────────────────────────────────────────────
 
@@ -8939,9 +8945,11 @@ export async function getSippyRateList(
   password: string,
   tariffId: string,
   portalUrl?: string,
-): Promise<{ rates: RateEntry[]; error?: string }> {
+  /** Verification reads pass READBACK_TIMEOUT_MS; everything else keeps the client default. */
+  timeoutMs?: number,
+): Promise<{ ok: boolean; rates: RateEntry[]; error?: string; failure?: { kind: RateListFailureKind; message: string } }> {
   const base = portalUrl ? sippyBase(portalUrl) : activeSession?.portalUrl;
-  if (!base) return { rates: [], error: 'Not connected to Sippy.' };
+  if (!base) return { ok: false, rates: [], failure: { kind: 'transport', message: 'Not connected to Sippy.' }, error: 'Not connected to Sippy.' };
   const apiUrl = `${base}/xmlapi/xmlapi`;
 
   // Official method: getTariffRatesList() (Sippy docs 3000118878, available since Sippy 2022)
@@ -8954,11 +8962,23 @@ export async function getSippyRateList(
     'rate.getRateList',       // legacy variant
     'tariff.getRates',        // older builds
   ];
+  // Why each method failed, kept rather than swallowed: a connection reset, a timeout and a
+  // method this build does not implement are three different facts, and the caller has to tell
+  // them apart to know whether it learned anything about the tariff at all.
+  const failures: Array<{ method: string; kind: RateListFailureKind; message: string }> = [];
   for (const method of methods) {
     try {
       const body = xmlRpcCall(method, { i_tariff: tariffId, limit: 1000, offset: 0 });
-      const resp = await sippyPost(apiUrl, body, username, password);
-      if (resp.statusCode !== 200 || resp.body.includes('<fault>')) continue;
+      const resp = await sippyPost(apiUrl, body, username, password, timeoutMs);
+      if (resp.statusCode !== 200) {
+        failures.push({ method, kind: 'transport', message: `HTTP ${resp.statusCode}` });
+        continue;
+      }
+      if (resp.body.includes('<fault>')) {
+        const fault = extractFaultString(resp.body) || 'XML-RPC fault';
+        failures.push({ method, kind: faultFailureKind(fault), message: fault });
+        continue;
+      }
       const structs = extractAllTags(resp.body, 'struct');
       const rates: RateEntry[] = [];
       for (const s of structs) {
@@ -8976,10 +8996,24 @@ export async function getSippyRateList(
           effectiveTill: m['expiration_date']  || m['effective_till'] || m['end_date']   || '',
         });
       }
-      return { rates };
-    } catch { continue; }
+      return { ok: true, rates };
+    } catch (e: any) {
+      const m = String(e?.message ?? e);
+      failures.push({ method, kind: rateListFailureKind(m), message: m });
+    }
   }
-  return { rates: [], error: 'Could not fetch rates from this Sippy instance.' };
+  // A transport problem outranks "this build does not implement that method": the legacy names in
+  // the list always fault on a modern Sippy, and reporting THAT as the reason would hide a reset.
+  const chosen = failures.find(f => f.kind !== 'unsupported')
+              ?? failures[0]
+              ?? { method: 'none', kind: 'unsupported' as RateListFailureKind, message: 'no rate-list method answered' };
+  return {
+    ok: false,
+    rates: [],
+    failure: { kind: chosen.kind, message: chosen.message },
+    // Kept so existing callers that branch on `.error` behave exactly as before.
+    error: `rate list unavailable [${chosen.kind}] via ${chosen.method}: ${chosen.message}`,
+  };
 }
 
 // ── verifySippyRate ───────────────────────────────────────────────────────────
@@ -9023,39 +9057,39 @@ async function verifySippyRate(
   expectedRate: number,
   base: string,
   opts: { effectiveFrom?: string } = {},
-): Promise<{ confirmed: boolean; foundRate?: number; message: string }> {
-  try {
-    // Name the tariff on both sides of the read. A push verifies against whatever tariff it
-    // resolved, so it can confirm itself correctly while the tariff someone is watching stays
-    // empty — and "verified" alone gives no way to tell those apart.
-    console.log(`[verify] tariff=${tariffId} prefix=${prefix} expected=${expectedRate} — reading back`);
-    await new Promise(r => setTimeout(r, 1500));
-    const result = await getSippyRateList(username, password, tariffId, base);
-    if (result.error) {
-      console.log(`[verify] tariff=${tariffId} prefix=${prefix} → read FAILED: ${result.error}`);
-      return { confirmed: false, message: result.error };
+): Promise<{ confirmed: boolean; outcome: ReadbackOutcome; foundRate?: number; message: string }> {
+  // Name the tariff on both sides of the read. A push verifies against whatever tariff it
+  // resolved, so it can confirm itself correctly while the tariff someone is watching stays
+  // empty — and "verified" alone gives no way to tell those apart.
+  console.log(`[verify] tariff=${tariffId} prefix=${prefix} expected=${expectedRate} — reading back`);
+  const want = { tariffId, prefix, rate: expectedRate, effectiveFrom: opts.effectiveFrom };
+
+  // The read is retried; the write never is. A read changes nothing, so another attempt costs a
+  // request and can only improve the evidence — which is exactly why this loop may contain no
+  // mutating call. An outcome of `absent` or `confirmed` is an ANSWER and ends it immediately.
+  let reading: VerificationReading = { outcome: 'unavailable', message: 'no read was attempted' };
+  for (let attempt = 1; attempt <= READBACK_MAX_ATTEMPTS; attempt++) {
+    // Sippy applies an import a moment after it reports it; the settle delay is on the first
+    // attempt only, because a retry has already waited its backoff.
+    if (attempt === 1) await new Promise(r => setTimeout(r, 1500));
+
+    let read: RateListRead;
+    try {
+      read = await getSippyRateList(username, password, tariffId, base, READBACK_TIMEOUT_MS);
+    } catch (e: any) {
+      read = { ok: false, failure: { kind: 'unknown', message: String(e?.message ?? e) } };
     }
-    // How many rates the tariff holds distinguishes "this prefix is missing" from "this
-    // tariff is empty", which point at completely different causes.
-    const { row: match, reason } = selectVerificationRow(result.rates, prefix, opts.effectiveFrom);
-    if (!match) {
-      const msg = `prefix ${prefix} not found in tariff ${tariffId} after push (tariff holds ${result.rates.length} rate(s))`;
-      console.log(`[verify] ${msg}`);
-      return { confirmed: false, message: msg };
-    }
-    const ok = Math.abs(match.rate - expectedRate) < 0.000001;
-    const when = match.effectiveFrom ? ` activation=${match.effectiveFrom}` : '';
-    console.log(`[verify] tariff=${tariffId} prefix=${prefix} → confirmed=${ok} found=${match.rate} expected=${expectedRate}${when} [${reason}] (tariff holds ${result.rates.length} rate(s))`);
-    return {
-      confirmed: ok,
-      foundRate: match.rate,
-      message: ok
-        ? `✓ tariff=${tariffId} prefix=${prefix} rate=${match.rate}${when} (expected=${expectedRate}; ${reason})`
-        : `✗ tariff=${tariffId} prefix=${prefix} found=${match.rate}${when} expected=${expectedRate} (${reason})`,
-    };
-  } catch (e: any) {
-    return { confirmed: false, message: `verification error: ${e.message}` };
+    reading = classifyVerificationRead(read, want);
+    console.log(`[verify] tariff=${tariffId} prefix=${prefix} attempt ${attempt}/${READBACK_MAX_ATTEMPTS} → ${reading.outcome}: ${reading.message}`);
+
+    if (!shouldRetryRead(reading.outcome, attempt)) break;
+    const wait = readRetryDelayMs(attempt);
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
   }
+
+  // `confirmed` is kept for the callers that only ever asked that question; `outcome` is what
+  // lets a caller tell "the tariff does not hold it" from "we could not see the tariff".
+  return { confirmed: reading.outcome === 'confirmed', outcome: reading.outcome, foundRate: reading.foundRate, message: reading.message };
 }
 
 /**
@@ -9992,67 +10026,40 @@ async function setSippyRateEntryInner(
           note(`upload status settled at ${finalStatus}` +
                (lastStatus['status_changed_on'] ? ` at ${lastStatus['status_changed_on']}` : '') +
                (lastStatus['url'] ? ` report=${lastStatus['url']}` : ''));
-          if (finalStatus === 'FAIL') {
-            // The importer refused the file. Read the tariff: if the requested row is not there,
-            // nothing was applied and this is a FAILURE — safe to report, safe to retry once the
-            // reason in the report is fixed. It is not indeterminate, and it must not proceed to
-            // the XML-RPC guesses or the portal fallback, which is how a refused import became a
-            // live-row edit.
+          // ── What the upload and the read-back together established ──────────────
+          //
+          // One decision table for every status (readback-outcome.ts), so no branch can reach its
+          // own conclusion. The rule that matters: a read that could not HAPPEN is `unavailable`,
+          // which is never a failure and never permits another write path — the workbook is
+          // already on the switch and may still be processing, so a second method could
+          // double-apply what the first one is about to land.
+          //
+          // FILE_UPLOADED at poll-end often means getUploadStatus is unsupported on this Sippy
+          // build and the import may have completed silently, so it is verified like the rest;
+          // only an ESTABLISHED absence there still falls through to the older write methods.
+          if (finalStatus === 'FAIL' || finalStatus === 'DONE' || finalStatus === 'FILE_UPLOADED') {
             step('verifying', `tariff ${tariffId}`);
             const after = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base, { effectiveFrom: normaliseEntryDate(entry.effectiveFrom) });
-            note(`verification after FAIL: confirmed=${after.confirmed} — ${after.message}`);
-            const report = lastStatus['url'] ? ` Report: ${lastStatus['url']}.` : '';
-            if (after.confirmed) {
-              return { success: true, message: `Sippy reported FAIL but the tariff holds the requested rate (${after.message}).${report}`, method: 'upload_token', uploadToken, uploadStatus: finalStatus, verificationResult: 'confirmed' };
-            }
-            return {
-              success: false,
-              message: `Sippy's importer refused the upload (FAIL${lastStatus['status_changed_on'] ? ` at ${lastStatus['status_changed_on']}` : ''}) and the tariff is unchanged (${after.message}). Nothing was applied.${report}`,
-              method: 'upload_token', uploadToken, uploadStatus: finalStatus, verificationResult: 'mismatch',
-            };
-          }
-          if (finalStatus === 'DONE') {
-            step('verifying', `tariff ${tariffId}`);
-            const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base, { effectiveFrom: normaliseEntryDate(entry.effectiveFrom) });
-            console.log(`[RateManager] Verification (upload_token): ${verifyResult.message}`);
-            note(`verification after DONE: confirmed=${verifyResult.confirmed} — ${verifyResult.message}`);
-            if (verifyResult.confirmed) {
-              return {
-                success: true,
-                message: `Rate updated — upload token DONE, verified (prefix=${entry.prefix} rate=${entry.rate})`,
-                method: 'upload_token',
-                uploadToken,
-                uploadStatus: finalStatus,
-                verificationResult: 'confirmed',
-              };
-            }
-            return {
-              success: false,
-              message: `Upload token DONE but rate unchanged: ${verifyResult.message} — check tariff permissions or prefix mapping`,
-              method: 'upload_token',
-              uploadToken,
+            note(`verification after ${finalStatus}: ${after.outcome} — ${after.message}`);
+            const v = uploadVerdict({
               uploadStatus: finalStatus,
-              verificationResult: 'mismatch',
-            };
-          }
-          // FILE_UPLOADED at poll-end often means getUploadStatus is unsupported on
-          // this Sippy build — the import may have completed silently.  Verify before
-          // falling through so a working upload doesn't get discarded.
-          if (finalStatus === 'FILE_UPLOADED') {
-            step('verifying', `tariff ${tariffId}`);
-            const verifyResult = await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base, { effectiveFrom: normaliseEntryDate(entry.effectiveFrom) });
-            console.log(`[RateManager] Verification after FILE_UPLOADED (upload_token): ${verifyResult.message}`);
-            note(`verification after FILE_UPLOADED: confirmed=${verifyResult.confirmed} — ${verifyResult.message}`);
-            if (verifyResult.confirmed) {
+              outcome:      after.outcome,
+              readMessage:  after.message,
+              want:         { tariffId, prefix: entry.prefix, rate: entry.rate, effectiveFrom: normaliseEntryDate(entry.effectiveFrom) },
+              reportUrl:    lastStatus['url'] ?? null,
+            });
+            console.log(`[RateManager] Verification (upload_token, ${finalStatus}): ${v.message}`);
+            if (!v.fallbackAllowed) {
               return {
-                success: true,
-                message: `Rate updated — XLSX uploaded, verified (prefix=${entry.prefix} rate=${entry.rate}; status API may be unsupported on this Sippy build)`,
+                success: v.success,
+                message: v.message,
                 method: 'upload_token',
                 uploadToken,
                 uploadStatus: finalStatus,
-                verificationResult: 'confirmed',
+                verificationResult: v.verificationResult,
               };
             }
+            lastErrors.push(`upload_token: ${finalStatus} and the tariff was read back without the rate — ${v.message}`);
           }
           lastErrors.push(`upload_token: status=${finalStatus}`);
           console.log(`[RateManager] Upload token finalStatus=${finalStatus} — falling through`);
