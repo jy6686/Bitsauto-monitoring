@@ -11,6 +11,10 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { selectVerificationRow } from "../../sippy";
+import { uploadVerdict } from "./readback-outcome";
+
+/** The request the FAIL-branch assertions below are about. */
+const WANT = { tariffId: '64', prefix: '19370', rate: 0.196, effectiveFrom: '2026-09-22 00:00:00' };
 
 const LIVE      = { prefix: '19370', rate: 0.133, effectiveFrom: '20260731T17:00:00' };
 const SCHEDULED = { prefix: '19370', rate: 0.196, effectiveFrom: '20260922T00:00:00' };
@@ -57,16 +61,27 @@ describe("the write path, asserted against server/sippy.ts", () => {
   const code = SRC.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
 
   it("every in-function verification passes the requested effective date", () => {
-    // Four call sites inside setSippyRateEntry: direct edit, two after upload, and portal_csv.
-    // Five call sites inside setSippyRateEntryInner: direct edit, after FAIL, two after upload, portal_csv.
+    // Asserted as a PROPERTY rather than a count: the three post-upload call sites (FAIL, DONE,
+    // FILE_UPLOADED) became one when the upload branches were unified behind uploadVerdict, so a
+    // fixed number would have to be re-agreed every time the shape changes. What must never
+    // change is that no verification of an `entry` is performed without its date.
+    // Every call that verifies an `entry` (one of them is written across several lines) against
+    // every call that carries the date. The workbook's sampled verification is excluded on
+    // purpose: it checks a bulk row, not an entry, and has no per-row activation to pass.
+    const onEntry  = (code.match(/verifySippyRate\([\s\S]{0,140}?entry\.prefix/g) || []).length;
     const withDate = (code.match(/verifySippyRate\([\s\S]{0,140}?\{ effectiveFrom: normaliseEntryDate\(entry\.effectiveFrom\) \}/g) || []).length;
-    expect(withDate).toBe(5);
-    // And none of those four still calls it WITHOUT the date.
+    expect(onEntry).toBeGreaterThan(0);
+    expect(withDate).toBe(onEntry);
     expect(code).not.toMatch(/verifySippyRate\(username, password, tariffId, entry\.prefix, entry\.rate, base\);/);
   });
 
   it("the verifier uses the selector, not the first prefix match", () => {
-    expect(code).toContain('selectVerificationRow(result.rates, prefix, opts.effectiveFrom)');
+    // The row selection moved into readback-outcome.ts when the read-back became a tri-state
+    // (confirmed / absent / unavailable). The invariant is unchanged and is asserted where it now
+    // lives; sippy.ts must still hold no first-match shortcut of its own.
+    const OUTCOME = readFileSync(join(__dirname, 'readback-outcome.ts'), 'utf8');
+    expect(OUTCOME).toContain('selectVerificationRow(read.rates, want.prefix, want.effectiveFrom)');
+    expect(OUTCOME).not.toMatch(/\.rates\.find\(r => r\.prefix === /);
     expect(code).not.toContain('result.rates.find(r => r.prefix === prefix)');
   });
 
@@ -115,16 +130,21 @@ describe("the upload poller, after the 2026-09-15 pilot", () => {
   });
 
   it("on FAIL, reads the tariff back and reports an unchanged tariff as a retryable MISMATCH", () => {
-    const at = INNER.indexOf("if (finalStatus === 'FAIL') {");
-    const done = INNER.indexOf("if (finalStatus === 'DONE') {", at);
-    expect(at).toBeGreaterThan(-1);
-    expect(done).toBeGreaterThan(at);
-    const branch = INNER.slice(at, done);
-    expect(branch).toContain("await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base, { effectiveFrom: normaliseEntryDate(entry.effectiveFrom) })");
-    expect(branch).toContain("verificationResult: 'mismatch'");
-    // And it RETURNS — a refused import never continues into the XML-RPC guesses or the fallback.
-    expect(branch).toMatch(/return \{[\s\S]*success: false[\s\S]*verificationResult: 'mismatch'/);
-    expect(branch).not.toContain('lastErrors.push');
+    // The three status branches were unified behind one decision table, so this invariant is now
+    // provable by CALLING it rather than by matching the branch's source. Both halves are kept:
+    // a refused import whose absence was established is a retryable mismatch, and it never
+    // continues into the XML-RPC guesses or the portal fallback.
+    const fail = uploadVerdict({ uploadStatus: 'FAIL', outcome: 'absent', readMessage: 'prefix not found', want: WANT });
+    expect(fail.verificationResult).toBe('mismatch');
+    expect(fail.success).toBe(false);
+    expect(fail.fallbackAllowed).toBe(false);
+    // ...and no outcome of a FAIL may ever permit one, including the unreadable case that used to
+    // be misreported as this same mismatch.
+    for (const outcome of ['confirmed', 'absent', 'unavailable'] as const) {
+      expect(uploadVerdict({ uploadStatus: 'FAIL', outcome, readMessage: 'x', want: WANT }).fallbackAllowed, outcome).toBe(false);
+    }
+    // The verification itself still carries the requested date into the read.
+    expect(INNER).toContain("await verifySippyRate(username, password, tariffId, entry.prefix, entry.rate, base, { effectiveFrom: normaliseEntryDate(entry.effectiveFrom) })");
   });
 });
 
