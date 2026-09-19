@@ -4540,6 +4540,27 @@ export type ProvisioningStep       = typeof provisioningSteps.$inferSelect;
 export type InsertProvisioningStep = typeof provisioningSteps.$inferInsert;
 
 // ── Rate Push Jobs ────────────────────────────────────────────────────────────
+// Boot-time reconciliation run records (migration 523). One row per sweep, written AFTER the
+// sweep's summary is established so it cannot influence a reconciliation decision. Carries
+// provenance (git_commit + deployment_id) for a reader to match against /api/build; no credentials.
+export const rateReconcileRuns = pgTable("rate_reconcile_runs", {
+  id:              serial("id").primaryKey(),
+  ranAt:           timestamp("ran_at").defaultNow().notNull(),
+  gitCommit:       varchar("git_commit",    { length: 64  }),
+  deploymentId:    varchar("deployment_id", { length: 128 }),
+  sippyReachable:  boolean("sippy_reachable").notNull(),
+  examined:        integer("examined").notNull(),
+  success:         integer("success").notNull(),
+  failure:         integer("failure").notNull(),
+  indeterminate:   integer("indeterminate").notNull(),
+  deferred:        integer("deferred").notNull(),
+  escalated:       integer("escalated").notNull(),
+  skippedNoIntent: integer("skipped_no_intent").notNull(),
+  circuitTripped:  boolean("circuit_tripped").notNull(),
+  skippedJobIds:   text("skipped_job_ids"),
+  verdictJobIds:   text("verdict_job_ids"),
+});
+
 export const ratePushJobs = pgTable("rate_push_jobs", {
   id:                 serial("id").primaryKey(),
   jobId:              varchar("job_id",             { length: 64  }).unique().notNull(),

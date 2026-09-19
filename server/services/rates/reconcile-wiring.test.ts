@@ -60,3 +60,54 @@ describe('verify, never retry — the reconciliation path issues no mutation', (
     }
   });
 });
+
+describe('the run record is written AFTER the sweep, and cannot precede its summary', () => {
+  it('the record insert appears after runReconcileSweep returns', () => {
+    const sweepAt  = BOOT.indexOf('await runReconcileSweep(deps)');
+    const recordAt = BOOT.indexOf('db.insert(rateReconcileRuns)');
+    expect(sweepAt).toBeGreaterThan(-1);
+    expect(recordAt).toBeGreaterThan(sweepAt); // ordering: sweep first, then persist
+  });
+
+  it('the record is built from the sweep summary — so it structurally cannot exist before the sweep', () => {
+    // buildRunRecord takes `summary`, which is const-assigned from the awaited sweep; there is no
+    // path that persists a record without a summary to build it from.
+    expect(BOOT).toMatch(/buildRunRecord\(\s*summary\s*,/);
+  });
+
+  it('the record write is non-fatal and never retries — its own try/catch, no mutation call inside', () => {
+    const start = BOOT.indexOf('db.insert(rateReconcileRuns)');
+    const block = BOOT.slice(BOOT.lastIndexOf('try {', start), BOOT.indexOf('run-record write failed'));
+    expect(block).toContain('catch');
+    for (const forbidden of ['setSippyRateEntry', 'pushRate', 'uploadRates']) {
+      expect(block).not.toContain(forbidden);
+    }
+  });
+});
+
+describe('the reconcile-status endpoint is authenticated, read-only, and leaks nothing sensitive', () => {
+  const SRC = strip(readFileSync(join(__dirname, '..', '..', 'routes.ts'), 'utf8'));
+  const ROUTE = (() => {
+    const at = SRC.indexOf("app.get('/api/rate-manager/reconcile-status'");
+    expect(at, 'reconcile-status route must exist').toBeGreaterThan(-1);
+    return SRC.slice(at, SRC.indexOf('app.get', at + 10));
+  })();
+
+  it('requires an admin/management role', () => {
+    expect(ROUTE).toContain("requireRole(['admin', 'management']");
+  });
+
+  it('only reads rate_reconcile_runs — no write, no other table', () => {
+    expect(ROUTE).toContain('db.select().from(rateReconcileRuns)');
+    for (const forbidden of ['db.insert', 'db.update', 'db.delete']) {
+      expect(ROUTE).not.toContain(forbidden);
+    }
+  });
+
+  it('returns the run rows and does not read settings or credentials into the response', () => {
+    expect(ROUTE).toContain('res.json({ runs })');
+    for (const forbidden of ['getSettings', 'apiAdminPass', 'portalPass', 'sippyRateAdminPass', 'DATABASE_URL']) {
+      expect(ROUTE).not.toContain(forbidden);
+    }
+  });
+});
