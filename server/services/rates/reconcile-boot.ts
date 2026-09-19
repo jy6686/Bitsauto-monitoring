@@ -13,11 +13,13 @@
  */
 import { and, inArray, sql, asc } from 'drizzle-orm';
 import { db } from '../../db';
-import { ratePushJobs } from '../../../shared/schema';
+import { ratePushJobs, rateReconcileRuns } from '../../../shared/schema';
 import { storage } from '../../storage';
+import { getBuildInfo } from '../../build-info';
 import * as sippy from '../../sippy';
 import {
   isOrphanEligible,
+  hasVerifiableIntent,
   RECONCILE_STATE,
   type RateIntent,
   type ReconcileVerdict,
@@ -29,6 +31,7 @@ import {
   type ReconcileJob,
   type ReadbackResult,
 } from './reconcile-sweep';
+import { buildRunRecord } from './reconcile-record';
 
 /** 2× the 15-min upload-token processing window: never read back a job Sippy may still process. */
 const STALE_MS = 30 * 60_000;
@@ -168,6 +171,21 @@ export async function reconcileOrphanedRatePushesOnBoot(): Promise<void> {
 
     const summary = await runReconcileSweep(deps);
     console.log('[rate-reconcile] summary', JSON.stringify(summary));
+
+    // Persist the run — AFTER the sweep has returned its summary, so this can never influence a
+    // reconciliation decision. Provenance is stamped from the same getBuildInfo() that /api/build
+    // serves, so a reader can require the two to match. Non-fatal: a failed record must not turn a
+    // clean sweep into a boot error, and it must not retry anything.
+    try {
+      const skippedJobIds = jobs.filter(j => !hasVerifiableIntent(j.iTariff, j.intents)).map(j => j.jobId);
+      const verdictJobIds = jobs.filter(j => hasVerifiableIntent(j.iTariff, j.intents)).map(j => j.jobId);
+      const bi = getBuildInfo();
+      const record = buildRunRecord(summary, { gitCommit: bi.gitCommit, deploymentId: bi.deploymentId }, skippedJobIds, verdictJobIds);
+      await db.insert(rateReconcileRuns).values(record);
+      console.log('[rate-reconcile] run recorded');
+    } catch (e: any) {
+      console.error('[rate-reconcile] run-record write failed (non-fatal):', e?.message ?? e);
+    }
   } catch (e: any) {
     // Reconciliation is a safety net, not a boot dependency — its failure must never block startup.
     console.error('[rate-reconcile] failed (non-fatal):', e?.message ?? e);

@@ -127,7 +127,7 @@ import {
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
 import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
 import { refreshVendorAcds } from "./vendor-acd-cache";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, navigationModules, clientIpRequests, companies, companyProducts, companyMarkets } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, rateReconcileRuns, navigationModules, clientIpRequests, companies, companyProducts, companyMarkets } from "@shared/schema";
 import { db, pool } from "./db";
 import { getMigrationLedger, getMigrationStatus } from "./migrate";
 import { allocateAccountPrefix } from "./services/provisioning/account-prefix";
@@ -44993,6 +44993,26 @@ ${footer}
       res.json(enriched);
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+
+  // GET /api/rate-manager/reconcile-status — READ-ONLY observability for the boot-time rate-push
+  // reconciliation sweep (Gate #2). Authenticated: a reconcile run carries operational state, not
+  // for anonymous eyes. Returns the most recent run records, each carrying provenance (gitCommit +
+  // deploymentId) so a caller can require a match against /api/build before trusting one as
+  // evidence from the current deployment. The table holds no credential or setting, so the whole
+  // row is safe to return.
+  app.get('/api/rate-manager/reconcile-status',
+    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    async (_req, res) => {
+      try {
+        const runs = await db.select().from(rateReconcileRuns)
+          .orderBy(desc(rateReconcileRuns.ranAt))
+          .limit(20);
+        // No build info here on purpose: /api/build stays the single authoritative provenance
+        // source, and the caller matches its gitCommit/deploymentId against each run's stamped
+        // values — a record is trusted only when they agree.
+        res.json({ runs });
+      } catch (e: any) { res.status(500).json({ error: e.message }); }
+    });
 
   // ── Tariff Profile Templates ──────────────────────────────────────────────────
 
