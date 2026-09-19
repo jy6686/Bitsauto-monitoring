@@ -50,7 +50,7 @@ import { URL } from 'node:url';
 import * as XLSX from 'xlsx';
 import { resolveNewRateId } from './services/rates/portal-rate-id';
 import { tariffRatesParams } from './sippy-tariff-rates-params';
-import { classifyPortalWrite, type PortalReadBack } from './services/rates/portal-write-outcome';
+import { classifyPortalWrite, portalEditVerdict, type PortalReadBack } from './services/rates/portal-write-outcome';
 import { buildGroupRateXlsx } from './services/rates/rate-matrix';
 import { groupVerdicts, type GroupRow, type GroupPushResult } from './services/rates/group-readback';
 import {
@@ -9113,11 +9113,12 @@ async function readBackRateWithIntervals(
     const rates = await getTariffRatesListFull(username, password, iTariff, undefined, 1000, undefined, base);
     const match = rates.find(r => String(r.prefix) === String(prefix));
     if (!match) {
-      return { confirmed: false, message: `prefix ${prefix} not found in tariff ${iTariff} after the write (tariff holds ${rates.length} rate(s))` };
+      return { confirmed: false, outcome: 'absent', message: `prefix ${prefix} not found in tariff ${iTariff} after the write (tariff holds ${rates.length} rate(s))` };
     }
     const priceOk = Math.abs(Number(match.price1) - expectedRate) < 0.000001;
     return {
       confirmed: priceOk,
+      outcome: priceOk ? 'confirmed' : 'absent',
       foundRate: Number(match.price1),
       foundInterval1: match.interval1 === undefined ? undefined : Number(match.interval1),
       foundIntervalN: match.intervalN === undefined ? undefined : Number(match.intervalN),
@@ -9126,7 +9127,11 @@ async function readBackRateWithIntervals(
         : `tariff=${iTariff} prefix=${prefix} found rate ${match.price1}, expected ${expectedRate}`,
     };
   } catch (e: any) {
-    return { confirmed: false, message: `read-back failed: ${e?.message}` };
+    // The tariff could not be READ. Naming the kind keeps a dead connection distinguishable from
+    // a tariff that genuinely lacks the rate — the pair this function used to collapse, which is
+    // how a reset after a portal edit became "the tariff does not show it" and then a second write.
+    const m = String(e?.message ?? e);
+    return { confirmed: false, outcome: 'unavailable', message: `tariff ${iTariff} could not be read [${rateListFailureKind(m)}]: ${m}` };
   }
 }
 
@@ -9875,41 +9880,46 @@ async function setSippyRateEntryInner(
       boundary,
     );
 
+    // The edit's own verification, when the edit reported success. `outcome` rather than the
+    // `confirmed` boolean is what keeps an unreadable tariff an UNKNOWN instead of a mismatch.
+    let verifyOutcome: ReadbackOutcome | undefined;
+    let verifyMessage = directResult.message;
     if (directResult.success) {
       step('verifying', `tariff ${tariffId}`);
       const verifyResult = await verifySippyRate(
         username, password, tariffId, entry.prefix, entry.rate, base, { effectiveFrom: normaliseEntryDate(entry.effectiveFrom) },
       );
       console.log(`[RateManager] Verification (portal_edit): ${verifyResult.message}`);
-      if (verifyResult.confirmed) {
-        return {
-          ...directResult,
-          method: 'portal_edit',
-          verificationResult: 'confirmed',
-        };
-      }
+      verifyOutcome = verifyResult.outcome;
+      verifyMessage = verifyResult.message;
+    }
+
+    // Whether another write method may be tried is decided by the table, from the live mutation
+    // boundary — never from the failure's message text. A portal edit that never issued its GET
+    // is a proven non-event and still falls through; one that DID issue it and cannot be verified
+    // stops here, because the tariff an upload would go into is the one we just wrote and cannot
+    // see. A locked tariff likewise: do not create an upload job behind the one holding the lock.
+    const decision = portalEditVerdict({
+      editSuccess:     directResult.success,
+      unverified:      directResult.unverified === true,
+      boundaryCrossed: boundary.crossed,
+      locked:          directResult.locked === true,
+      verifyOutcome,
+      message:         verifyMessage,
+    });
+    note(`portal_edit → ${decision.verificationResult} (fallback=${decision.fallbackAllowed}): ${decision.message}`);
+
+    if (!decision.fallbackAllowed) {
       return {
-        success: false,
-        message: `Portal edit returned success but rate is unchanged: ${verifyResult.message} — no bulk upload was started`,
+        success: decision.success,
+        message: decision.message,
         method: 'portal_edit',
-        verificationResult: 'mismatch',
+        verificationResult: decision.verificationResult,
       };
     }
 
-    // A locked tariff cannot accept either path. Most importantly, do not create
-    // another upload job behind the one that already owns the lock.
-    if (/locked/i.test(directResult.message)) {
-      console.log(`[RateManager] Direct edit blocked by tariff lock — bulk upload suppressed`);
-      return {
-        success: false,
-        message: directResult.message,
-        method: 'portal_edit',
-        verificationResult: 'skip',
-      };
-    }
-
-    console.log(`[RateManager] Direct portal edit unavailable: ${directResult.message} — trying compatibility fallbacks`);
-    lastErrors.push(`portal_edit: ${directResult.message}`);
+    console.log(`[RateManager] Direct portal edit did not take: ${decision.message} — trying compatibility fallbacks`);
+    lastErrors.push(`portal_edit: ${decision.message}`);
   }
 
   // ── Phase C: getUploadToken (official Sippy bulk upload API, docs 3000073011) ─
@@ -10715,7 +10725,14 @@ async function pushRateViaPortalUpload(
   suppliedIntervalN?: number,
   /** Shared with the caller: set the instant a mutating request is issued from here. */
   boundary?: MutationBoundary,
-): Promise<{ success: boolean; message: string }> {
+): Promise<{
+  success: boolean;
+  message: string;
+  /** The tariff could not be read after the write — the outcome is unknown, not a failure. */
+  unverified?: boolean;
+  /** Sippy's own lock banner, as a signal rather than a substring for the caller to re-parse. */
+  locked?: boolean;
+}> {
 
   function normDate(raw?: string): string {
     if (!raw) return '';
@@ -10879,9 +10896,11 @@ async function pushRateViaPortalUpload(
       if (verdict.pageContradictedTariff) {
         console.warn(`[Sippy] action=add: PAGE CONTRADICTED TARIFF — ${verdict.message}`);
       }
-      return { success: verdict.success, message: verdict.message };
+      return { success: verdict.success, message: verdict.message, unverified: verdict.unverified, locked: !!addLocked };
     } catch (addErr: any) {
-      return { success: false, message: `Rate add exception: ${(addErr as any).message}` };
+      // Thrown AFTER the mutating GET was sent (the boundary is already crossed above), so the
+      // caller must not read this as "nothing happened".
+      return { success: false, unverified: true, message: `Rate add exception: ${(addErr as any).message}` };
     }
   }
 
@@ -10948,9 +10967,10 @@ async function pushRateViaPortalUpload(
     if (verdict.pageContradictedTariff) {
       console.warn(`[Sippy] action=change: PAGE CONTRADICTED TARIFF — ${verdict.message}`);
     }
-    return { success: verdict.success, message: verdict.message };
+    return { success: verdict.success, message: verdict.message, unverified: verdict.unverified, locked: !!changeLocked };
   } catch (e: any) {
-    return { success: false, message: `Rate edit exception: ${e?.message}` };
+    // As above: the boundary was crossed before the GET, so a throw here is an unknown outcome.
+    return { success: false, unverified: true, message: `Rate edit exception: ${e?.message}` };
   }
 }
 
