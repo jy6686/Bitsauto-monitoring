@@ -19,7 +19,7 @@ import { getBuildInfo } from '../../build-info';
 import * as sippy from '../../sippy';
 import {
   isOrphanEligible,
-  hasVerifiableIntent,
+  deriveOperationIntent,
   RECONCILE_STATE,
   type RateIntent,
   type ReconcileVerdict,
@@ -27,11 +27,13 @@ import {
 } from './reconcile-core';
 import {
   runReconcileSweep,
+  isReconcilable,
   type ReconcileDeps,
   type ReconcileJob,
   type ReadbackResult,
 } from './reconcile-sweep';
 import { buildRunRecord } from './reconcile-record';
+import { loadOperationRows, writeOperationOutcome } from './reconcile-operation-store';
 
 /** 2× the 15-min upload-token processing window: never read back a job Sippy may still process. */
 const STALE_MS = 30 * 60_000;
@@ -61,7 +63,7 @@ async function loadStaleJobs(now: Date): Promise<ReconcileJob[]> {
     sql`COALESCE(${ratePushJobs.lastStepAt}, ${ratePushJobs.createdAt}) <= ${cutoff}`,
   )).orderBy(asc(sql`COALESCE(${ratePushJobs.lastStepAt}, ${ratePushJobs.createdAt})`));
 
-  return rows
+  const jobs: ReconcileJob[] = rows
     .filter(r => isOrphanEligible(
       { status: r.status, lastStepAt: r.lastStepAt ?? null, createdAt: r.createdAt },
       now, STALE_MS,
@@ -73,6 +75,18 @@ async function loadStaleJobs(now: Date): Promise<ReconcileJob[]> {
       iTariff: r.iTariff ?? null,
       intents: parseIntents(r),
     }));
+
+  // The second intent source, loaded ONLY for jobs whose row carries none (push-batch never stamps
+  // newRate at insert). One query for all of them. A job with no operation rows — every pre-511 job,
+  // including the five legacy orphans — stays exactly as before: no intent, untouched.
+  const withoutJobIntent = jobs.filter(j => j.intents.length === 0).map(j => j.jobId);
+  if (withoutJobIntent.length) {
+    const opRows = await loadOperationRows(db as any, withoutJobIntent);
+    for (const j of jobs) {
+      if (j.intents.length === 0) j.operations = deriveOperationIntent(opRows.get(j.jobId) ?? []);
+    }
+  }
+  return jobs;
 }
 
 /** Conditional terminal write — the logical claim. Only lands while the row is still non-terminal,
@@ -110,14 +124,10 @@ async function writeUnavailable(
 
 /** Read back one job's tariff. reachable:false on any transport/fault error (an unreachable read
  *  is NOT evidence about the mutation — the sweep defers it, never calls it indeterminate). */
-function makeReadback(username: string, password: string, portalUrl: string) {
-  return async (job: ReconcileJob): Promise<ReadbackResult> => {
-    if (job.iTariff == null) {
-      // Reachable, but there is no tariff to read → unverifiable → the classifier says indeterminate.
-      return { reachable: true, readback: { ok: false, complete: false, rows: [] } };
-    }
+function makeReadbackByTariff(username: string, password: string, portalUrl: string) {
+  return async (iTariff: number): Promise<ReadbackResult> => {
     try {
-      const rows = await sippy.getTariffRatesListFull(username, password, job.iTariff, 0, READBACK_LIMIT, undefined, portalUrl);
+      const rows = await sippy.getTariffRatesListFull(username, password, iTariff, 0, READBACK_LIMIT, undefined, portalUrl);
       return {
         reachable: true,
         readback: {
@@ -129,6 +139,17 @@ function makeReadback(username: string, password: string, portalUrl: string) {
     } catch {
       return { reachable: false };
     }
+  };
+}
+
+function makeReadback(username: string, password: string, portalUrl: string) {
+  const byTariff = makeReadbackByTariff(username, password, portalUrl);
+  return async (job: ReconcileJob): Promise<ReadbackResult> => {
+    if (job.iTariff == null) {
+      // Reachable, but there is no tariff to read → unverifiable → the classifier says indeterminate.
+      return { reachable: true, readback: { ok: false, complete: false, rows: [] } };
+    }
+    return byTariff(job.iTariff);
   };
 }
 
@@ -164,7 +185,10 @@ export async function reconcileOrphanedRatePushesOnBoot(): Promise<void> {
       },
       listStaleJobs: async () => jobs,
       readbackTariff: makeReadback(username, password, portalUrl),
+      readbackByTariff: makeReadbackByTariff(username, password, portalUrl),
       writeVerdict,
+      // Conditional per row (running/pending) and per parent (non-terminal) — see the store.
+      writeOperationOutcome: async (jobId, outcome) => { await writeOperationOutcome(db as any, jobId, outcome); },
       writeUnavailable,
       log: (m: string) => console.log(m),
     };
@@ -177,8 +201,8 @@ export async function reconcileOrphanedRatePushesOnBoot(): Promise<void> {
     // serves, so a reader can require the two to match. Non-fatal: a failed record must not turn a
     // clean sweep into a boot error, and it must not retry anything.
     try {
-      const skippedJobIds = jobs.filter(j => !hasVerifiableIntent(j.iTariff, j.intents)).map(j => j.jobId);
-      const verdictJobIds = jobs.filter(j => hasVerifiableIntent(j.iTariff, j.intents)).map(j => j.jobId);
+      const skippedJobIds = jobs.filter(j => !isReconcilable(j)).map(j => j.jobId);
+      const verdictJobIds = jobs.filter(j => isReconcilable(j)).map(j => j.jobId);
       const bi = getBuildInfo();
       const record = buildRunRecord(summary, { gitCommit: bi.gitCommit, deploymentId: bi.deploymentId }, skippedJobIds, verdictJobIds);
       await db.insert(rateReconcileRuns).values(record);

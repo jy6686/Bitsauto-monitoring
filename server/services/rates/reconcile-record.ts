@@ -43,7 +43,8 @@ export function buildRunRecord(
     indeterminate: summary.indeterminate,
     deferred: summary.deferred,
     escalated: summary.escalated,
-    skippedNoIntent: summary.skippedNoIntent,
+    // Both kinds of "left untouched", so the count agrees with skippedJobIds (no schema change).
+    skippedNoIntent: summary.skippedNoIntent + (summary.skippedAmbiguous ?? 0),
     circuitTripped: summary.circuitTripped,
     skippedJobIds: skippedJobIds.length ? skippedJobIds.join(',') : null,
     verdictJobIds: verdictJobIds.length ? verdictJobIds.join(',') : null,

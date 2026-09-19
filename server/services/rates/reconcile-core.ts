@@ -151,6 +151,101 @@ export function classifyReadback(intents: RateIntent[], rb: Readback): Reconcile
   return everyIntentAbsentByEvidence ? 'failure' : 'indeterminate';
 }
 
+// ── 2b. Intent from OPERATION rows — the second source, for push-batch orphans ───────────────
+//
+// push-batch never stamps `newRate` on its job row at insert (only the finalise UPDATE does), so a
+// push-batch job the process died on parses to NO job-level intent and was skipped. Its intent is
+// not lost: `rate_push_operations` holds one row per operation, written BEFORE the first upload,
+// with the tariff, the full prefix and the requested rate. This source is consulted ONLY when the
+// job-row source yields nothing — the job-level guard above is unchanged.
+//
+// What the row statuses mean for recovery (batch-runner.ts):
+//   running  markOperationRunning ran, so the primitive was handed the row → a mutation MAY have
+//            been sent. Verified by read-back, each row on its own.
+//   pending  the runner never marked it, and every push path marks BEFORE it pushes → nothing was
+//            sent for it. Settled as not_attempted; that is position-in-code evidence, the same
+//            class as refusedBeforeWrite, never an inference that a mutation occurred.
+//   terminal already recorded by the run; left exactly as it is.
+
+export interface OperationRow {
+  operationKey: string;
+  iTariff: number | null;
+  fullPrefix: string | null;
+  requestedRate: number | null;
+  status: string;
+}
+
+export interface VerifiableOperation {
+  operationKey: string;
+  iTariff: number;
+  intent: RateIntent;
+}
+
+export type OperationIntentSet =
+  /** No operation rows at all (pre-511 jobs, and the five legacy orphans). */
+  | { kind: 'none' }
+  /** A running row lacks what a read-back needs. Nothing is reconstructed from a set like this. */
+  | { kind: 'ambiguous'; reason: string }
+  /** Every running row can be verified; pending rows are named so they can be settled. */
+  | { kind: 'verifiable'; running: VerifiableOperation[]; pending: string[] };
+
+/**
+ * Derive a job's intent from its operation rows. All-or-nothing on the running set: one
+ * unverifiable running row makes the whole job ambiguous, because reconciling the rows beside it
+ * would leave a job half-settled with a row nobody can establish anything about.
+ */
+export function deriveOperationIntent(rows: ReadonlyArray<OperationRow>): OperationIntentSet {
+  if (rows.length === 0) return { kind: 'none' };
+  const running: VerifiableOperation[] = [];
+  const pending: string[] = [];
+  for (const r of rows) {
+    if (r.status === 'pending') { pending.push(r.operationKey); continue; }
+    if (r.status !== 'running') continue;   // terminal rows were recorded by the run itself
+    const prefix = (r.fullPrefix ?? '').trim();
+    const rate = r.requestedRate;
+    if (r.iTariff == null || !Number.isFinite(r.iTariff)) return { kind: 'ambiguous', reason: `${r.operationKey}: running with no tariff` };
+    if (!prefix)                                          return { kind: 'ambiguous', reason: `${r.operationKey}: running with no prefix` };
+    if (rate == null || !Number.isFinite(rate))           return { kind: 'ambiguous', reason: `${r.operationKey}: running with no parseable rate` };
+    // No prior rate is recorded on an operation row, so every intent is judged as a create: absent
+    // on a complete read is failure; present at another rate is indeterminate (see classifyReadback).
+    running.push({ operationKey: r.operationKey, iTariff: r.iTariff, intent: { prefix, newRate: rate, oldRate: null } });
+  }
+  return { kind: 'verifiable', running, pending };
+}
+
+/** Whether the operation source, on its own, makes a job reconcilable. */
+export function hasOperationIntent(ops: OperationIntentSet | undefined): ops is Extract<OperationIntentSet, { kind: 'verifiable' }> {
+  return ops?.kind === 'verifiable';
+}
+
+/** One running row, judged on its own from the read-back of its tariff. */
+export function classifyOperation(op: VerifiableOperation, rb: Readback): ReconcileVerdict {
+  return classifyReadback([op.intent], rb);
+}
+
+export interface OperationVerdict { operationKey: string; verdict: ReconcileVerdict }
+
+/** The terminal shapes written per OPERATION row. Mirrors RECONCILE_STATE at row granularity. */
+export const OPERATION_RECONCILE_STATE = {
+  success:       { status: 'succeeded',     verificationResult: 'reconciled_confirmed' },
+  failure:       { status: 'failed',        verificationResult: 'reconciled_absent' },
+  indeterminate: { status: 'indeterminate', verificationResult: 'reconciled_indeterminate' },
+} as const;
+
+/**
+ * The job's verdict for the run summary, from its rows. `partial` (some landed, some positively
+ * did not) is counted as indeterminate: an established mixed outcome still needs a person, exactly
+ * as a partially-applied job-level intent does in classifyReadback.
+ */
+export function jobVerdictFromOperations(verdicts: ReadonlyArray<OperationVerdict>, notAttempted: number): ReconcileVerdict {
+  const n = { success: 0, failure: 0, indeterminate: 0 };
+  for (const v of verdicts) n[v.verdict]++;
+  if (n.indeterminate > 0) return 'indeterminate';
+  if (n.success > 0 && (n.failure > 0 || notAttempted > 0)) return 'indeterminate';   // partial
+  if (n.success > 0) return 'success';
+  return 'failure';   // only failures and/or never-started rows: nothing landed
+}
+
 // ── 3. The unavailable-attempt counter (encoded in verification_result, no schema change) ─────
 
 const UNAVAILABLE_PREFIX = 'unavailable:';

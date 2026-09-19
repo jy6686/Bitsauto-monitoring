@@ -51,6 +51,8 @@ import * as XLSX from 'xlsx';
 import { resolveNewRateId } from './services/rates/portal-rate-id';
 import { tariffRatesParams } from './sippy-tariff-rates-params';
 import { classifyPortalWrite, type PortalReadBack } from './services/rates/portal-write-outcome';
+import { buildGroupRateXlsx } from './services/rates/rate-matrix';
+import { groupVerdicts, type GroupRow, type GroupPushResult } from './services/rates/group-readback';
 
 // ── Cookie jar type ───────────────────────────────────────────────────────────
 
@@ -9117,14 +9119,29 @@ async function readBackRateWithIntervals(
  * and the rate would not apply today. A minute of grace is well below any activation an
  * operator would deliberately set.
  */
-export function rateUploadAction(normalisedActivation: string | undefined, skewMs = 60_000): 'A' | 'SA' {
+export function rateUploadAction(normalisedActivation: string | undefined, skewMs = 60_000, now: () => number = Date.now): 'A' | 'SA' {
   if (!normalisedActivation) return 'SA';
   // Platform time is Etc/UTC (see /api/platform/time), and the string is already normalised
   // to "YYYY-MM-DD HH:MM:SS". Parsed explicitly as UTC rather than relying on the server's
   // local zone, which would shift the comparison by the deployment's offset.
   const t = Date.parse(normalisedActivation.replace(' ', 'T') + 'Z');
   if (!Number.isFinite(t)) return 'SA';
-  return t - Date.now() > skewMs ? 'A' : 'SA';
+  return t - now() > skewMs ? 'A' : 'SA';
+}
+
+/**
+ * The one normalisation every rate date goes through before it reaches the importer or the
+ * grouping key: "YYYY-MM-DDTHH:MM" (datetime-local), "YYYY-MM-DD HH:MM[:SS]" and a bare date all
+ * become "YYYY-MM-DD HH:MM:SS"; anything else becomes '' (immediate). Exported so the group path
+ * keys on exactly the value the single-row path uploads — two spellings of one instant must be
+ * one upload, and one spelling must never become two.
+ */
+export function normaliseRateDate(raw?: string): string {
+  if (!raw) return '';
+  const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return `${s}:00`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))     return `${raw.trim()} 00:00:00`;
+  return '';
 }
 
 export function buildRateXlsx(
@@ -9556,6 +9573,140 @@ export async function uploadRatesWorkbook(
 }
 
 /**
+ * Upload a GROUP of Send Rate rows to one tariff: one token, one workbook, one poll, ONE read-back,
+ * and a verdict for EVERY row.
+ *
+ * This is the transport behind the 2–3 minute target. Until now each prefix of a Send Rate push
+ * was its own token + upload + poll + full tariff read (~55–75 s), serial per tariff, so Aura's
+ * five prefixes took 5 m 37 s. The rows in a group share a tariff, a verb and an activation date —
+ * exactly the rows that would each have been an identical single-row upload — so the workbook is
+ * that upload with more lines (see group-plan.ts for why the key is that narrow).
+ *
+ * What is deliberately the SAME as the single-row path: process_on, no expires_on, the verb
+ * decided by `rateUploadAction`, the poll loop that stops asking a build that does not answer,
+ * and read-back as the only authority. What is different: the read happens once and each row is
+ * judged from it by `selectVerificationRow` — the rule that stopped SMP-006.
+ *
+ * Never returns fewer results than rows: `groupVerdicts` answers for every row in every phase,
+ * and the mutation boundary is per upload, shared by all of them.
+ */
+export async function uploadRateGroup(
+  username: string,
+  password: string,
+  portalUrl: string,
+  iTariff: number,
+  action: 'A' | 'SA',
+  rows: ReadonlyArray<{
+    operationKey: string; prefix: string; rate: number;
+    interval1?: number; intervalN?: number; effectiveFrom?: string; effectiveTill?: string;
+  }>,
+  onProgress?: RatePushProgress,
+): Promise<GroupPushResult[]> {
+  const trace: string[] = [];
+  const tStart = Date.now();
+  const note = (msg: string) => { trace.push(`+${Date.now() - tStart}ms ${msg}`); };
+  const step = (s: RatePushStep, detail?: string) => { try { onProgress?.(s, detail); } catch { /* reporting is not load-bearing */ } };
+
+  const base   = sippyBase(portalUrl);
+  const apiUrl = `${base}/xmlapi/xmlapi`;
+  const norm = rows.map(r => ({ ...r, effectiveFrom: normaliseRateDate(r.effectiveFrom), effectiveTill: normaliseRateDate(r.effectiveTill) }));
+  const verdictRows: GroupRow[] = norm.map(r => ({ operationKey: r.operationKey, prefix: r.prefix, rate: r.rate, effectiveFrom: r.effectiveFrom || undefined }));
+  console.log(`[RateManager] Group push — tariff=${iTariff} action=${action} rows=${rows.length} activation=${norm[0]?.effectiveFrom || 'immediate'} prefixes=${rows.map(r => r.prefix).join(',')}`);
+
+  // Position in the code is the signal, never a message: crossed the instant the file is on its way.
+  const boundary: MutationBoundary = { crossed: false };
+  let uploadToken = '';
+
+  try {
+    step('token', `tariff ${iTariff}, ${rows.length} rows`);
+    const processOn = sippyUploadTimestamp(10_000);
+    const tokenXml  = buildGetUploadTokenXml(
+      await resolveUploadType(username, password, base, 'rates'),
+      // expires_on deliberately OMITTED — see setSippyRateEntry for why.
+      processOn, undefined, { i_tariff: iTariff });
+    const tokenResp = await sippyPost(apiUrl, tokenXml, username, password, 10000);
+    note(`getUploadToken HTTP ${tokenResp.statusCode}${tokenResp.body.includes('faultCode') ? ' FAULT' : ''} body=${tokenResp.body.substring(0, 300)}`);
+    if (tokenResp.statusCode !== 200 || tokenResp.body.includes('faultCode')) {
+      return groupVerdicts(verdictRows, { kind: 'token_failed', message: extractFaultString(tokenResp.body) || `HTTP ${tokenResp.statusCode}` }, trace);
+    }
+    const m = extractStructMembers(extractAllTags(tokenResp.body, 'struct')[0] ?? '');
+    if (!m['token'] || !m['url']) {
+      return groupVerdicts(verdictRows, { kind: 'token_failed', message: 'getUploadToken returned no token or url' }, trace);
+    }
+    uploadToken = m['token'];
+    note(`token=${uploadToken} url=${m['url']}`);
+
+    const xlsx = buildGroupRateXlsx(
+      norm.map(r => ({
+        prefix: r.prefix, rate: r.rate, interval1: r.interval1, intervalN: r.intervalN,
+        effectiveFrom: r.effectiveFrom || null, effectiveTill: r.effectiveTill || null,
+      })),
+      action,
+    );
+    console.log(`[RateManager] Group workbook: action=${action} rows=${rows.length} bytes=${xlsx.length}`);
+
+    step('uploading', `${xlsx.length} bytes, ${rows.length} rows`);
+    boundary.crossed = true;
+    const up = await uploadBinaryFile(m['url'], xlsx, 'rates.xlsx');
+    note(`file upload success=${up.success} bytes=${xlsx.length} body=${up.body.substring(0, 300)}`);
+    if (!up.success) {
+      return groupVerdicts(verdictRows, { kind: 'upload_rejected', message: up.body.substring(0, 200), uploadToken }, trace);
+    }
+
+    // The same poll as the single-row path: stop asking a build that does not answer on the first
+    // call, otherwise wait for DONE/FAIL up to two minutes. Read-back decides either way.
+    step('polling');
+    let finalStatus = 'FILE_UPLOADED';
+    let lastStatus: Record<string, string> = {};
+    for (let poll = 1; poll <= 60; poll++) {
+      let answering = false;
+      try {
+        const sr = await sippyPost(apiUrl, xmlRpcCall('getUploadStatus', { token: uploadToken }), username, password, 8000);
+        if (sr.statusCode === 200 && !sr.body.includes('faultCode')) {
+          answering = true;
+          const sm = extractStructMembers(extractAllTags(sr.body, 'struct')[0] ?? '');
+          if (sm['status']) finalStatus = sm['status'];
+          lastStatus = sm;
+        }
+      } catch { /* the read-back below decides */ }
+      if (!answering && poll === 1) {
+        note('getUploadStatus did not answer on poll#1 — skipped the loop, verifying the tariff directly');
+        break;
+      }
+      if (finalStatus === 'DONE' || finalStatus === 'FAIL') break;
+      await new Promise(res => setTimeout(res, 2000));
+    }
+    note(`upload status settled at ${finalStatus}` +
+         (lastStatus['status_changed_on'] ? ` at ${lastStatus['status_changed_on']}` : '') +
+         (lastStatus['url'] ? ` report=${lastStatus['url']}` : ''));
+
+    step('verifying', `tariff ${iTariff}, ${rows.length} rows`);
+    await new Promise(r => setTimeout(r, 1500));   // the settle verifySippyRate uses
+    const read = await getSippyRateList(username, password, String(iTariff), base);
+    if (read.error) {
+      note(`read-back FAILED: ${read.error}`);
+      return groupVerdicts(verdictRows, { kind: 'readback_unavailable', message: read.error, uploadToken, uploadStatus: finalStatus }, trace);
+    }
+    note(`read-back ${read.rates.length} rate(s)`);
+    const results = groupVerdicts(verdictRows, {
+      kind: 'readback',
+      rates: read.rates.map(r => ({ prefix: r.prefix, rate: r.rate, effectiveFrom: r.effectiveFrom })),
+      // The list call is capped at 1000; at the cap "not in the list" is "not seen", not "absent".
+      complete: read.rates.length < 1000,
+      uploadToken, uploadStatus: finalStatus,
+    }, trace);
+    for (const r of results) console.log(`[RateManager] Group verify ${r.operationKey}: ${r.message}`);
+    return results;
+  } catch (e: any) {
+    note(`threw: ${e?.message ?? String(e)}`);
+    // Before the boundary nothing left this process; after it, the file may be on the switch.
+    return boundary.crossed
+      ? groupVerdicts(verdictRows, { kind: 'readback_unavailable', message: `threw after the upload was sent: ${e?.message ?? String(e)}`, uploadToken, uploadStatus: 'UNKNOWN' }, trace)
+      : groupVerdicts(verdictRows, { kind: 'token_failed', message: `threw before anything was sent: ${e?.message ?? String(e)}` }, trace);
+  }
+}
+
+/**
  * Where a single rate push currently is. Emitted from inside this module because the
  * caller cannot see these boundaries — from `routes.ts` the whole push is one await, so
  * a step written there could only ever say "pushing".
@@ -9653,13 +9804,8 @@ async function setSippyRateEntryInner(
   // ── Phase A: structured diagnostic logging ──────────────────────────────────
   console.log(`[RateManager] Push — tariff=${tariffId} prefix=${entry.prefix} rate=${entry.rate} effective=${entry.effectiveFrom ?? 'immediate'} till=${entry.effectiveTill ?? 'never'}`);
 
-  const normaliseEntryDate = (raw?: string): string => {
-    if (!raw) return '';
-    const s = raw.trim().replace('T', ' ').replace(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}):\d{2}.*$/, '$1');
-    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return `${s}:00`;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim()))     return `${raw.trim()} 00:00:00`;
-    return '';
-  };
+  // The module-level normaliser, so this path and the group path agree on what a date means.
+  const normaliseEntryDate = normaliseRateDate;
   const requestedAction = rateUploadAction(normaliseEntryDate(entry.effectiveFrom));
 
   // A single-rate change must use the portal's individual edit form first.

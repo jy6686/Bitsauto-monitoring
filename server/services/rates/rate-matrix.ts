@@ -110,6 +110,59 @@ export function buildBulkRateXlsx(rows: RateRow[], action: string = 'SA'): Buffe
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
 }
 
+/** One row of a GROUP upload: a Send Rate operation, already normalised for the importer. */
+export interface GroupRateRow {
+  /** Full switch-side prefix (trunk + dial). */
+  prefix: string;
+  rate: number;
+  /** Billing increment from the catalogue. Omitted means 1/1, exactly as the single-row builder. */
+  interval1?: number;
+  intervalN?: number;
+  /** "YYYY-MM-DD HH:MM:SS" or absent. Per ROW: the grouping key guarantees they agree, the builder does not assume it. */
+  effectiveFrom?: string | null;
+  effectiveTill?: string | null;
+}
+
+/**
+ * Build ONE workbook for a group of Send Rate operations that share a tariff, a verb and an
+ * activation date — the rows that, until now, were each their own upload.
+ *
+ * Why a third builder. `buildRateXlsx` (sippy.ts) writes one row with its own increment;
+ * `buildBulkRateXlsx` above writes N rows but hardcodes 1/1 and has no per-row dates, because
+ * provisioning's matrix is per-second by construction. A Send Rate group is N rows that each
+ * carry the catalogue's increment for that prefix — Zong is 60/1 beside Mobilink's 1/1 — so
+ * neither existing builder can express it without either losing the increment or losing the
+ * batching. Every row here is column-for-column what `buildRateXlsx` would have produced for
+ * it alone; the tests assert that equivalence, because "same as the proven single upload, just
+ * more rows" is the entire safety argument for the group path.
+ *
+ * Id is blank on every row without exception. The verb is stamped on every row by the caller's
+ * grouping; this builder never decides it.
+ */
+export function buildGroupRateXlsx(rows: ReadonlyArray<GroupRateRow>, action: 'A' | 'SA'): Buffer {
+  if (!rows.length) {
+    throw new Error('buildGroupRateXlsx: refusing to build an empty workbook — an empty import is not a no-op on a REPLACE-capable importer.');
+  }
+  const aoa: (string | number | null)[][] = [
+    [...RATE_XLSX_HEADERS],
+    ...rows.map(r => [
+      action,
+      null,                          // Id — always blank; an Id is how the portal path once rewrote another row
+      r.prefix,
+      null,                          // Country — the importer preserves its own value
+      r.interval1 ?? 1, r.intervalN ?? 1,
+      r.rate, r.rate,                // Price 1 / Price N
+      0, 1,                          // Forbidden / Grace Period — as buildRateXlsx
+      r.effectiveFrom || null,
+      r.effectiveTill || null,
+    ]),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+}
+
 /**
  * Reject a matrix that would price a customer incompletely.
  *
