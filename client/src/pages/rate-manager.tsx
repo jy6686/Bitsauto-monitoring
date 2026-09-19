@@ -45,7 +45,12 @@ interface Product {
   trunkPrefix: string | null; status: string; color: string;
   segment?: string | null;
 }
-interface SippyAccount { iAccount: number; username: string; balance: number; cached?: boolean; tariffName?: string | null; }
+interface SippyAccount {
+  iAccount: number; username: string; balance: number; cached?: boolean; tariffName?: string | null;
+  /** Option C: whether the selected product has an ACTIVE customer_product_assignments row for
+   *  this account. Absent/false rows are still listed and pushable; the label says so. */
+  assigned?: boolean;
+}
 interface DestNode {
   id: number; parentId: number | null; level: number; name: string;
   countryCode: string | null; dialPrefix: string | null; commercialStatus: string;
@@ -2467,7 +2472,13 @@ function SendRateTab({
 
         <SidebarSection title="Clients">
           <MultiSelect
-            options={visibleClients.map((a: any) => ({ value: String(a.iAccount), label: a.username || `Account ${a.iAccount}` }))}
+            // Option C: unassigned accounts stay listed and selectable, but the label says the
+            // selected product has no assignment row — this dropdown is the only place product
+            // assignment is visible before a push (push-batch checks tariff identity, not assignment).
+            options={visibleClients.map((a: any) => ({
+              value: String(a.iAccount),
+              label: (a.username || `Account ${a.iAccount}`) + (a.assigned === false ? "  · not assigned to this product" : ""),
+            }))}
             value={selectedClients}
             onChange={setSelectedClients}
             placeholder={visibleClients.length ? "Select clients" : `No ${status.toLowerCase()} clients`}
