@@ -2472,13 +2472,10 @@ function SendRateTab({
 
         <SidebarSection title="Clients">
           <MultiSelect
-            // Option C: unassigned accounts stay listed and selectable, but the label says the
-            // selected product has no assignment row — this dropdown is the only place product
-            // assignment is visible before a push (push-batch checks tariff identity, not assignment).
-            options={visibleClients.map((a: any) => ({
-              value: String(a.iAccount),
-              label: (a.username || `Account ${a.iAccount}`) + (a.assigned === false ? "  · not assigned to this product" : ""),
-            }))}
+            // Option C: every managed client is listed and selectable regardless of product
+            // assignment. The label is the name only (owner, 2026-09-19) — the `assigned` flag
+            // stays in the payload for anything that wants it, but is not rendered here.
+            options={visibleClients.map((a: any) => ({ value: String(a.iAccount), label: a.username || `Account ${a.iAccount}` }))}
             value={selectedClients}
             onChange={setSelectedClients}
             placeholder={visibleClients.length ? "Select clients" : `No ${status.toLowerCase()} clients`}
