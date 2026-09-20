@@ -56,9 +56,24 @@ interface ResolvedScope extends CommercialScope {
 }
 
 async function resolveCommercialScope(req: any): Promise<ResolvedScope> {
-  const userId   = req.user.claims.sub as string;
-  const userRole = req.user?.claims?.role ?? req.user?.claims?.org_role ?? '';
-  const isAdmin  = ['admin', 'super_admin'].includes(userRole);
+  const userId = req.user.claims.sub as string;
+
+  // The role is READ FROM STORAGE, never from the session.
+  //
+  // This used to be `claims.role ?? claims.org_role ?? ''`. A native session carries none of
+  // those — buildNativeSessionUser sets exactly sub, email, first_name and last_name — so the
+  // expression was always '' and isAdmin was always false, for every user. The admin override
+  // documented in hierarchy-scope.ts was unreachable: admins fell through to the KAM tree
+  // walk and, owning no row in `kams`, got scopeError 'no_kam_link', which the Commercial
+  // Workspace renders as a full-page alert instead of a sidebar. All eight call sites in this
+  // file inherited it, so the whole Commercial Portal was unreachable for admins, not one route.
+  //
+  // Storage is also the RIGHT source, not merely a working one: a role in the session is
+  // decided at login and never re-checked, so a role change would not take effect until the
+  // next sign-in, and a stale claim would decide scope. requireRole in routes.ts resolves the
+  // role this same way.
+  const userRole = await storage.getUserRole(userId);
+  const isAdmin  = ['admin', 'super_admin'].includes(userRole ?? '');
 
   const scope = isAdmin
     ? await getAllAccountIds()
