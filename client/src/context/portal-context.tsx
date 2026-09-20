@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import type { PortalDefinition, PortalModuleWithMeta, PortalSection } from "@shared/schema";
 import { useAuth } from "@/hooks/use-auth";
+import { shouldLeavePortal } from "@/lib/portal-access";
 
 // Portal context is now URL-DRIVEN (ADR-006). The active portal is a function of the
 // URL prefix (/noc/*, /commercial/*, …) — never localStorage. A browser refresh or a
@@ -45,7 +46,7 @@ const PortalContext = createContext<PortalCtx>({
 });
 
 export function PortalProvider({ children }: { children: ReactNode }) {
-  const { user, role } = useAuth();
+  const { user, role, isLoading } = useAuth();
   const [location, navigate] = useLocation();
 
   // ── Derive active portal + module from the URL (single source of truth) ────────
@@ -104,17 +105,32 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     if (first) navigate(`/${activePortal}/${first.moduleKey}`);
   };
 
-  // If the URL names a portal the user may not access, bounce to the main platform.
-  // Guard: only redirect once BOTH definitions AND role are loaded.
-  // Without !!role, definitions arriving before auth resolves produces
-  // allowedPortals=[] and incorrectly redirects every cold portal deep-link.
+  // If the URL names a portal the user may not access, bounce to the main platform — but only
+  // once we KNOW who the user is.
+  //
+  // This used to gate on `!!role`, whose comment said it was there to stop definitions
+  // arriving before auth from redirecting every cold deep-link. It could not: useAuth returns
+  // `user?.role ?? 'viewer'`, so role is a non-empty string from the first render and the gate
+  // was always open. The allowed list was then computed as though the visitor were a viewer,
+  // and /commercial — which needs admin, super_admin or management — was refused before
+  // anyone knew who was asking. Measured in production: definitions finished 74 ms ahead of
+  // the auth request, and a hard load bounced three times in four.
+  //
+  // `isLoading` answers the question that actually matters, which is whether authentication
+  // has RESOLVED rather than what the role currently reads. The decision itself lives in
+  // shouldLeavePortal so it can be tested; this repo has no way to render a component in a
+  // test. Every "not yet" case returns false, because a redirect cannot be taken back.
   useEffect(() => {
-    if (activePortal && definitions.length > 0 && !!role) {
-      const ok = allowedPortals.find(p => p.slug === activePortal);
-      if (!ok) navigate("/");
+    if (shouldLeavePortal({
+      activePortal,
+      authResolved:      !isLoading,
+      definitionsLoaded: definitions.length > 0,
+      allowedSlugs:      allowedPortals.map(p => p.slug),
+    })) {
+      navigate("/");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePortal, definitions.length, role]);
+  }, [activePortal, definitions.length, isLoading, allowedPortals]);
 
   const portalConfig   = definitions.find(p => p.slug === activePortal) ?? null;
   const isPortalMode   = !!activePortal;
