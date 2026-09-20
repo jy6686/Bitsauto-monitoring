@@ -1938,6 +1938,25 @@ function WorkspaceShell() {
   const { scope, isLoading, liveCallCount, atRiskCount, clientCount } = useCommercialWorkspace();
   const [active, setActive] = useState<SectionId>('dashboard');
 
+  // EVERY HOOK SITS ABOVE THE EARLY RETURNS, and this one has to stay here.
+  //
+  // It used to be declared below them, which is a hook behind a conditional return. That was
+  // unreachable while /api/commercial/scope wrongly answered `no_kam_link` for every admin:
+  // the component always returned at the scopeError branch, so the hook count never changed.
+  // Fixing the scope resolution (ca75be4b) let rendering continue past both returns for the
+  // first time, the hook count grew between renders, and React unmounted the tree — /commercial
+  // showed "Application Error, Minified React error #310" in production on build b32936c2.
+  //
+  // The query is cheap and its result is only read after the returns, so hoisting it costs a
+  // request on renders that bail early and buys a component that cannot crash this way.
+  // There is no eslint in this repo, so `react-hooks/rules-of-hooks` is not watching; the
+  // ordering is held by workspace-hook-order.test.ts instead.
+  const actionsQ = useQuery<ActionsResp>({
+    queryKey: ['/api/commercial/actions'],
+    staleTime: 60_000,
+    refetchInterval: 180_000,
+  });
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -1954,11 +1973,6 @@ function WorkspaceShell() {
     );
   }
 
-  const actionsQ = useQuery<ActionsResp>({
-    queryKey: ['/api/commercial/actions'],
-    staleTime: 60_000,
-    refetchInterval: 180_000,
-  });
   const actionUrgent = (actionsQ.data?.criticalCount ?? 0) + (actionsQ.data?.highCount ?? 0);
 
   const badges: Partial<Record<SectionId, { count: number; variant: 'risk' | 'live' | 'neutral' }>> = {
