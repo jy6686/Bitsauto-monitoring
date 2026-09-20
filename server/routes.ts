@@ -1,6 +1,7 @@
 
 import type { Express } from "express";
 import { parseQueryInt } from './lib/query-utils';
+import { toTeamMember } from './services/auth/public-user';
 import { sharedLiveCallsCache, updateLiveCallsCache } from './live-calls-cache';
 import { createAlias } from './services/destination/destination-alias.service';
 import { registerBhaooRoutes } from './routes-bhaoo';
@@ -2518,7 +2519,9 @@ export async function registerRoutes(
   app.get('/api/team', (req: any, res, next) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       const members = await storage.getAllUsersWithRoles();
-      res.json(members);
+      // Project before serialising. These rows are whole `users` records and carry
+      // `passwordHash`; sending them raw handed every user's credential hash to any admin.
+      res.json(members.map(toTeamMember));
     } catch (err) {
       res.status(500).json({ message: 'Failed to fetch team members' });
     }

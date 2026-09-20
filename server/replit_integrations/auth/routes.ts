@@ -71,8 +71,9 @@ export function registerAuthRoutes(app: Express): void {
         defaultPortal:   user.defaultPortal,
         assignedPortals,
         portals:         assignedPortals,            // backward-compat alias
-        // Full user spread for any existing callers relying on other fields
-        ...user,
+        // NO raw row spread here. It used to read `...user`, which re-added every column of
+        // the `users` table — `passwordHash` included — to a response the browser caches.
+        // The projection above is the contract; anything a caller needs gets a named field.
       });
     } catch (error) {
       console.error("Error fetching user:", error);
