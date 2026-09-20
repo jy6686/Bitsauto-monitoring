@@ -22,6 +22,7 @@ import type { Express } from 'express';
 import { db } from './db';
 import { eq, desc, and, gte, or, sql } from 'drizzle-orm';
 import { productRates, rateNotifications, companies, customerProductAssignments, productRegistry, ratePushJobs, globalDestinations } from '@shared/schema';
+import { COUNTRY_KPI_SQL } from './services/rates/country-kpi';
 import { reconcilePerRow } from './services/sippy/sippy-reconciliation.service';
 import { eligibilityStanding } from './services/products/eligibility-store';
 import { storage } from './storage';
@@ -742,20 +743,28 @@ export function registerRateManagerRoutes(app: Express) {
         // against. The duplicate is deleted and its product count is computed here instead,
         // behind this route's own guard.
         //
-        // `totalCountries` IS NOT RETURNED, deliberately. The dead handler counted distinct
-        // level-1 `country_code` in `global_destinations`, and that table's level-1 rows carry no
-        // country code at all — it answered 0, and so did this handler for the one deploy
-        // (c9e07b6b) where the query was carried over. Zero is not the country count; it is a
-        // falsehood a KPI tile would state confidently, where the absent field renders "—" and
-        // says only that the figure is unavailable. The data does exist in `destinationsView`
-        // (364 level-1 rows, 352 distinct country codes) but carries duplicate representations of
-        // the same country — Albania appears as both `AL` and `355` — so what BitsAuto counts as
-        // a country is a definition to settle before a number is shown. Until then, nothing.
+        // `totalCountries` comes from the SEEDED REFERENCE, never from catalogue codes. The
+        // dead handler counted distinct level-1 `country_code` and answered 0; counting the
+        // catalogue a smarter way answers 352 (twin roots) or 198 (orphan level-2 rows, NANP
+        // collapsed into `1`). Migration 063 rules all of those out — a country code is a
+        // numbering plan, not a country — and 064 built the join used here. See
+        // ./services/rates/country-kpi.ts for the full reasoning.
+        //
+        // On failure this stays NULL rather than 0. The UI renders `?? "—"`, so absent says
+        // "unavailable" while a zero would assert that we cover no countries — the exact
+        // falsehood the c9e07b6b deploy put on screen.
         //
         // Deliberately NOT adopted from the dead handler either: its `totalDestinations` counted
         // level-2 rows only and its `totalClients` counted distinct active assignments. Both
         // differ from what this handler already returns and both are already on screen, so
         // changing them is a separate decision from restoring a missing one.
+        let totalCountries: number | null = null;
+        try {
+          const cRes: any = await db.execute(sql.raw(COUNTRY_KPI_SQL));
+          const cRow = (Array.isArray(cRes) ? cRes[0] : cRes?.rows?.[0]);
+          if (cRow?.n != null) totalCountries = Number(cRow.n);
+        } catch { /* one tile must not take the strip down — the dash is the honest answer */ }
+
         let totalProducts = 0;
         try {
           const pRows = await db.select({ n: sql<number>`count(*)::int` })
@@ -777,7 +786,7 @@ export function registerRateManagerRoutes(app: Express) {
         const success30 = rRows.filter(r => r.status === 'completed').reduce((s, r) => s + Number(r.n), 0);
         const successRate = total30 > 0 ? Math.round((success30 / total30) * 100) : null;
 
-        res.json({ totalClients, totalDestinations, totalProducts, todayPushes, successRate });
+        res.json({ totalClients, totalDestinations, totalProducts, totalCountries, todayPushes, successRate });
       } catch (e: any) {
         res.status(500).json({ error: e.message });
       }
