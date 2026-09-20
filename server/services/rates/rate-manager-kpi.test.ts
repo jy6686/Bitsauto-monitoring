@@ -78,17 +78,21 @@ describe('the surviving handler answers with the fields it can answer truthfully
   });
 });
 
-describe('totalCountries is NOT part of the contract — a dash beats a confident zero', () => {
+describe('totalCountries is now part of the contract — but only from the reference', () => {
   /**
-   * Deployed once, in c9e07b6b, carried over from the dead handler: distinct level-1
-   * `country_code` in `global_destinations`, a table whose level-1 rows have none. It answered 0.
-   * The UI renders `kpiStats?.totalCountries ?? "—"`, so an ABSENT field says "unavailable" while
-   * a zero asserts there are no countries. The data exists in `destinationsView` but duplicates
-   * each country (Albania as both `AL` and `355`), so the count needs a definition first.
+   * It was absent on purpose until the definition was settled. The one deploy that shipped it
+   * (c9e07b6b) carried the dead handler's query — distinct level-1 `country_code` in
+   * `global_destinations`, a table whose level-1 rows have none — and put a confident 0 on
+   * screen. The definition is now the seeded `countries` reference joined to the surviving
+   * level-1 root migration 064 created; the query and its behaviour live in
+   * ./country-kpi.ts and are proven against a real database in ./country-kpi.test.ts.
+   *
+   * What THIS file still guards is that the handler cannot drift back to counting the
+   * catalogue, which is how both wrong answers (0, then 352 or 198) were produced.
    */
-  it('the response does not carry totalCountries', () => {
+  it('the response carries totalCountries', () => {
     const body = KPI();
-    expect(body.slice(body.indexOf('res.json({'))).not.toContain('totalCountries');
+    expect(body.slice(body.indexOf('res.json({'))).toContain('totalCountries');
   });
 
   it('the query that produced the false zero is gone from the handler', () => {
@@ -97,9 +101,15 @@ describe('totalCountries is NOT part of the contract — a dash beats a confiden
     expect(k).not.toMatch(/FROM global_destinations\s+WHERE level = 1/i);
   });
 
-  it('and is not lurking anywhere else in the route files', () => {
+  it('the count is not re-derived inline — it uses the shared, tested query', () => {
+    const k = KPI();
+    expect(k).toContain('COUNTRY_KPI_SQL');
+    expect(k).not.toMatch(/FROM\s+destinations\b/i);
+    expect(k).not.toMatch(/FROM\s+countries\b/i);
+  });
+
+  it('routes.ts still does not serve a KPI shape of its own', () => {
     expect(ROUTES).not.toContain('totalCountries');
-    expect(RM).not.toContain('totalCountries');
   });
 });
 
