@@ -19581,8 +19581,27 @@ let _snapBusy = false;
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── KAM administration is admin-only ────────────────────────────────────────
+  // The six mutations below WRITE the Commercial authorization boundary:
+  // resolveCommercialScope() resolves a caller's KAM by user_id, walks reports_to and
+  // collects kam_accounts — so whoever writes these tables decides who may read which
+  // accounts' data. They carried no role check, and /api/kam is not in
+  // PLATFORM_ROUTE_GROUPS, so the only bar was the blanket /api check that 401s a request
+  // carrying no user id. Any authenticated user — a viewer sufficed — could POST /api/kam
+  // with their own userId, attach accounts to it, and then read those accounts through
+  // /api/commercial/*, which requires authentication but no role.
+  //
+  // `admin` exactly, matching /team and GET /api/team. super_admin stays excluded as on
+  // those siblings: deliberate, not an oversight. A KAM is not an admin and must not hold
+  // these — a KAM reads its own portfolio and pushes rates, nothing else.
+  //
+  // The two READS are deliberately left open. GET /api/kam renders the app chrome for
+  // every user through layout-shell, and also backs company creation, account-name
+  // resolution and the Commercial portfolio. Guarding them would break the chrome for
+  // every non-admin while closing nothing: the escalation runs entirely through these
+  // mutations.
   // Create KAM
-  app.post('/api/kam', async (req: any, res) => {
+  app.post('/api/kam', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       const { name, email, phone, title, orgRole, reportsTo, userId } = req.body;
       if (!name || !email) return res.status(400).json({ error: 'name and email required' });
@@ -19601,7 +19620,7 @@ let _snapBusy = false;
   });
 
   // Update KAM
-  app.patch('/api/kam/:id', async (req: any, res) => {
+  app.patch('/api/kam/:id', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       const id = parseInt(req.params.id);
       const kam = await storage.updateKam(id, req.body);
@@ -19610,7 +19629,7 @@ let _snapBusy = false;
   });
 
   // Delete KAM (also deletes assignments)
-  app.delete('/api/kam/:id', async (req: any, res) => {
+  app.delete('/api/kam/:id', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       await storage.deleteKam(parseInt(req.params.id));
       res.json({ ok: true });
@@ -19618,7 +19637,7 @@ let _snapBusy = false;
   });
 
   // Assign an account to a KAM
-  app.post('/api/kam/:id/accounts', async (req: any, res) => {
+  app.post('/api/kam/:id/accounts', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       const kamId = parseInt(req.params.id);
       const { accountId, clientName, dropThreshold } = req.body;
@@ -19629,7 +19648,7 @@ let _snapBusy = false;
   });
 
   // Update a KAM account assignment (e.g. alertEmail, clientName, dropThreshold)
-  app.patch('/api/kam/accounts/:assignmentId', async (req: any, res) => {
+  app.patch('/api/kam/accounts/:assignmentId', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       const id = parseInt(req.params.assignmentId);
       const { alertEmail, clientName, dropThreshold } = req.body;
@@ -19644,7 +19663,7 @@ let _snapBusy = false;
   });
 
   // Remove an account assignment
-  app.delete('/api/kam/accounts/:assignmentId', async (req: any, res) => {
+  app.delete('/api/kam/accounts/:assignmentId', (req: any, res: any, next: any) => requireRole(['admin'], req, res, next), async (req: any, res) => {
     try {
       await storage.deleteKamAccount(parseInt(req.params.assignmentId));
       res.json({ ok: true });
