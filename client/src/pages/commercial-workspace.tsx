@@ -17,6 +17,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery }                              from "@tanstack/react-query";
 import { asJobList, jobCounts, filterJobs, jobClientLabel, jobProgress, type RatePushJobRow } from "@/lib/rate-push-jobs";
+import { COMMERCIAL_RATE_MANAGER_PATH } from "@/lib/commercial-nav";
 import { Link }                                  from "wouter";
 import {
   LayoutDashboard, Users, Phone, Activity, Wallet, Layers,
@@ -748,7 +749,7 @@ function ProductsSection() {
           <h3 className="text-base font-semibold">Products</h3>
           <p className="text-xs text-muted-foreground mt-0.5">Rate analysis · push history · send rates to Sippy</p>
         </div>
-        <Link href="/rate-manager" className="flex items-center gap-1.5 text-xs text-sky-400 hover:text-sky-300 border border-sky-500/30 rounded-lg px-2.5 py-1.5 hover:bg-sky-500/10 transition-colors">
+        <Link href={COMMERCIAL_RATE_MANAGER_PATH} className="flex items-center gap-1.5 text-xs text-sky-400 hover:text-sky-300 border border-sky-500/30 rounded-lg px-2.5 py-1.5 hover:bg-sky-500/10 transition-colors">
           Full Rate Manager <ExternalLink className="w-3 h-3" />
         </Link>
       </div>
@@ -932,10 +933,10 @@ function ProductsSection() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
-              { label: 'Push Rates to Account', desc: 'Send a specific rate to one or more portfolio accounts. Select destination prefix, rate, and effective date.', action: 'rate-manager', cta: 'Open Rate Push →' },
-              { label: 'Analyse Rate Coverage', desc: 'Review which destinations have rates assigned and identify gaps across the portfolio.', action: 'rate-manager', cta: 'Open Rate Analysis →' },
+              { label: 'Push Rates to Account', desc: 'Send a specific rate to one or more portfolio accounts. Select destination prefix, rate, and effective date.', href: COMMERCIAL_RATE_MANAGER_PATH, cta: 'Open Rate Push →' },
+              { label: 'Analyse Rate Coverage', desc: 'Review which destinations have rates assigned and identify gaps across the portfolio.', href: COMMERCIAL_RATE_MANAGER_PATH, cta: 'Open Rate Analysis →' },
             ].map(item => (
-              <Link key={item.label} href={`/${item.action}`}>
+              <Link key={item.label} href={item.href}>
                 <div className="rounded-xl border border-border/50 bg-card/60 p-5 hover:bg-card/80 hover:border-sky-500/30 transition-colors cursor-pointer group">
                   <div className="text-sm font-semibold mb-2">{item.label}</div>
                   <div className="text-xs text-muted-foreground leading-relaxed mb-4">{item.desc}</div>
@@ -2026,6 +2027,23 @@ function WorkspaceShell() {
               </button>
             );
           })}
+
+          {/* Rate Manager is a PAGE, not a section of this one, so it navigates rather than
+              switching `active`. It goes to the Commercial surface — three tabs, no Re-send,
+              no Download Rate Sheet — never to the platform Rate Manager. Before this existed
+              the only route here was the Products launcher, which pointed at /rate-manager and
+              handed Commercial users the unrestricted page in one click. */}
+          <Link
+            href={COMMERCIAL_RATE_MANAGER_PATH}
+            data-testid="nav-ws-rate-manager"
+            className="w-full flex items-center justify-between px-4 py-2.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+          >
+            <div className="flex items-center gap-2.5">
+              <BarChart2 className="w-3.5 h-3.5 shrink-0" />
+              <span className="font-medium">Rate Manager</span>
+            </div>
+            <ExternalLink className="w-3 h-3 shrink-0 opacity-40" />
+          </Link>
         </nav>
 
         <div className="px-4 py-3 border-t border-border/40">
