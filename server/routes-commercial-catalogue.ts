@@ -37,7 +37,10 @@ async function requireRole(roles: string[], req: any, res: any, next: any) {
     return res.status(403).json({ error: 'Insufficient permissions' });
   } catch { return next(); }
 }
-const READ  = ['admin', 'management', 'destination_manager'];
+// `kam` reads the destination picker because the Commercial Send Rate tab needs it to
+// resolve a destination before a push. READ is reads only — the WRITE set below is
+// unchanged and must never admit kam.
+const READ  = ['admin', 'management', 'destination_manager', 'kam'];
 const WRITE = ['admin', 'management'];
 const rows  = (r: any) => (r as any).rows ?? [];
 const actor = (req: any) =>

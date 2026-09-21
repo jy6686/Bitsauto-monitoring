@@ -717,7 +717,7 @@ export function registerRateManagerRoutes(app: Express) {
   // ── KPI Strip ──────────────────────────────────────────────────────────────
   // GET /api/rate-manager/kpi
   app.get('/api/rate-manager/kpi',
-    (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator'], req, res, next),
+    (req: any, res: any, next: any) => requireRole(['admin','management','noc_operator','kam'], req, res, next),
     async (_req: any, res: any) => {
       try {
         const now          = new Date();

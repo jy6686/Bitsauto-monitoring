@@ -609,11 +609,20 @@ export type Role =
   | 'noc_operator'
   | 'team_lead'
   | 'management'
+  // Key Account Manager. EXACT-MATCH AND NON-INHERITING, like every role here: adding it
+  // grants nothing, because every guard is requireRole([...]) with exact membership. A `kam`
+  // reads its own portfolio and pushes rates to accounts inside its own hierarchy — nothing
+  // else. It must never appear in a routing, credit, balance, account-configuration or
+  // KAM-administration guard.
+  //
+  // Beware code that reasons NEGATIVELY about roles: `role !== 'viewer'` treats anything that
+  // is not a viewer as privileged, and a kam lands in that branch by default.
+  | 'kam'
   | 'viewer';
 
 export const ALL_PLATFORM_ROLES: Role[] = [
   'super_admin','admin','destination_manager','routing_admin',
-  'noc_operator','team_lead','management','viewer',
+  'noc_operator','team_lead','management','kam','viewer',
 ];
 
 // Approval Workflow RBAC policy (configurable — policy may be updated over time)
@@ -625,6 +634,9 @@ export const APPROVAL_POLICY: Record<Role, { canSubmit: boolean; approveScope: '
   noc_operator:         { canSubmit: true,  approveScope: 'none', selfApproval: false },
   team_lead:            { canSubmit: false, approveScope: 'team', selfApproval: false },
   management:           { canSubmit: true,  approveScope: 'none', selfApproval: false },
+  // A KAM does not participate in the approval workflow at all. Its one write, a scoped rate
+  // push, is authorised by role plus account scope — not by approval.
+  kam:                  { canSubmit: false, approveScope: 'none', selfApproval: false },
   viewer:               { canSubmit: false, approveScope: 'none', selfApproval: false },
 };
 

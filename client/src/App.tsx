@@ -315,6 +315,9 @@ const ROLE_PATHS: Record<Role, string[]> = {
   noc_operator: ['/', '/calls', '/approvals'],
   team_lead:    ['/', '/calls', '/approvals'],
   management:   ['/', '/calls', '/alerts', '/reports'],
+  // A KAM lives in the Commercial Portal. It gets no main-platform pages here — not even '/',
+  // which is the platform dashboard. Its surface is /commercial and the scoped Rate Manager.
+  kam:                  ['/commercial', '/commercial/rate-manager'],
   viewer:               ['/', '/calls'],
   destination_manager:  ['/', '/calls', '/alerts', '/approvals'],
   routing_admin:        ['/', '/calls', '/alerts', '/approvals'],

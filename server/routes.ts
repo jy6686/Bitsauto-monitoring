@@ -54,6 +54,8 @@ import { validateProductInput, describeTrunkSharing } from './services/products/
 import { createPostgresTariffLock } from './services/rates/tariff-lock';
 import { getJobOperations, resolveOperation, listUnresolvedOperations, deriveJobStatus } from './services/rates/operation-store';
 import { submitGuards, isValidClientRequestId } from './services/rates/submit-guards';
+import { pushScopeGuard, SCOPE_LIMITED_ROLES } from './services/rates/push-scope-guard';
+import { getVisibleAccountIds } from './services/commercial/hierarchy-scope';
 import { findJobByClientRequestId, listNonTerminalJobsForTariffs } from './services/rates/job-lookup-store';
 import { createServer, type Server } from "http";
 import { checkIpv4, checkIpList } from "@shared/ip";
@@ -2531,7 +2533,7 @@ export async function registerRoutes(
   app.patch('/api/team/:userId/role', (req: any, res, next) => requireRole(['admin', 'super_admin'], req, res, next), async (req: any, res) => {
     const { userId } = req.params;
     const { role, teamId } = req.body as { role: string; teamId?: string };
-    const VALID_ROLES: Role[] = ['super_admin', 'admin', 'destination_manager', 'routing_admin', 'noc_operator', 'team_lead', 'management', 'viewer'];
+    const VALID_ROLES: Role[] = ['super_admin', 'admin', 'destination_manager', 'routing_admin', 'noc_operator', 'team_lead', 'management', 'kam', 'viewer'];
     if (!VALID_ROLES.includes(role as Role)) {
       return res.status(400).json({ message: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
     }
@@ -2618,11 +2620,19 @@ export async function registerRoutes(
     try {
       const allUsers = await storage.getAllUsersWithRoles();
       const currentUser = allUsers.find((u: any) => u.id === userId);
-      if (!currentUser || currentUser.role !== 'viewer') return null;
-      const userEmail = currentUser.email;
-      if (!userEmail) return [];
+      // SCOPED ROLES, not "anything that is not a viewer". This read `role !== 'viewer'` and
+      // returned null — meaning UNSCOPED — for every other role, so a newly added `kam` would
+      // have been handed the whole population by default. Default-deny on the role list.
+      const SCOPED_BY_KAM_ASSIGNMENT = ['viewer', 'kam'];
+      if (!currentUser || !SCOPED_BY_KAM_ASSIGNMENT.includes(currentUser.role)) return null;
+      // Identity: `kams.user_id` for a kam, which is the authoritative binding. The legacy
+      // email match stays for `viewer` only, where it is pre-existing behaviour — a kam must
+      // never have its authorization established by an email that happens to match.
       const allKams = await storage.getKams();
-      const matchedKam = allKams.find((k: any) => k.email?.toLowerCase() === userEmail.toLowerCase());
+      const viewerEmail = currentUser.email?.toLowerCase() ?? null;
+      const matchedKam = currentUser.role === 'kam'
+        ? allKams.find((k: any) => k.userId === currentUser.id)
+        : (viewerEmail ? allKams.find((k: any) => k.email?.toLowerCase() === viewerEmail) : undefined);
       if (!matchedKam) return [];
       const kamAccts = await storage.getKamAccounts(matchedKam.id);
       return kamAccts.map((a: any) => a.clientName).filter(Boolean);
@@ -13692,10 +13702,17 @@ app.get('/api/sippy/accounts', async (req: any, res) => {
       const currentUserId = (req as any).user?.claims?.sub;
       const allUsers = await storage.getAllUsersWithRoles?.() ?? [];
       const currentUser = allUsers.find((u: any) => u.id === currentUserId);
-      if (currentUser?.role === 'viewer') {
-        const userEmail = currentUser.email;
+      // Applies to every KAM-ASSIGNMENT-SCOPED role, not just viewer. A `kam` is scoped by the
+      // same assignments and must not skip this check merely by not being a viewer.
+      if (currentUser?.role === 'viewer' || currentUser?.role === 'kam') {
         const allKams = await storage.getKams?.() ?? [];
-        const matchedKam = allKams.find((k: any) => k.email?.toLowerCase() === userEmail?.toLowerCase());
+        // A kam is identified by kams.user_id — the authoritative binding. Email matching is
+        // kept for viewer only, as pre-existing behaviour.
+        const matchedKam = currentUser.role === 'kam'
+          ? allKams.find((k: any) => k.userId === currentUser.id)
+          : (currentUser.email
+              ? allKams.find((k: any) => k.email?.toLowerCase() === currentUser.email!.toLowerCase())
+              : undefined);
         if (!matchedKam) {
           return res.status(403).json({ error: 'Access denied — no KAM assignment found for this account.' });
         }
@@ -44053,7 +44070,7 @@ ${footer}
   // Body (multi-dest): { accountNames, trunkPrefix, destinations:[{dialPrefix,rate}], effectiveFrom?, format? }
   // Body (legacy):     { accountNames, trunkPrefix, dialPrefix, rate, effectiveFrom?, format? }
   app.post('/api/rate-manager/push-batch',
-    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'kam'], req, res, next),
     async (req: any, res) => {
       // Logged before anything can fail, so the deployment log distinguishes the one state
       // the job row cannot: a request that never arrived. "No row" then means either the
@@ -44294,6 +44311,51 @@ ${footer}
         // start a second; and is a LIVE push (non-terminal, younger than the shared stale floor)
         // already writing one of the target tariffs — refuse, naming it. A stale one is the boot
         // sweep's orphan, not a live push, and does not block. See submit-guards.ts.
+        // ── Account-scope guard: may THIS caller push to THESE accounts? ──────
+        // Decided here, beside the submit guards and BEFORE the job row exists, so a refusal
+        // is provably a non-event: no row, nothing sent. That position is the contract, not a
+        // detail — the row is inserted before the first Sippy call on purpose, so a refusal
+        // after it would leave a `failed` job for a push that was never authorised and hand
+        // the reconciliation sweep an orphan.
+        //
+        // Scope-limited roles only (today: `kam`). Everyone else is untouched and keeps the
+        // behaviour they have always had.
+        //
+        // AUTHORISES ON ACCOUNT IDS, NEVER NAMES. The body supplies both `accountNames` and
+        // `accounts[].iAccount`, and the route resolves the target tariff from the id — so the
+        // caller names the thing the write lands on. The pairing between a name and an id is
+        // caller-controlled and proves nothing.
+        //
+        // KAM identity is `kams.user_id`, resolved by resolveCommercialScope(). Email must
+        // never establish it: two older sites match on kams.email and they are not authority.
+        const pushRole = await storage.getUserRole(req.user?.claims?.sub);
+        let pushScope: string[] | null = null;
+        if ((SCOPE_LIMITED_ROLES as readonly string[]).includes(pushRole ?? '')) {
+          // getVisibleAccountIds resolves the KAM by kams.user_id and walks reports_to — the
+          // authoritative identity path. `no_kam_link` means no KAM record at all, which is a
+          // different refusal from a KAM whose portfolio happens to be empty.
+          const sc = await getVisibleAccountIds(req.user?.claims?.sub as string);
+          pushScope = sc.scopeError === 'no_kam_link' ? null : sc.accountIds.map(String);
+        }
+        const scopeDecision = pushScopeGuard({
+          role: pushRole ?? '',
+          accountNames,
+          accounts,
+          scopedAccountIds: pushScope,
+        });
+        if (scopeDecision.kind === 'no_kam_link') {
+          console.log('[push-batch] refused: caller has no KAM record — nothing recorded');
+          return res.status(403).json({ error: 'No KAM profile is linked to your account, so no accounts are in scope.' });
+        }
+        if (scopeDecision.kind === 'unidentified') {
+          console.log(`[push-batch] refused: unidentified account(s) ${scopeDecision.names.join(', ')}`);
+          return res.status(400).json({ error: `These accounts could not be identified: ${scopeDecision.names.join(', ')}. Nothing was started.` });
+        }
+        if (scopeDecision.kind === 'out_of_scope') {
+          console.log(`[push-batch] refused: out-of-scope account(s) ${scopeDecision.accountIds.join(', ')} — nothing recorded`);
+          return res.status(403).json({ error: `These accounts are outside your portfolio: ${scopeDecision.accountIds.join(', ')}. The whole batch was refused; nothing was pushed.`, outOfScope: scopeDecision.accountIds });
+        }
+
         const rawClientRequestId = (req.body as any).clientRequestId;
         if (rawClientRequestId !== undefined && rawClientRequestId !== null && !isValidClientRequestId(rawClientRequestId)) {
           return res.status(400).json({ error: 'clientRequestId must be 8–64 URL-safe characters (letters, digits, _ -)' });
@@ -44917,7 +44979,7 @@ ${footer}
   // status derived from its operation rows. 404 means no job was recorded under that id — the
   // submit never reached the insert, so nothing was sent.
   app.get('/api/rate-manager/jobs/by-request/:clientRequestId',
-    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'kam'], req, res, next),
     async (req: any, res: any) => {
       try {
         const key = String(req.params.clientRequestId ?? '');
@@ -44931,7 +44993,7 @@ ${footer}
   );
 
   app.get('/api/rate-manager/jobs/:jobId/operations',
-    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'kam'], req, res, next),
     async (req: any, res: any) => {
       try {
         const raw = String(req.params.jobId);
@@ -45042,7 +45104,7 @@ ${footer}
   // anonymous (the /api session gate and requirePlatformAccess both run first), but any
   // authenticated platform ROLE could read it: viewer, noc_operator, finance, training_admin.
   app.get('/api/rate-manager/jobs',
-    (req: any, res: any, next: any) => requireRole(['admin', 'management'], req, res, next),
+    (req: any, res: any, next: any) => requireRole(['admin', 'management', 'kam'], req, res, next),
     async (_req, res) => {
     try {
       const jobs = await db.select().from(ratePushJobs).orderBy(desc(ratePushJobs.createdAt)).limit(100);
