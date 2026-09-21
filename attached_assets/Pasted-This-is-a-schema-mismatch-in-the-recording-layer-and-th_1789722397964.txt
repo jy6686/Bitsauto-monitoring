@@ -1,0 +1,23 @@
+This is a schema mismatch in the recording layer, and the guard did its job. Let me find the column.
+
+Read the push job column definitions and lengths
+
+Nothing in the job row obviously exceeds 32 for four four-digit prefixes. Let me check the per-operation table.
+
+Ran 3 commands
+
+Found it, and it is a one-character bug.
+
+fullPrefix: destList.map(d => d.fullPrefix).join(', ').substring(0, 255),
+
+The code truncates the joined prefix list to 255 characters. The column is varchar(32).
+
+So the truncation was written against the wrong limit and protects nothing. Every other field on that insert is truncated correctly to its real width: the switch name to 128, the dial prefix to 128, both matching their columns. This one field is out by a factor of eight.
+
+Why it appeared now and not before. Four Business Class destinations join to 29230, 29232, 29233, 29231, which is thirty-three characters. One character over. Yesterday's Special Bravo push had two destinations and came to twelve, comfortably inside. It is not about Aura at all. Any push of four or more destinations crosses 32, and three destinations sits at twenty, so the threshold is exactly four.
+
+Your reading of the failure is right, and the guard behaved correctly. The parent row could not be written, so the batch was refused before any Sippy mutation. Nothing was pushed, nothing is unrecorded, and Aura's account and tariff alignment are untouched by this. It is a persistence bug in the recording layer.
+
+Two ways to fix it, and they are not equivalent. Changing the substring to 32 would make it insert, but it would silently store a truncated prefix list, and that list is audit evidence of what was pushed. Widening the column keeps the evidence whole. Given the field already holds a comma-joined list by design, and the neighbouring dial_prefix is 128 while destination_name is 256, the column looks like the thing that was never widened when multi-destination pushes arrived.
+
+I have changed nothing. That decision is yours, and a column widening is a migration rather than a code fix.

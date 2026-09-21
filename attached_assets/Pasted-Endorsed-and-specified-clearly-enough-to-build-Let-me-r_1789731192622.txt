@@ -1,0 +1,29 @@
+Endorsed and specified clearly enough to build. Let me read the live builder in full before changing it.
+
+Read the patch builder end to end
+
+Before changing anything, I must confirm this builder is the one the real push uses, not just the debug mirror.
+
+Confirmed which builder the production push path uses
+
+patchDownloadedTariffXlsx is only called by the debug endpoint. It is not in the production path, so my earlier conclusion was drawn from a mirror, not the real thing. Let me find what actually builds the upload.
+
+Found the workbook builder inside the real push
+
+That reverses my earlier finding, and I need to be precise about it.
+
+Read the exact workbook the production upload sends
+
+I have to correct myself, and the correction is substantial.
+
+The production upload already does exactly what you asked for. It builds a one-row workbook with buildRateXlsx(action, null, prefix, ...), where the second argument is the rate id and it is passed as null. The action is A for a future date and SA for immediate. That is precisely Sippy's documented creation contract: Action A with the id left blank so Sippy allocates one.
+
+It does not download and patch anything. The builder I examined yesterday, which drops absent prefixes, is called from exactly one place: the debug endpoint that generates a workbook for inspection. Its own comment says it mirrors the push path. I treated a mirror as the thing itself, and asserted twice that new-prefix creation was absent from the live path. That was wrong.
+
+And the mechanism was demonstrated this morning, by our own test. The 1global push on prefix 192 sent Action A with a blank id, and Sippy responded by allocating a brand new rate id, 9221, for the new effective interval. A blank id producing a fresh id is the same allocation that a genuinely new prefix needs.
+
+What that means for Aura. The five missing Business Class prefixes would most likely be created rather than dropped. Not certain, because 192 already existed as a prefix and Sippy was creating a new dated row for it, whereas Aura needs a prefix that does not exist at all. Those are adjacent but not identical.
+
+So no builder fix is needed, and the gate changes shape. The remaining question for task 384 is narrower than we thought: does an A row with a blank id create a prefix the tariff has never held? That is answerable with one controlled write on a test tariff and a throwaway prefix, which was always step six of 384.
+
+I have made no code change, which is fortunate, since I was about to fix a function that nothing in production calls.

@@ -1,0 +1,49 @@
+That principle has a consequence worth checking before I implement: the same insert writes two sibling summary fields with their own ceilings.
+
+Checked how the destination name summary is built and bounded
+
+All three sibling summaries have the same defect, and one precedent in the same insert shows the intended pattern.
+
+Field	Column	Code cap	Behaviour
+full_prefix	varchar(32)	255	Hard error above 32
+dial_prefix	varchar(128)	128	Silently truncates
+destination_name	varchar(256)	255	Silently truncates
+client_names	text	none	Correct already
+
+Let me implement all four consistently.
+
+Ran 3 commands, created 522_rate_push_summary_unbounded.sql
++41
+-0
+
+Schema updated. Now removing the three truncations in the insert.
+
+Removed the three truncations and typechecked
+
+Typecheck matches baseline exactly. Adding a regression guard in the source-scanning style this repo already uses for contracts like this.
+
+Created rate-push-summary-unbounded.test.ts, ran 2 commands
++80
+-0
+
+That one is correct: switch_name is genuinely varchar(128) and the truncation matches its column. My assertion was too broad. Narrowing it to the three summaries.
+
+Narrow the assertion and re-run
+
+Eight pass. Now proving the guard actually catches the regression, by reintroducing it.
+
+Ran 7 commands
+
+Fixed and pushed as 0a06b989 on fix/rate-push-summary-unbounded. Your requirement drove the shape of it.
+
+No ceiling anywhere. All three batch summaries become TEXT and all three truncations are removed, so a push of five, fifty or two hundred destinations records whole. This invents nothing: client_names in the same insert was already TEXT and already written untruncated. The three were simply never brought to that pattern when multi-destination pushes arrived.
+
+Two caps stay, deliberately. The switch name keeps its truncation because that column really is varchar(128) and really does hold one name. The per-operation full_prefix stays varchar(32) because one prefix per row is a bound with a meaning, rather than a disguised limit on batch size.
+
+Three defects, not one. Only full_prefix errored. dial_prefix at 128 and destination_name at 256 were silently truncating past roughly twelve prefixes and nine names respectively, inside the record whose purpose is to say what was pushed. Fixing only the one that shouted would have left the team hitting the quiet ones a few destinations later.
+
+The guard is proven, not just written. Reintroducing both the cap and the narrow column fails three of the eight tests and leaves five passing. All 2217 tests pass otherwise, and the typecheck error count is unchanged at 324.
+
+What this needs from you. It carries migration 522, so unlike the last fix it is not code-only. The migration widens three varchars to text, which Postgres does without rewriting rows, so it is in the non-destructive class. The publish dialog should still be read, and cancelled on anything destructive.
+
+One small thing I noticed and did not touch: the push history display derives a dial prefix by slicing the trunk digit off full_prefix when dial_prefix is absent. On a multi-prefix summary that produces nonsense, but it only fires for old records that lack the field, so my change does not make it more likely.

@@ -1,0 +1,52 @@
+Yes — if you mean Sippy itself, then you are correct: a prefix that does not currently exist in the tariff can be added during the rate upload, provided the generated upload row uses Sippy's Add (A) action with no existing iRate.
+The important distinction is:
+Layer	New prefix behavior
+Sippy bulk rate upload	✅ Can add a new prefix using A
+BitsAuto fallback builder	✅ Already knows how to generate that
+BitsAuto live download-and-patch builder	❌ Currently drops prefixes absent from the downloaded tariff
+Aura today	❌ Would therefore not add the five missing prefixes through the current live path
+
+
+So the requirement should not be “new prefixes are prohibited.”
+The correct requirement is:
+New-prefix creation is supported, but it must be explicitly proven through the actual BitsAuto production write path before relying on it.
+
+That changes the next step materially. We don't need to redesign Sippy or invent a new mechanism. We need to fix the live builder so that when it encounters an Aura prefix absent from tariff 66, it does:
+prefix absent from downloaded tariff
+        ↓
+append new rate row
+        ↓
+Action = A
+iRate = blank
+        ↓
+upload to Sippy
+        ↓
+Sippy creates the rate
+        ↓
+read back the newly created iRate
+For Aura, the five intended Business Class prefixes are:
+29230, 29231, 29232, 29233, 29237
+and the screenshot establishes that none currently exists in tariff 66.
+So I would revise the gate from “Aura cannot proceed because prefixes are missing” to:
+Aura cannot proceed yet because the current BitsAuto live builder has not been proven to create missing prefixes.
+
+That is a code-path capability gap, not a Sippy capability limitation.
+And the varchar(32) fix we just deployed remains valid—it fixes the audit-recording problem, but it does not by itself fix the missing-prefix builder behavior.
+The clean sequence is therefore:
+Fix live builder → unit/regression test → controlled new-prefix creation test → verify Sippy/read-back → then Aura five-prefix push.
+No need to push Aura itself as the first new-prefix test. A controlled test prefix should establish that the complete BitsAuto → workbook → Sippy A action → newly allocated iRate → read-back chain actually works.
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+ChatGPT can make mistakes. Check important info.
