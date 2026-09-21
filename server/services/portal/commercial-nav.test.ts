@@ -112,6 +112,55 @@ describe('Rate Manager is reachable from the Commercial sidebar', () => {
   });
 });
 
+/**
+ * Products is not part of the Commercial portal, and `6fde6f88` removed its row from SECTIONS —
+ * the only way to reach the section, since setActive() is called from that map alone.
+ *
+ * THE ASSERTION IS SCOPED TO THE ARRAY, NOT THE FILE. A file-wide search for `products` fails
+ * immediately and correctly: SectionId's member, ProductsSection() and the
+ * `active === 'products'` branch are all RETAINED ON PURPOSE, so that the decision is a one-line
+ * revert rather than a re-implementation. The last rule below guards that retention — a future
+ * "remove the dead code" pass has to reverse the decision deliberately instead of quietly.
+ */
+describe('Products stays out of the Commercial workspace sidebar', () => {
+  /** From the array's own declaration to its close — nothing else in the file. */
+  const SECTIONS = (() => {
+    const at = WS.indexOf('const SECTIONS:');
+    expect(at, 'the SECTIONS array must exist').toBeGreaterThan(-1);
+    const end = WS.indexOf('];', at);
+    expect(end).toBeGreaterThan(at);
+    return WS.slice(at, end + 2);
+  })();
+
+  const ids = [...SECTIONS.matchAll(/id:\s*'([a-z-]+)'/g)].map(m => m[1]);
+
+  it('has no products row', () => {
+    expect(SECTIONS).not.toMatch(/id:\s*'products'/);
+    expect(ids).not.toContain('products');
+  });
+
+  /**
+   * The eight survivors, in order. Without this, deleting the WRONG row would still satisfy the
+   * rule above — the test would pass while the sidebar lost Balance or Reports.
+   */
+  it('keeps the other eight, in order', () => {
+    expect(ids).toEqual([
+      'dashboard', 'intelligence', 'actions', 'clients',
+      'live-calls', 'live-traffic', 'balance', 'reports',
+    ]);
+  });
+
+  /**
+   * Unreachable, not dead. If these three go, the capability has been removed rather than
+   * hidden, which is a different decision from the one that was taken.
+   */
+  it('retains the section itself — SectionId, the component and its render branch', () => {
+    expect(WS, 'SectionId member').toMatch(/\|\s*'products'/);
+    expect(WS, 'the component').toMatch(/function ProductsSection\(\)/);
+    expect(WS, 'the render branch').toMatch(/active === 'products'/);
+  });
+});
+
 describe('the platform Rate Manager is untouched', () => {
   it('still has its own route', () => {
     expect(APP).toMatch(/<Route path="\/rate-manager">/);
