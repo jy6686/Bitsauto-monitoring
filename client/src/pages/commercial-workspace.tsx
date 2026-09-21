@@ -1921,6 +1921,16 @@ function IntelligenceSection() {
 
 type IconComponent = (props: LucideProps) => JSX.Element;
 
+// `products` is DELIBERATELY ABSENT. Products is not part of the Commercial portal, and this
+// entry was the only way to reach it: setActive() is called from this map alone, so dropping
+// the row makes the section unreachable without removing anything that works.
+//
+// SectionId's 'products' member, ProductsSection() and its `active === 'products'` render
+// branch are RETAINED ON PURPOSE — unreachable, not dead. Keeping them makes this a one-line
+// decision to reverse, and mirrors the registry-side cleanup of 2026-09-21, which hid
+// product-registry with visibility='hidden' rather than deleting the assignment. Navigation
+// only: the underlying product capability and its routes are untouched. Do not "tidy" the
+// three retained references without reversing this decision first.
 const SECTIONS: { id: SectionId; label: string; icon: IconComponent }[] = [
   { id: 'dashboard',     label: 'Dashboard',     icon: LayoutDashboard },
   { id: 'intelligence',  label: 'Intelligence',  icon: Gauge           },
@@ -1929,7 +1939,6 @@ const SECTIONS: { id: SectionId; label: string; icon: IconComponent }[] = [
   { id: 'live-calls',    label: 'Live Calls',    icon: Phone           },
   { id: 'live-traffic',  label: 'Live Traffic',  icon: Activity        },
   { id: 'balance',       label: 'Balance',       icon: Wallet          },
-  { id: 'products',      label: 'Products',      icon: Layers          },
   { id: 'reports',       label: 'Reports',       icon: BarChart2       },
 ];
 
