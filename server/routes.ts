@@ -43840,6 +43840,60 @@ ${footer}
               console.warn(`[deal-approve] Deal #${id} rate push REFUSED: product ${dealProduct?.code ?? deal.productId} trunk_prefix=${JSON.stringify(dealProduct?.trunkPrefix ?? null)} → tariff=${tariffId}`);
             } else {
 
+            // ── Tariff identity ─────────────────────────────────────────────
+            // This path wrote to `company.sippyITariff` and never checked that Sippy agrees.
+            // push-batch and increment-apply have refused an unconfirmed target since
+            // `12ae5a4e`; deal approval was left on the unguarded value, so the same
+            // divergence that produced a 409 there produced a SILENT WRITE here — to a tariff
+            // the account does not bill on, which looks applied and never takes effect. 22 of
+            // 26 companies are in that state.
+            //
+            // Resolved exactly the way push-batch resolves it (routes.ts ~44228): the
+            // account's own iTariff, falling back to its billing plan's. Same chain, or the
+            // two guards would disagree about what "the live tariff" means.
+            //
+            // FAILS CLOSED. If Sippy cannot be reached the verdict is `unresolved` and nothing
+            // is pushed — "we could not check" must not read as "safe". That is a deliberate
+            // change from today's behaviour, where an outage still wrote to the stored value.
+            //
+            // The deal is still APPROVED either way; only the push is skipped, with its reason
+            // in ratePushResult.skipped — the same shape the trunk-prefix refusal above uses.
+            // `no_stored_tariff` cannot fire here: `if (tariffId)` already sent NULL to its own
+            // message at the bottom of this block. It stays in the verdict handling anyway,
+            // because relying on an outer condition to make a branch unreachable is how guards
+            // rot.
+            let resolvedITariff: number | string | null = null;
+            try {
+              const credPairs = sippyXmlCredsPairs(settings);
+              let info: any = null;
+              for (const { username: u, password: p } of credPairs) {
+                try { info = await sippy.getAccountInfo(u, p, portalUrl, deal.iAccount); if (info) break; } catch {}
+              }
+              if (info) {
+                resolvedITariff = info.iTariff || null;
+                if (!resolvedITariff && info.iBillingPlan) {
+                  try {
+                    const { plans } = await sippy.listSippyBillingPlans(credPairs[0].username, credPairs[0].password, portalUrl);
+                    const plan = (plans as any[]).find((p: any) => p.id === info.iBillingPlan);
+                    if (plan && (plan as any).iTariff) resolvedITariff = (plan as any).iTariff;
+                  } catch {}
+                }
+              }
+            } catch (e: any) {
+              console.warn(`[deal-approve] iTariff resolution failed for account ${deal.iAccount}: ${e.message}`);
+            }
+
+            const tariffVerdict = checkTariffIntegrity({
+              accountName:     (clientCompany as any)?.name ?? `account ${deal.iAccount}`,
+              storedITariff:   tariffId,
+              resolvedITariff,
+            });
+
+            if (!tariffVerdict.safe) {
+              ratePushResult = { pushed: 0, failed: 0, skipped: tariffVerdict.message };
+              console.warn(`[deal-approve] Deal #${id} rate push REFUSED (${tariffVerdict.reason}): provisioned=${tariffVerdict.storedITariff} resolved=${tariffVerdict.resolvedITariff}`);
+            } else {
+
             let pushed = 0, failed = 0;
             const unresolvedDestinations: string[] = [];
             for (const d of dests) {
@@ -43871,6 +43925,7 @@ ${footer}
             }
             ratePushResult = { pushed, failed, unresolved: unresolvedDestinations.length, unresolvedDestinations };
             console.log(`[deal-approve] Deal #${id} rate push complete: ${pushed} pushed, ${failed} failed, ${unresolvedDestinations.length} unresolved → tariff=${tariffId}`);
+            }
             }
           } else {
             ratePushResult = { pushed: 0, failed: 0, skipped: 'No destinations on deal' };
