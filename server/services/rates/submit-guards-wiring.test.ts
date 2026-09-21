@@ -60,8 +60,10 @@ describe('GET /api/rate-manager/jobs/by-request/:clientRequestId', () => {
     return ROUTES.slice(at, at + 2500);
   })();
 
-  it('is authenticated for admin/management', () => {
-    expect(ROUTE).toMatch(/requireRole\(\['admin',\s*'management'\]/);
+  it('is authenticated for admin, management and kam', () => {
+    // `kam` added by the KAM authorization gate — the Send Rate tab uses this lookup to
+    // recover a submit whose response was lost, and a KAM has that same need.
+    expect(ROUTE).toMatch(/requireRole\(\['admin',\s*'management',\s*'kam'\]/);
   });
 
   it('validates the id, answers 404 for an unknown one, and returns the row with its derived summary', () => {

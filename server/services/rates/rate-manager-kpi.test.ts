@@ -114,8 +114,8 @@ describe('totalCountries is now part of the contract — but only from the refer
 });
 
 describe('REGRESSION: nothing else about the route changed', () => {
-  it('keeps its own guard — admin, management, noc_operator', () => {
-    expect(KPI()).toMatch(/requireRole\(\['admin','management','noc_operator'\]/);
+  it('keeps its own guard — admin, management, noc_operator, and now kam', () => {
+    expect(KPI()).toMatch(/requireRole\(\['admin','management','noc_operator','kam'\]/);
   });
 
   it('keeps the existing four computations exactly as they were', () => {

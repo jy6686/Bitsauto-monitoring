@@ -30,6 +30,14 @@ const registration = (src: string, path: string) => {
 };
 
 const GUARD = /requireRole\(\['admin',\s*'management'\]/;
+/**
+ * `jobs` and the sibling operations/by-request routes additionally admit `kam` as of the KAM
+ * authorization gate: a KAM reads its own push history and pushes rates within its hierarchy.
+ * Pinned per route rather than by loosening GUARD, so `export` — the full price sheet — is
+ * still asserted to END at 'management' and can never pick up `kam` unnoticed.
+ */
+const GUARD_WITH_KAM = /requireRole\(\['admin',\s*'management',\s*'kam'\]/;
+const ADMITS_KAM = new Set(['/api/rate-manager/jobs']);
 
 const NEWLY_GUARDED: Array<[string, string, () => string]> = [
   ['jobs',               '/api/rate-manager/jobs',               () => registration(ROUTES, '/api/rate-manager/jobs')],
@@ -39,9 +47,9 @@ const NEWLY_GUARDED: Array<[string, string, () => string]> = [
 ];
 
 describe('the four rate-data routes require admin or management', () => {
-  for (const [name, , slice] of NEWLY_GUARDED) {
-    it(`${name} carries requireRole(['admin','management'])`, () => {
-      expect(slice()).toMatch(GUARD);
+  for (const [name, path, slice] of NEWLY_GUARDED) {
+    it(`${name} carries its exact guard`, () => {
+      expect(slice()).toMatch(ADMITS_KAM.has(path) ? GUARD_WITH_KAM : GUARD);
     });
   }
 
@@ -84,11 +92,18 @@ describe('REGRESSION: the guards that already existed are untouched', () => {
   });
 
   it('the sibling rate routes keep the guard they already had', () => {
-    for (const p of ['/api/rate-manager/push-batch', '/api/rate-manager/change-client-rates',
-                     '/api/rate-manager/jobs/:jobId/operations', '/api/rate-manager/reconcile-status']) {
+    // push-batch and the operations read now also admit `kam`; change-client-rates and
+    // reconcile-status deliberately do not. Each is pinned to its own exact set.
+    const SIBLINGS: Array<[string, RegExp]> = [
+      ['/api/rate-manager/push-batch',              GUARD_WITH_KAM],
+      ['/api/rate-manager/jobs/:jobId/operations',  GUARD_WITH_KAM],
+      ['/api/rate-manager/change-client-rates',     GUARD],
+      ['/api/rate-manager/reconcile-status',        GUARD],
+    ];
+    for (const [p, expected] of SIBLINGS) {
       const at = ROUTES.indexOf(`app.post('${p}'`) > -1 ? ROUTES.indexOf(`app.post('${p}'`) : ROUTES.indexOf(`app.get('${p}'`);
       expect(at, p).toBeGreaterThan(-1);
-      expect(ROUTES.slice(at, at + 320), p).toMatch(GUARD);
+      expect(ROUTES.slice(at, at + 320), p).toMatch(expected);
     }
   });
 });

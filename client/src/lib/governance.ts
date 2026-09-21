@@ -103,6 +103,21 @@ export const ROLE_CAPABILITIES: Record<Role, {
     canBypassApproval: false,
     portalScope: 'full',
   },
+  // A KAM's authority is commercial, not operational: it reads its own portfolio and pushes
+  // rates. It approves nothing, executes no routing, and modifies no policy. Every capability
+  // here is false on purpose — if one is ever flipped, it should be by a deliberate decision.
+  kam: {
+    label: 'Key Account Manager',
+    canApproveFailover: false,
+    canExecuteRouting: false,
+    canViewIntelligenceEvidence: false,
+    canViewFullExplainability: false,
+    canModifyPolicyThresholds: false,
+    canModifyVendorWhitelist: false,
+    canAcknowledgeAlerts: false,
+    canBypassApproval: false,
+    portalScope: 'none',
+  },
   viewer: {
     label: 'Viewer',
     canApproveFailover: false,

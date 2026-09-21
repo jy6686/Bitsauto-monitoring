@@ -40,6 +40,7 @@ const ROLE_BADGE: Record<Role, { label: string; color: string }> = {
   noc_operator:        { label: "NOC Operator",        color: "text-cyan-400 bg-cyan-500/10"       },
   team_lead:           { label: "Team Lead",           color: "text-emerald-400 bg-emerald-500/10" },
   management:          { label: "Management",          color: "text-amber-400 bg-amber-500/10"     },
+  kam:                 { label: "KAM",                 color: "text-sky-400 bg-sky-500/10"         },
   viewer:              { label: "Viewer",              color: "text-blue-400 bg-blue-500/10"       },
 };
 

@@ -293,8 +293,9 @@ describe('the handler ships THIS query, not a paraphrase of it', () => {
     }
   });
 
-  it('keeps its own guard — admin, management, noc_operator', () => {
-    expect(KPI()).toMatch(/requireRole\(\['admin','management','noc_operator'\]/);
+  it('keeps its own guard — admin, management, noc_operator, and now kam', () => {
+    // `kam` added by the KAM authorization gate: a KAM reads the Rate Manager KPI strip.
+    expect(KPI()).toMatch(/requireRole\(\['admin','management','noc_operator','kam'\]/);
   });
 
   /** One tile must not take the strip down: the count is wrapped like its neighbours. */

@@ -764,6 +764,15 @@ const ROLE_META: Record<Role, {
     icon: Briefcase,
     desc: "Operational access to calls, analytics, reports and more. Admin defines which monitoring areas they are assigned.",
   },
+  kam: {
+    label: "KAM",
+    color: "text-sky-400",
+    bg: "bg-sky-500/10",
+    border: "border-sky-500/30",
+    iconColor: "text-sky-400",
+    icon: UserCheck,
+    desc: "Commercial Portal only. Reads its own KAM portfolio and pushes rates to accounts inside that hierarchy — no routing, credit, balance or account-configuration changes.",
+  },
   viewer: {
     label: "Viewer",
     color: "text-blue-400",
