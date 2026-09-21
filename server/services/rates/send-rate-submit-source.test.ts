@@ -59,7 +59,10 @@ describe('Send Rate submit is terminal-state-driven', () => {
   });
 
   it('Push History polls while a RECENT job is processing — via the pure helper (push-history-poll.test.ts owns the rule)', () => {
-    const at = PAGE.indexOf('function JobsTab()');
+    // Signature-prefix anchor: JobsTab takes a `canWrite` prop as of the Commercial
+    // three-tab scope. An exact-match anchor yields an empty slice and proves nothing.
+    const at = PAGE.indexOf('function JobsTab(');
+    expect(at, 'JobsTab must exist').toBeGreaterThan(-1);
     const tab = PAGE.slice(at, at + 800);
     expect(tab).toMatch(/refetchInterval:\s*\(query: any\)\s*=>\s*pushHistoryPollInterval\(/);
     expect(PAGE).toMatch(/from ["']@\/lib\/push-history-poll["']/);

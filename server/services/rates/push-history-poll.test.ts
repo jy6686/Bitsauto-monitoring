@@ -59,7 +59,12 @@ describe('it is a UI heuristic, wired where the list is, and not the server rule
   const HELPER = readFileSync(join(__dirname, '..', '..', '..', 'client', 'src', 'lib', 'push-history-poll.ts'), 'utf8');
 
   it('JobsTab derives its refetchInterval from pushHistoryPollInterval and from nothing else', () => {
-    const tab = PAGE.slice(PAGE.indexOf('function JobsTab()'), PAGE.indexOf('function JobsTab()') + 700);
+    // Anchored on the signature PREFIX: JobsTab now takes a `canWrite` prop, and the old
+    // exact-match anchor silently produced an EMPTY slice — which fails the positive
+    // assertion below but would have passed the negative one vacuously.
+    const at = PAGE.indexOf('function JobsTab(');
+    expect(at, 'JobsTab must exist').toBeGreaterThan(-1);
+    const tab = PAGE.slice(at, at + 700);
     expect(tab).toMatch(/refetchInterval:\s*\(query: any\)\s*=>\s*pushHistoryPollInterval\(/);
     expect(tab).not.toMatch(/status === 'processing'\s*\)\s*\?\s*\d+/);
   });

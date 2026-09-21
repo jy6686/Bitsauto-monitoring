@@ -4,6 +4,8 @@ import {
   pollIntervalMs, statusMessage,
 } from "@/lib/submit-lifecycle";
 import { pushHistoryPollInterval } from "@/lib/push-history-poll";
+import { visibleRateManagerTabs, allowsJobWriteActions } from "@/lib/rate-manager-scope";
+import { usePortal } from "@/context/portal-context";
 import { useSearch } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -2973,7 +2975,11 @@ function SendRateTab({
   );
 }
 // ── Jobs Tab ───────────────────────────────────────────────────────────────────
-function PushJobDrawer({ job, onClose, statusBg }: { job: any; onClose: () => void; statusBg: Record<string, string> }) {
+// `canWrite` is FALSE inside the Commercial Portal, where Push History is required to be
+// read-only. Both controls below act: Re-send re-pushes rates to Sippy, and Download Rate
+// Sheet exports the whole price list. Hiding them is presentation scope — the routes stay
+// reachable for any role that already had them.
+function PushJobDrawer({ job, onClose, statusBg, canWrite = true }: { job: any; onClose: () => void; statusBg: Record<string, string>; canWrite?: boolean }) {
   const [showTech, setShowTech] = useState(false);
   const methodLabel = job.pushMethod === 'upload_token' ? 'XLSX Upload'
     : job.pushMethod === 'portal_csv' ? 'Portal CSV'
@@ -3040,8 +3046,9 @@ function PushJobDrawer({ job, onClose, statusBg }: { job: any; onClose: () => vo
             </div>
           </div>
 
-          {/* Download */}
+          {/* Download + Re-send — both suppressed where canWrite is false */}
           <div className="flex gap-2">
+            {canWrite && (<>
             <button
               onClick={async () => {
                 const u = `/api/rate-manager/export?format=xlsx${job.productId ? `&productId=${job.productId}` : ''}`;
@@ -3065,6 +3072,7 @@ function PushJobDrawer({ job, onClose, statusBg }: { job: any; onClose: () => vo
                 Re-send
               </button>
             ) : null}
+            </>)}
           </div>
           {/* Rate changes */}
           {job.pushResults && job.pushResults.length > 0 && (
@@ -3144,7 +3152,7 @@ function PushJobDrawer({ job, onClose, statusBg }: { job: any; onClose: () => vo
   );
 }
 
-function JobsTab() {
+function JobsTab({ canWrite = true }: { canWrite?: boolean }) {
   // Polls while a RECENT job is processing, so a push in flight is visible without a manual
   // refresh. Recent matters: legacy rows sit at `processing` forever, and keying on status alone
   // would make this tab poll every 3 s for as long as it is open. The window is a UI heuristic
@@ -3259,7 +3267,7 @@ function JobsTab() {
         </table>
       )}
       {drawerJob && (
-        <PushJobDrawer job={drawerJob} onClose={() => setDrawerJob(null)} statusBg={STATUS_BG} />
+        <PushJobDrawer job={drawerJob} onClose={() => setDrawerJob(null)} statusBg={STATUS_BG} canWrite={canWrite} />
       )}
     </div>
   );
@@ -5732,6 +5740,10 @@ function PricingIntelligenceTab({ products }: { products: Product[] }) {
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function RateManagerPage() {
   const qc = useQueryClient();
+  // Which portal this page is being rendered inside, if any. `/commercial/rate-manager`
+  // resolves to THIS component, so the Commercial three-tab rule lives here rather than in a
+  // second Rate Manager. Outside a portal this is null and nothing is filtered.
+  const { activePortal } = usePortal();
   const searchStr = useSearch();
   const searchParams = new URLSearchParams(searchStr);
   const urlTab = searchParams.get("tab") as "analysis" | "send" | "jobs" | "product-rates" | "notifications" | "intelligence" | "vendor-rates" | null;
@@ -5791,7 +5803,7 @@ export default function RateManagerPage() {
           <BarChart2 className="w-3.5 h-3.5 text-blue-400" />
           Rate Manager
         </div>
-        {TABS.map(t => (
+        {visibleRateManagerTabs(TABS, activePortal).map(t => (
           <button
             key={t.key}
             onClick={() => setActiveTab(t.key)}
@@ -5837,7 +5849,7 @@ export default function RateManagerPage() {
       {/* Tab content */}
       {activeTab === "analysis"      && <AnalysisTab products={products} accounts={accounts} allDests={allDests} onProductChange={setActiveProductId} />}
       {activeTab === "send"          && <SendRateTab products={products} accounts={accounts} allDests={allDests} onProductChange={setActiveProductId} />}
-      {activeTab === "jobs"          && <JobsTab />}
+      {activeTab === "jobs"          && <JobsTab canWrite={allowsJobWriteActions(activePortal)} />}
       {activeTab === "eligibility"   && <EligibilityTab products={products} />}
       {activeTab === "product-rates" && <ProductRatesTab products={products} />}
       {activeTab === "notifications" && <NotificationsTab products={products} initialSubTab={urlSubTab ?? undefined} initialStatusFilter={urlStatusFilter || undefined} />}
