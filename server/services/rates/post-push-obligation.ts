@@ -112,7 +112,11 @@ export async function loadOperationsForPush(
 ): Promise<AppliedOperation[]> {
   return rows(await db.execute(sql`
     SELECT account_name, product_name, trunk_prefix, dial_prefix, full_prefix,
-           destination_name, requested_rate, status, refused_before_write
+           destination_name, requested_rate, status, refused_before_write,
+           -- The customer's effective date. Omitting it here is what made every notification
+           -- quote its own send date: the obligation never saw the fact, so the renderer
+           -- defaulted. It exists only on the operation, so it must be read here or lost.
+           effective_from
       FROM rate_push_operations
      WHERE job_id = ${jobId}`)).map((r: any) => ({
     accountName: String(r.account_name),
@@ -126,6 +130,7 @@ export async function loadOperationsForPush(
     status: String(r.status),
     refusedBeforeWrite: r.refused_before_write === null || r.refused_before_write === undefined
       ? null : Boolean(r.refused_before_write),
+    effectiveFrom: r.effective_from ?? null,
   }));
 }
 

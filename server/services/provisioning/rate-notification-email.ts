@@ -62,6 +62,15 @@ export type NotificationRate = {
   destination:  string;   // catalogue name, e.g. "PAKISTAN - MOBILE MOBILINK"
   rate:         string;   // numeric string, e.g. "0.040000"
   currency:     string;
+  /**
+   * WHEN THE CUSTOMER'S PRICE ACTUALLY CHANGES — exactly as it was sent to the switch, e.g.
+   * "2026-09-22" or "2026-09-19 10:51". Optional only because rows frozen before 2026-09-22
+   * do not carry it; for those the renderer still falls back to the issue date, which is why
+   * Aura's first live notification said "Effective 2026-09-22" for rates that went live on
+   * the 19th. A push with a future effective date MUST quote that date, or the notification
+   * contradicts the notice period it was sent to honour.
+   */
+  effectiveDate?: string | null;
 };
 
 

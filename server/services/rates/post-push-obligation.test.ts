@@ -44,11 +44,12 @@ const persistOps = async (jobId: string, ops: AppliedOperation[]) => {
     await db.execute(sql`
       INSERT INTO rate_push_operations
         (job_id, operation_key, sequence, account_name, product_name, trunk_prefix, dial_prefix,
-         full_prefix, destination_name, requested_rate, status, refused_before_write)
+         full_prefix, destination_name, requested_rate, status, refused_before_write,
+         effective_from)
       VALUES (${jobId}, ${`k${seq}`}, ${seq}, ${o.accountName}, ${o.productName}, ${o.trunkPrefix},
               ${o.dialPrefix}, ${o.fullPrefix}, ${o.destinationName},
               ${o.requestedRate === null ? null : String(o.requestedRate)}, ${o.status},
-              ${o.refusedBeforeWrite})`);
+              ${o.refusedBeforeWrite}, ${o.effectiveFrom ?? null})`);
     seq++;
   }
 };
@@ -68,7 +69,10 @@ beforeAll(async () => {
       product_name VARCHAR(64), trunk_prefix VARCHAR(8), dial_prefix VARCHAR(64),
       full_prefix VARCHAR(32) NOT NULL, destination_name VARCHAR(256),
       requested_rate NUMERIC(18,6), status VARCHAR(24) NOT NULL,
-      refused_before_write BOOLEAN);`);
+      refused_before_write BOOLEAN,
+      -- migration 511. The obligation freezes this so the notification can quote when the
+      -- customer's price actually changes, rather than the day the email was sent.
+      effective_from VARCHAR(32));`);
   await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '518_rate_push_notifications.sql'), 'utf8'));
 });
 afterAll(async () => { await client?.close(); });
@@ -239,6 +243,56 @@ describe("the certified facts are frozen, not re-derived", () => {
     expect(p.clientName).toBe('ACME');
     expect(p.notificationType).toBe('CHANGES');
     expect(p.rows[0].prefix).toBe('9230');
+  });
+});
+
+/**
+ * The half of the chain that actually broke in production.
+ *
+ * The derivation was always willing to carry an effective date; what it never received was one,
+ * because `loadOperationsForPush` did not read the column. Every unit test handed the derivation
+ * a hand-built operation, so the gap sat between the database and the code and no fixture could
+ * see it. These go through PGlite for that reason: the column is written as a push writes it and
+ * read back as the worker reads it.
+ */
+describe("the customer's effective date survives the trip through the database", () => {
+  it("a stored effective_from reaches the loaded operation", async () => {
+    await persistOps(JOB, [op({ effectiveFrom: '2026-09-22' })]);
+    expect((await loadOperationsForPush(db, JOB))[0].effectiveFrom).toBe('2026-09-22');
+  });
+
+  /**
+   * THE REGRESSION, end to end. Pushed on the 14th for the 22nd; the obligation frozen that day
+   * must hold the 22nd, because after this moment the date is unrecoverable — the worker sees
+   * only `rows_json`, and an absent date there silently becomes the day the email goes out.
+   */
+  it("a FUTURE-dated push freezes the future date into the obligation, not the push date", async () => {
+    await persistOps(JOB, [op({ dialPrefix: '9370', fullPrefix: '19370', effectiveFrom: '2026-09-22' })]);
+    await createObligationsForPush(db, { jobId: JOB, operations: await loadOperationsForPush(db, JOB) });
+
+    const [row] = await all(sql`SELECT rows_json FROM rate_push_notifications`);
+    const frozen = typeof row.rows_json === 'string' ? JSON.parse(row.rows_json) : row.rows_json;
+    expect(frozen[0].effectiveDate).toBe('2026-09-22');
+  });
+
+  it("a push with no effective date freezes null, leaving the renderer its fallback", async () => {
+    await persistOps(JOB, [op()]);
+    expect((await loadOperationsForPush(db, JOB))[0].effectiveFrom).toBeNull();
+
+    await createObligationsForPush(db, { jobId: JOB, operations: await loadOperationsForPush(db, JOB) });
+    const [row] = await all(sql`SELECT rows_json FROM rate_push_notifications`);
+    const frozen = typeof row.rows_json === 'string' ? JSON.parse(row.rows_json) : row.rows_json;
+    expect(frozen[0].effectiveDate).toBeNull();
+  });
+
+  it("recovery freezes the same date the completing push would have", async () => {
+    // Recovery re-reads the operations long after the push; the date must still be there.
+    await persistOps(JOB, [op({ effectiveFrom: '2026-09-29 08:00' })]);
+    await recoverMissingObligations(db);
+
+    const [row] = await all(sql`SELECT rows_json FROM rate_push_notifications`);
+    const frozen = typeof row.rows_json === 'string' ? JSON.parse(row.rows_json) : row.rows_json;
+    expect(frozen[0].effectiveDate).toBe('2026-09-29 08:00');
   });
 });
 
