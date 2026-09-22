@@ -8665,7 +8665,19 @@ export async function registerRoutes(
   //   params:      nested struct e.g. { i_tariff: 5 } for rates or { i_destination_set: 3 } for routes
   //   iCustomer:   trusted-mode customer ID (optional)
   // Returns: { token, url } — POST the binary file to `url` using chunked encoding
-  app.post('/api/sippy/upload/token', async (req: any, res) => {
+  // SMP-005 (2026-09-22): these three upload routes are a generic rate-rewrite primitive —
+  // token accepts any i_tariff, file posts caller-supplied bytes — and they were reachable by
+  // any authenticated session, portal_only included, because /api/sippy is not in
+  // PLATFORM_ROUTE_GROUPS. Nothing in the product calls them (Replit-Agent scaffolding from
+  // 101013bb; the certified push path uses getUploadToken in the service layer directly), and
+  // seven days of deployment logs show no requests — but seven days cannot rule out a periodic
+  // caller, so they are GATED rather than deleted: a real caller now fails loudly as a 403 in
+  // the same logs, instead of silently. `admin` exactly, deliberately narrower than the
+  // ['admin','management'] most /api/sippy writes use, and super_admin stays excluded as on
+  // /api/team and the KAM mutations. Deletion is a later gate, after a longer clean window.
+  app.post('/api/sippy/upload/token',
+    (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
+    async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
@@ -8692,7 +8704,9 @@ export async function registerRoutes(
   // Returns: { status, processOn?, expiresOn?, statusChangedOn?, reportUrl? }
   //   Status lifecycle: INIT_TOKEN → FILE_UPLOADED → PROCESSING → DONE | FAIL
   //   reportUrl is only present when status is DONE or FAIL
-  app.get('/api/sippy/upload/status', async (req: any, res) => {
+  app.get('/api/sippy/upload/status',
+    (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
+    async (req: any, res) => {
     try {
       const settings = await storage.getSettings();
       const { username, password } = sippyXmlCreds(settings);
@@ -8746,6 +8760,9 @@ export async function registerRoutes(
   // Body: raw binary file content (any MIME type; set Content-Type as needed)
   // Returns: { success, body } — body is Sippy's raw HTTP response text
   app.post('/api/sippy/upload/file',
+    // The role check runs BEFORE the body collector below: an unauthorised caller is refused
+    // before the server buffers up to 200 MB on their behalf.
+    (req: any, res: any, next: any) => requireRole(['admin'], req, res, next),
     // Collect raw binary body (any Content-Type, up to 200 MB) without depending on require()
     (req: any, res: any, next: any) => {
       const chunks: Buffer[] = [];
