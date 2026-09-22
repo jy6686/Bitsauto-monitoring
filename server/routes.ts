@@ -44769,6 +44769,14 @@ ${footer}
           });
           console.log(`[push-batch] notification obligations: ${owed.created} created, ` +
                       `${owed.alreadyPresent} already present, ${owed.excluded.length} operation(s) not announced`);
+
+          // Delivery, INSIDE the same boundary as creation: a send failure can no more turn a
+          // successful push into an error than a bookkeeping failure can, and a failed send is
+          // durable (status 'failed', retried on the next push or boot, capped at five attempts).
+          // Ships OFF — platform_feature_flags.rate_notifications_auto — and when off this is one
+          // flag read and nothing sent. See services/rates/rate-notification-auto.ts.
+          const { drainRateNotifications } = await import('./services/rates/rate-notification-auto');
+          await drainRateNotifications('push');
         } catch (e: any) {
           console.warn(`[push-batch] could not record notification obligations (${e?.message ?? e}) — ` +
                        `recovery will re-derive them from the operation records`);

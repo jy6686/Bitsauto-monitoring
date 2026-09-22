@@ -168,6 +168,14 @@ export async function recoverMissingObligations(
 export async function pendingRateNotifications(
   db: ObligationDb,
   limit = 100,
+  /**
+   * Skip obligations that have already been attempted this many times. Without it, one
+   * permanently failing obligation sits at the front of `ORDER BY created_at` forever and
+   * starves everything behind it on every run. Optional and unbounded by default, so existing
+   * callers see no change; the automatic drain passes 5. An exhausted obligation stays
+   * `failed` with its `last_error` — surfaced, not lost.
+   */
+  maxAttempts?: number,
 ): Promise<Array<{
   id: number; jobId: string; clientName: string; productLabel: string;
   notificationType: string; rows: any[]; dialFormat: string | null; attempts: number;
@@ -176,6 +184,7 @@ export async function pendingRateNotifications(
     SELECT id, job_id, client_name, product_label, notification_type, rows_json, dial_format, attempts
       FROM rate_push_notifications
      WHERE status IN ('pending', 'failed')
+       ${maxAttempts != null ? sql`AND attempts < ${maxAttempts}` : sql``}
      ORDER BY created_at
      LIMIT ${limit}`)).map((r: any) => ({
     id: Number(r.id), jobId: String(r.job_id), clientName: String(r.client_name),

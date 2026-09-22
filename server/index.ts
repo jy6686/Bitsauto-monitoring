@@ -439,6 +439,16 @@ app.use((req, res, next) => {
     console.error('[rate-reconcile] failed to start (non-fatal):', e?.message);
   });
 
+  // Boot-time drain of rate-notification obligations a restart left pending or failed. No
+  // timer — the obligations are durable, so boot and each push are the only triggers. SHIPS OFF
+  // (platform_feature_flags.rate_notifications_auto); when off this is one flag read and no
+  // email. Attempts are capped at five so a dead address cannot starve the queue.
+  import('./services/rates/rate-notification-auto').then(({ drainRateNotificationsOnBoot }) => {
+    drainRateNotificationsOnBoot();
+  }).catch((e: any) => {
+    console.error('[rate-notify] boot drain failed to start (non-fatal):', e?.message);
+  });
+
   // Daily finance pipeline — DMR, snapshot, DMR email, margin, assurance,
   // billing-cycle detection. Supersedes startDMREmailScheduler(): the email is
   // now stage 3 of the pipeline, so registering both would send it twice.

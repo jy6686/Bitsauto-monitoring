@@ -73,13 +73,13 @@ const isoDay = () => new Date().toISOString().slice(0, 10);
  */
 export async function prepareRateNotifications(
   deps: RateWorkerDeps,
-  opts: { limit?: number } = {},
+  opts: { limit?: number; maxAttempts?: number } = {},
 ): Promise<PreparationReport> {
   const prepared: PreparedMessage[] = [];
   const blocked: PreparationReport['blocked'] = [];
   const issueDate = (deps.today ?? isoDay)();
 
-  for (const owed of await pendingRateNotifications(deps.db, opts.limit ?? 50)) {
+  for (const owed of await pendingRateNotifications(deps.db, opts.limit ?? 50, opts.maxAttempts)) {
     const recipients = await resolveRateRecipientsByName(deps.db, owed.clientName);
     if ('error' in recipients) {
       blocked.push({ obligationId: owed.id, clientName: owed.clientName, reason: recipients.error });
@@ -171,7 +171,7 @@ export interface DeliveryReport {
  */
 export async function deliverRateNotifications(
   deps: RateWorkerDeps,
-  opts: { enabled?: boolean; limit?: number } = {},
+  opts: { enabled?: boolean; limit?: number; maxAttempts?: number } = {},
 ): Promise<DeliveryReport> {
   const report: DeliveryReport = { attempted: 0, sent: 0, failed: 0, blocked: [], disabled: false };
 
@@ -180,7 +180,7 @@ export async function deliverRateNotifications(
     return report;
   }
 
-  const { prepared, blocked } = await prepareRateNotifications(deps, { limit: opts.limit });
+  const { prepared, blocked } = await prepareRateNotifications(deps, { limit: opts.limit, maxAttempts: opts.maxAttempts });
   report.blocked = blocked;
 
   for (const msg of prepared) {
