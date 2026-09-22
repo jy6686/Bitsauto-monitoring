@@ -20,6 +20,10 @@ import { asJobList, jobCounts, filterJobs, jobClientLabel, jobProgress, type Rat
 import { COMMERCIAL_RATE_MANAGER_PATH } from "@/lib/commercial-nav";
 import { Link }                                  from "wouter";
 import {
+  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip as RcTooltip, ReferenceLine, Legend,
+} from "recharts";
+import {
   LayoutDashboard, Users, Phone, Activity, Wallet, Layers,
   BarChart2, Search, AlertTriangle, Info,
   Wifi, WifiOff, Clock, Building2,
@@ -978,6 +982,219 @@ function ProductsSection() {
 
 type ReportsTab = 'revenue' | 'traffic' | 'pnl';
 
+// ── Commercial P&L ────────────────────────────────────────────────────────────
+//
+// Executed financial results from financial_snapshot, hierarchy-scoped by the server at
+// GET /api/commercial/reports/pnl. It is rendered INSIDE the portal: the old P&L tab was two
+// cards linking to /analytics and /finance-cockpit, both admin/management-only, so for a KAM
+// they were dead ends out of the portal they were built to stay in.
+//
+// NOT a portfolio P&L, and it must never read as one. On 2026-09-22 production held 132 client
+// rows across 43 of 64 days for 6 of 33 accounts, with half the covered accounts' days missing.
+// So the coverage notice is whatever the server computed for THIS caller's scope, a day with
+// no row is a visible gap and never a $0.00 bar (connectNulls is off on purpose), and margin is
+// drawn exactly as it is — near zero and often negative today, which is the rate-card
+// duplication defect made visible, not a charting problem to smooth over.
+//
+// Never reads product_rates. That table is intent; this report is execution.
+
+interface PnlResp {
+  scopeError: string | null;
+  range:    { from: string; to: string; earliestAvailable: string | null };
+  summary:  { revenue: number; cost: number; margin: number; marginPercent: number | null; daysWithData: number; daysInRange: number };
+  coverage: { accountsWithData: number; accountsInScope: number };
+  series:   Array<{ date: string; revenue: number | null; cost: number | null; margin: number | null;
+                    marginPercent: number | null; calls: number | null; billedSeconds: number | null; accounts: number }>;
+  clients:  Array<{ accountId: string; accountName: string | null; revenue: number; cost: number; margin: number;
+                    marginPercent: number | null; calls: number | null; days: number }>;
+  notices:  { marginQuality: string; costBasis: string; coverage: string };
+}
+
+const ymd = (d: Date) => d.toISOString().slice(0, 10);
+const usd = (v: number | null | undefined) => v == null ? '—' : `$${v.toFixed(2)}`;
+const pct = (v: number | null | undefined) => v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(2)}%`;
+const shortDate = (s: string) => { const [, m, d] = s.split('-'); return `${d}/${m}`; };
+
+function PnlReport() {
+  const today = ymd(new Date());
+  const [to,   setTo]   = useState(today);
+  const [from, setFrom] = useState(ymd(new Date(Date.now() - 29 * 86_400_000)));
+
+  // The whole URL is the key: the default queryFn joins the key, and the range is the query.
+  const q = useQuery<PnlResp>({
+    queryKey:  [`/api/commercial/reports/pnl?from=${from}&to=${to}`],
+    staleTime: 60_000,
+  });
+  const d = q.data;
+  const marginTone = (v: number | null | undefined) =>
+    v == null ? 'text-muted-foreground' : v < 0 ? 'text-red-400' : 'text-emerald-400';
+
+  return (
+    <div className="space-y-4" data-testid="pnl-report">
+      {/* Controls */}
+      <div className="flex items-end justify-between flex-wrap gap-3">
+        <div>
+          <h4 className="text-sm font-semibold">P&L Report</h4>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Revenue, cost and margin from the financial snapshot · executed results, not intended prices</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <label className="text-muted-foreground">From</label>
+          <input type="date" value={from} max={to} min={d?.range.earliestAvailable ?? undefined}
+                 onChange={e => setFrom(e.target.value)} data-testid="pnl-from"
+                 className="bg-card/60 border border-border/50 rounded-md px-2 py-1 text-xs" />
+          <label className="text-muted-foreground">To</label>
+          <input type="date" value={to} min={from} max={today}
+                 onChange={e => setTo(e.target.value)} data-testid="pnl-to"
+                 className="bg-card/60 border border-border/50 rounded-md px-2 py-1 text-xs" />
+        </div>
+      </div>
+
+      {d?.scopeError && <ScopeAlertInline error={d.scopeError} />}
+      {q.isError && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-xs">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {(q.error as any)?.message ?? 'Could not load the P&L.'}
+        </div>
+      )}
+
+      {/* Notices — coverage first, because it is the one that changes what the numbers mean. */}
+      {d && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 space-y-1" data-testid="pnl-coverage-notice">
+          <div className="flex items-start gap-2 text-xs text-amber-300">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>{d.notices.coverage}</span>
+          </div>
+          <div className="flex items-start gap-2 text-[11px] text-muted-foreground/80 pl-5">{d.notices.marginQuality}</div>
+          <div className="flex items-start gap-2 text-[11px] text-muted-foreground/80 pl-5">{d.notices.costBasis}</div>
+        </div>
+      )}
+
+      {/* KPI tiles */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {[
+          { id: 'revenue', label: 'Revenue', value: usd(d?.summary.revenue), tone: 'text-violet-400' },
+          { id: 'cost',    label: 'Cost',    value: usd(d?.summary.cost),    tone: 'text-sky-400' },
+          { id: 'margin',  label: 'Margin',  value: usd(d?.summary.margin),  tone: marginTone(d?.summary.margin),
+            sub: d ? `${pct(d.summary.marginPercent)} of revenue` : undefined },
+          { id: 'days',    label: 'Days with data', tone: 'text-foreground',
+            value: d ? `${d.summary.daysWithData} / ${d.summary.daysInRange}` : '—' },
+        ].map(k => (
+          <div key={k.id} className="rounded-xl border border-border/50 bg-card/60 px-4 py-3" data-testid={`pnl-kpi-${k.id}`}>
+            <div className={`text-xl font-bold tabular-nums ${k.tone}`}>{q.isLoading ? '…' : k.value}</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-0.5">{k.label}</div>
+            {k.sub && <div className="text-[10px] text-muted-foreground/70 mt-0.5 tabular-nums">{k.sub}</div>}
+          </div>
+        ))}
+      </div>
+
+      {/* Revenue vs margin — daily. Gaps are gaps. */}
+      <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden" data-testid="pnl-chart">
+        <div className="px-4 py-3 border-b border-border/40 flex items-center justify-between">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Revenue vs Margin — Daily</span>
+          {d && d.summary.daysWithData === 0 && (
+            <span className="text-[11px] text-muted-foreground">No financial data in this period</span>
+          )}
+        </div>
+        <div className="px-2 py-3" style={{ height: 280 }}>
+          {d && d.summary.daysWithData > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={d.series} margin={{ top: 8, right: 16, bottom: 4, left: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                <XAxis dataKey="date" tickFormatter={shortDate} tick={{ fontSize: 10 }} minTickGap={18} />
+                <YAxis yAxisId="rev" tick={{ fontSize: 10 }} tickFormatter={(v: number) => `$${v}`} />
+                <YAxis yAxisId="mrg" orientation="right" tick={{ fontSize: 10 }} tickFormatter={(v: number) => `$${v}`} />
+                <RcTooltip
+                  labelFormatter={(l: any) => String(l)}
+                  formatter={(v: any, name: any) => [v == null ? 'No data' : `$${Number(v).toFixed(2)}`, name]}
+                  contentStyle={{ fontSize: 11 }}
+                />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <ReferenceLine yAxisId="mrg" y={0} stroke="rgba(248,113,113,0.6)" strokeDasharray="4 4" />
+                <Bar  yAxisId="rev" dataKey="revenue" name="Revenue" fill="rgba(167,139,250,0.55)" radius={[3, 3, 0, 0]} />
+                <Line yAxisId="mrg" dataKey="margin"  name="Margin"  stroke="rgb(52,211,153)" strokeWidth={2}
+                      dot={{ r: 2 }} connectNulls={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
+              {q.isLoading ? 'Loading…' : 'No financial data in this period.'}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Revenue by client — keyed by account id, labelled by name */}
+      <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden" data-testid="pnl-clients">
+        <div className="px-4 py-3 border-b border-border/40">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Revenue by Client</span>
+        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border/40 bg-muted/20">
+              {['Account', 'Acct ID', 'Revenue', 'Cost', 'Margin', 'Margin %', 'Days'].map(h => (
+                <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {(d?.clients ?? []).map((c, i) => (
+              <tr key={c.accountId} className={`border-b border-border/25 hover:bg-muted/20 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
+                <td className="px-3 py-2 text-xs font-medium">{c.accountName ?? '—'}</td>
+                <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">{c.accountId}</td>
+                <td className="px-3 py-2 text-xs font-semibold text-violet-400 tabular-nums">{usd(c.revenue)}</td>
+                <td className="px-3 py-2 text-xs text-sky-400 tabular-nums">{usd(c.cost)}</td>
+                <td className={`px-3 py-2 text-xs font-semibold tabular-nums ${marginTone(c.margin)}`}>{usd(c.margin)}</td>
+                <td className={`px-3 py-2 text-xs tabular-nums ${marginTone(c.marginPercent)}`}>{pct(c.marginPercent)}</td>
+                <td className="px-3 py-2 text-xs text-muted-foreground tabular-nums">{c.days}</td>
+              </tr>
+            ))}
+            {d && d.clients.length === 0 && (
+              <tr><td colSpan={7} className="text-center py-8 text-xs text-muted-foreground">No accounts in your scope have financial data in this period.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Daily detail — the auditable table under the chart. A missing day says so. */}
+      <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden" data-testid="pnl-daily-table">
+        <div className="px-4 py-3 border-b border-border/40">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Daily P&L Detail</span>
+        </div>
+        <div className="max-h-80 overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-card">
+              <tr className="border-b border-border/40 bg-muted/20">
+                {['Date', 'Revenue', 'Cost', 'Margin', 'Margin %', 'Calls', 'Billed Sec', 'Accts'].map(h => (
+                  <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(d?.series ?? []).map((p, i) => (
+                <tr key={p.date} className={`border-b border-border/25 ${i % 2 === 0 ? '' : 'bg-muted/5'} ${p.revenue == null ? 'opacity-60' : 'hover:bg-muted/20'}`}>
+                  <td className="px-3 py-1.5 font-mono text-[11px] text-muted-foreground">{p.date}</td>
+                  {p.revenue == null ? (
+                    <td colSpan={7} className="px-3 py-1.5 text-[11px] italic text-muted-foreground/70">No data</td>
+                  ) : (
+                    <>
+                      <td className="px-3 py-1.5 text-xs text-violet-400 tabular-nums">{usd(p.revenue)}</td>
+                      <td className="px-3 py-1.5 text-xs text-sky-400 tabular-nums">{usd(p.cost)}</td>
+                      <td className={`px-3 py-1.5 text-xs tabular-nums ${marginTone(p.margin)}`}>{usd(p.margin)}</td>
+                      <td className={`px-3 py-1.5 text-xs tabular-nums ${marginTone(p.marginPercent)}`}>{pct(p.marginPercent)}</td>
+                      <td className="px-3 py-1.5 text-xs text-muted-foreground tabular-nums">{p.calls ?? '—'}</td>
+                      <td className="px-3 py-1.5 text-xs text-muted-foreground tabular-nums">{p.billedSeconds ?? '—'}</td>
+                      <td className="px-3 py-1.5 text-xs text-muted-foreground tabular-nums">{p.accounts}</td>
+                    </>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReportsSection() {
   const { portfolio, kpis } = useCommercialWorkspace();
   const [tab, setTab] = useState<ReportsTab>('revenue');
@@ -1047,9 +1264,7 @@ function ReportsSection() {
           <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
             <div className="px-4 py-3 border-b border-border/40 flex items-center justify-between">
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Top Accounts by 24h Revenue</span>
-              <Link href="/revenue-heatmap" className="flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 transition-colors">
-                Full Report <ExternalLink className="w-3 h-3" />
-              </Link>
+              {/* No "Full Report" link: /revenue-heatmap is admin/management-only, a dead end for a KAM. */}
             </div>
             <table className="w-full text-sm">
               <thead>
@@ -1099,9 +1314,7 @@ function ReportsSection() {
           <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
             <div className="px-4 py-3 border-b border-border/40 flex items-center justify-between">
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Traffic by Account · Last 24h</span>
-              <Link href="/traffic-forecast" className="flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 transition-colors">
-                Forecast <ExternalLink className="w-3 h-3" />
-              </Link>
+              {/* No "Forecast" link: /traffic-forecast is admin/management-only, a dead end for a KAM. */}
             </div>
             <table className="w-full text-sm">
               <thead>
@@ -1133,67 +1346,8 @@ function ReportsSection() {
         </div>
       )}
 
-      {/* ── P&L tab ── */}
-      {tab === 'pnl' && (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-border/40 bg-muted/10 px-4 py-3 flex items-start gap-3">
-            <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-            <div className="text-xs text-muted-foreground/80 leading-relaxed">
-              Detailed P&L data — including cost, margin, and vendor breakdown — is available in the full Analytics suite.
-              Portfolio-level margin calculations require the Finance snapshot pipeline.
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {[
-              { label: 'Analytics — P&L',    desc: 'Full P&L breakdown by account, route, and vendor. Includes cost, margin, and revenue analysis.',  href: '/analytics',        icon: BarChart2,   color: 'text-emerald-400' },
-              { label: 'Finance Cockpit',     desc: 'Invoice batches, reconciliation, margin snapshots, and financial health across the portfolio.',     href: '/finance-cockpit',  icon: DollarSign,  color: 'text-violet-400'  },
-            ].map(r => (
-              <Link key={r.label} href={r.href}>
-                <div className="rounded-xl border border-border/50 bg-card/60 p-5 hover:bg-card/80 transition-colors cursor-pointer group">
-                  <r.icon className={`w-4 h-4 mb-2 ${r.color}`} />
-                  <div className="text-sm font-medium">{r.label}</div>
-                  <div className="text-xs text-muted-foreground mt-1 leading-relaxed">{r.desc}</div>
-                  <div className="flex items-center gap-1 mt-3 text-xs text-sky-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                    Open <ArrowRight className="w-3 h-3" />
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-
-          <div className="rounded-xl border border-border/50 bg-card/40 overflow-hidden">
-            <div className="px-4 py-3 border-b border-border/40">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Revenue vs Traffic — 24h Snapshot</span>
-            </div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border/40 bg-muted/20">
-                  {['Account', 'Revenue 24h', 'Calls 24h', 'Rev / Call', 'Trend'].map(h => (
-                    <th key={h} className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {byRevenue.slice(0, 10).map((a, i) => {
-                  const revPerCall = (a.calls24h ?? 0) > 0 ? (a.revenue24h ?? 0) / a.calls24h! : null;
-                  return (
-                    <tr key={a.accountId} className={`border-b border-border/25 hover:bg-muted/20 ${i % 2 === 0 ? '' : 'bg-muted/5'}`}>
-                      <td className="px-3 py-2 text-xs font-medium">{a.clientName}</td>
-                      <td className="px-3 py-2 text-xs font-semibold text-violet-400 tabular-nums">${(a.revenue24h ?? 0).toFixed(2)}</td>
-                      <td className="px-3 py-2 text-xs text-sky-400 tabular-nums">{a.calls24h ?? 0}</td>
-                      <td className="px-3 py-2 text-xs text-muted-foreground tabular-nums">
-                        {revPerCall != null ? `$${revPerCall.toFixed(3)}` : '—'}
-                      </td>
-                      <td className="px-3 py-2"><TrendIcon dir={a.trendDirection} /></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {/* ── P&L tab — rendered in the portal, not linked out of it ── */}
+      {tab === 'pnl' && <PnlReport />}
     </div>
   );
 }

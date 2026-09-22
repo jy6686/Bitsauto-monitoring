@@ -37,6 +37,7 @@ import {
 import { sharedLiveCallsCache } from './live-calls-cache';
 import { storage } from './storage';
 import { listSippyAccounts } from './sippy';
+import { shapePnl, intersectScope, parseDateRange, type PnlDailyRow, type PnlClientRow } from './services/commercial/pnl';
 
 // ── Auth guard ────────────────────────────────────────────────────────────────
 function requireAuth(req: any, res: any, next: any) {
@@ -611,6 +612,132 @@ export function registerCommercialRoutes(app: Express) {
 
     } catch (err: any) {
       console.error('[commercial/intelligence]', err.message);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/commercial/reports/pnl ──────────────────────────────────────────
+  //
+  // Revenue, cost and margin from financial_snapshot — EXECUTED results, client rows only.
+  // Never product_rates: that table is commercial INTENT, and a price that never reached the
+  // switch is not P&L. The two must not be conflated (intent-vs-execution provenance).
+  //
+  // THE QUERY RUNS IN ONE DIRECTION:
+  //   resolved Commercial scope → account ids → financial_snapshot client rows → aggregate
+  // and never: request parameters → arbitrary financial rows. `accountIds` in the query string
+  // is a FILTER over the resolved scope, intersected in intersectScope(); a foreign id is
+  // dropped silently rather than refused, because a refusal would confirm which ids exist
+  // outside the caller's scope. An intersection that empties out runs NO query — an empty
+  // ANY() must never be allowed to mean "no filter".
+  //
+  // Admins get the same contract: the same scope-bounded rows and the same coverage notice.
+  // This endpoint means "the Commercial view". The finance-complete surfaces stay where they are.
+  //
+  // Built on production evidence (2026-09-22): 132 client rows, 43 of 64 days, 6 of 33 accounts,
+  // destination NULL on every row. So: coverage is computed per request against the caller's
+  // OWN scope (a four-account KAM reads "1 of 4", never the estate's "6 of 33"); a day with no
+  // row is NULL in the series, never 0; margin % is recomputed from the sums; there is no
+  // destination breakdown. The arithmetic lives in ./services/commercial/pnl.ts and is tested
+  // without a database.
+  //
+  // Every SELECT below carries `row_type = 'client'`: vendor and aggregate rows share the table.
+  //
+  app.get('/api/commercial/reports/pnl', requireAuth, async (req: any, res: any) => {
+    try {
+      const scope = await resolveCommercialScope(req);
+      const today = new Date().toISOString().slice(0, 10);
+      const range = parseDateRange(req.query.from, req.query.to, today);
+      if (!range.ok) return res.status(400).json({ error: range.error });
+
+      const empty = (earliestAvailable: string | null) => shapePnl({
+        from: range.from, to: range.to, earliestAvailable,
+        scopeAccountIds: scope.accountIds, daily: [], clients: [],
+      });
+
+      if (scope.scopeError) {
+        // Same shape as a real answer, so the UI renders "no data" rather than breaking —
+        // and the reason travels with it.
+        return res.json({ scopeError: scope.scopeError, orgRole: scope.orgRole, ...empty(null) });
+      }
+
+      // express gives ?accountIds=a&accountIds=b as an array and ?accountIds=a as a string.
+      const raw = req.query.accountIds;
+      const requested = raw == null ? undefined
+        : Array.isArray(raw) ? raw
+        : String(raw).split(',').map(s => s.trim()).filter(Boolean);
+      const accountIds = intersectScope(requested, scope.accountIds);
+
+      if (accountIds.length === 0) {
+        return res.json({ scopeError: null, orgRole: scope.orgRole, ...empty(null) });
+      }
+
+      const params = [accountIds, range.from, range.to];
+      const [dailyQ, clientsQ, earliestQ] = await Promise.all([
+        pool.query(
+          `SELECT report_date::text                 AS date,
+                  SUM(sell_amount::numeric)::float8    AS revenue,
+                  SUM(buy_amount::numeric)::float8     AS cost,
+                  SUM(margin_amount::numeric)::float8  AS margin,
+                  SUM(calls)                           AS calls,
+                  SUM(billed_seconds)                  AS billed_seconds,
+                  COUNT(DISTINCT account_id)::int      AS accounts
+             FROM financial_snapshot
+            WHERE row_type = 'client'
+              AND account_id = ANY($1)
+              AND report_date BETWEEN $2 AND $3
+            GROUP BY 1
+            ORDER BY 1`,
+          params,
+        ),
+        pool.query(
+          `SELECT account_id,
+                  MAX(account_name)                    AS account_name,
+                  SUM(sell_amount::numeric)::float8    AS revenue,
+                  SUM(buy_amount::numeric)::float8     AS cost,
+                  SUM(margin_amount::numeric)::float8  AS margin,
+                  SUM(calls)                           AS calls,
+                  COUNT(DISTINCT report_date)::int     AS days
+             FROM financial_snapshot
+            WHERE row_type = 'client'
+              AND account_id = ANY($1)
+              AND report_date BETWEEN $2 AND $3
+            GROUP BY account_id`,
+          params,
+        ),
+        pool.query(
+          `SELECT MIN(report_date)::text AS earliest
+             FROM financial_snapshot
+            WHERE row_type = 'client'
+              AND account_id = ANY($1)`,
+          [accountIds],
+        ),
+      ]);
+
+      const num  = (v: unknown) => (v == null ? 0 : Number(v));
+      const nnum = (v: unknown) => (v == null ? null : Number(v));
+
+      const daily: PnlDailyRow[] = dailyQ.rows.map((r: any) => ({
+        date: r.date, revenue: num(r.revenue), cost: num(r.cost), margin: num(r.margin),
+        calls: nnum(r.calls), billedSeconds: nnum(r.billed_seconds), accounts: num(r.accounts),
+      }));
+      const clients: PnlClientRow[] = clientsQ.rows.map((r: any) => ({
+        accountId: String(r.account_id), accountName: r.account_name ?? null,
+        revenue: num(r.revenue), cost: num(r.cost), margin: num(r.margin),
+        calls: nnum(r.calls), days: num(r.days),
+      }));
+
+      res.json({
+        scopeError: null,
+        orgRole:    scope.orgRole,
+        ...shapePnl({
+          from: range.from, to: range.to,
+          earliestAvailable: earliestQ.rows[0]?.earliest ?? null,
+          scopeAccountIds: scope.accountIds,
+          daily, clients,
+        }),
+      });
+    } catch (err: any) {
+      console.error('[commercial/reports/pnl]', err.message);
       res.status(500).json({ error: err.message });
     }
   });
