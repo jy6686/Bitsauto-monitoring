@@ -44775,8 +44775,13 @@ ${footer}
           // durable (status 'failed', retried on the next push or boot, capped at five attempts).
           // Ships OFF — platform_feature_flags.rate_notifications_auto — and when off this is one
           // flag read and nothing sent. See services/rates/rate-notification-auto.ts.
+          //
+          // SCOPED TO THIS JOB. The drain used to take the oldest pending row in the system, so a
+          // push for one account delivered another account's days-old notice (2026-09-22). The
+          // backlog belongs to the boot drain, which logs each row as backlog; a push sends only
+          // what it just recorded.
           const { drainRateNotifications } = await import('./services/rates/rate-notification-auto');
-          await drainRateNotifications('push');
+          await drainRateNotifications('push', { jobId });
         } catch (e: any) {
           console.warn(`[push-batch] could not record notification obligations (${e?.message ?? e}) — ` +
                        `recovery will re-derive them from the operation records`);

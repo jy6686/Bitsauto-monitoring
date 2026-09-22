@@ -99,7 +99,7 @@ describe('runAutoDrain', () => {
 
   it('flag absent: the worker is never called, and the outcome says so', async () => {
     const deliver = vi.fn(async () => okReport);
-    const out = await runAutoDrain(deps({ readFlag: async () => null, deliver }), 'push');
+    const out = await runAutoDrain(deps({ readFlag: async () => null, deliver }), 'push', { jobId: 'job-1' });
     expect(deliver).not.toHaveBeenCalled();
     expect(out).toEqual({ reason: 'push', enabled: false, report: null });
   });
@@ -118,11 +118,11 @@ describe('runAutoDrain', () => {
    */
   it('flag true: the worker runs once with enabled:true, the injected deps, and the cap', async () => {
     const deliver = vi.fn(async () => okReport);
-    const out = await runAutoDrain(deps({ readFlag: async () => ({ enabled: true }), deliver }), 'push');
+    const out = await runAutoDrain(deps({ readFlag: async () => ({ enabled: true }), deliver }), 'push', { jobId: 'job-1' });
     expect(deliver).toHaveBeenCalledOnce();
     const [passedDeps, opts] = deliver.mock.calls[0] as any[];
     expect(passedDeps).toBe(workerDeps);
-    expect(opts).toEqual({ enabled: true, limit: DRAIN_LIMIT, maxAttempts: MAX_DELIVERY_ATTEMPTS });
+    expect(opts).toEqual({ enabled: true, limit: DRAIN_LIMIT, maxAttempts: MAX_DELIVERY_ATTEMPTS, jobId: 'job-1' });
     expect(out).toEqual({ reason: 'push', enabled: true, report: okReport });
   });
 
@@ -138,15 +138,16 @@ describe('runAutoDrain', () => {
     const out = await runAutoDrain(deps({
       readFlag: async () => ({ enabled: true }),
       deliver:  vi.fn(async () => { throw new Error('transport exploded'); }),
-    }), 'push');
+    }), 'push', { jobId: 'job-1' });
     expect(out).toMatchObject({ report: null, error: 'transport exploded' });
   });
 
   it('logs the reason and the outcome, so the deployment logs can be grepped for it', async () => {
     const lines: string[] = [];
-    await runAutoDrain(deps({ readFlag: async () => ({ enabled: true }), log: l => lines.push(l) }), 'push');
+    await runAutoDrain(deps({ readFlag: async () => ({ enabled: true }), log: l => lines.push(l) }), 'push', { jobId: 'job-1' });
     await runAutoDrain(deps({ readFlag: async () => null, log: l => lines.push(l) }), 'boot');
-    expect(lines[0]).toMatch(/^\[rate-notify\] push: attempted 2, sent 2, failed 0/);
-    expect(lines[1]).toMatch(/^\[rate-notify\] boot: automatic delivery is OFF/);
+    // The scope is in the line: a push names its job, boot says backlog.
+    expect(lines[0]).toMatch(/^\[rate-notify\] push job-1: attempted 2, sent 2, failed 0/);
+    expect(lines[1]).toMatch(/^\[rate-notify\] boot \(backlog\): automatic delivery is OFF/);
   });
 });

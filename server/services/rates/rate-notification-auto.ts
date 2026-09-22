@@ -61,6 +61,24 @@ export const RATE_NOTIFICATION_FROM = {
 export type DrainReason = 'push' | 'boot';
 
 /**
+ * WHAT A DRAIN IS ALLOWED TO SEE.
+ *
+ * A push drains ITS OWN obligations and nothing else. On 2026-09-22 a First Class push for one
+ * account ran the drain, the drain took the oldest pending row in the system, and a different
+ * account received a four-day-old Business Class notice — from a push that had nothing to do
+ * with it. The push knew its job id the whole time; the drain was never told.
+ *
+ * So a push-triggered drain REQUIRES the job id and delivers only that job's rows; a push that
+ * arrives without one is refused, not widened. The boot drain is the one place the backlog is
+ * legitimately delivered — a restart is exactly the moment older obligations are found — and
+ * every row it sends is logged with the obligation's own job and creation time, so a backlog
+ * send is visible as a backlog send.
+ */
+export interface DrainOptions {
+  jobId?: string;
+}
+
+/**
  * The flag decides. Only a literal `true` enables — not a missing row, not a string, not 1 —
  * because "we could not read the flag" must never read as "on".
  */
@@ -109,18 +127,39 @@ export interface AutoDrainOutcome {
 }
 
 /** The drain, with every dependency injected so it can be proven without a database or SMTP. */
-export async function runAutoDrain(deps: AutoDrainDeps, reason: DrainReason): Promise<AutoDrainOutcome> {
+export async function runAutoDrain(
+  deps: AutoDrainDeps, reason: DrainReason, opts: DrainOptions = {},
+): Promise<AutoDrainOutcome> {
   const log = deps.log ?? ((l: string) => console.log(l));
   try {
+    // Decided BEFORE the flag is read: a push with no job id is a wiring defect, and the safe
+    // answer to a wiring defect is to send nothing — not to send everything.
+    if (reason === 'push' && !opts.jobId) {
+      const error = 'push-triggered drain called without a jobId; refusing to drain the backlog';
+      log(`[rate-notify] push: ${error}`);
+      return { reason, enabled: false, report: null, error };
+    }
+    const scope = reason === 'push' ? `push ${opts.jobId}` : 'boot (backlog)';
+
     const enabled = shouldAutoDeliver(await deps.readFlag());
     if (!enabled) {
-      log(`[rate-notify] ${reason}: automatic delivery is OFF (${RATE_NOTIFICATIONS_AUTO_FLAG}); obligations recorded, nothing sent`);
+      log(`[rate-notify] ${scope}: automatic delivery is OFF (${RATE_NOTIFICATIONS_AUTO_FLAG}); obligations recorded, nothing sent`);
       return { reason, enabled: false, report: null };
     }
     const report = await deps.deliver(deps.workerDeps, {
       enabled: true, limit: DRAIN_LIMIT, maxAttempts: MAX_DELIVERY_ATTEMPTS,
+      ...(reason === 'push' ? { jobId: opts.jobId } : {}),
     });
-    log(`[rate-notify] ${reason}: attempted ${report.attempted}, sent ${report.sent}, failed ${report.failed}, ` +
+    // One line per delivery, naming the obligation's OWN job and age. "sent 1" beside a push
+    // is not evidence of anything; "sent obligation 3 of job-…881944, frozen 2026-09-19, to
+    // aura" is.
+    for (const d of report.deliveries ?? []) {
+      const own = reason === 'push' && d.jobId === opts.jobId ? 'this push' : 'BACKLOG';
+      log(`[rate-notify] ${scope}: ${d.ok ? 'sent' : 'FAILED'} obligation ${d.obligationId} ` +
+          `(${own}: ${d.jobId}, frozen ${d.createdAt ?? 'unknown'}) → ${d.clientName} <${d.to.join(', ')}>` +
+          `${d.ok ? '' : ` — ${d.error}`}`);
+    }
+    log(`[rate-notify] ${scope}: attempted ${report.attempted}, sent ${report.sent}, failed ${report.failed}, ` +
         `blocked ${report.blocked.length}${report.blocked.length ? ' — ' + report.blocked.map(b => `${b.clientName}: ${b.reason}`).join('; ') : ''}`);
     return { reason, enabled: true, report };
   } catch (e: any) {
@@ -151,9 +190,12 @@ export function productionDrainDeps(): AutoDrainDeps {
   };
 }
 
-/** After a push (called inside push-batch's failure boundary) or on boot. Never throws. */
-export function drainRateNotifications(reason: DrainReason): Promise<AutoDrainOutcome> {
-  return runAutoDrain(productionDrainDeps(), reason);
+/**
+ * After a push (called inside push-batch's failure boundary, WITH that push's job id) or on
+ * boot. Never throws.
+ */
+export function drainRateNotifications(reason: DrainReason, opts: DrainOptions = {}): Promise<AutoDrainOutcome> {
+  return runAutoDrain(productionDrainDeps(), reason, opts);
 }
 
 /** Wired from server/index.ts beside reconcileOrphanedRatePushesOnBoot. */

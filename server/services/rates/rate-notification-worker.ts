@@ -42,6 +42,8 @@ export interface PreparedMessage {
   html: string;
   attachment: { filename: string; content: Buffer; contentType: string; cid: string } | null;
   rowCount: number;
+  /** When the obligation was frozen. Carried so a delivery can be logged as current or backlog. */
+  createdAt: string | null;
 }
 
 export interface PreparationReport {
@@ -73,13 +75,14 @@ const isoDay = () => new Date().toISOString().slice(0, 10);
  */
 export async function prepareRateNotifications(
   deps: RateWorkerDeps,
-  opts: { limit?: number; maxAttempts?: number } = {},
+  /** `jobId` narrows the pass to one push's obligations; absent, the pass is the whole backlog. */
+  opts: { limit?: number; maxAttempts?: number; jobId?: string } = {},
 ): Promise<PreparationReport> {
   const prepared: PreparedMessage[] = [];
   const blocked: PreparationReport['blocked'] = [];
   const issueDate = (deps.today ?? isoDay)();
 
-  for (const owed of await pendingRateNotifications(deps.db, opts.limit ?? 50, opts.maxAttempts)) {
+  for (const owed of await pendingRateNotifications(deps.db, opts.limit ?? 50, opts.maxAttempts, opts.jobId)) {
     // By the Sippy account the push targeted, not by name — see the resolver's comment.
     const recipients = await resolveRateRecipientsForObligation(deps.db, { jobId: owed.jobId, clientName: owed.clientName });
     if ('error' in recipients) {
@@ -147,10 +150,22 @@ export async function prepareRateNotifications(
       // Shipped with the message, because the header's cid: resolves only if it is attached.
       attachment: rateNotificationLogoAttachment(),
       rowCount: rows.length,
+      createdAt: owed.createdAt,
     });
   }
 
   return { prepared, blocked };
+}
+
+/** One delivery attempt, as it happened — enough for a log line that names the obligation. */
+export interface DeliveryRecord {
+  obligationId: number;
+  jobId: string;
+  clientName: string;
+  createdAt: string | null;
+  to: string[];
+  ok: boolean;
+  error?: string;
 }
 
 export interface DeliveryReport {
@@ -158,6 +173,12 @@ export interface DeliveryReport {
   sent: number;
   failed: number;
   blocked: PreparationReport['blocked'];
+  /**
+   * Every attempt, in order. The counts above say how many; this says WHICH — so a drain that
+   * sent a four-day-old obligation can be read as exactly that in the deployment log, rather
+   * than as "sent 1" beside a push that had nothing to do with it.
+   */
+  deliveries: DeliveryRecord[];
   /** True when the pass ran with delivery disabled and therefore sent nothing. */
   disabled: boolean;
 }
@@ -172,16 +193,19 @@ export interface DeliveryReport {
  */
 export async function deliverRateNotifications(
   deps: RateWorkerDeps,
-  opts: { enabled?: boolean; limit?: number; maxAttempts?: number } = {},
+  /** `jobId` scopes delivery to one push. A push-triggered caller must always pass it. */
+  opts: { enabled?: boolean; limit?: number; maxAttempts?: number; jobId?: string } = {},
 ): Promise<DeliveryReport> {
-  const report: DeliveryReport = { attempted: 0, sent: 0, failed: 0, blocked: [], disabled: false };
+  const report: DeliveryReport = { attempted: 0, sent: 0, failed: 0, blocked: [], deliveries: [], disabled: false };
 
   if (opts.enabled !== true || !deps.send) {
     report.disabled = true;
     return report;
   }
 
-  const { prepared, blocked } = await prepareRateNotifications(deps, { limit: opts.limit, maxAttempts: opts.maxAttempts });
+  const { prepared, blocked } = await prepareRateNotifications(deps, {
+    limit: opts.limit, maxAttempts: opts.maxAttempts, jobId: opts.jobId,
+  });
   report.blocked = blocked;
 
   for (const msg of prepared) {
@@ -194,6 +218,11 @@ export async function deliverRateNotifications(
     } catch (e: any) {
       result = { ok: false, error: String(e?.message ?? e) };
     }
+    report.deliveries.push({
+      obligationId: msg.obligationId, jobId: msg.jobId, clientName: msg.clientName,
+      createdAt: msg.createdAt, to: msg.to, ok: result.ok === true,
+      ...(result.ok ? {} : { error: result.error ?? 'send failed' }),
+    });
 
     if (result.ok) {
       await deps.db.execute(sql`

@@ -181,20 +181,33 @@ export async function pendingRateNotifications(
    * `failed` with its `last_error` — surfaced, not lost.
    */
   maxAttempts?: number,
+  /**
+   * Only this push's obligations. Without it the list is the whole backlog, oldest first — which
+   * is what a push-triggered drain must NEVER see: on 2026-09-22 a First Class push for one
+   * account delivered another account's four-day-old Business Class notice, because the drain
+   * that ran after the push had no idea which push it was running for. A push is scoped to
+   * itself; only the boot drain is allowed the backlog, and it says so in its log.
+   */
+  jobId?: string,
 ): Promise<Array<{
   id: number; jobId: string; clientName: string; productLabel: string;
   notificationType: string; rows: any[]; dialFormat: string | null; attempts: number;
+  /** When the obligation was frozen — so a backlog send can be seen for what it is. */
+  createdAt: string | null;
 }>> {
   return rows(await db.execute(sql`
-    SELECT id, job_id, client_name, product_label, notification_type, rows_json, dial_format, attempts
+    SELECT id, job_id, client_name, product_label, notification_type, rows_json, dial_format, attempts, created_at
       FROM rate_push_notifications
      WHERE status IN ('pending', 'failed')
        ${maxAttempts != null ? sql`AND attempts < ${maxAttempts}` : sql``}
+       ${jobId != null ? sql`AND job_id = ${jobId}` : sql``}
      ORDER BY created_at
      LIMIT ${limit}`)).map((r: any) => ({
     id: Number(r.id), jobId: String(r.job_id), clientName: String(r.client_name),
     productLabel: String(r.product_label), notificationType: String(r.notification_type),
     rows: typeof r.rows_json === 'string' ? JSON.parse(r.rows_json) : r.rows_json,
     dialFormat: r.dial_format ?? null, attempts: Number(r.attempts),
+    createdAt: r.created_at == null ? null
+      : (r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at)),
   }));
 }

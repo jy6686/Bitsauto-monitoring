@@ -32,7 +32,7 @@ const BLOCK = (() => {
 
 describe('the post-push drain sits inside the failure-isolation boundary', () => {
   it('push-batch drains after creating obligations', () => {
-    expect(BLOCK.text).toContain("drainRateNotifications('push')");
+    expect(BLOCK.text).toContain("drainRateNotifications('push', { jobId })");
   });
 
   /**
@@ -40,7 +40,7 @@ describe('the post-push drain sits inside the failure-isolation boundary', () =>
    * left over from LAST time and miss this push.
    */
   it('the drain comes AFTER createObligationsForPush', () => {
-    const drain = ROUTES.indexOf("drainRateNotifications('push')");
+    const drain = ROUTES.indexOf("drainRateNotifications('push', { jobId })");
     expect(drain).toBeGreaterThan(BLOCK.create);
   });
 
@@ -49,7 +49,7 @@ describe('the post-push drain sits inside the failure-isolation boundary', () =>
    * must not turn a successful switch write into an error response and invite a retry.
    */
   it('the drain is inside the try whose failure is swallowed', () => {
-    const drain = ROUTES.indexOf("drainRateNotifications('push')");
+    const drain = ROUTES.indexOf("drainRateNotifications('push', { jobId })");
     expect(drain).toBeGreaterThan(BLOCK.tryStart);
     expect(drain).toBeLessThan(BLOCK.catchAt);
   });
@@ -57,6 +57,17 @@ describe('the post-push drain sits inside the failure-isolation boundary', () =>
   it('is imported from the auto module, not re-implemented inline', () => {
     expect(BLOCK.text).toMatch(/import\('\.\/services\/rates\/rate-notification-auto'\)/);
     expect(BLOCK.text).not.toMatch(/deliverRateNotifications\(/);
+  });
+
+  /**
+   * SCOPE. The push hands the drain ITS job id, and nowhere in routes.ts is a push drain called
+   * without one. A bare `drainRateNotifications('push')` is the exact call that delivered one
+   * account's backlog after another account's push on 2026-09-22.
+   */
+  it('the push drain carries the push\'s own jobId, and no unscoped push drain exists anywhere', () => {
+    expect(BLOCK.text).toContain("drainRateNotifications('push', { jobId })");
+    expect(ROUTES).not.toMatch(/drainRateNotifications\('push'\)/);
+    expect(ROUTES).not.toMatch(/drainRateNotifications\('push',\s*\{\s*\}\s*\)/);
   });
 });
 
@@ -116,7 +127,9 @@ describe('the attempts cap reaches the query', () => {
   });
 
   it('the worker forwards it to pendingRateNotifications', () => {
-    expect(WORKER).toMatch(/pendingRateNotifications\(deps\.db,\s*opts\.limit \?\? 50,\s*opts\.maxAttempts\)/);
+    // …including the scope, which is the fourth argument: a worker that forwarded the cap but
+    // dropped the job id would be the 2026-09-22 drain again, one layer down.
+    expect(WORKER).toMatch(/pendingRateNotifications\(deps\.db,\s*opts\.limit \?\? 50,\s*opts\.maxAttempts,\s*opts\.jobId\)/);
     expect(WORKER).toMatch(/maxAttempts:\s*opts\.maxAttempts/);
   });
 
