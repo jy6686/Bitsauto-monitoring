@@ -40,7 +40,8 @@ beforeAll(async () => {
   client = await PGlite.create();
   db = drizzle(client);
   await client.exec(`
-    CREATE TABLE companies (id SERIAL PRIMARY KEY, name VARCHAR(256) UNIQUE NOT NULL, account_prefix VARCHAR(32));
+    CREATE TABLE companies (id SERIAL PRIMARY KEY, name VARCHAR(256) UNIQUE NOT NULL, account_prefix VARCHAR(32),
+      sippy_i_account INTEGER);
     CREATE TABLE company_contacts (id SERIAL PRIMARY KEY, company_id INTEGER NOT NULL,
       contact_type VARCHAR(32) NOT NULL, email VARCHAR(320));
     CREATE TABLE rate_push_jobs (job_id VARCHAR(64) PRIMARY KEY);
@@ -49,7 +50,10 @@ beforeAll(async () => {
       sequence INTEGER NOT NULL, account_name VARCHAR(160) NOT NULL, product_name VARCHAR(64),
       trunk_prefix VARCHAR(8), dial_prefix VARCHAR(64), full_prefix VARCHAR(32) NOT NULL,
       destination_name VARCHAR(256), requested_rate NUMERIC(18,6), status VARCHAR(24) NOT NULL,
-      refused_before_write BOOLEAN);`);
+      refused_before_write BOOLEAN,
+      -- migration 511 records the Sippy account each operation targeted; the recipient
+      -- resolver reads it so a notification is addressed by identity, not by name.
+      i_account INTEGER);`);
   await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '518_rate_push_notifications.sql'), 'utf8'));
 });
 afterAll(async () => { await client?.close(); });

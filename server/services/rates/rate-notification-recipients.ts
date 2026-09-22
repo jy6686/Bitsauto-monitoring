@@ -103,3 +103,62 @@ export async function resolveRateRecipientsByName(
   if (!row) return { error: `No company named "${companyName}".` };
   return resolveRateNotificationRecipients(db, Number(row.id));
 }
+
+/**
+ * Resolve recipients for an OBLIGATION by the Sippy account its push actually targeted —
+ * identity, not a name.
+ *
+ * An obligation's `client_name` is the Sippy account USERNAME the push was made against. That
+ * is not a company name: `1gloabl` is the username for the company named `1global`, and the
+ * name lookup above found nothing and blocked a real customer's notification. It is not the
+ * short code either — provisioning derives usernames from a slug of the name unless one was
+ * typed in. Matching on any of those is a heuristic, and a wrong match here mails one
+ * customer's prices to another customer's contacts.
+ *
+ * The exact identity is already recorded: every operation row carries `i_account`
+ * (migration 511). So: obligation → its own push's operation rows → the account id → the
+ * company that owns that account → recipients by company id. The name is used only to pick
+ * rows INSIDE the push's own record, never to find a company.
+ *
+ * REFUSES ON ANY AMBIGUITY, and never picks the lowest id. Two companies claim account 76 in
+ * production; `getCompanyBySippyAccount` resolves that to the lowest id for display, which is
+ * fine for a label and not fine for who receives a rate sheet.
+ *
+ * FALLS BACK TO THE NAME LOOKUP ONLY WHEN NO ID WAS RECORDED — obligations whose push predates
+ * the id being stored, or whose operation rows are gone. That is today's behaviour, kept so the
+ * change can only add resolutions, never remove one that works.
+ */
+export async function resolveRateRecipientsForObligation(
+  db: RecipientQueryable,
+  obligation: { jobId: string; clientName: string },
+): Promise<RateRecipients | { error: string }> {
+  const { jobId, clientName } = obligation;
+
+  const ids = rows(await db.execute(sql`
+    SELECT DISTINCT i_account
+      FROM rate_push_operations
+     WHERE job_id = ${jobId}
+       AND LOWER(account_name) = LOWER(${clientName})
+       AND i_account IS NOT NULL`))
+    .map((r: any) => Number(r.i_account))
+    .filter((n: number) => Number.isInteger(n) && n > 0);
+
+  if (ids.length > 1) {
+    return { error: `Push ${jobId} recorded ${ids.length} different Sippy accounts (${ids.join(', ')}) under "${clientName}" — refusing to pick one.` };
+  }
+  if (ids.length === 0) {
+    return resolveRateRecipientsByName(db, clientName);
+  }
+
+  const accountId = ids[0];
+  const owners = rows(await db.execute(sql`
+    SELECT id, name FROM companies WHERE sippy_i_account = ${accountId} ORDER BY id`));
+
+  if (owners.length === 0) {
+    return { error: `No company is linked to Sippy account ${accountId} ("${clientName}"). Link the account to its company in Rate Manager; a rate sheet is not addressed by name.` };
+  }
+  if (owners.length > 1) {
+    return { error: `Sippy account ${accountId} ("${clientName}") is claimed by ${owners.length} companies (${owners.map((c: any) => `#${c.id} "${c.name}"`).join(', ')}) — refusing to pick one. Fix the duplicate claim in Rate Manager.` };
+  }
+  return resolveRateNotificationRecipients(db, Number(owners[0].id));
+}

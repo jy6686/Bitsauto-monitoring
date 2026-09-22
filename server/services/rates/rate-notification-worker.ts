@@ -23,7 +23,7 @@ import {
   pendingRateNotifications, type ObligationDb,
 } from './post-push-obligation';
 import {
-  resolveRateRecipientsByName, type RecipientQueryable,
+  resolveRateRecipientsForObligation, type RecipientQueryable,
 } from './rate-notification-recipients';
 import {
   renderRateNotification, subjectForRateNotification, rateNotificationLogoAttachment,
@@ -80,7 +80,8 @@ export async function prepareRateNotifications(
   const issueDate = (deps.today ?? isoDay)();
 
   for (const owed of await pendingRateNotifications(deps.db, opts.limit ?? 50, opts.maxAttempts)) {
-    const recipients = await resolveRateRecipientsByName(deps.db, owed.clientName);
+    // By the Sippy account the push targeted, not by name — see the resolver's comment.
+    const recipients = await resolveRateRecipientsForObligation(deps.db, { jobId: owed.jobId, clientName: owed.clientName });
     if ('error' in recipients) {
       blocked.push({ obligationId: owed.id, clientName: owed.clientName, reason: recipients.error });
       continue;
