@@ -36,6 +36,8 @@ const rows = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
 export const RATE_NOTIFICATION_CONTACT_TYPES = ['commercial', 'rates'] as const;
 
 export interface RateRecipients {
+  /** The company the recipients belong to — so a caller can read more of its record if it must. */
+  companyId: number;
   companyName: string;
   accountPrefix: string;
   emails: string[];
@@ -79,6 +81,7 @@ export async function resolveRateNotificationRecipients(
   )) as string[];
 
   return {
+    companyId: Number(companyId),
     companyName: String(company.name),
     accountPrefix: String(company.account_prefix ?? ''),
     emails,

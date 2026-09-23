@@ -277,6 +277,49 @@ export async function sendDirectEmailWithAttachment(opts: {
   }
 }
 
+/** One file on an outgoing message. `cid` makes it inline (`<img src="cid:...">`). */
+export interface OutgoingAttachment {
+  filename: string;
+  content: Buffer | string;
+  contentType: string;
+  cid?: string;
+}
+
+/**
+ * Send one email carrying SEVERAL attachments — the automatic rate notification needs the inline
+ * logo AND the rate sheet on the same message. The singular function above is unchanged for its
+ * existing callers; this one is the same transport with a list.
+ */
+export async function sendDirectEmailWithAttachments(opts: {
+  to: string;
+  subject: string;
+  html: string;
+  fromName?: string;
+  fromAddress?: string;
+  attachments: OutgoingAttachment[];
+}): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const conn = await getTransporter();
+    if (!conn) return { ok: false, error: senderNotConfiguredMessage(describeEmailSender(await storage.getSettings())) };
+    const fromAddr = opts.fromAddress ?? conn.from;
+    await conn.transporter.sendMail({
+      from: `"${opts.fromName ?? 'Bitsauto Monitoring'}" <${fromAddr}>`,
+      to: opts.to,
+      subject: opts.subject,
+      html: opts.html,
+      attachments: opts.attachments.map(a => ({
+        filename: a.filename, content: a.content, contentType: a.contentType,
+        ...(a.cid ? { cid: a.cid } : {}),
+      })),
+    });
+    console.log(`[email] Attachments send: ${opts.subject} → ${opts.to} (${opts.attachments.map(a => a.filename).join(', ')})`);
+    return { ok: true };
+  } catch (err: any) {
+    console.error(`[email] Attachments send failed → ${opts.to}: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+}
+
 /**
  * Send a single email directly to a specific address.
  * Used by the Email Centre bulk-send feature.

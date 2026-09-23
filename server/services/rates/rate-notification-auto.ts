@@ -41,7 +41,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../../db';
 import { platformFeatureFlags } from '../../../shared/schema';
-import { sendDirectEmail, sendDirectEmailWithAttachment } from '../../email';
+import { sendDirectEmail, sendDirectEmailWithAttachment, sendDirectEmailWithAttachments } from '../../email';
 import {
   deliverRateNotifications,
   type RateWorkerDeps, type DeliveryReport, type SendResult,
@@ -92,6 +92,14 @@ export interface Transports {
   withAttachment: (opts: {
     to: string; subject: string; html: string; fromName?: string; fromAddress?: string; attachment: any;
   }) => Promise<SendResult>;
+  /**
+   * Several files on one message: the inline logo AND the rate sheet. Optional so the two
+   * existing transports keep working alone; without it a message with a sheet still goes out,
+   * carrying the sheet as its single attachment rather than dropping it.
+   */
+  withAttachments?: (opts: {
+    to: string; subject: string; html: string; fromName?: string; fromAddress?: string; attachments: any[];
+  }) => Promise<SendResult>;
   plain: (opts: {
     to: string; subject: string; html: string; fromName?: string; fromAddress?: string;
   }) => Promise<SendResult>;
@@ -100,13 +108,23 @@ export interface Transports {
 /**
  * Wrap the platform's existing email path into the shape the worker expects, stamping the
  * rates identity on every message. The worker owns the try/catch around the send; this only
- * chooses the transport (with or without the logo attachment) and forwards.
+ * chooses the transport and forwards.
+ *
+ * Which transport: a list of two or more files → the plural one; exactly one file (or only the
+ * legacy single `attachment`) → the singular one; none → plain. The rate sheet is never the file
+ * that gets dropped: when a list exists but no plural transport does, the LAST file in the list
+ * is sent — and the worker puts the sheet last, after the logo, for exactly that reason.
  */
 export function buildRateNotificationSender(transports: Transports): WorkerSend {
   return async (msg) => {
     const base = { to: msg.to, subject: msg.subject, html: msg.html, ...RATE_NOTIFICATION_FROM };
-    return msg.attachment
-      ? transports.withAttachment({ ...base, attachment: msg.attachment })
+    const list = (msg.attachments ?? []).filter(Boolean);
+    if (list.length > 1 && transports.withAttachments) {
+      return transports.withAttachments({ ...base, attachments: list });
+    }
+    const single = list.length ? list[list.length - 1] : msg.attachment;
+    return single
+      ? transports.withAttachment({ ...base, attachment: single })
       : transports.plain(base);
   };
 }
@@ -184,6 +202,7 @@ export function productionDrainDeps(): AutoDrainDeps {
       db:   db as any,
       send: buildRateNotificationSender({
         withAttachment: sendDirectEmailWithAttachment,
+        withAttachments: sendDirectEmailWithAttachments,
         plain:          sendDirectEmail,
       }),
     },

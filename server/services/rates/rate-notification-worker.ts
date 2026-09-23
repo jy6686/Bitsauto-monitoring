@@ -30,6 +30,11 @@ import {
   type RateChangeRow, type NotificationKind,
 } from './rate-notification-render';
 import { sql } from 'drizzle-orm';
+// The sheet is built from the frozen rows and nothing else — see the module's own comment.
+import { buildFrozenRateSheetAttachment } from './frozen-rate-sheet';
+
+/** drizzle returns rows differently per driver; both shapes are read the same way here. */
+const rowsOf = (r: any): any[] => (Array.isArray(r) ? r : (r?.rows ?? []));
 
 export interface PreparedMessage {
   obligationId: number;
@@ -41,6 +46,12 @@ export interface PreparedMessage {
   subject: string;
   html: string;
   attachment: { filename: string; content: Buffer; contentType: string; cid: string } | null;
+  /**
+   * Everything that travels with the message: the inline logo (when the file exists) and then
+   * the rate sheet, built from the frozen rows. Sheet LAST, so a transport that can carry only
+   * one file carries the sheet.
+   */
+  attachments: Array<{ filename: string; content: Buffer; contentType: string; cid?: string }>;
   rowCount: number;
   /** When the obligation was frozen. Carried so a delivery can be logged as current or backlog. */
   createdAt: string | null;
@@ -60,9 +71,17 @@ export interface RateWorkerDeps {
    * The platform's existing email path. No default, deliberately: the worker must be GIVEN a
    * transport rather than acquiring one by importing it, so nothing can send by accident.
    */
-  send?: (msg: { to: string; subject: string; html: string; attachment?: any }) => Promise<SendResult>;
+  send?: (msg: {
+    to: string; subject: string; html: string;
+    /** The inline logo, kept for the singular transport. */
+    attachment?: any;
+    /** Everything on the message, logo first, rate sheet last. */
+    attachments?: any[];
+  }) => Promise<SendResult>;
   /** Injected so the notice's issue date does not depend on the machine that ran the worker. */
   today?: () => string;
+  /** Injected for the same reason: the sheet header's send time and the filename stamp. */
+  now?: () => Date;
 }
 
 const isoDay = () => new Date().toISOString().slice(0, 10);
@@ -138,6 +157,36 @@ export async function prepareRateNotifications(
       continue;
     }
 
+    // THE SHEET, from the same frozen rows as the table above, so the two cannot disagree.
+    // The KAM name is a header nicety read best-effort from the company record; its absence
+    // must never block a notice, so the read is guarded and an unreadable name is blank.
+    let kamName = '';
+    try {
+      const [c] = rowsOf(await deps.db.execute(sql`SELECT kam FROM companies WHERE id = ${recipients.companyId}`));
+      kamName = String(c?.kam ?? '').trim();
+    } catch { kamName = ''; }
+
+    let sheet: { filename: string; content: Buffer; contentType: string };
+    try {
+      sheet = await buildFrozenRateSheetAttachment({
+        companyName: recipients.companyName,
+        productLabel: owed.productLabel,
+        accountPrefix: recipients.accountPrefix,
+        kamName,
+        issueDate,
+        rows: (owed.rows ?? []) as any[],
+        sentAt: deps.now?.() ?? new Date(),
+      });
+    } catch (e: any) {
+      // A notice without its sheet is an incomplete notice. Blocked, not sent bare: the
+      // obligation stays owed and the next drain tries again.
+      blocked.push({ obligationId: owed.id, clientName: owed.clientName, reason: `Rate sheet could not be built: ${String(e?.message ?? e)}` });
+      continue;
+    }
+
+    // Shipped with the message, because the header's cid: resolves only if it is attached.
+    const logo = rateNotificationLogoAttachment();
+
     prepared.push({
       obligationId: owed.id,
       jobId: owed.jobId,
@@ -147,8 +196,9 @@ export async function prepareRateNotifications(
       to: recipients.emails,
       subject: subjectForRateNotification(view),
       html,
-      // Shipped with the message, because the header's cid: resolves only if it is attached.
-      attachment: rateNotificationLogoAttachment(),
+      attachment: logo,
+      // Logo first, sheet LAST — a single-file transport keeps the last one.
+      attachments: [...(logo ? [logo] : []), sheet],
       rowCount: rows.length,
       createdAt: owed.createdAt,
     });
@@ -213,7 +263,8 @@ export async function deliverRateNotifications(
     let result: SendResult;
     try {
       result = await deps.send({
-        to: msg.to.join(', '), subject: msg.subject, html: msg.html, attachment: msg.attachment,
+        to: msg.to.join(', '), subject: msg.subject, html: msg.html,
+        attachment: msg.attachment, attachments: msg.attachments,
       });
     } catch (e: any) {
       result = { ok: false, error: String(e?.message ?? e) };
