@@ -4579,7 +4579,9 @@ export const ratePushJobs = pgTable("rate_push_jobs", {
   productName:        varchar("product_name",       { length: 64  }),
   trunkPrefix:        varchar("trunk_prefix",       { length: 8   }),
   format:             varchar("format",             { length: 16  }).default("full"),
-  rateType:           varchar("rate_type",          { length: 16  }).default("current"),
+  // Migration 527 widened this to 64. It had been declared 16 while both live databases were
+  // already 64 by drift, and `change-client-rate` — written by the Rate Analysis route — is 18.
+  rateType:           varchar("rate_type",          { length: 64  }).default("current"),
   totalClients:       integer("total_clients").default(0),
   pushedClients:      integer("pushed_clients").default(0),
   failedClients:      integer("failed_clients").default(0),
@@ -4601,6 +4603,12 @@ export const ratePushJobs = pgTable("rate_push_jobs", {
   // Migration 525. The client's own id for a submit: a repeat is answered with this job, and a
   // lost response is recovered by looking the job up here. Nullable — legacy callers send none.
   clientRequestId:    varchar("client_request_id",  { length: 64  }),
+  // Migration 527. The SUBMISSION this job belongs to — one Send Rate submit becomes N sibling
+  // jobs, one per account, sharing this id so they can be polled and reported together while
+  // succeeding or failing separately. Distinct from `clientRequestId` above, which is the
+  // caller's own idempotency key and is UNIQUE. Nullable: every job submitted before submissions
+  // had identity keeps NULL, and is never backfilled.
+  requestId:          varchar("request_id",         { length: 64  }),
   errorMessage:       text("error_message"),
   // ── Diagnostic fields (Phase A/C/E of Task #327) ───────────────────────────
   switchName:         varchar("switch_name",        { length: 128 }),
