@@ -60,6 +60,26 @@ export interface CreateResult {
 export const NON_NOTIFYING_RATE_TYPES = ['change-client-rate'] as const;
 
 /**
+ * The exclusion as a SQL PREDICATE — present only when there is something to exclude.
+ *
+ * An empty list omits the clause rather than rendering `NOT IN ()`, which is a syntax error: it
+ * would take down the entire recovery sweep, not merely stop excluding. That case is not
+ * hypothetical. Emptying NON_NOTIFYING_RATE_TYPES is exactly how this route is documented to
+ * START announcing, so the next decision anyone makes here must not arrive as a broken query.
+ *
+ * An empty list means "every rate type is notification-eligible", and this renders precisely
+ * that. Exported and parameterised so the test can exercise the empty case against a real
+ * database — a test asserting on a re-written copy of this SQL would prove only that the copy
+ * behaves as the copy says.
+ */
+export function rateTypeExclusion(types: readonly string[]) {
+  if (types.length === 0) return sql``;
+  // COALESCE, because a NULL rate_type is an ordinary push from before the column had a value —
+  // absence of a declaration is not a declaration of non-eligibility.
+  return sql`AND COALESCE(j.rate_type, '') NOT IN (${sql.join(types.map(t => sql`${t}`), sql`, `)})`;
+}
+
+/**
  * What kind of push a job declared itself to be.
  *
  * Returns the declared type, '' for a row that exists and declared none, or NULL when the job
@@ -175,19 +195,25 @@ export async function createObligationsForPush(
  */
 export async function findPushesMissingObligations(
   db: ObligationDb,
-  opts: { limit?: number } = {},
+  /**
+   * `excluding` defaults to the production list. It is a parameter rather than a closed-over
+   * constant so the empty case — the state the list's contract invites — can be exercised against
+   * THIS statement, not a copy of it re-typed in a test.
+   */
+  opts: { limit?: number; excluding?: readonly string[] } = {},
 ): Promise<string[]> {
-  const excluded = sql.join(NON_NOTIFYING_RATE_TYPES.map(t => sql`${t}`), sql`, `);
   return rows(await db.execute(sql`
     SELECT DISTINCT o.job_id
       FROM rate_push_operations o
       -- The job says what kind of push it was. An operation cannot: it records a prefix and an
       -- outcome, and a rate change looks identical whoever asked for it.
+      --
+      -- An INNER join, deliberately: an operation whose job row cannot be established is not
+      -- swept. The creator would refuse to announce on such a job anyway, so sweeping it would
+      -- only produce a refusal on every pass.
       JOIN rate_push_jobs j ON j.job_id = o.job_id
      WHERE o.status = 'succeeded'
-       -- COALESCE, because a NULL rate_type is an ordinary push from before the column had a
-       -- value — absence of a declaration is not a declaration of non-eligibility.
-       AND COALESCE(j.rate_type, '') NOT IN (${excluded})
+       ${rateTypeExclusion(opts.excluding ?? NON_NOTIFYING_RATE_TYPES)}
        AND NOT EXISTS (
              SELECT 1 FROM rate_push_notifications n WHERE n.job_id = o.job_id)
      ORDER BY o.job_id

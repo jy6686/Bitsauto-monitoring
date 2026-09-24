@@ -19,7 +19,7 @@ import { sql } from "drizzle-orm";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  createObligationsForPush, findPushesMissingObligations, loadOperationsForPush,
+  createObligationsForPush, findPushesMissingObligations, loadOperationsForPush, rateTypeExclusion,
   recoverMissingObligations, pendingRateNotifications,
 } from "./post-push-obligation";
 import type { AppliedOperation } from "./post-push-notification";
@@ -370,6 +370,52 @@ describe("CRITICAL: a Rate Analysis change is never an announceable push", () =>
     // would silently swallow the very pushes recovery exists for.
     await persistOps('legacy-1', [op()], null);
     expect(await findPushesMissingObligations(db)).toEqual(['legacy-1']);
+  });
+});
+
+/**
+ * The day someone empties NON_NOTIFYING_RATE_TYPES, the sweep must still RUN.
+ *
+ * The list's contract says removing an entry is how a route starts announcing. Rendered naively
+ * that produces `NOT IN ()` — a syntax error that takes down the entire recovery sweep rather
+ * than merely widening it, so the documented next decision would arrive as an outage.
+ *
+ * Exercised against the real statement via `excluding`, not a copy of the SQL: a test that
+ * re-typed the query would prove only that the copy behaves as the copy says.
+ */
+describe("CRITICAL: an empty exclusion list widens the sweep, it does not break it", () => {
+  it("runs, rather than raising a SQL syntax error", async () => {
+    await persistOps('change-1', [op()], 'change-client-rate');
+    await expect(findPushesMissingObligations(db, { excluding: [] })).resolves.toBeDefined();
+  });
+
+  it("means every rate type is eligible — the change job is now swept in", async () => {
+    await persistOps('change-1', [op()], 'change-client-rate');
+    await persistOps('send-1',   [op()], 'current');
+    await persistOps('legacy-1', [op()], null);
+    // Exactly the widening the removal is meant to express, and nothing else changed.
+    expect(await findPushesMissingObligations(db, { excluding: [] }))
+      .toEqual(['change-1', 'legacy-1', 'send-1']);
+  });
+
+  it("still excludes when the list is populated — the default is unchanged", async () => {
+    await persistOps('change-1', [op()], 'change-client-rate');
+    await persistOps('send-1',   [op()], 'current');
+    expect(await findPushesMissingObligations(db)).toEqual(['send-1']);
+  });
+});
+
+/**
+ * The predicate itself, in the position the statement splices it into.
+ */
+describe("the exclusion predicate", () => {
+  it("is empty for an empty list, so the clause disappears entirely", () => {
+    expect(rateTypeExclusion([]).queryChunks.length).toBe(0);
+  });
+
+  it("is a real clause for a populated list", () => {
+    const q = rateTypeExclusion(['change-client-rate']);
+    expect(q.queryChunks.length).toBeGreaterThan(0);
   });
 });
 
