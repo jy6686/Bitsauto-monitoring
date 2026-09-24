@@ -47,6 +47,8 @@ import { resolveDealDialPrefix } from './services/rates/deal-prefix';
 import { composePrefix } from './services/rates/rate-matrix';
 import { validateTrunkPrefix } from './services/rates/product-trunk';
 import { parseBillingIncrement } from './services/rates/billing-increment';
+import { deriveOperationIdentity } from './services/rates/change-operation-identity';
+import { noPendingOperations } from './services/rates/job-terminalization';
 import { lookupCatalogueIncrements } from './services/rates/catalogue-increments';
 import { checkTariffIntegrity } from './services/rates/tariff-integrity';
 import { runRateBatch, type RunnerOperation, type InjectedPush, type InjectedGroupPush } from './services/rates/batch-runner';
@@ -132,7 +134,7 @@ import {
 import { initRtpQualityAggregator, setRtpCdrProvider } from "./rtp-quality-aggregator";
 import { initVendorHealthEngine, recomputeVendorHealthNow, getLatestVendorHealthScores, getLatestRouteHealthScores, getVendorHealthLastRunAt, loadVendorHealthHistory } from "./vendor-health-engine";
 import { refreshVendorAcds } from "./vendor-acd-cache";
-import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, rateReconcileRuns, navigationModules, clientIpRequests, companies, companyProducts, companyMarkets } from "@shared/schema";
+import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as alertRulesTable, nocIncidents, nocIncidentEvents, nocIncidentAssignments, balanceAlertThresholds, balanceAlertEvents, balanceAlertNotificationSettings, productRegistry, globalDestinations, destinationsView, productDestinationAssignments, productHistory, customerProductAssignments, deals, dealDestinations, dealApprovals, ratePushJobs, ratePushOperations, clientIdentityMap, rateReconcileRuns, navigationModules, clientIpRequests, companies, companyProducts, companyMarkets } from "@shared/schema";
 import { db, pool } from "./db";
 import { getMigrationLedger, getMigrationStatus } from "./migrate";
 import { allocateAccountPrefix } from "./services/provisioning/account-prefix";
@@ -44918,15 +44920,57 @@ ${footer}
           }
         }
 
+        // ── Identity, derived once for the whole submission ───────────────────────
+        // The body carries full Sippy prefixes and nothing else — no product, no bare dial
+        // prefix, no account id. All three are derivable without asking the caller for them:
+        // the leading digits of a full prefix are the product's trunk, and the canonical
+        // identity map already knows which i_account a Sippy username is.
+        //
+        // Derived, never invented. A prefix whose trunk matches no product — or one two products
+        // share — yields nulls, and a null dial_prefix is what keeps such an operation outside
+        // the notification path. See change-operation-identity.ts.
+        const identityCatalogue = (await db
+          .select({ trunkPrefix: productRegistry.trunkPrefix, code: productRegistry.code, name: productRegistry.name })
+          .from(productRegistry))
+          .map(p => ({ trunkPrefix: p.trunkPrefix, productName: p.code ?? p.name ?? null }));
+
+        let changeIAccount: number | null = null;
+        try {
+          const [idRow] = await db.select({ iAccount: clientIdentityMap.iAccount })
+            .from(clientIdentityMap)
+            .where(eq(clientIdentityMap.sippyUsername, String(accountName)))
+            .limit(1);
+          changeIAccount = idRow?.iAccount ?? null;
+        } catch (e: any) {
+          console.error('[change-client-rates] i_account resolution failed — leaving null:', e?.message || e);
+        }
+
+        const identities = prefixes.map(p => deriveOperationIdentity(String(p), identityCatalogue));
+        // The job carries a product only when every prefix agrees on one. A submission spanning
+        // two products has no single product, and saying otherwise would mislabel the whole job.
+        const jobProducts = Array.from(new Set(identities.map(i => i.productName).filter(Boolean)));
+        const jobProduct  = jobProducts.length === 1 ? jobProducts[0]! : null;
+        const jobTrunks   = Array.from(new Set(identities.map(i => i.trunkPrefix).filter(Boolean)));
+        const jobTrunk    = jobTrunks.length === 1 ? jobTrunks[0]! : null;
+
         // ── Create job BEFORE push (status=pending) ───────────────────────────────
         const jobId = `change-${Date.now()}`;
         const switchName = (settings as any).sippyUrl ?? (settings as any).sippy_url ?? 'primary';
+        let jobRowWritten = false;
         try {
           await db.insert(ratePushJobs).values({
             jobId,
-            productName:  null,
-            trunkPrefix:  null,
+            productName:  jobProduct,
+            trunkPrefix:  jobTrunk,
             format:       'full',
+            // UNCHANGED, deliberately. `shared/schema.ts` and migration 0000 both declare
+            // rate_type as varchar(16) and this value is 18 characters, which reads like every
+            // insert here must fail — it does not. Production holds 12 rows carrying exactly this
+            // string, the most recent written 2026-09-23, so the live column is wider than the
+            // declaration and the job row has always persisted. Shortening it would fork one job
+            // type across two values and orphan that history; the declared/live schema divergence
+            // is a separate defect to fix in the schema, not here.
+            // NON_NOTIFYING_RATE_TYPES keys on this exact string.
             rateType:     'change-client-rate',
             totalClients: 1,
             pushedClients: 0,
@@ -44949,11 +44993,102 @@ ${footer}
             lastStep:     'queued',
             lastStepAt:   new Date(),
           });
+          jobRowWritten = true;
         } catch (e: any) { console.error('[rate_push_jobs] change-client-rates pending insert failed:', e?.message || e); }
+
+        // ── One operation row per submitted prefix, BEFORE the first mutation ─────
+        // Same ordering push-batch uses, and for the same reason: the record of what was asked
+        // for has to outlive the process that asks. Written after the push, a death mid-loop
+        // leaves prefixes that were sent to Sippy with nothing on this side saying so.
+        //
+        // Keyed by position AND prefix. The unique index is (job_id, operation_key), so a caller
+        // that submits the same prefix twice still gets one row per submission rather than a
+        // collision that silently drops one.
+        //
+        // Conditional on the job row existing: rate_push_operations.job_id is a foreign key, so
+        // without a parent these inserts would fail one by one and log noise instead of records.
+        const operationKeyFor = (idx: number, prefix: string) => `${idx}:${prefix}`.substring(0, 128);
+        // Whether the operation records exist at all. The terminal guard below needs this because
+        // "no operation is pending" is also true of a job that recorded NO operations — the two
+        // states are indistinguishable in SQL and only one of them means settled.
+        let operationsRecorded = false;
+        if (jobRowWritten && prefixes.length > 0) {
+          try {
+            await db.insert(ratePushOperations).values(prefixes.map((prefix, idx) => ({
+              jobId,
+              operationKey:  operationKeyFor(idx, String(prefix)),
+              sequence:      idx,
+              accountName:   String(accountName).substring(0, 160),
+              // Null where the split could not identify a product. Not a placeholder — see the
+              // derivation module on why a guess here becomes a wrong price in an inbox.
+              productName:   identities[idx]?.productName ?? null,
+              trunkPrefix:   identities[idx]?.trunkPrefix ?? null,
+              dialPrefix:    identities[idx]?.dialPrefix  ?? null,
+              fullPrefix:    String(prefix).substring(0, 32),
+              requestedRate: String(rate),
+              effectiveFrom: effectiveFrom ? String(effectiveFrom).substring(0, 32) : null,
+              effectiveTill: effectiveTill ? String(effectiveTill).substring(0, 32) : null,
+              iAccount:      changeIAccount,
+              iTariff:       iTariff ?? null,
+              status:        'pending',
+            })));
+            operationsRecorded = true;
+          } catch (e: any) {
+            console.error('[rate_push_operations] change-client-rates pending insert failed:', e?.message || e);
+          }
+        }
 
         // ── Push loop ─────────────────────────────────────────────────────────────
         const results: { prefix: string; success: boolean; message: string; method?: string; detail?: string; uploadToken?: string; uploadStatus?: string; verificationResult?: string }[] = [];
-        for (const prefix of prefixes) {
+
+        /**
+         * Close one operation with what actually happened to THAT prefix.
+         *
+         * Per prefix, not per job: a submission where two of five prefixes fail must leave three
+         * rows saying succeeded and two saying failed with their own reasons. The job row's
+         * 'partial' cannot say which, and that is the question an operator asks first.
+         *
+         * `refusedBeforeWrite` stays NULL deliberately. This route has no preflight, so nothing
+         * here ever established that a mutating request was withheld — and per the column's own
+         * contract, NULL means nobody established it, which is not the same as false.
+         */
+        let operationPersistFailures = 0;
+        const finishOperation = async (
+          opIdx: number,
+          prefix: string,
+          outcome: { success: boolean; message?: string; method?: string; verificationResult?: string },
+        ) => {
+          if (!jobRowWritten) return;
+          try {
+            await db.update(ratePushOperations).set({
+              status:             outcome.success ? 'succeeded' : 'failed',
+              // The reason, persisted. Previously a failure existed only in the HTTP response and
+              // the process log, so nothing could answer "why did this prefix not change?" later.
+              message:            outcome.message ? String(outcome.message) : null,
+              pushMethod:         outcome.method ? String(outcome.method).substring(0, 32) : null,
+              verificationResult: outcome.verificationResult ? String(outcome.verificationResult).substring(0, 32) : null,
+              attempts:           1,
+              completedAt:        new Date(),
+            }).where(and(
+              eq(ratePushOperations.jobId, jobId),
+              eq(ratePushOperations.operationKey, operationKeyFor(opIdx, String(prefix))),
+            ));
+          } catch (e: any) {
+            // NOT swallowed to silence. Named in full — job, operation, prefix and the state that
+            // failed to land — because this is the one failure that leaves the switch mutated and
+            // the record saying nothing happened yet. Deliberately NOT escalated to a 500: Sippy
+            // may already hold the new rate, and an error response invites a retry that would
+            // write it twice. The job is left non-terminal instead, so recovery can see it.
+            operationPersistFailures++;
+            console.error(
+              `[rate_push_operations] change-client-rates terminal update FAILED — job=${jobId} ` +
+              `operationKey=${operationKeyFor(opIdx, String(prefix))} prefix=${prefix} ` +
+              `intendedStatus=${outcome.success ? 'succeeded' : 'failed'} — the operation stays ` +
+              `pending and the job will not be terminalised:`, e?.message || e);
+          }
+        };
+
+        for (const [opIdx, prefix] of prefixes.entries()) {
           // Same closure push-batch keeps per operation: the Sippy client reports each real phase
           // boundary (editing → token → uploading → polling → verifying) and this writes it to the
           // job row. 'uploading' lands BEFORE the mutation-capable request, so after a restart the
@@ -45015,8 +45150,15 @@ ${footer}
               );
             }
             results.push({ prefix: String(prefix), ...r });
+            await finishOperation(opIdx, String(prefix), {
+              success:            r.success,
+              message:            r.message,
+              method:             r.method,
+              verificationResult: r.verificationResult,
+            });
           } catch (e: any) {
             results.push({ prefix: String(prefix), success: false, message: e.message });
+            await finishOperation(opIdx, String(prefix), { success: false, message: e.message });
           }
         }
 
@@ -45025,19 +45167,54 @@ ${footer}
         const firstR  = results[0];
 
         // ── Update job after push ─────────────────────────────────────────────────
+        // THE INVARIANT: a terminal job means every operation it owns has settled.
+        //
+        // Two independent things have to hold, because SQL alone cannot tell them apart. The
+        // predicate proves no operation is still `pending` — but it is equally true of a job that
+        // recorded NO operations, so `operationsRecorded` carries the in-process fact that the
+        // rows exist, and `operationPersistFailures` the fact that each one was closed.
+        //
+        // When they do not hold, the outcome is still recorded — counts, method, verification,
+        // notes — and only `status`/`completedAt` are withheld. The job stays non-terminal, which
+        // is precisely what boot reconciliation looks for (`reconcile-boot.ts` selects
+        // status IN ('pending','processing')), so an incomplete audit becomes recoverable instead
+        // of being frozen behind a `completed` that was never true.
+        const jobFullySettled = operationsRecorded && operationPersistFailures === 0;
+        const jobOutcome = {
+          pushedClients:      ok === prefixes.length ? 1 : 0,
+          failedClients:      ok === prefixes.length ? 0 : 1,
+          pushMethod:         firstR?.method ?? null,
+          uploadToken:        firstR?.uploadToken ?? null,
+          uploadStatus:       firstR?.uploadStatus ?? null,
+          verificationResult: firstR?.verificationResult ?? null,
+          clientNames:        accountName,
+          notes:              `${accountName}: ${prefixes.length} prefix(es), newRate=${rate}, method=${methods.join(',') || 'n/a'}, ok=${ok}/${prefixes.length}`,
+        };
         try {
-          await db.update(ratePushJobs).set({
-            pushedClients:      ok === prefixes.length ? 1 : 0,
-            failedClients:      ok === prefixes.length ? 0 : 1,
-            status:             ok === prefixes.length ? 'completed' : ok > 0 ? 'partial' : 'failed',
-            pushMethod:         firstR?.method ?? null,
-            uploadToken:        firstR?.uploadToken ?? null,
-            uploadStatus:       firstR?.uploadStatus ?? null,
-            verificationResult: firstR?.verificationResult ?? null,
-            completedAt:        new Date(),
-            clientNames:        accountName,
-            notes:              `${accountName}: ${prefixes.length} prefix(es), newRate=${rate}, method=${methods.join(',') || 'n/a'}, ok=${ok}/${prefixes.length}`,
-          }).where(eq(ratePushJobs.jobId, jobId));
+          if (jobFullySettled) {
+            // The NOT EXISTS is not belt-and-braces over the counter: it also refuses the case
+            // where a concurrent writer left an operation pending that this process never saw.
+            const done = await db.update(ratePushJobs).set({
+              ...jobOutcome,
+              status:      ok === prefixes.length ? 'completed' : ok > 0 ? 'partial' : 'failed',
+              completedAt: new Date(),
+            }).where(and(
+              eq(ratePushJobs.jobId, jobId),
+              noPendingOperations(jobId),
+            )).returning({ jobId: ratePushJobs.jobId });
+
+            if (done.length === 0) {
+              // The predicate refused. Record the outcome without the terminal claim.
+              console.warn(`[rate_push_jobs] change-client-rates job=${jobId} NOT terminalised — ` +
+                           `an operation is still pending; leaving it for reconciliation`);
+              await db.update(ratePushJobs).set(jobOutcome).where(eq(ratePushJobs.jobId, jobId));
+            }
+          } else {
+            console.warn(`[rate_push_jobs] change-client-rates job=${jobId} NOT terminalised — ` +
+                         `operationsRecorded=${operationsRecorded} persistFailures=${operationPersistFailures}; ` +
+                         `leaving it non-terminal so reconciliation can settle it`);
+            await db.update(ratePushJobs).set(jobOutcome).where(eq(ratePushJobs.jobId, jobId));
+          }
         } catch (e: any) { console.error('[rate_push_jobs] change-client-rates update failed:', e?.message || e); }
 
         console.log(`[RateManager] Push complete — ok=${ok}/${prefixes.length} method=${methods.join(',')} verificationResult=${firstR?.verificationResult ?? 'n/a'}`);
