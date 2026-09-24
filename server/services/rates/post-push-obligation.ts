@@ -39,6 +39,51 @@ export interface CreateResult {
 }
 
 /**
+ * Rate types whose pushes never owe a customer notification.
+ *
+ * `change-client-rate` is the Rate Analysis path. It mutates Sippy, and since it now records operation
+ * rows it would otherwise be indistinguishable from a Send Rate push — a certified operation with
+ * no notification row is exactly what a completion that died before recording looks like. It is
+ * not that: the route carries no product, performs no eligibility check and resolves no change
+ * policy, so there is nothing for an announcement to be derived FROM.
+ *
+ * Enforced at `createObligationsForPush`, which is the ONLY writer of rate_push_notifications and
+ * therefore the only place an operation can become an obligation. Guarding the recovery query
+ * alone would not be enough: push-batch calls the creator directly, so a future shared completion
+ * path — or the obvious copy-paste of push-batch's completion block into the change route — would
+ * walk straight past a recovery-only check. The boundary has to sit where the row is written.
+ *
+ * Adding a rate type here is how a route declares "my pushes are not announceable". Removing one
+ * is a decision to START announcing them, and belongs with the eligibility and product work, not
+ * with whoever happens to wire recovery.
+ */
+export const NON_NOTIFYING_RATE_TYPES = ['change-client-rate'] as const;
+
+/**
+ * What kind of push a job declared itself to be.
+ *
+ * Returns the declared type, '' for a row that exists and declared none, or NULL when the job
+ * could not be established at all — no row, or a read that failed. Those last two are NOT the
+ * same as '' and must not collapse into it: an existing row with a NULL rate_type is an ordinary
+ * push from before the column carried a value, while an absent row is a question nobody answered.
+ */
+async function rateTypeOf(db: ObligationDb, jobId: string): Promise<string | null> {
+  try {
+    const [row] = rows(await db.execute(sql`
+      SELECT COALESCE(rate_type, '') AS rate_type FROM rate_push_jobs WHERE job_id = ${jobId}`));
+    // No row: the job this obligation would belong to cannot be shown to exist.
+    if (row === undefined || row === null) return null;
+    return String(row.rate_type ?? '');
+  } catch (e: any) {
+    // A failed read establishes nothing. Swallowed here and reported as "unknown" so the caller
+    // makes ONE decision about unknown states, rather than this throwing past the guard and
+    // leaving the fail-closed property resting on where the exception happens to land.
+    console.error(`[post-push-obligation] rate_type lookup failed for ${jobId}:`, e?.message || e);
+    return null;
+  }
+}
+
+/**
  * Record what a certified push owes.
  *
  * `createdVia` distinguishes the completing push from a later recovery. Worth keeping: a rising
@@ -55,6 +100,41 @@ export async function createObligationsForPush(
     createdVia?: 'push' | 'recovery';
   },
 ): Promise<CreateResult> {
+  // The notification boundary, enforced before anything is derived. Whoever called — a push
+  // completing, recovery sweeping, or a path that does not exist yet — a job whose route declared
+  // itself non-notifying produces no obligation. Refusing here rather than at the caller is the
+  // point: there is one writer of rate_push_notifications, so there is one place to hold the line.
+  const rateType = await rateTypeOf(db, input.jobId);
+
+  // FAILS CLOSED. Two different refusals, one rule: an obligation is created only when the job
+  // is shown to be notification-eligible, never merely when nothing proved it ineligible.
+  //
+  //   null  — no job row, or the read failed. Nothing was established, so nothing is announced.
+  //   listed — the route declared itself non-notifying.
+  //
+  // The direction matters because this is a customer-facing boundary: the cost of refusing an
+  // announcement that was owed is a recovery sweep finding it later; the cost of sending one that
+  // was not owed is a wrong price in a customer's inbox, and that is not recoverable.
+  const eligibilityUnknown = rateType === null;
+  if (eligibilityUnknown || (NON_NOTIFYING_RATE_TYPES as readonly string[]).includes(rateType)) {
+    return {
+      created: 0,
+      alreadyPresent: 0,
+      // Reported as excluded operations, not as silence: the caller logs this count, so a
+      // refusal is visible in the same line that would have reported an announcement.
+      excluded: input.operations.map(o => ({
+        fullPrefix:  o.fullPrefix,
+        accountName: o.accountName,
+        status:      o.status,
+        reason:      eligibilityUnknown
+          ? `Job ${input.jobId} could not be established as notification-eligible (no job row, or `
+          + `the rate_type read failed); refusing to announce on an unverified job.`
+          : `Rate type '${rateType}' is not notification-eligible — the route carries no `
+          + `product, eligibility check or change policy, so nothing can be announced.`,
+      })),
+    };
+  }
+
   const derivation = deriveNotificationsFromPush(input.operations, {
     productLabelFor: input.productLabelFor,
   });
@@ -90,15 +170,24 @@ export async function createObligationsForPush(
  * This is what a completion dying mid-way looks like from the outside, and it is discoverable
  * because the operation records were written before the first mutation. No journal is needed —
  * the evidence of what was owed is the same evidence that proves what happened.
+ *
+ * Excludes NON_NOTIFYING_RATE_TYPES: a route that owes nothing cannot be missing what it owes.
  */
 export async function findPushesMissingObligations(
   db: ObligationDb,
   opts: { limit?: number } = {},
 ): Promise<string[]> {
+  const excluded = sql.join(NON_NOTIFYING_RATE_TYPES.map(t => sql`${t}`), sql`, `);
   return rows(await db.execute(sql`
     SELECT DISTINCT o.job_id
       FROM rate_push_operations o
+      -- The job says what kind of push it was. An operation cannot: it records a prefix and an
+      -- outcome, and a rate change looks identical whoever asked for it.
+      JOIN rate_push_jobs j ON j.job_id = o.job_id
      WHERE o.status = 'succeeded'
+       -- COALESCE, because a NULL rate_type is an ordinary push from before the column had a
+       -- value — absence of a declaration is not a declaration of non-eligibility.
+       AND COALESCE(j.rate_type, '') NOT IN (${excluded})
        AND NOT EXISTS (
              SELECT 1 FROM rate_push_notifications n WHERE n.job_id = o.job_id)
      ORDER BY o.job_id

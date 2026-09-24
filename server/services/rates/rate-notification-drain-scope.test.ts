@@ -43,6 +43,10 @@ const deps = (send?: any) => ({ db, send, today: () => '2026-09-23' });
 const OLD_JOB = 'job-old-aura';
 const NEW_JOB = 'job-new-acme';
 async function seedBacklogThenPush() {
+  // The parent job rows. rate_push_operations carries a foreign key to these in production, so an
+  // obligation always belongs to a job that exists — and the creator now refuses to announce on a
+  // job it cannot establish. Seeding them keeps the fixture faithful to that constraint.
+  await db.execute(sql`INSERT INTO rate_push_jobs (job_id, rate_type) VALUES (${OLD_JOB}, 'current'), (${NEW_JOB}, 'current') ON CONFLICT DO NOTHING`);
   await createObligationsForPush(db, { jobId: OLD_JOB, operations: [op({ accountName: 'AURA', productName: 'BC', dialPrefix: '9230', fullPrefix: '29230', trunkPrefix: '2' })], productLabelFor: () => 'Business Class' });
   // Make the old one visibly older, as it would be in production.
   await db.execute(sql`UPDATE rate_push_notifications SET created_at = NOW() - INTERVAL '4 days' WHERE job_id = ${OLD_JOB}`);
@@ -57,7 +61,12 @@ beforeAll(async () => {
       sippy_i_account INTEGER);
     CREATE TABLE company_contacts (id SERIAL PRIMARY KEY, company_id INTEGER NOT NULL,
       contact_type VARCHAR(32) NOT NULL, email VARCHAR(320));
-    CREATE TABLE rate_push_jobs (job_id VARCHAR(64) PRIMARY KEY);
+    CREATE TABLE rate_push_jobs (job_id VARCHAR(64) PRIMARY KEY, rate_type VARCHAR(64));
+    -- VARCHAR(64) mirrors PRODUCTION, verified 2026-09-23 via information_schema. The declared
+    -- schema (shared/schema.ts and migration 0000) says varchar(16), which would reject the
+    -- 18-character 'change-client-rate' that production has stored 12 times. The fixture
+    -- reproduces the live contract the guard runs against; the declared/live drift is a real
+    -- defect with its own gate, not something to encode here.
     CREATE TABLE rate_push_operations (
       id SERIAL PRIMARY KEY, job_id VARCHAR(64) NOT NULL, operation_key VARCHAR(128) NOT NULL,
       sequence INTEGER NOT NULL, account_name VARCHAR(160) NOT NULL, product_name VARCHAR(64),

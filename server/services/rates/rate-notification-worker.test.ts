@@ -33,8 +33,12 @@ const op = (o: Partial<AppliedOperation> = {}): AppliedOperation => ({
 const recorder = async (m: any) => { sent.push(m); return { ok: true }; };
 const deps = (send?: any) => ({ db, send, today: () => '2026-09-11' });
 
-const owe = (ops: AppliedOperation[] = [op()], jobId = JOB) =>
-  createObligationsForPush(db, { jobId, operations: ops, productLabelFor: () => 'Voice A-Z' });
+const owe = async (ops: AppliedOperation[] = [op()], jobId = JOB) => {
+  // The parent job row. Operations reference it by foreign key in production, and the creator
+  // refuses to announce on a job it cannot establish, so the fixture must supply it.
+  await db.execute(sql`INSERT INTO rate_push_jobs (job_id, rate_type) VALUES (${jobId}, 'current') ON CONFLICT DO NOTHING`);
+  return createObligationsForPush(db, { jobId, operations: ops, productLabelFor: () => 'Voice A-Z' });
+};
 
 beforeAll(async () => {
   client = await PGlite.create();
@@ -44,7 +48,12 @@ beforeAll(async () => {
       sippy_i_account INTEGER);
     CREATE TABLE company_contacts (id SERIAL PRIMARY KEY, company_id INTEGER NOT NULL,
       contact_type VARCHAR(32) NOT NULL, email VARCHAR(320));
-    CREATE TABLE rate_push_jobs (job_id VARCHAR(64) PRIMARY KEY);
+    CREATE TABLE rate_push_jobs (job_id VARCHAR(64) PRIMARY KEY, rate_type VARCHAR(64));
+    -- VARCHAR(64) mirrors PRODUCTION, verified 2026-09-23 via information_schema. The declared
+    -- schema (shared/schema.ts and migration 0000) says varchar(16), which would reject the
+    -- 18-character 'change-client-rate' that production has stored 12 times. The fixture
+    -- reproduces the live contract the guard runs against; the declared/live drift is a real
+    -- defect with its own gate, not something to encode here.
     CREATE TABLE rate_push_operations (
       id SERIAL PRIMARY KEY, job_id VARCHAR(64) NOT NULL, operation_key VARCHAR(128) NOT NULL,
       sequence INTEGER NOT NULL, account_name VARCHAR(160) NOT NULL, product_name VARCHAR(64),

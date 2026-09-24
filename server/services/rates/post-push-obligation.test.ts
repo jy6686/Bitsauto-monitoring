@@ -37,8 +37,8 @@ const op = (o: Partial<AppliedOperation> = {}): AppliedOperation => ({
 });
 
 /** Write operation records exactly as a real push would, so recovery has something to find. */
-const persistOps = async (jobId: string, ops: AppliedOperation[]) => {
-  await db.execute(sql`INSERT INTO rate_push_jobs (job_id) VALUES (${jobId}) ON CONFLICT DO NOTHING`);
+const persistOps = async (jobId: string, ops: AppliedOperation[], rateType: string | null = null) => {
+  await db.execute(sql`INSERT INTO rate_push_jobs (job_id, rate_type) VALUES (${jobId}, ${rateType}) ON CONFLICT DO NOTHING`);
   let seq = 0;
   for (const o of ops) {
     await db.execute(sql`
@@ -59,7 +59,20 @@ beforeAll(async () => {
   db = drizzle(client);
   // Only the columns this path reads, matching migration 511's shape.
   await client.exec(`
-    CREATE TABLE rate_push_jobs (job_id VARCHAR(64) PRIMARY KEY);
+    CREATE TABLE rate_push_jobs (
+      job_id VARCHAR(64) PRIMARY KEY,
+      -- Which route asked. The recovery sweep reads this to tell an announceable Send Rate push
+      -- from a Rate Analysis change that carries no product and owes nobody an email.
+      --
+      -- VARCHAR(64) = production, verified 2026-09-23 via information_schema. NOT the declared
+      -- varchar(16), which would reject the 18-character 'change-client-rate' that production
+      -- has stored 12 times. The fixture mirrors the live column, not the declaration.
+      rate_type VARCHAR(64));
+    -- VARCHAR(64) mirrors PRODUCTION, verified 2026-09-23 via information_schema. The declared
+    -- schema (shared/schema.ts and migration 0000) says varchar(16), which would reject the
+    -- 18-character 'change-client-rate' that production has stored 12 times. The fixture
+    -- reproduces the live contract the guard runs against; the declared/live drift is a real
+    -- defect with its own gate, not something to encode here.
     CREATE TABLE rate_push_operations (
       id SERIAL PRIMARY KEY,
       job_id VARCHAR(64) NOT NULL REFERENCES rate_push_jobs(job_id) ON DELETE CASCADE,
@@ -317,5 +330,146 @@ describe("creating an obligation mutates nothing else", () => {
     await createObligationsForPush(db, { jobId: JOB, operations: await loadOperationsForPush(db, JOB) });
     const after = await all(sql`SELECT * FROM rate_push_operations`);
     expect(JSON.stringify(after)).toBe(JSON.stringify(before));
+  });
+});
+
+/**
+ * A Rate Analysis change writes operation rows, and must still never become an obligation.
+ *
+ * This is the trap the operation-row work would otherwise have set. `findPushesMissingObligations`
+ * asks one question — "did a push certify and record nothing?" — and a `change-client-rate` job answers
+ * yes the moment it records operations, because it never records a notification. Nothing fires
+ * today only because `recoverMissingObligations` is wired to nothing. The exclusion is asserted
+ * here so that wiring it later stays a decision rather than an accident.
+ */
+describe("CRITICAL: a Rate Analysis change is never an announceable push", () => {
+  it("is excluded from the recovery sweep even though it certified and owes no notification", async () => {
+    await persistOps('change-1', [op()], 'change-client-rate');
+    expect(await all(sql`SELECT * FROM rate_push_notifications`)).toHaveLength(0);
+
+    // Certified, no notification — the exact shape the sweep looks for. Excluded by rate_type.
+    expect(await findPushesMissingObligations(db)).toEqual([]);
+  });
+
+  it("recovery therefore creates nothing for it", async () => {
+    await persistOps('change-1', [op()], 'change-client-rate');
+    const r = await recoverMissingObligations(db);
+    expect(r.jobsRecovered).toEqual([]);
+    expect(r.created).toBe(0);
+    expect(await all(sql`SELECT * FROM rate_push_notifications`)).toHaveLength(0);
+  });
+
+  it("does not suppress ordinary pushes sharing the sweep", async () => {
+    await persistOps('change-1', [op()], 'change-client-rate');
+    await persistOps('send-1',   [op()], 'current');
+    expect(await findPushesMissingObligations(db)).toEqual(['send-1']);
+  });
+
+  it("treats a NULL rate_type as an ordinary push — absence is not a declaration", async () => {
+    // Rows written before the column carried a value must keep recovering, or the exclusion
+    // would silently swallow the very pushes recovery exists for.
+    await persistOps('legacy-1', [op()], null);
+    expect(await findPushesMissingObligations(db)).toEqual(['legacy-1']);
+  });
+});
+
+/**
+ * The boundary must hold at the WRITER, not only at the recovery query.
+ *
+ * push-batch does not go through `findPushesMissingObligations` — it calls the creator directly
+ * once its operations certify. So a recovery-only exclusion would be bypassed entirely by the
+ * most likely future edit there is: copying push-batch's completion block into the change route
+ * to "make it notify too". These assert the refusal where the row would actually be written.
+ */
+describe("CRITICAL: the notification boundary holds against a DIRECT call", () => {
+  it("refuses to create an obligation for a change-client job, as push-batch would call it", async () => {
+    await persistOps('change-2', [op()], 'change-client-rate');
+
+    const r = await createObligationsForPush(db, {
+      jobId: 'change-2',
+      operations: await loadOperationsForPush(db, 'change-2'),
+      createdVia: 'push',
+    });
+
+    expect(r.created).toBe(0);
+    expect(r.alreadyPresent).toBe(0);
+    expect(await all(sql`SELECT * FROM rate_push_notifications`)).toHaveLength(0);
+  });
+
+  it("reports the refusal as excluded operations rather than silently doing nothing", async () => {
+    await persistOps('change-2', [op({ fullPrefix: '19230' }), op({ fullPrefix: '19231' })], 'change-client-rate');
+    const r = await createObligationsForPush(db, {
+      jobId: 'change-2', operations: await loadOperationsForPush(db, 'change-2'),
+    });
+    expect(r.excluded).toHaveLength(2);
+    expect(r.excluded.map(e => e.fullPrefix).sort()).toEqual(['19230', '19231']);
+    for (const e of r.excluded) expect(e.reason).toContain('not notification-eligible');
+  });
+
+  it("still creates obligations for an ordinary push — the guard is not a blanket refusal", async () => {
+    await persistOps('send-2', [op()], 'current');
+    const r = await createObligationsForPush(db, {
+      jobId: 'send-2', operations: await loadOperationsForPush(db, 'send-2'),
+    });
+    expect(r.created).toBe(1);
+    expect(await all(sql`SELECT * FROM rate_push_notifications`)).toHaveLength(1);
+  });
+
+  it("a job with no declared rate_type still notifies — absence is not a refusal", async () => {
+    await persistOps('legacy-2', [op()], null);
+    const r = await createObligationsForPush(db, {
+      jobId: 'legacy-2', operations: await loadOperationsForPush(db, 'legacy-2'),
+    });
+    expect(r.created).toBe(1);
+  });
+});
+
+/**
+ * The guard fails CLOSED on an unknown job.
+ *
+ * This is now a customer-facing boundary, so the direction of failure is part of the contract:
+ * refusing an announcement that was owed costs a recovery sweep; sending one that was not owed
+ * puts a wrong price in a customer's inbox and cannot be taken back.
+ *
+ * Both unknown states are asserted separately because they arrive differently — a read that
+ * throws, and a read that succeeds and finds nothing — and an implementation can easily handle
+ * one while collapsing the other into "no declaration found, therefore eligible".
+ */
+describe("CRITICAL: an obligation is never created on an unverified job", () => {
+  it("creates nothing when the rate_type read FAILS", async () => {
+    const broken = { execute: async () => { throw new Error('connection reset'); } };
+    const r = await createObligationsForPush(broken as any, {
+      jobId: JOB, operations: [op()],
+    });
+    expect(r.created).toBe(0);
+    expect(r.excluded).toHaveLength(1);
+    expect(r.excluded[0].reason).toContain('could not be established');
+  });
+
+  it("does not reach the INSERT at all when the lookup fails", async () => {
+    // Proven by construction: the only db this call has throws on every execute, so an INSERT
+    // that was attempted would have thrown out of the function rather than returning a result.
+    const calls: string[] = [];
+    const broken = { execute: async (q: any) => { calls.push(String(q)); throw new Error('boom'); } };
+    await createObligationsForPush(broken as any, { jobId: JOB, operations: [op()] });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("creates nothing when the job row does not exist", async () => {
+    // Operations were supplied for a job with no row. Nothing establishes what kind of push it
+    // was, so nothing is announced — distinct from a row that exists and declared no type.
+    const r = await createObligationsForPush(db, { jobId: 'no-such-job', operations: [op()] });
+    expect(r.created).toBe(0);
+    expect(await all(sql`SELECT * FROM rate_push_notifications`)).toHaveLength(0);
+    expect(r.excluded[0].reason).toContain('could not be established');
+  });
+
+  it("STILL notifies when the row exists and declared no rate_type — absence is not refusal", async () => {
+    // The counterweight to the two above: fail-closed must not swallow ordinary pushes.
+    await persistOps('legacy-3', [op()], null);
+    const r = await createObligationsForPush(db, {
+      jobId: 'legacy-3', operations: await loadOperationsForPush(db, 'legacy-3'),
+    });
+    expect(r.created).toBe(1);
   });
 });
