@@ -138,6 +138,7 @@ import { APPROVAL_POLICY, type Role, incidents as incidentsTable, alertRules as 
 import { db, pool } from "./db";
 import { getMigrationLedger, getMigrationStatus } from "./migrate";
 import { allocateAccountPrefix } from "./services/provisioning/account-prefix";
+import { linkedAccountIds, isUntracked, partitionDeletions, toAccountId } from "./services/sippy/tracked-accounts";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, inArray, sql, asc } from "drizzle-orm";
 const sqlExpr = sql;
 const drizzleSql = sql;
@@ -31505,12 +31506,15 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         if (listErr && sippyAccounts.length === 0) return res.status(502).json({ message: `Sippy unreachable: ${listErr}` });
 
         const allCompanies: any[] = await storage.getCompanies();
-        const provisioned = allCompanies.filter((c: any) => c.provisioningStatus === 'provisioned' && c.sippyIAccount);
-        const platformSet = new Set(provisioned.map((c: any) => Number(c.sippyIAccount)));
+        // KNOWN means a company records the account id. Provisioning status is workflow state and
+        // says nothing about whether deleting the account would destroy a live customer — see
+        // services/sippy/tracked-accounts.ts for what this predicate used to be and what it cost.
+        const linked = allCompanies.filter((c: any) => toAccountId(c.sippyIAccount) !== null);
+        const platformSet = linkedAccountIds(allCompanies);
 
         // Sippy accounts NOT tracked by platform = orphaned (manually created in Sippy)
         const orphanedAccounts = sippyAccounts
-          .filter((a: any) => !platformSet.has(Number(a.iAccount)))
+          .filter((a: any) => isUntracked(a.iAccount, platformSet))
           .map((a: any) => ({
             iAccount: a.iAccount,
             username: (a as any).username || `i_account:${a.iAccount}`,
@@ -31523,7 +31527,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
         // For each provisioned company, find auth rules not in approved IP list = orphaned IPs
         const orphanedAuthRules: { iAccount: number; iAuthentication: number; remoteIp: string; companyName: string; companyId: number }[] = [];
-        for (const co of provisioned.slice(0, 30)) {
+        for (const co of linked.slice(0, 30)) {
           try {
             const { authRules } = await sippy.listSippyAuthRules(username, password, { iAccount: co.sippyIAccount, iCustomer: 1 }, portalUrl);
             const approved = (await storage.getClientIpRequests(co.id))
@@ -31539,8 +31543,8 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
         // Platform companies provisioned but their sippyIAccount not found in Sippy
         const sippySet = new Set(sippyAccounts.map((a: any) => Number(a.iAccount)));
-        const platformOnlyCompanies = provisioned
-          .filter((c: any) => c.sippyIAccount && !sippySet.has(Number(c.sippyIAccount)))
+        const platformOnlyCompanies = linked
+          .filter((c: any) => !sippySet.has(Number(c.sippyIAccount)))
           .map((c: any) => ({
             companyId: c.id,
             companyName: c.name,
@@ -31550,7 +31554,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
 
         // Unprovisioned platform companies (draft/pending — not yet in Sippy at all)
         const unprovisioned = allCompanies
-          .filter((c: any) => !c.sippyIAccount && c.provisioningStatus !== 'imported')
+          .filter((c: any) => toAccountId(c.sippyIAccount) === null && c.provisioningStatus !== 'imported')
           .map((c: any) => ({
             companyId: c.id,
             companyName: c.name,
@@ -31565,7 +31569,7 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           unprovisioned,
           summary: {
             sippyAccountCount:     sippyAccounts.length,
-            platformAccountCount:  provisioned.length,
+            platformAccountCount:  linked.length,
             orphanedAccountCount:  orphanedAccounts.length,
             orphanedAuthRuleCount: orphanedAuthRules.length,
             platformOnlyCount:     platformOnlyCompanies.length,
@@ -31588,10 +31592,26 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
         const { username, password } = sippyXmlCreds(settings as any);
         const portalUrl = sippyPortalUrl(settings as any);
 
+        // THE IDS ARRIVING HERE WERE CHOSEN BY A BROWSER. It may have rendered a preview before
+        // a company was linked, or have been left open across the change, or be asking for an
+        // account the preview never offered. Deleting a Sippy account is irreversible and
+        // external, so the server re-derives what is untracked from the database it owns and
+        // refuses everything else. A refusal is reported, never silently dropped: an operator
+        // who is not told a deletion did not happen will believe the cleanup completed.
+        const { deletable, refused } = partitionDeletions(
+          deleteAccountIds,
+          linkedAccountIds(await storage.getCompanies()),
+        );
+
         const accountResults: { iAccount: number; success: boolean; message: string }[] = [];
         const authRuleResults: { iAuthentication: number; success: boolean; message: string }[] = [];
 
-        for (const iAccount of deleteAccountIds) {
+        for (const r of refused) {
+          console.warn(`[sippy-sync] refusing to delete account ${r.iAccount}: ${r.reason}`);
+          accountResults.push({ iAccount: Number(r.iAccount), success: false, message: r.reason });
+        }
+
+        for (const iAccount of deletable) {
           const r = await sippy.deleteSippyAccount(username, password, iAccount, portalUrl, 1);
           accountResults.push({ iAccount, success: r.success, message: r.message });
         }
