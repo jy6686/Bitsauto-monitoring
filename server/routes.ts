@@ -139,6 +139,8 @@ import { db, pool } from "./db";
 import { getMigrationLedger, getMigrationStatus } from "./migrate";
 import { allocateAccountPrefix } from "./services/provisioning/account-prefix";
 import { linkedAccountIds, isUntracked, partitionDeletions, toAccountId } from "./services/sippy/tracked-accounts";
+import { orphanedAuthRules as orphanedAuthRules_, orphanedRuleIdSet, partitionRuleDeletions,
+         type OrphanScanInput } from "./services/sippy/orphaned-auth-rules";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, inArray, sql, asc } from "drizzle-orm";
 const sqlExpr = sql;
 const drizzleSql = sql;
@@ -31492,6 +31494,33 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
   );
 
   // ── Sync Preview ──────────────────────────────────────────────────────────────
+  /**
+   * Read each linked company's Sippy auth rules beside the IPs the platform approved for it.
+   *
+   * A company whose rules cannot be listed is OMITTED, not defaulted. Preview then shows nothing
+   * for it, and execute refuses anything requested from it — "we could not check" must never
+   * become "safe to delete". The Sippy error is logged so a silent omission is still visible.
+   */
+  async function scanAuthRules(
+    companies: any[], username: string, password: string, portalUrl: string,
+  ): Promise<OrphanScanInput[]> {
+    const scans: OrphanScanInput[] = [];
+    for (const co of companies) {
+      try {
+        const { authRules } = await sippy.listSippyAuthRules(
+          username, password, { iAccount: co.sippyIAccount, iCustomer: 1 }, portalUrl);
+        const approvedIps = (await storage.getClientIpRequests(co.id))
+          .filter((r: any) => r.status === 'approved')
+          .map((r: any) => r.ipAddress);
+        scans.push({ companyId: co.id, companyName: co.name, iAccount: co.sippyIAccount, authRules, approvedIps });
+      } catch (e: any) {
+        console.warn(`[sippy-sync] could not read auth rules for company ${co.id} (${co.name}); ` +
+                     `its rules are neither reported nor deletable this pass: ${e?.message ?? e}`);
+      }
+    }
+    return scans;
+  }
+
   // GET /api/sippy/sync/preview
   // Compares Sippy live accounts vs platform DB to find orphaned accounts and auth rules.
   app.get('/api/sippy/sync/preview',
@@ -31525,21 +31554,11 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
             currency: (a as any).baseCurrency || (a as any).currency || 'USD',
           }));
 
-        // For each provisioned company, find auth rules not in approved IP list = orphaned IPs
-        const orphanedAuthRules: { iAccount: number; iAuthentication: number; remoteIp: string; companyName: string; companyId: number }[] = [];
-        for (const co of linked.slice(0, 30)) {
-          try {
-            const { authRules } = await sippy.listSippyAuthRules(username, password, { iAccount: co.sippyIAccount, iCustomer: 1 }, portalUrl);
-            const approved = (await storage.getClientIpRequests(co.id))
-              .filter((r: any) => r.status === 'approved')
-              .map((r: any) => r.ipAddress);
-            for (const rule of authRules) {
-              if (rule.remoteIp && !approved.includes(rule.remoteIp)) {
-                orphanedAuthRules.push({ iAccount: co.sippyIAccount, iAuthentication: rule.iAuthentication, remoteIp: rule.remoteIp, companyName: co.name, companyId: co.id });
-              }
-            }
-          } catch { /* skip on Sippy error */ }
-        }
+        // For each linked company, find auth rules not in the approved IP list = orphaned IPs.
+        // Classified by the SAME pure function execute re-derives with, so the two cannot drift
+        // and refuse rules this screen legitimately offered.
+        const orphanedAuthRules = orphanedAuthRules_(
+          await scanAuthRules(linked.slice(0, 30), username, password, portalUrl));
 
         // Platform companies provisioned but their sippyIAccount not found in Sippy
         const sippySet = new Set(sippyAccounts.map((a: any) => Number(a.iAccount)));
@@ -31615,9 +31634,28 @@ ${metricLines.map(l => `<tr><td style="padding:8px 12px;border:1px solid #374151
           const r = await sippy.deleteSippyAccount(username, password, iAccount, portalUrl, 1);
           accountResults.push({ iAccount, success: r.success, message: r.message });
         }
-        for (const iAuthentication of deleteAuthRuleIds) {
-          const r = await sippy.delSippyAuthRule(username, password, iAuthentication, { portalUrl });
-          authRuleResults.push({ iAuthentication, success: r.success, message: r.message });
+
+        // Auth rules get the same treatment, and for a sharper reason: deleting one stops a
+        // customer authenticating from that IP. "Orphaned" is not a property of the id the
+        // browser sent — it is a comparison between Sippy's rules and the IPs this platform has
+        // approved, so the server redoes that comparison now rather than trusting a list a stale
+        // tab may have rendered. Every linked company is scanned, not preview's first 30: a cap
+        // is fine for a screen, but a deletion must be judged on the whole picture.
+        if ((deleteAuthRuleIds ?? []).length > 0) {
+          const linkedNow = (await storage.getCompanies())
+            .filter((c: any) => toAccountId(c.sippyIAccount) !== null);
+          const orphanNow = orphanedRuleIdSet(
+            orphanedAuthRules_(await scanAuthRules(linkedNow, username, password, portalUrl)));
+          const partition = partitionRuleDeletions(deleteAuthRuleIds, orphanNow);
+
+          for (const r of partition.refused) {
+            console.warn(`[sippy-sync] refusing to delete auth rule ${r.iAuthentication}: ${r.reason}`);
+            authRuleResults.push({ iAuthentication: Number(r.iAuthentication), success: false, message: r.reason });
+          }
+          for (const iAuthentication of partition.deletable) {
+            const r = await sippy.delSippyAuthRule(username, password, iAuthentication, { portalUrl });
+            authRuleResults.push({ iAuthentication, success: r.success, message: r.message });
+          }
         }
 
         const allOk = [...accountResults, ...authRuleResults].every(r => r.success);
