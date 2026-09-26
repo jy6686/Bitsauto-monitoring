@@ -3065,9 +3065,34 @@ function PushJobDrawer({ job, onClose, statusBg, canWrite = true }: { job: any; 
               <Download className="w-3 h-3" /> Download Rate Sheet
             </button>
             {(['failed','partial'].includes((job.status??'').toLowerCase())) ? (
+              /* DISABLED, NOT REMOVED — and the `disabled` attribute is the whole fix.
+               *
+               * There is no retry endpoint. The only `retry` route in the server is
+               * PATCH /api/invoice-jobs/:id/retry; this POST 404s, apiRequest throws through
+               * throwIfResNotOk, and the `.then` below never runs — so the panel stayed open,
+               * nothing was reported, and the rejection went unhandled. The button appeared to
+               * do nothing at all.
+               *
+               * Removed would be worse than disabled. This renders exactly when a push failed
+               * or partially failed — the moment an operator is looking for recourse — so a
+               * control that silently vanishes tells them nothing, while a disabled one tells
+               * them retry does not exist yet, which is true.
+               *
+               * The handler and route path are left untouched on purpose: building retry needs
+               * a semantics decision nobody has made (replay the failed operations, replay the
+               * whole job, or create a new superseding job — each gives the operation ledger a
+               * different meaning). `disabled` guarantees the request is never issued meanwhile.
+               *
+               * NO WORKAROUND IS SUGGESTED, deliberately. Re-submitting through Send Rate would
+               * re-push destinations that already succeeded, and an effective-dated write ADDS a
+               * scheduled tariff row rather than editing one in place — that is how tariff 68
+               * went 53 → 54 rates on 2026-09-24. Pointing an operator at it would leave
+               * duplicate scheduled rows behind. */
               <button
+                disabled
+                title="Re-send is not available yet — retrying a rate push is not implemented."
                 onClick={() => apiRequest('POST', `/api/rate-manager/jobs/${job.jobId??job.job_id??job.id}/retry`).then(() => onClose())}
-                className="flex items-center gap-1.5 text-xs bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 px-3 py-1.5 rounded border border-blue-500/20 transition-colors"
+                className="flex items-center gap-1.5 text-xs bg-white/5 text-gray-500 px-3 py-1.5 rounded border border-white/10 cursor-not-allowed opacity-60"
               >
                 Re-send
               </button>
