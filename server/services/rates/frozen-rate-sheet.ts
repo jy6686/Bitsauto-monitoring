@@ -14,8 +14,12 @@
  *    clause in it. An attachment that contradicts its own email, on a legal paragraph, is worse
  *    than no attachment. The terms here carry the CHANGES sentence instead, and "DELETED" is
  *    asserted absent.
- * 2. A billing increment. The frozen rows carry none — the increment is not yet frozen at push
- *    time (an open item). Blank is honest; "60/1" would be a guess printed as a commitment.
+ * 2. A billing increment it cannot substantiate. The frozen row now carries the increment AS
+ *    APPLIED — resolved server-side from the active commercial catalogue at push time, not
+ *    caller-supplied — so a destination that had one is quoted honestly. A destination whose
+ *    prefix was absent from the catalogue kept 1/1 on the legacy path with no commercial row to
+ *    consult; that is a DEFAULT nobody committed to, so the cell stays blank rather than quoting
+ *    it as a term. Blank means "not established"; it never means 1/1.
  *
  * Everything else — layout, styles, columns, the workbook itself — is the existing builder,
  * untouched. This module only decides what goes in it.
@@ -50,6 +54,8 @@ export interface FrozenRow {
   rate: string | number;
   effectiveDate?: string | null;
   productDigit?: string | null;
+  /** "60/1" as applied, or empty/absent when the push established no commercial term. */
+  billingIncrement?: string | null;
 }
 
 export interface FrozenSheetInput {
@@ -95,8 +101,10 @@ export function buildFrozenRateSheetModel(input: FrozenSheetInput): RateSheetMod
       // No prior rate is frozen, so I/D cannot be decided honestly; N is what the manual sheet
       // prints for the same reason.
       status: 'N',
-      // Deliberately blank — see the file comment.
-      billingIncrement: '',
+      // The increment AS APPLIED, frozen with the row. Blank when the push established no
+      // commercial term for that destination — see the file comment. A blank cell says "not
+      // established"; printing a default would quote a commitment nobody made.
+      billingIncrement: String(r.billingIncrement ?? '').trim(),
       effectiveDate: formatSheetDate(eff),
       effectiveTime: timeOf(eff),
     };

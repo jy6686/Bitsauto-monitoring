@@ -231,7 +231,12 @@ export async function loadOperationsForPush(
            -- The customer's effective date. Omitting it here is what made every notification
            -- quote its own send date: the obligation never saw the fact, so the renderer
            -- defaulted. It exists only on the operation, so it must be read here or lost.
-           effective_from
+           effective_from,
+           -- The billing increment as APPLIED. Same class of fact as the effective date: resolved
+           -- server-side at push time from the active commercial catalogue, and unreconstructable
+           -- afterwards. Omitting it here is why the sheet's terms paragraph pointed at a Billing
+           -- Increment column that was blank on every row.
+           interval_1, interval_n
       FROM rate_push_operations
      WHERE job_id = ${jobId}`)).map((r: any) => ({
     accountName: String(r.account_name),
@@ -246,6 +251,8 @@ export async function loadOperationsForPush(
     refusedBeforeWrite: r.refused_before_write === null || r.refused_before_write === undefined
       ? null : Boolean(r.refused_before_write),
     effectiveFrom: r.effective_from ?? null,
+    interval1: r.interval_1 === null || r.interval_1 === undefined ? null : Number(r.interval_1),
+    intervalN: r.interval_n === null || r.interval_n === undefined ? null : Number(r.interval_n),
   }));
 }
 

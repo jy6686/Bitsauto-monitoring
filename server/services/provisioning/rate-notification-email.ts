@@ -71,6 +71,13 @@ export type NotificationRate = {
    * contradicts the notice period it was sent to honour.
    */
   effectiveDate?: string | null;
+  /**
+   * Initial/subsequent seconds as applied to the switch, e.g. "60/1". Empty or absent when the
+   * push established no commercial term for that destination — the renderer prints an em dash
+   * and the XLSX leaves the cell blank, because a default nobody committed to must not be quoted
+   * to a customer as one.
+   */
+  billingIncrement?: string | null;
 };
 
 

@@ -45,11 +45,12 @@ const persistOps = async (jobId: string, ops: AppliedOperation[], rateType: stri
       INSERT INTO rate_push_operations
         (job_id, operation_key, sequence, account_name, product_name, trunk_prefix, dial_prefix,
          full_prefix, destination_name, requested_rate, status, refused_before_write,
-         effective_from)
+         effective_from, interval_1, interval_n)
       VALUES (${jobId}, ${`k${seq}`}, ${seq}, ${o.accountName}, ${o.productName}, ${o.trunkPrefix},
               ${o.dialPrefix}, ${o.fullPrefix}, ${o.destinationName},
               ${o.requestedRate === null ? null : String(o.requestedRate)}, ${o.status},
-              ${o.refusedBeforeWrite}, ${o.effectiveFrom ?? null})`);
+              ${o.refusedBeforeWrite}, ${o.effectiveFrom ?? null},
+              ${o.interval1 ?? null}, ${o.intervalN ?? null})`);
     seq++;
   }
 };
@@ -85,7 +86,10 @@ beforeAll(async () => {
       refused_before_write BOOLEAN,
       -- migration 511. The obligation freezes this so the notification can quote when the
       -- customer's price actually changes, rather than the day the email was sent.
-      effective_from VARCHAR(32));`);
+      effective_from VARCHAR(32),
+      -- migration 511. Frozen for the same reason as effective_from: the increment is resolved
+      -- server-side at push time and the customer document cannot reconstruct it afterwards.
+      interval_1 INTEGER, interval_n INTEGER);`);
   await client.exec(readFileSync(join(__dirname, '..', '..', '..', 'migrations', '518_rate_push_notifications.sql'), 'utf8'));
 });
 afterAll(async () => { await client?.close(); });
@@ -268,6 +272,42 @@ describe("the certified facts are frozen, not re-derived", () => {
  * see it. These go through PGlite for that reason: the column is written as a push writes it and
  * read back as the worker reads it.
  */
+/**
+ * Same shape of gap as the effective date, and it was real: the column existed on the operation,
+ * the email renderer already had a Billing Increment column, and the SELECT in between did not
+ * ask for it — so the sheet's terms paragraph pointed at a column blank on every row. A unit test
+ * over hand-built operations cannot see that; only the round trip can.
+ */
+describe("the billing increment survives the trip through the database", () => {
+  it("a stored interval pair reaches the loaded operation", async () => {
+    await persistOps(JOB, [op({ interval1: 60, intervalN: 1 })]);
+    const [loaded] = await loadOperationsForPush(db, JOB);
+    expect(loaded.interval1).toBe(60);
+    expect(loaded.intervalN).toBe(1);
+  });
+
+  /** THE REGRESSION, end to end: the increment must be IN the frozen row, not merely loadable. */
+  it("freezes the applied increment into the obligation", async () => {
+    await persistOps(JOB, [op({ interval1: 60, intervalN: 1 })]);
+    await createObligationsForPush(db, { jobId: JOB, operations: await loadOperationsForPush(db, JOB) });
+
+    const [row] = await all(sql`SELECT rows_json FROM rate_push_notifications`);
+    const frozen = typeof row.rows_json === 'string' ? JSON.parse(row.rows_json) : row.rows_json;
+    expect(frozen[0].billingIncrement).toBe('60/1');
+  });
+
+  /** An absent term stays absent. Quoting 1/1 here would invent a commitment nobody made. */
+  it("freezes an empty increment when the push established none", async () => {
+    await persistOps(JOB, [op({ interval1: null, intervalN: null })]);
+    await createObligationsForPush(db, { jobId: JOB, operations: await loadOperationsForPush(db, JOB) });
+
+    const [row] = await all(sql`SELECT rows_json FROM rate_push_notifications`);
+    const frozen = typeof row.rows_json === 'string' ? JSON.parse(row.rows_json) : row.rows_json;
+    expect(frozen[0].billingIncrement).toBe('');
+    expect(frozen[0].billingIncrement).not.toBe('1/1');
+  });
+});
+
 describe("the customer's effective date survives the trip through the database", () => {
   it("a stored effective_from reaches the loaded operation", async () => {
     await persistOps(JOB, [op({ effectiveFrom: '2026-09-22' })]);
