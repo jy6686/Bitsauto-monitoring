@@ -150,12 +150,18 @@ describe("the push-batch route, after wiring", () => {
   /** The push-batch handler's own line range, so nothing here reads a neighbouring route. */
   const handler = (() => {
     const start = lineOf("app.post('/api/rate-manager/push-batch'");
-    // Anchored on the response's OPENING, not its full text: fields may be added to the response
-    // (2026-09-14 added `policy`), and a marker pinned to the whole line would silently return an
-    // empty handler and fail every assertion here as 'expected "" to contain'.
-    const end   = lineOf('res.json({ results, ok, total, requestMs, sippyMs', start);
+    // Anchored on the NEXT ROUTE, not on any line inside this one. It used to be pinned to the
+    // response's opening line; when the response grew to several lines (the per-account split
+    // added `requestId` and `jobs`) that anchor vanished, `end` became 0, and every assertion in
+    // here failed as 'expected "" to contain' rather than saying what had actually changed.
+    const end   = lineOf("app.post('/api/rate-manager/change-client-rates'", start);
     return { start, end, text: SRC.slice(start - 1, end).join('\n') };
   })();
+
+  it("has a handler to read", () => {
+    expect(handler.start).toBeGreaterThan(0);
+    expect(handler.end).toBeGreaterThan(handler.start);
+  });
 
   it("still resolves tariffs and increments, and records the job, before the engine runs", () => {
     const increments = lineOf('lookupCatalogueIncrements(db, destList.map', handler.start);
@@ -177,8 +183,11 @@ describe("the push-batch route, after wiring", () => {
     // target tariff — submit-guards-wiring.test.ts), issued before the job row exists. None may
     // sit anywhere else, and in particular none on the integrity check.
     const guardsAt  = handler.text.indexOf('submitGuards(');
-    const guardsEnd = handler.text.indexOf('const jobId   = ', guardsAt);
+    // The guards end where the submission is planned. That used to be `const jobId = ...`; the
+    // per-account split replaced the one id with a request and N sibling job ids.
+    const guardsEnd = handler.text.indexOf('const submissionBase = ', guardsAt);
     expect(guardsAt).toBeGreaterThan(-1);
+    expect(guardsEnd).toBeGreaterThan(guardsAt);
     const inGuards = (handler.text.slice(guardsAt, guardsEnd).match(/res\.status\(409\)/g) || []).length;
     const total    = (handler.text.match(/res\.status\(409\)/g) || []).length;
     expect(inGuards).toBe(2);
@@ -202,10 +211,14 @@ describe("the push-batch route, after wiring", () => {
   });
 
   it("preserves the response contract the client reads — additively", () => {
-    // Every field the client already reads is still there, in the same order. New fields may
-    // follow; removing or renaming one is the change this guards against.
-    expect(handler.text).toMatch(/res\.json\(\{ results, ok, total, requestMs, sippyMs(, [a-zA-Z]+: [^}]*\})* \}\);/);
-    // The one addition to date, so its presence is deliberate rather than incidental.
+    // Every field the client already reads is still there and still means what it meant. New
+    // fields may be added; removing or renaming one is the change this guards against.
+    expect(handler.text).toMatch(/res\.json\(\{\s*\n?\s*results, ok, total, requestMs, sippyMs,/);
     expect(handler.text).toContain('policy: { enforced: policyEnforced, resolutions: policyResolutions }');
+    // Kept for the submit lifecycle, which seeds itself from it. It now names the ANCHOR sibling —
+    // the first account's job, the row carrying the operator's clientRequestId.
+    expect(handler.text).toContain('job: { jobId: plan.jobs[0].jobId }');
+    // The submission's own identity, and the per-account record the single row could never carry.
+    expect(handler.text).toMatch(/\n\s*requestId,\s*\n\s*jobs: jobReports,/);
   });
 });

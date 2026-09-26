@@ -50,7 +50,13 @@ describe("it ships OFF, and fails to unchanged behaviour", () => {
     expect(ROUTE.indexOf('policy = perClientPolicy(')).toBeGreaterThan(ROUTE.indexOf('if (policyEnforced) {'));
     // Passed by reference: undefined when off, so runRateBatch sees no policy at all.
     // The group push sits beside it under its own flag (bulk-groups-wiring.test.ts owns that gate).
-    expect(ROUTE).toContain('{ db, push, pushGroup: bulkGroups ? pushGroup : undefined, lock: createPostgresTariffLock(pool), policy }');
+    //
+    // `push`/`pushGroup` became per-job with the per-account split — their position trail writes to
+    // one account's row — and the tariff lock is created once for the submission and shared by
+    // every sibling, which is what keeps "one writer per tariff" true across them. The POLICY is
+    // still passed exactly as it was: the same reference, built only when enforced.
+    expect(ROUTE).toContain('{ db, push: pushFor(jobId), pushGroup: bulkGroups ? pushGroupFor(jobId) : undefined, lock, policy }');
+    expect(ROUTE).toContain('const lock = createPostgresTariffLock(pool);');
   });
 });
 

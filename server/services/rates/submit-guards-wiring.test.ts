@@ -46,10 +46,38 @@ describe('push-batch: guards before the job row, request id on the row', () => {
     expect((before.match(/res\.status\(409\)/g) || []).length).toBeGreaterThanOrEqual(2);
   });
 
-  it('the job insert carries clientRequestId', () => {
+  /**
+   * A submission is now one job per account, and `rate_push_jobs_client_request_id_uq` is unique
+   * where the column is non-null — so the operator's submit id sits on the FIRST sibling. That is
+   * the row the duplicate guard and the lost-response lookup find, and its `request_id` is what
+   * turns it back into the whole submission.
+   */
+  it('the job rows carry clientRequestId on the first sibling and a shared requestId', () => {
+    const planAt   = PUSH_BATCH.indexOf('planAccountJobs(');
     const insertAt = PUSH_BATCH.indexOf('db.insert(ratePushJobs)');
-    const insertBlock = PUSH_BATCH.slice(insertAt, PUSH_BATCH.indexOf('});', insertAt));
-    expect(insertBlock).toMatch(/clientRequestId:\s*clientRequestId/);
+    expect(planAt).toBeGreaterThan(-1);
+    expect(planAt).toBeLessThan(insertAt);
+    const rowsBlock = PUSH_BATCH.slice(planAt, insertAt);
+    expect(rowsBlock).toMatch(/clientRequestId:\s*index === 0/);
+    expect(rowsBlock).toMatch(/\brequestId,/);
+  });
+
+  /**
+   * ONE statement, not N. Separate inserts could leave a submission half recorded — some accounts
+   * with a durable row, others silently absent — and an account that vanishes between planning and
+   * insertion is the exact failure the per-account split exists to make impossible.
+   */
+  it('inserts every sibling in a single statement', () => {
+    expect((PUSH_BATCH.match(/db\.insert\(ratePushJobs\)/g) || []).length).toBe(1);
+    expect(PUSH_BATCH).toMatch(/db\.insert\(ratePushJobs\)\.values\(jobRows\)/);
+  });
+
+  /** The row exists before the first mutation-capable call. That position is the contract. */
+  it('inserts the job rows BEFORE the engine is ever called', () => {
+    const insertAt = PUSH_BATCH.indexOf('db.insert(ratePushJobs)');
+    const runAt    = PUSH_BATCH.indexOf('runRateBatch(');
+    expect(runAt).toBeGreaterThan(-1);
+    expect(insertAt).toBeLessThan(runAt);
   });
 });
 
@@ -57,7 +85,11 @@ describe('GET /api/rate-manager/jobs/by-request/:clientRequestId', () => {
   const ROUTE = (() => {
     const at = ROUTES.indexOf("app.get('/api/rate-manager/jobs/by-request/:clientRequestId'");
     expect(at, 'by-request route must exist').toBeGreaterThan(-1);
-    return ROUTES.slice(at, at + 2500);
+    // Bounded by the NEXT route rather than a character count, so growing this handler cannot
+    // silently make the read-only assertion below inspect the following route instead.
+    const next = ROUTES.indexOf("app.get('/api/rate-manager/jobs/:jobId/operations'", at);
+    expect(next, 'the following route must exist').toBeGreaterThan(at);
+    return ROUTES.slice(at, next);
   })();
 
   it('is authenticated for admin, management and kam', () => {
@@ -72,6 +104,18 @@ describe('GET /api/rate-manager/jobs/by-request/:clientRequestId', () => {
     expect(ROUTE).toMatch(/res\.status\(404\)/);
     expect(ROUTE).toContain('deriveJobStatus(');
     expect(ROUTE).toMatch(/res\.json\(\{\s*job/);
+  });
+
+  /**
+   * THE REGRESSION THE SPLIT CREATES. The submit id names one sibling; answering with that
+   * sibling's status would unlock Submit while another customer's rates were still being written —
+   * the 2026-09-19 double-submit, re-created. The status must come from the whole request.
+   */
+  it('answers for the whole submission when the row carries a request id', () => {
+    expect(ROUTE).toContain('deriveRequestStatus(');
+    expect(ROUTE).toContain('deriveRequestOperations(');
+    // A row written before migration 527 has no request id and keeps the single-job answer.
+    expect(ROUTE).toMatch(/if\s*\(!job\.requestId\)/);
   });
 
   it('is read-only: no update, insert, or Sippy call', () => {

@@ -27,18 +27,34 @@ export type SubmitState =
   | { phase: 'idle'; lastError?: string }
   | { phase: 'submitting'; key: string }
   | { phase: 'response_lost'; key: string; error: string; notFound: number }
-  | { phase: 'polling'; key: string; jobId?: string; status?: string }
-  | { phase: 'terminal'; key: string; jobId: string; status: TerminalJobStatus };
+  | { phase: 'polling'; key: string; watching?: string; status?: string }
+  | { phase: 'terminal'; key: string; watching: string; status: TerminalJobStatus };
 
 export type SubmitEvent =
   | { type: 'SUBMIT'; key: string }
-  | { type: 'RESPONSE_OK'; jobId?: string }
+  | { type: 'RESPONSE_OK'; watching?: string }
   | { type: 'RESPONSE_LOST'; error: string }
   | { type: 'RESPONSE_REJECTED'; error: string }
-  | { type: 'JOB'; jobId: string; status: string }
+  /**
+   * `status` is the status of the WHOLE SUBMISSION, never of one sibling. A submission is one job
+   * per account; a status that speaks for one of them would release Submit while another
+   * customer's rates were still being written, which is the 2026-09-19 double-submit.
+   */
+  | { type: 'JOB'; watching: string; status: string }
   | { type: 'JOB_NOT_FOUND' }
   | { type: 'RESET' };
 
+/**
+ * `watching` names WHAT THE SCREEN IS WATCHING, which is not always a job.
+ *
+ * It was `jobId`, because a submission was one job. A submission is now one job per ACCOUNT under
+ * a shared request id, so the thing whose completion releases Submit is the REQUEST — and naming
+ * a sibling there would report one account's outcome as the submission's. A single-account
+ * submission still watches its one job id, so nothing about that case reads differently.
+ *
+ * Renamed rather than reused: a field called `jobId` holding a request id is the kind of quiet
+ * lie that survives every test and misleads the next reader.
+ */
 export const initialSubmitState: SubmitState = { phase: 'idle' };
 
 const isTerminal = (s: string): s is TerminalJobStatus => (TERMINAL_JOB_STATUSES as readonly string[]).includes(s);
@@ -55,7 +71,7 @@ export function submitReducer(state: SubmitState, event: SubmitEvent): SubmitSta
 
     case 'RESPONSE_OK':
       // The server answered — but the row decides. Keep pushing until it is terminal.
-      if (state.phase === 'submitting') return { phase: 'polling', key: state.key, jobId: event.jobId };
+      if (state.phase === 'submitting') return { phase: 'polling', key: state.key, watching: event.watching };
       return state;
 
     case 'RESPONSE_LOST':
@@ -69,8 +85,8 @@ export function submitReducer(state: SubmitState, event: SubmitEvent): SubmitSta
 
     case 'JOB': {
       if (state.phase !== 'submitting' && state.phase !== 'response_lost' && state.phase !== 'polling') return state;
-      if (isTerminal(event.status)) return { phase: 'terminal', key: state.key, jobId: event.jobId, status: event.status };
-      return { phase: 'polling', key: state.key, jobId: event.jobId, status: event.status };
+      if (isTerminal(event.status)) return { phase: 'terminal', key: state.key, watching: event.watching, status: event.status };
+      return { phase: 'polling', key: state.key, watching: event.watching, status: event.status };
     }
 
     case 'JOB_NOT_FOUND': {
@@ -108,7 +124,7 @@ export function statusMessage(state: SubmitState): string {
     case 'idle':          return state.lastError ?? '';
     case 'submitting':    return 'Pushing… the switch is being written; this can take a minute or two.';
     case 'response_lost': return `The request did not come back (${state.error}), but the push is still running on the server — watching job ${state.key.slice(0, 8)}… Do not submit again.`;
-    case 'polling':       return `Job ${state.jobId ?? state.key.slice(0, 8)} is ${state.status ?? 'processing'} — waiting for it to finish.`;
-    case 'terminal':      return `Job ${state.jobId} finished: ${state.status}.`;
+    case 'polling':       return `Push ${state.watching ?? state.key.slice(0, 8)} is ${state.status ?? 'processing'} — waiting for it to finish.`;
+    case 'terminal':      return `Push ${state.watching} finished: ${state.status}.`;
   }
 }

@@ -20,6 +20,9 @@ beforeAll(async () => {
     CREATE TABLE rate_push_jobs (
       id SERIAL PRIMARY KEY,
       job_id VARCHAR(64) UNIQUE NOT NULL,
+      -- Migration 527. Not applied from the file here: 527 also widens rate_type, a column this
+      -- cut-down table does not carry. The column's own migration is proven in its own test.
+      request_id VARCHAR(64),
       status VARCHAR(16) NOT NULL DEFAULT 'pending',
       i_tariff INTEGER,
       client_names TEXT,
@@ -47,6 +50,25 @@ describe('findJobByClientRequestId', () => {
     expect(await findJobByClientRequestId(db as any, 'req-Z')).toBeNull();
     expect(await findJobByClientRequestId(db as any, '')).toBeNull();
   });
+
+  /**
+   * The submit id names ONE sibling — migration 525's index is unique where the column is
+   * non-null — so `request_id` is the only thing that turns it back into the whole submission.
+   * Without it the by-request lookup silently falls back to answering for one account, and an
+   * operator's Submit unlocks while another customer's rates are still being written.
+   */
+  it('carries the request id, so one sibling leads back to the whole submission', async () => {
+    await db.execute(sql`INSERT INTO rate_push_jobs (job_id, request_id, status, client_request_id)
+                         VALUES ('job-1790-0', 'req-1790', 'processing', 'submit-A')`);
+    expect(await findJobByClientRequestId(db as any, 'submit-A'))
+      .toMatchObject({ jobId: 'job-1790-0', requestId: 'req-1790' });
+  });
+
+  /** A row written before migration 527 has none, and answers for itself. */
+  it('reports a null request id rather than inventing one', async () => {
+    await seed('job-legacy', { key: 'submit-B' });
+    expect((await findJobByClientRequestId(db as any, 'submit-B'))!.requestId).toBeNull();
+  });
 });
 
 describe('listNonTerminalJobsForTariffs', () => {
@@ -62,6 +84,18 @@ describe('listNonTerminalJobsForTariffs', () => {
     expect(pend.lastStepAt).toBeNull();
     expect(pend.createdAt).toBeInstanceOf(Date);
     expect(rows.find(r => r.jobId === 'live-64')!.lastStepAt).toBeInstanceOf(Date);
+  });
+
+  /**
+   * `queued` joined the job vocabulary with the per-account split. Nothing writes it until
+   * execution moves into a worker, but a queued job for a tariff is exactly as much a reason to
+   * refuse a second submit as a running one — and this guard asked the question by re-typing
+   * ('pending','processing'), which is how a guard drifts from its vocabulary silently.
+   */
+  it('counts a queued job as live, alongside pending and processing', async () => {
+    await seed('queued-64', { iTariff: 64, status: 'queued' });
+    await seed('done-64',   { iTariff: 64, status: 'completed' });
+    expect((await listNonTerminalJobsForTariffs(db as any, [64])).map(r => r.jobId)).toEqual(['queued-64']);
   });
 
   it('an empty tariff list reads nothing', async () => {

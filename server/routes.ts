@@ -141,6 +141,13 @@ import { allocateAccountPrefix } from "./services/provisioning/account-prefix";
 import { linkedAccountIds, isUntracked, partitionDeletions, toAccountId } from "./services/sippy/tracked-accounts";
 import { orphanedAuthRules as orphanedAuthRules_, orphanedRuleIdSet, partitionRuleDeletions,
          type OrphanScanInput } from "./services/sippy/orphaned-auth-rules";
+import { planAccountJobs } from "./services/rates/account-job-plan";
+import { runTariffExclusive } from "./services/rates/tariff-schedule";
+import { dedupeAccounts } from "./services/rates/job-queue";
+import { deriveRequestStatus, deriveRequestOperations } from "./services/rates/request-status";
+// The job scheduler is bounded by the SAME constants the lane planner is, so the split cannot
+// quietly change how many tariffs Sippy sees at once.
+import { MIN_LANE_CONCURRENCY, MAX_LANE_CONCURRENCY, DEFAULT_LANE_CONCURRENCY } from "./services/rates/batch-plan";
 import { and, eq, desc, isNull, isNotNull, lte, gte, lt, gt, or, inArray, sql, asc } from "drizzle-orm";
 const sqlExpr = sql;
 const drizzleSql = sql;
@@ -44248,6 +44255,22 @@ ${footer}
           return res.status(400).json({ error: 'accountNames array required' });
         }
 
+        // ── One account, one job — so one account, one entry from here on ─────
+        // Deduplicated at the REQUEST boundary rather than at the planner, because everything
+        // downstream is built by iterating this list: a name sent twice would build two identical
+        // operations for one account, and the planner would then hand both to that account's single
+        // job. A repeat is an operator slip, not an intent to push twice. First occurrence wins and
+        // order is preserved, so the queue runs in the order the operator typed. Comparison is
+        // exact — account names are Sippy identifiers and folding case would merge two real
+        // accounts. See services/rates/job-queue.ts.
+        const pushAccounts = dedupeAccounts(accountNames);
+        if (pushAccounts.length === 0) {
+          return res.status(400).json({ error: 'accountNames array required' });
+        }
+        if (pushAccounts.length !== accountNames.length) {
+          console.log(`[push-batch] ${accountNames.length - pushAccounts.length} duplicate account name(s) collapsed — pushing ${pushAccounts.length}`);
+        }
+
         // ── The trunk digit is the server's to decide ─────────────────────────
         // It used to be whatever the browser sent, composed as `(trunkPrefix ?? '') + prefix`.
         // An empty or wrong value put BARE prefixes into a live customer tariff — a rate with
@@ -44471,7 +44494,7 @@ ${footer}
         }
         const scopeDecision = pushScopeGuard({
           role: pushRole ?? '',
-          accountNames,
+          accountNames: pushAccounts,
           accounts,
           scopedAccountIds: pushScope,
         });
@@ -44512,63 +44535,6 @@ ${footer}
             message: `Tariff ${decision.iTariff} is being written by job ${decision.jobId} (started ${Math.round(decision.ageMs / 1000)}s ago). Nothing was started; wait for it to finish.` });
         }
 
-        const jobId   = `job-${Date.now()}`;
-        const totalOps = destList.length * accountNames.length;
-        // No truncation: these three fields are joined summaries with one entry per
-        // destination, so any cap is a limit on how many destinations may be pushed at once.
-        // The columns are TEXT as of migration 522. See the migration for why a truncated
-        // audit row is worse than a rejected one.
-        const destNames = destList.length === 1
-          ? (destList[0] as any).destinationName ?? null
-          : destList.map(d => (d as any).destinationName ?? d.dialPrefix).join(', ');
-        try {
-          await db.insert(ratePushJobs).values({
-            jobId,
-            productName:      req.body.productName ?? null,
-            trunkPrefix:      trunkPrefix ?? null,
-            format:           format ?? 'full',
-            rateType:         req.body.rateType ?? 'current',
-            // `totalClients` holds the OPERATION count, not the client count. pushed/failed
-            // have always counted operations — one per destination per client — so a
-            // 2-prefix push to 1 client stored 2 against a total of 1 and rendered as "2/1".
-            // The mismatch predates this change and was invisible only because the row was
-            // written once, at the end, already complete. Progress made it legible.
-            // The column name is now wrong for multi-destination pushes; the numbers agree,
-            // which is the more useful of the two to be right about.
-            totalClients:     totalOps,
-            pushedClients:    0,
-            failedClients:    0,
-            status:           'processing',
-            switchName:       String(switchName).substring(0, 128),
-            fullPrefix:       destList.map(d => d.fullPrefix).join(', '),
-            // Null rather than a misleading single value when the batch carries more than one
-            // effective time. Stamping the first destination's time on the whole job is how a
-            // rate sheet and a switch end up disagreeing.
-            effectiveAt:      (new Set(destList.map(d => d.effectiveFrom || effectiveFrom || 'now'))).size === 1
-                                ? (destList[0].effectiveFrom || effectiveFrom || null)
-                                : null,
-            createdBy:        (req as any).user?.claims?.sub ?? 'system',
-            clientNames:      accountNames.join(', '),
-            dialPrefix:       destList.map(d => d.dialPrefix).join(', '),
-            destinationName:  destNames || null,
-            notificationType: (req.body as any).notificationType ?? null,
-            notes:            `Started: ${destList.length} destination(s) × ${accountNames.length} client(s) = ${totalOps} op(s)`,
-            startedAt:        new Date(),
-            lastStep:         'queued',
-            lastStepAt:       new Date(),
-            // Recorded with the row, before the first mutation, so a lost response can find it.
-            clientRequestId:  clientRequestId,
-          });
-        } catch (e: any) {
-          // Now FATAL, where it used to be tolerated. Every operation gets a durable row before the
-          // first mutation-capable push, and those rows hang off this one by foreign key. With no
-          // parent row there is nothing to record against, so the batch is refused at the request
-          // boundary rather than run unrecorded — which is exactly the state that made a 19,000-
-          // prefix push unreconstructable when the process restarted.
-          console.error('[rate_push_jobs] could not create job row — refusing the batch:', e?.message || e);
-          return res.status(500).json({ error: `Could not record this push (${e?.message ?? e}). Refusing to run it unrecorded.` });
-        }
-
         // ── Is this product declared eligible for what is being pushed? ──────
         // Until now this route never asked. Destinations arrive in the request body, so an
         // operator could push any prefix in the catalogue to any client regardless of what
@@ -44594,7 +44560,7 @@ ${footer}
         // client stay distinct rows; the planner still refuses the second as a duplicate target.
         const operations: RunnerOperation[] = [];
         for (const dest of destList as any[]) {
-          for (const accountName of accountNames) {
+          for (const accountName of pushAccounts) {
             operations.push({
               operationKey:    `${operations.length}:${accountName}:${dest.fullPrefix}`,
               accountName,
@@ -44623,8 +44589,117 @@ ${footer}
           }
         }
 
+        // ── One submission → one job per account ──────────────────────────────
+        //
+        // WHY THE PLAN COMES AFTER THE OPERATIONS. A job's identity is now the account it pushes,
+        // and the operations are what tell us which accounts actually have work. An account that
+        // produced no operation gets no job, because a job with nothing to execute reports a
+        // status about work that does not exist. That is the ONLY reason the insert moved below
+        // the operations build; nothing about what is inserted, or about its position before the
+        // first mutation-capable call, has changed.
+        //
+        // WHAT THIS FIXES. `job-1790249867200` pushed to two accounts: aura 6/6, every operation
+        // verified; test-31 0/6. Push History showed one row — `aura, test-31 · 6 failed ·
+        // Partial` — and an operator could not see that aura was perfectly fine. Execution was
+        // already isolated (two independent eligibility refusals, not one shared failure); the
+        // RECORD was not.
+        const submissionBase = Date.now();
+        const requestId = `req-${submissionBase}`;
+        const plan = planAccountJobs({
+          accountNames: pushAccounts,
+          operations,
+          requestId,
+          idBase: submissionBase,
+        });
+        if (plan.accountsWithoutOperations.length) {
+          console.log(`[push-batch] no operations for ${plan.accountsWithoutOperations.join(', ')} — no job created for them`);
+        }
+        if (plan.jobs.length === 0) {
+          // Provably a non-event: no job row, no operation row, nothing sent. Refused at the
+          // request boundary for the same reason the submit guards refuse there.
+          console.log('[push-batch] refused: the submission produced no operations — nothing recorded');
+          return res.status(400).json({ error: 'This submission produced no rate operations, so nothing was recorded or sent.' });
+        }
+        console.log(`[push-batch] ${requestId}: ${plan.jobs.length} account job(s) — ${plan.jobs.map(j => `${j.jobId}=${j.accountName}(${j.operations.length})`).join(' ')}`);
+
+        // ── The job rows: N siblings, ONE statement ───────────────────────────
+        //
+        // ONE multi-row INSERT on purpose. N separate statements could leave a submission half
+        // recorded — some accounts with a durable row, others silently absent — and an account
+        // that vanishes between planning and insertion is exactly the failure this split is meant
+        // to make impossible. All-or-nothing: either every account is on the record before the
+        // first mutation-capable call, or the batch is refused and nothing ran.
+        const jobRows = plan.jobs.map((job, index) => {
+          // Per job, from its OWN operations, so a row always describes the work it owns rather
+          // than the submission it came from.
+          const ops = job.operations as any[];
+          const effectives = new Set(ops.map(o => o.effectiveFrom || 'now'));
+          return {
+            jobId:            job.jobId,
+            // The submission every sibling belongs to. Migration 527 added the column and its
+            // partial index; this is the first writer.
+            requestId,
+            productName:      req.body.productName ?? null,
+            trunkPrefix:      trunkPrefix ?? null,
+            format:           format ?? 'full',
+            rateType:         req.body.rateType ?? 'current',
+            // `totalClients` holds the OPERATION count, not the client count. pushed/failed have
+            // always counted operations — one per destination per client — so a 2-prefix push to
+            // 1 client stored 2 against a total of 1 and rendered as "2/1". With one account per
+            // job the two finally agree for the client dimension; the column name stays wrong for
+            // multi-destination pushes, and the numbers stay right, which is the more useful of
+            // the two to be right about.
+            totalClients:     ops.length,
+            pushedClients:    0,
+            failedClients:    0,
+            status:           'processing',
+            switchName:       String(switchName).substring(0, 128),
+            // No truncation: these are joined summaries with one entry per destination, so any
+            // cap is a limit on how many destinations may be pushed at once. The columns are TEXT
+            // as of migration 522 — a truncated audit row is worse than a rejected one.
+            fullPrefix:       ops.map(o => o.fullPrefix).join(', '),
+            // Null rather than a misleading single value when the job carries more than one
+            // effective time. Stamping the first destination's time on the whole job is how a
+            // rate sheet and a switch end up disagreeing.
+            effectiveAt:      effectives.size === 1 ? (ops[0].effectiveFrom ?? null) : null,
+            createdBy:        (req as any).user?.claims?.sub ?? 'system',
+            // ONE name now, not a joined list. This is the field Push History renders, and the
+            // reason `aura, test-31` could stand over a single verdict.
+            clientNames:      job.accountName,
+            dialPrefix:       ops.map(o => o.dialPrefix).join(', '),
+            destinationName:  ops.length === 1
+                                ? (ops[0].destinationName ?? null)
+                                : (ops.map(o => o.destinationName ?? o.dialPrefix).join(', ') || null),
+            notificationType: (req.body as any).notificationType ?? null,
+            notes:            `Started: ${ops.length} op(s) for ${job.accountName} (${requestId}, ${index + 1} of ${plan.jobs.length})`,
+            startedAt:        new Date(),
+            lastStep:         'queued',
+            lastStepAt:       new Date(),
+            // The operator's submit id is UNIQUE where non-null (migration 525's partial index),
+            // so it cannot be repeated across siblings. It goes on the first job, which is what
+            // the duplicate-submit guard and the lost-response lookup then find; both now answer
+            // with the whole REQUEST through that row's request_id, so naming one sibling here
+            // costs nothing. See the by-request endpoint.
+            clientRequestId:  index === 0 ? clientRequestId : null,
+          };
+        });
+        try {
+          await db.insert(ratePushJobs).values(jobRows);
+        } catch (e: any) {
+          // FATAL, where a missing row used to be tolerated. Every operation gets a durable row
+          // before the first mutation-capable push, and those rows hang off these by foreign key.
+          // With no parent row there is nothing to record against, so the batch is refused at the
+          // request boundary rather than run unrecorded — the state that made a 19,000-prefix push
+          // unreconstructable when the process restarted.
+          console.error('[rate_push_jobs] could not create job rows — refusing the batch:', e?.message || e);
+          return res.status(500).json({ error: `Could not record this push (${e?.message ?? e}). Refusing to run it unrecorded.` });
+        }
+
         // ── The single-operation primitive, unchanged, handed to the engine ───
-        const push: InjectedPush = async (o) => {
+        // Now built PER JOB, because the position trail it writes (`last_step`, `last_client`,
+        // `last_prefix`, `i_tariff`) belongs to the account being pushed. Everything inside is
+        // byte-for-byte what it was; only which row it updates is a parameter.
+        const pushFor = (jobId: string): InjectedPush => async (o) => {
           const mark = (step: string) => {
             db.update(ratePushJobs)
               .set({
@@ -44750,7 +44825,8 @@ ${footer}
           bulkGroups = false;   // fail to UNCHANGED behaviour: one upload per prefix
         }
 
-        const pushGroup: InjectedGroupPush = async (ops, ctx) => {
+        // Per job for the same reason `pushFor` is: the trail it writes names an account's row.
+        const pushGroupFor = (jobId: string): InjectedGroupPush => async (ops, ctx) => {
           // The same fire-and-forget position trail the per-operation push writes, so a restart
           // mid-group leaves a row that names the tariff, the phase and how many rows were in flight.
           const mark = (step: string) => {
@@ -44784,145 +44860,290 @@ ${footer}
           return rs;
         };
 
-        // One serial lane per tariff, concurrent across tariffs, every operation on a durable row
-        // before the first push, and an outcome nobody established never retried.
-        const runOutcome = await runRateBatch(
-          // The lock makes "one writer per tariff" true across BATCHES, not just within one. On
-          // 2026-09-09 jobs 46 and 47 wrote tariff 65 concurrently for ~44s because the planner's
-          // serialisation stops at the batch boundary; a Postgres advisory lock is visible to every
-          // request and process, and Postgres frees it if this one dies.
-          { db, push, pushGroup: bulkGroups ? pushGroup : undefined, lock: createPostgresTariffLock(pool), policy },
-          {
-            jobId,
-            operations,
-            productName: req.body.productName ?? null,
-            trunkPrefix: trunkPrefix ?? null,
-            concurrency: Number((req.body as any).concurrency) || undefined,
-          },
-        );
-        results.push(...(runOutcome.results as any));
-
-        // ── Record what this push owes clients ────────────────────────────────
-        // Derived from the DURABLE operation records this run just wrote, never from a fresh
-        // product_rates lookup: that table describes the current matrix, and after a push it can
-        // disagree with what landed, so rebuilding from it would tell a customer about rates the
-        // switch does not hold.
+        // ── Execution: one job per account, one active job per tariff ─────────
         //
-        // Creation only. Nothing is sent here, and nothing can be: the module has no transport,
-        // and delivery is a separate worker that refuses to run unless explicitly enabled.
+        // THE SIPPY-FACING ENVELOPE IS UNCHANGED, AND THAT IS THE POINT OF THE SHAPE BELOW.
+        // `batch-plan` groups a job's operations into one lane per tariff and runs at most
+        // `concurrency` lanes, so two operations never write one tariff at once — the rule jobs
+        // #37–#45 were failing for between 2026-09-07 and 09-09, each push renewing the lock it
+        // then tripped over. A tariff resolves per ACCOUNT, so after the split every job holds
+        // exactly ONE lane and that bound stops meaning anything on its own: two accounts sharing
+        // a tariff used to be one lane, strictly serialised by the planner, and as two jobs they
+        // would take two slots and race, downgrading a planned wait into contention with a
+        // timeout — and a timeout FAILS where the second account used to wait and succeed.
         //
-        // Failure is swallowed ON PURPOSE. The push has already mutated the switch; throwing here
-        // would turn a successful push into an error response and invite a retry that writes
-        // again. An obligation that was not recorded is re-derived later by
-        // recoverMissingObligations from the same durable records, so the omission is
-        // self-healing rather than lost.
-        try {
-          const { createObligationsForPush, loadOperationsForPush } =
-            await import('./services/rates/post-push-obligation');
-          const certified = await loadOperationsForPush(db as any, jobId);
-          const owed = await createObligationsForPush(db as any, {
-            jobId,
-            operations: certified,
-            productLabelFor: (code) => pushProduct?.name ?? code,
-            dialFormatFor: (_c, trunk) => `${trunk}[Country Code][Number]`,
-            createdVia: 'push',
-          });
-          console.log(`[push-batch] notification obligations: ${owed.created} created, ` +
-                      `${owed.alreadyPresent} already present, ${owed.excluded.length} operation(s) not announced`);
+        // So the rule moves up a level rather than being abandoned: `runTariffExclusive` runs one
+        // active job per tariff, `concurrency` tariffs at once, clamped by the same constants
+        // `batch-plan` clamps by. Same number of tariffs in flight, same one writer each.
+        const lock = createPostgresTariffLock(pool);
+        const batchConcurrency = Number((req.body as any).concurrency) || undefined;
+        const jobConcurrency = Math.min(
+          Math.max(Number.isFinite(batchConcurrency) ? Math.trunc(batchConcurrency as number) : DEFAULT_LANE_CONCURRENCY,
+                   MIN_LANE_CONCURRENCY),
+          MAX_LANE_CONCURRENCY);
 
-          // Delivery, INSIDE the same boundary as creation: a send failure can no more turn a
-          // successful push into an error than a bookkeeping failure can, and a failed send is
-          // durable (status 'failed', retried on the next push or boot, capped at five attempts).
-          // Ships OFF — platform_feature_flags.rate_notifications_auto — and when off this is one
-          // flag read and nothing sent. See services/rates/rate-notification-auto.ts.
+        /**
+         * Terminalise a job that was NEVER ATTEMPTED, and only such a job.
+         *
+         * A job the engine THREW on is deliberately NOT terminalised — see the outcome walk below.
+         * A job the scheduler never started is a different record: it has no operation rows at
+         * all, so `hasOperationIntent` is false and the boot sweep's `skippedNoIntent` branch
+         * leaves it "entirely untouched" by design (reconcile-sweep.ts). Left `processing` it
+         * would therefore sit there forever, and the request roll-up would hold Submit locked
+         * forever with it. Terminalising it loses nothing, because nothing was ever going to
+         * settle it: its operations were provably never sent — the chain halted before it began —
+         * which is what `not_attempted` means one level down, and `deriveJobStatus` over rows in
+         * that state computes exactly this `failed`.
+         *
+         * Never throws: it is the last thing standing between such a job and a permanent
+         * `processing` row, so its own failure is logged and swallowed.
+         */
+        const markJobTerminal = async (id: string, status: string, errorMessage: string) => {
+          try {
+            await db.update(ratePushJobs).set({
+              status, completedAt: new Date(), lastStep: 'failed', lastStepAt: new Date(),
+              errorMessage: String(errorMessage).substring(0, 2000),
+            }).where(eq(ratePushJobs.jobId, id));
+          } catch (e: any) {
+            console.error(`[rate_push_jobs] could not terminalise ${id} — it will read as processing:`, e?.message || e);
+          }
+        };
+
+        /**
+         * One account, start to finish: push, record what it owes, finalise its own row.
+         *
+         * Everything inside is what the route did before, with `jobId` now naming this account's
+         * row instead of the submission's single row. The push itself, the evidence rule, the
+         * obligation derivation and the drain scope are untouched.
+         */
+        const runAccountJob = async (job: (typeof plan.jobs)[number]) => {
+          const jobId = job.jobId;
+          const jobStart = Date.now();
+          // One serial lane per tariff, every operation on a durable row before the first push,
+          // and an outcome nobody established never retried.
+          const runOutcome = await runRateBatch(
+            // The lock makes "one writer per tariff" true across BATCHES and across PROCESSES,
+            // not just within one plan. On 2026-09-09 jobs 46 and 47 wrote tariff 65
+            // concurrently for ~44s because the planner's serialisation stops at the batch
+            // boundary; a Postgres advisory lock is visible to every request and process, and
+            // Postgres frees it if this one dies. It is what makes the scheduler above a
+            // performance rule rather than the only thing keeping two accounts off one tariff.
+            { db, push: pushFor(jobId), pushGroup: bulkGroups ? pushGroupFor(jobId) : undefined, lock, policy },
+            {
+              jobId,
+              operations: job.operations,
+              productName: req.body.productName ?? null,
+              trunkPrefix: trunkPrefix ?? null,
+              concurrency: batchConcurrency,
+            },
+          );
+          const jobResults = runOutcome.results as any[];
+
+          // ── Record what this push owes clients ────────────────────────────────
+          // Derived from the DURABLE operation records this run just wrote, never from a fresh
+          // product_rates lookup: that table describes the current matrix, and after a push it can
+          // disagree with what landed, so rebuilding from it would tell a customer about rates the
+          // switch does not hold.
           //
-          // SCOPED TO THIS JOB. The drain used to take the oldest pending row in the system, so a
-          // push for one account delivered another account's days-old notice (2026-09-22). The
-          // backlog belongs to the boot drain, which logs each row as backlog; a push sends only
-          // what it just recorded.
-          const { drainRateNotifications } = await import('./services/rates/rate-notification-auto');
-          await drainRateNotifications('push', { jobId });
-        } catch (e: any) {
-          console.warn(`[push-batch] could not record notification obligations (${e?.message ?? e}) — ` +
-                       `recovery will re-derive them from the operation records`);
+          // Creation only. Nothing is sent here, and nothing can be: the module has no transport,
+          // and delivery is a separate worker that refuses to run unless explicitly enabled.
+          //
+          // Failure is swallowed ON PURPOSE. The push has already mutated the switch; throwing here
+          // would turn a successful push into an error response and invite a retry that writes
+          // again. An obligation that was not recorded is re-derived later by
+          // recoverMissingObligations from the same durable records, so the omission is
+          // self-healing rather than lost.
+          try {
+            const { createObligationsForPush, loadOperationsForPush } =
+              await import('./services/rates/post-push-obligation');
+            const certified = await loadOperationsForPush(db as any, jobId);
+            const owed = await createObligationsForPush(db as any, {
+              jobId,
+              operations: certified,
+              productLabelFor: (code) => pushProduct?.name ?? code,
+              dialFormatFor: (_c, trunk) => `${trunk}[Country Code][Number]`,
+              createdVia: 'push',
+            });
+            console.log(`[push-batch] ${jobId} (${job.accountName}) obligations: ${owed.created} created, ` +
+                        `${owed.alreadyPresent} already present, ${owed.excluded.length} operation(s) not announced`);
+
+            // Delivery, INSIDE the same boundary as creation: a send failure can no more turn a
+            // successful push into an error than a bookkeeping failure can, and a failed send is
+            // durable (status 'failed', retried on the next push or boot, capped at five attempts).
+            // Ships OFF — platform_feature_flags.rate_notifications_auto — and when off this is one
+            // flag read and nothing sent. See services/rates/rate-notification-auto.ts.
+            //
+            // SCOPED TO THIS JOB. The drain used to take the oldest pending row in the system, so a
+            // push for one account delivered another account's days-old notice (2026-09-22). The
+            // backlog belongs to the boot drain, which logs each row as backlog; a push sends only
+            // what it just recorded.
+            const { drainRateNotifications } = await import('./services/rates/rate-notification-auto');
+            await drainRateNotifications('push', { jobId });
+          } catch (e: any) {
+            console.warn(`[push-batch] ${jobId} (${job.accountName}): could not record notification obligations (${e?.message ?? e}) — ` +
+                         `recovery will re-derive them from the operation records`);
+          }
+
+          const ok    = jobResults.filter(r => r.success).length;
+          const total = jobResults.length;
+          const firstR = jobResults[0];
+          const methods = Array.from(new Set(jobResults.map(r => r.method).filter(Boolean)));
+          // Effective time per prefix, because "what did we actually commit to, and when" is
+          // the question a rate dispute asks, and the answer has to survive on the record.
+          // Taken from this job's OWN operations rather than from the submission's destination
+          // list, so the row describes the work it owns.
+          const prefixSummary = (job.operations as any[]).map(o => `${o.fullPrefix}@${o.rate}${o.effectiveFrom ? ` from ${o.effectiveFrom}` : ' immediate'}`).join(', ');
+          const uniqueRates = Array.from(new Set((job.operations as any[]).map(o => String(o.rate))));
+          const jobMs = Date.now() - jobStart;
+
+          // Finalise the row created before the loop. An UPDATE, not an INSERT: the record has
+          // existed since the push began, and completing it must never create a second one.
+          try {
+            await db.update(ratePushJobs).set({
+              pushedClients:      ok,
+              failedClients:      total - ok,
+              // Derived from the persisted operation rows, so the summary cannot drift from the
+              // evidence. 'needs_review' appears when an outcome was never established: the job is
+              // then neither completed nor failed, and the UI's Re-send button is correctly withheld
+              // because retrying a possible mutation is the one thing that must not be one click.
+              status:             runOutcome.summary.status,
+              // `new_rate` is varchar(32) and holds a RATE. It was being handed a 255-char
+              // batch summary, so Postgres rejected the whole UPDATE and the catch below
+              // swallowed it — leaving a finished push sitting at `processing` with every
+              // field this statement writes still null. One column's width silently converted
+              // a completed job into a permanently in-progress one.
+              //
+              // A batch with one rate reports that rate. A batch with several has no single
+              // rate to report, and null says so; the per-prefix figures are in `notes`.
+              newRate:            uniqueRates.length === 1 ? uniqueRates[0].substring(0, 32) : null,
+              pushMethod:         firstR?.method ?? null,
+              uploadToken:        firstR?.uploadToken ?? null,
+              uploadStatus:       firstR?.uploadStatus ?? null,
+              verificationResult: firstR?.verificationResult ?? null,
+              // Per-operation timings survive into the record, so "why was it slow" is
+              // answerable from the row rather than only from logs that may have rotated.
+              notes:              `${job.accountName}: ${prefixSummary} — ok=${ok}/${total} method=${methods.join(',') || 'n/a'} | timings ${jobResults.map(r => `${r.prefix}:${((r.ms ?? 0) / 1000).toFixed(1)}s`).join(' ')} | job ${(jobMs / 1000).toFixed(1)}s of ${requestId}`.substring(0, 2000),
+              // A terminal step, so the UI never renders a finished job as still working.
+              lastStep:           runOutcome.summary.status === 'completed' ? 'completed' : 'failed',
+              lastStepAt:         new Date(),
+              // The first failure, kept as a field rather than buried in prose. Null on a clean
+              // run, so a non-null error_message always means something actually went wrong.
+              errorMessage:       runOutcome.tariffsNeedingReview.length
+                                    ? `UNVERIFIED on tariff(s) ${runOutcome.tariffsNeedingReview.join(', ')} — read the tariff before writing to it again; those operations were not retried. ${jobResults.filter(r => !r.success).length}/${total} did not succeed.`
+                                    : jobResults.find(r => !r.success)
+                                    ? `${jobResults.filter(r => !r.success).length}/${total} failed — first: ${jobResults.find(r => !r.success)!.prefix} → ${jobResults.find(r => !r.success)!.accountName}: ${jobResults.find(r => !r.success)!.message}`.substring(0, 2000)
+                                    : null,
+              completedAt:        new Date(),
+            }).where(eq(ratePushJobs.jobId, jobId));
+          } catch (e: any) {
+            console.error('[rate_push_jobs] push-batch finalise failed:', e?.message || e);
+            // The rich update failed. Whatever the reason, the job is NOT still running, and a
+            // row that says it is will be believed — for an hour, by someone watching a push
+            // that finished in two minutes. Retry with the smallest statement that can tell the
+            // truth: terminal status, a completion time, and the error itself.
+            try {
+              await db.update(ratePushJobs).set({
+                status:       runOutcome.summary.status,
+                completedAt:  new Date(),
+                lastStep:     runOutcome.summary.status === 'completed' ? 'completed' : 'failed',
+                errorMessage: `finalise failed (${String(e?.message ?? e).substring(0, 300)}) — ${ok}/${total} operations succeeded`,
+              }).where(eq(ratePushJobs.jobId, jobId));
+              console.error('[rate_push_jobs] fell back to a minimal finalise; job is no longer marked processing');
+            } catch (e2: any) {
+              console.error('[rate_push_jobs] minimal finalise ALSO failed — job will read as processing:', e2?.message || e2);
+            }
+          }
+
+          console.log(`[push-batch] ${jobId} (${job.accountName}): ${ok}/${total} ok in ${(jobMs / 1000).toFixed(1)}s — ${runOutcome.summary.status}`);
+          return { runOutcome, results: jobResults };
+        };
+
+        const scheduled = await runTariffExclusive(
+          plan.jobs.map(job => {
+            const t = Number(iTariffByAccountName.get(job.accountName));
+            // Null when the account's tariff never resolved. Such a job still RUNS — its
+            // operations must be recorded as refused rather than silently dropped — but it writes
+            // nothing, so it contends with nobody and is given a chain of its own.
+            return { iTariff: Number.isFinite(t) ? t : null, job };
+          }),
+          { concurrency: jobConcurrency, run: runAccountJob },
+        );
+
+        // ── Every job accounted for, in submitted order ───────────────────────
+        //
+        // AN EXECUTION EXCEPTION STILL MEANS WHAT IT MEANT. Before the split, a `runRateBatch`
+        // that threw aborted the request — HTTP 500 — and left its job row `processing` with its
+        // operation rows written but unsettled, which is exactly the shape boot reconciliation
+        // adopts (`reconcile-boot.ts` selects `status IN ('pending','processing')`). That contract
+        // is preserved here deliberately: a thrown job is NOT terminalised, and the request
+        // rethrows below. Turning an exception into a terminal `failed` row would have removed it
+        // from the only recovery path that exists, and that is a recovery redesign, not route
+        // wiring — it belongs with the worker, where who settles an abandoned job is a decision
+        // rather than a side effect.
+        //
+        // A NEVER-ATTEMPTED job is the one case with no precedent, and it is the opposite shape:
+        // no operation rows at all, so the sweep's `skippedNoIntent` branch leaves it untouched
+        // forever. It is terminalised — see markJobTerminal — because nothing was ever going to
+        // settle it, and an operator who is not told an account was never attempted reads its
+        // absence as success.
+        const jobReports: Array<{ jobId: string; accountName: string; operations: number; status: string; ok: number; error?: string }> = [];
+        let threw: { accountName: string; error: string } | null = null;
+        for (let i = 0; i < scheduled.length; i++) {
+          const outcome = scheduled[i];
+          const job = plan.jobs[i];
+          if (outcome.ok) {
+            results.push(...(outcome.value.results as any));
+            jobReports.push({
+              jobId: job.jobId, accountName: job.accountName, operations: job.operations.length,
+              status: outcome.value.runOutcome.summary.status,
+              ok: outcome.value.results.filter((r: any) => r.success).length,
+            });
+            continue;
+          }
+          console.error(`[push-batch] ${job.jobId} (${job.accountName}): ${outcome.skipped ? 'NOT ATTEMPTED' : 'FAILED'} — ${outcome.error}`);
+          if (outcome.skipped) {
+            await markJobTerminal(job.jobId, 'failed', outcome.error);
+          } else if (threw === null) {
+            // Left non-terminal on purpose. Recorded so the throw below can name it.
+            threw = { accountName: job.accountName, error: outcome.error };
+          }
+          jobReports.push({
+            jobId: job.jobId, accountName: job.accountName, operations: job.operations.length,
+            status: 'failed', ok: 0, error: outcome.error,
+          });
         }
+
+        // The exception, re-raised at the request boundary. The outer catch answers 500, as it did
+        // when there was one job and the throw came straight out of `runRateBatch`. Accounts that
+        // finished are already recorded and finalised on their own rows — the response is lost,
+        // the evidence is not, which was true before the split too.
+        if (threw) throw new Error(`${threw.accountName}: ${threw.error}`);
 
         const ok    = results.filter(r => r.success).length;
         const total = results.length;
-        const firstR = results[0];
-        const methods = Array.from(new Set(results.map(r => r.method).filter(Boolean)));
-        // Effective time per prefix, because "what did we actually commit to, and when" is
-        // the question a rate dispute asks, and the answer has to survive on the record.
-        const prefixSummary = destList.map(d => `${d.fullPrefix}@${d.rate}${d.effectiveFrom ? ` from ${d.effectiveFrom}` : ' immediate'}`).join(', ');
-        const uniqueRates = Array.from(new Set(destList.map(d => String(d.rate))));
         const requestMs = Date.now() - requestStart;
-
-        // Finalise the row created before the loop. An UPDATE, not an INSERT: the record has
-        // existed since the push began, and completing it must never create a second one.
-        try {
-          await db.update(ratePushJobs).set({
-            pushedClients:      ok,
-            failedClients:      total - ok,
-            // Derived from the persisted operation rows, so the summary cannot drift from the
-            // evidence. 'needs_review' appears when an outcome was never established: the job is
-            // then neither completed nor failed, and the UI's Re-send button is correctly withheld
-            // because retrying a possible mutation is the one thing that must not be one click.
-            status:             runOutcome.summary.status,
-            // `new_rate` is varchar(32) and holds a RATE. It was being handed a 255-char
-            // batch summary, so Postgres rejected the whole UPDATE and the catch below
-            // swallowed it — leaving a finished push sitting at `processing` with every
-            // field this statement writes still null. One column's width silently converted
-            // a completed job into a permanently in-progress one.
-            //
-            // A batch with one rate reports that rate. A batch with several has no single
-            // rate to report, and null says so; the per-prefix figures are in `notes`.
-            newRate:            uniqueRates.length === 1 ? uniqueRates[0].substring(0, 32) : null,
-            pushMethod:         firstR?.method ?? null,
-            uploadToken:        firstR?.uploadToken ?? null,
-            uploadStatus:       firstR?.uploadStatus ?? null,
-            verificationResult: firstR?.verificationResult ?? null,
-            // Per-operation timings survive into the record, so "why was it slow" is
-            // answerable from the row rather than only from logs that may have rotated.
-            notes:              `Batch: ${prefixSummary} — ok=${ok}/${total} method=${methods.join(',') || 'n/a'} | timings ${results.map(r => `${r.prefix}:${((r.ms ?? 0) / 1000).toFixed(1)}s`).join(' ')} | request ${(requestMs / 1000).toFixed(1)}s`.substring(0, 2000),
-            // A terminal step, so the UI never renders a finished job as still working.
-            lastStep:           runOutcome.summary.status === 'completed' ? 'completed' : 'failed',
-            lastStepAt:         new Date(),
-            // The first failure, kept as a field rather than buried in prose. Null on a clean
-            // run, so a non-null error_message always means something actually went wrong.
-            errorMessage:       runOutcome.tariffsNeedingReview.length
-                                  ? `UNVERIFIED on tariff(s) ${runOutcome.tariffsNeedingReview.join(', ')} — read the tariff before writing to it again; those operations were not retried. ${results.filter(r => !r.success).length}/${total} did not succeed.`
-                                  : results.find(r => !r.success)
-                                  ? `${results.filter(r => !r.success).length}/${total} failed — first: ${results.find(r => !r.success)!.prefix} → ${results.find(r => !r.success)!.accountName}: ${results.find(r => !r.success)!.message}`.substring(0, 2000)
-                                  : null,
-            completedAt:        new Date(),
-          }).where(eq(ratePushJobs.jobId, jobId));
-        } catch (e: any) {
-          console.error('[rate_push_jobs] push-batch finalise failed:', e?.message || e);
-          // The rich update failed. Whatever the reason, the job is NOT still running, and a
-          // row that says it is will be believed — for an hour, by someone watching a push
-          // that finished in two minutes. Retry with the smallest statement that can tell the
-          // truth: terminal status, a completion time, and the error itself.
-          try {
-            await db.update(ratePushJobs).set({
-              status:       runOutcome.summary.status,
-              completedAt:  new Date(),
-              lastStep:     runOutcome.summary.status === 'completed' ? 'completed' : 'failed',
-              errorMessage: `finalise failed (${String(e?.message ?? e).substring(0, 300)}) — ${ok}/${total} operations succeeded`,
-            }).where(eq(ratePushJobs.jobId, jobId));
-            console.error('[rate_push_jobs] fell back to a minimal finalise; job is no longer marked processing');
-          } catch (e2: any) {
-            console.error('[rate_push_jobs] minimal finalise ALSO failed — job will read as processing:', e2?.message || e2);
-          }
-        }
 
         // Sippy time versus everything else. If these are close, the push IS the request and
         // a worker is the only way to shorten it; if they diverge, the overhead is ours.
         const sippyMs = results.reduce((a, r) => a + (r.ms ?? 0), 0);
-        console.log(`[push-batch] done — ${ok}/${total} ok in ${(requestMs / 1000).toFixed(1)}s total (${(sippyMs / 1000).toFixed(1)}s in Sippy, ${((requestMs - sippyMs) / 1000).toFixed(1)}s elsewhere)`);
+        console.log(`[push-batch] done — ${requestId}: ${jobReports.length} job(s), ${ok}/${total} ok in ${(requestMs / 1000).toFixed(1)}s total (${(sippyMs / 1000).toFixed(1)}s in Sippy, ${((requestMs - sippyMs) / 1000).toFixed(1)}s elsewhere)`);
 
-        // Additive: every field the client already reads keeps its place; `job` is appended so a
-        // caller that did get the response can confirm against the row by id (the lifecycle does).
-        res.json({ results, ok, total, requestMs, sippyMs, policy: { enforced: policyEnforced, resolutions: policyResolutions }, job: { jobId } });
+        // Additive: every field the client already reads keeps its place and means what it meant.
+        // `results` is still every operation of the submission, flat and in submitted order.
+        //
+        // `job.jobId` now names the ANCHOR sibling — the first account's job, the one carrying the
+        // operator's clientRequestId. It is kept because the submit lifecycle seeds itself from it
+        // and then polls by clientRequestId, and that lookup answers for the whole request. The
+        // submission's own identity is `requestId`, and `jobs` is the truthful per-account record
+        // the single row could never be.
+        res.json({
+          results, ok, total, requestMs, sippyMs,
+          policy: { enforced: policyEnforced, resolutions: policyResolutions },
+          requestId,
+          jobs: jobReports,
+          accountsWithoutOperations: plan.accountsWithoutOperations,
+          job: { jobId: plan.jobs[0].jobId },
+        });
       } catch (e: any) { res.status(500).json({ error: e.message }); }
     },
   );
@@ -45306,8 +45527,36 @@ ${footer}
         if (!isValidClientRequestId(key)) return res.status(400).json({ error: 'invalid clientRequestId' });
         const job = await findJobByClientRequestId(db as any, key);
         if (!job) return res.status(404).json({ error: 'no job recorded for that request id' });
-        const summary = await deriveJobStatus(db as any, job.jobId);
-        res.json({ job, summary });
+
+        // ── The submit id names a job; the answer is about the whole SUBMISSION ──
+        // A submission is now one job per account, and the operator's submit id sits on the first
+        // of them (migration 525's index makes it unique, so it cannot sit on all). Answering with
+        // that one job's status would unlock Submit while another customer's rates were still
+        // being written — the 2026-09-19 double-submit, re-created by the split.
+        //
+        // `status` therefore comes from the JOB rows of the whole request, and the operation
+        // counts are summed across them, so `summary` means for a submission exactly what it
+        // always meant for a job. A row written before migration 527 has no request id and keeps
+        // the single-job answer, unchanged.
+        if (!job.requestId) {
+          const summary = await deriveJobStatus(db as any, job.jobId);
+          return res.json({ job, summary });
+        }
+        const request = await deriveRequestStatus(db as any, job.requestId);
+        const evidence = await deriveRequestOperations(db as any, job.requestId);
+        res.json({
+          job,
+          summary: {
+            status: request?.status ?? 'pending',
+            counts: evidence.counts,
+            tariffsNeedingReview: evidence.tariffsNeedingReview,
+            requiresReview: evidence.unresolvedCount > 0,
+            unresolvedCount: evidence.unresolvedCount,
+          },
+          // The per-account truth the single row could never carry. Additive: nothing that read
+          // `job` or `summary` before needs to know it is here.
+          request,
+        });
       } catch (e: any) { res.status(500).json({ error: e.message }); }
     },
   );

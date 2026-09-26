@@ -43,8 +43,8 @@ describe('idle → submitting', () => {
 
 describe('the response is a courtesy', () => {
   it('RESPONSE_OK does NOT release pushing — it moves to polling until the row is terminal', () => {
-    const s = run([{ type: 'SUBMIT', key: KEY }, { type: 'RESPONSE_OK', jobId: 'job-1' }]);
-    expect(s).toMatchObject({ phase: 'polling', key: KEY, jobId: 'job-1' });
+    const s = run([{ type: 'SUBMIT', key: KEY }, { type: 'RESPONSE_OK', watching: 'job-1' }]);
+    expect(s).toMatchObject({ phase: 'polling', key: KEY, watching: 'job-1' });
     expect(isPushing(s)).toBe(true);
     expect(canSubmit(s)).toBe(false);
   });
@@ -71,13 +71,13 @@ describe('the response is a courtesy', () => {
 
 describe('the job row is the truth', () => {
   it('a non-terminal JOB keeps polling; a terminal JOB settles, releases the button, clears the queue', () => {
-    const polling = run([{ type: 'SUBMIT', key: KEY }, { type: 'RESPONSE_LOST', error: '504' }, { type: 'JOB', jobId: 'job-1', status: 'processing' }]);
-    expect(polling).toMatchObject({ phase: 'polling', jobId: 'job-1', status: 'processing' });
+    const polling = run([{ type: 'SUBMIT', key: KEY }, { type: 'RESPONSE_LOST', error: '504' }, { type: 'JOB', watching: 'job-1', status: 'processing' }]);
+    expect(polling).toMatchObject({ phase: 'polling', watching: 'job-1', status: 'processing' });
     expect(isPushing(polling)).toBe(true);
 
     for (const status of TERMINAL_JOB_STATUSES) {
-      const s = submitReducer(polling, { type: 'JOB', jobId: 'job-1', status });
-      expect(s).toMatchObject({ phase: 'terminal', jobId: 'job-1', status });
+      const s = submitReducer(polling, { type: 'JOB', watching: 'job-1', status });
+      expect(s).toMatchObject({ phase: 'terminal', watching: 'job-1', status });
       expect(canSubmit(s)).toBe(true);
       expect(isPushing(s)).toBe(false);
       expect(shouldClearQueue(s)).toBe(true);
@@ -103,12 +103,12 @@ describe('the job row is the truth', () => {
   });
 
   it('a job found after a lost response clears the not-found count', () => {
-    const s = run([{ type: 'SUBMIT', key: KEY }, { type: 'RESPONSE_LOST', error: '504' }, { type: 'JOB_NOT_FOUND' }, { type: 'JOB_NOT_FOUND' }, { type: 'JOB', jobId: 'job-1', status: 'processing' }]);
-    expect(s).toMatchObject({ phase: 'polling', jobId: 'job-1' });
+    const s = run([{ type: 'SUBMIT', key: KEY }, { type: 'RESPONSE_LOST', error: '504' }, { type: 'JOB_NOT_FOUND' }, { type: 'JOB_NOT_FOUND' }, { type: 'JOB', watching: 'job-1', status: 'processing' }]);
+    expect(s).toMatchObject({ phase: 'polling', watching: 'job-1' });
   });
 
   it('the terminal message names the job and its status; RESET returns to idle', () => {
-    const t = run([{ type: 'SUBMIT', key: KEY }, { type: 'RESPONSE_OK', jobId: 'job-1' }, { type: 'JOB', jobId: 'job-1', status: 'partial' }]);
+    const t = run([{ type: 'SUBMIT', key: KEY }, { type: 'RESPONSE_OK', watching: 'job-1' }, { type: 'JOB', watching: 'job-1', status: 'partial' }]);
     expect(statusMessage(t)).toMatch(/job-1/);
     expect(statusMessage(t)).toMatch(/partial/);
     expect(submitReducer(t, { type: 'RESET' })).toEqual(initialSubmitState);

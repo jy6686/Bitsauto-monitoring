@@ -54,28 +54,34 @@ describe('rate_push_jobs batch summaries are unbounded', () => {
 });
 
 describe('the push-record insert does not truncate its summaries', () => {
-  /** The insert that refuses the batch when it cannot be recorded. */
+  /**
+   * The rows built for the insert that refuses the batch when it cannot be recorded.
+   *
+   * The summaries are now built from each JOB's OWN operations rather than from the submission's
+   * destination list — one job per account, so a row describes the work it owns. The property
+   * under test is unchanged and is about truncation, not about where the list comes from.
+   */
   const insert = (() => {
     const i = routes.indexOf('Could not record this push');
     expect(i).toBeGreaterThan(-1);
-    const start = routes.lastIndexOf('const destNames', i);
+    const start = routes.lastIndexOf('const jobRows = plan.jobs.map(', i);
+    expect(start).toBeGreaterThan(-1);
     return routes.slice(start, i);
   })();
 
   it('joins every destination without a substring cap', () => {
-    expect(insert).toMatch(/fullPrefix:\s*destList\.map\(d => d\.fullPrefix\)\.join\(', '\),/);
-    expect(insert).toMatch(/dialPrefix:\s*destList\.map\(d => d\.dialPrefix\)\.join\(', '\),/);
+    expect(insert).toMatch(/fullPrefix:\s*ops\.map\(o => o\.fullPrefix\)\.join\(', '\),/);
+    expect(insert).toMatch(/dialPrefix:\s*ops\.map\(o => o\.dialPrefix\)\.join\(', '\),/);
   });
 
   it('caps none of the three summaries — 255, 128 and 32 were each "the limit" once', () => {
     // Ban the mechanism on these fields, not the number. `switchName` keeps its substring
     // legitimately: switch_name really is varchar(128) and holds ONE name, not a list.
-    for (const field of ['fullPrefix', 'dialPrefix']) {
-      const line = insert.split('\n').find(l => l.includes(`${field}:`)) ?? '';
-      expect(line).not.toMatch(/\.substring\(/);
+    for (const field of ['fullPrefix', 'dialPrefix', 'destinationName']) {
+      for (const line of insert.split('\n').filter(l => l.includes(`${field}:`))) {
+        expect(line).not.toMatch(/\.substring\(/);
+      }
     }
-    const destNamesAssign = insert.slice(insert.indexOf('const destNames'), insert.indexOf('try {'));
-    expect(destNamesAssign).not.toMatch(/\.substring\(/);
   });
 
   it('still refuses the batch when the record cannot be written', () => {

@@ -42,8 +42,13 @@ describe('push-batch reads the flag and fails to unchanged behaviour', () => {
     expect(after).toMatch(/catch\s*\{[^}]*bulkGroups\s*=\s*false/);
   });
 
+  /**
+   * `pushGroupFor(jobId)` since the per-account split: the group push writes a position trail onto
+   * a job row, and there is now one row per account rather than one per submission. The GATE is
+   * unchanged — still `bulkGroups ?`, still `undefined` when off.
+   */
   it('hands the group push to the runner ONLY under the flag', () => {
-    expect(PUSH_BATCH).toMatch(/pushGroup:\s*bulkGroups\s*\?\s*pushGroup\s*:\s*undefined/);
+    expect(PUSH_BATCH).toMatch(/pushGroup:\s*bulkGroups\s*\?\s*pushGroupFor\(jobId\)\s*:\s*undefined/);
   });
 
   it('the group push calls the group upload primitive with the group verb and activation', () => {
@@ -52,7 +57,7 @@ describe('push-batch reads the flag and fails to unchanged behaviour', () => {
   });
 
   it('records progress on the job row from inside the group push, as the per-operation push does', () => {
-    const at = PUSH_BATCH.indexOf('const pushGroup: InjectedGroupPush');
+    const at = PUSH_BATCH.indexOf('const pushGroupFor = (jobId: string): InjectedGroupPush');
     expect(at).toBeGreaterThan(-1);
     const body = PUSH_BATCH.slice(at, at + 2500);
     expect(body).toContain('lastStep: step');

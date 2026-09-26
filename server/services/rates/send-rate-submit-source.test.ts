@@ -68,3 +68,63 @@ describe('Send Rate submit is terminal-state-driven', () => {
     expect(PAGE).toMatch(/from ["']@\/lib\/push-history-poll["']/);
   });
 });
+
+/**
+ * What releases Submit, now that a submission is one job per ACCOUNT.
+ *
+ * The button is released by the status the poll reports. Before the split there was one job, so
+ * "the job is terminal" and "the submission is over" were the same sentence. They are not any
+ * more: a status that speaks for one sibling would release Submit while another customer's rates
+ * were still being written — the 2026-09-19 double-submit, re-created.
+ */
+describe('the submit poll settles on the whole submission, never one account', () => {
+  const POLL = (() => {
+    const at = PAGE.indexOf('/api/rate-manager/jobs/by-request/');
+    expect(at, 'the by-request poll must exist').toBeGreaterThan(-1);
+    const start = PAGE.lastIndexOf('const tick = async () => {', at);
+    expect(start).toBeGreaterThan(-1);
+    const end = PAGE.indexOf('void tick();', start);
+    expect(end).toBeGreaterThan(at);
+    return PAGE.slice(start, end);
+  })();
+
+  /** The lookup key is the operator's own submit id, generated before the request left. */
+  it('polls by the client request id, not by any job id', () => {
+    expect(POLL).toMatch(/by-request\/\$\{encodeURIComponent\(submitKey\)\}/);
+    expect(POLL).not.toMatch(/jobs\/\$\{[^}]*jobId/);
+  });
+
+  /**
+   * THE PROPERTY. `request.status` is the roll-up across every sibling and comes FIRST. A sibling
+   * nobody has started has no operation rows at all, so neither the anchor row's status nor an
+   * operation count can see that work is still owed.
+   */
+  it('takes the status from the request roll-up before anything else', () => {
+    expect(POLL).toMatch(/const status = d\?\.request\?\.status\s*\n?\s*\?\?/);
+    const statusAt = POLL.indexOf('const status =');
+    const line = POLL.slice(statusAt, POLL.indexOf(';', statusAt));
+    // The two single-job fallbacks are reachable only when there is no request id — pre-527 rows.
+    expect(line.indexOf('d?.request?.status')).toBeLessThan(line.indexOf('d.summary.status'));
+    expect(line.indexOf('d.summary.status')).toBeLessThan(line.indexOf('d?.job?.status'));
+  });
+
+  /** No sibling's id stands for the submission, so several accounts are named by the request. */
+  it('names the request when the submission became more than one job', () => {
+    expect(POLL).toMatch(/d\.request\.jobs\?\.length > 1 \? d\.request\.requestId : d\?\.job\?\.jobId/);
+    expect(POLL).toMatch(/dispatchSubmit\(\{ type: 'JOB', watching, status \}\)/);
+  });
+
+  /** The response seeds the label only; the poll is what settles the status. */
+  it('seeds the label from the response the same way', () => {
+    expect(SUBMIT).toMatch(/\(data\?\.jobs\?\.length \?\? 0\) > 1 \? data\?\.requestId : data\?\.job\?\.jobId/);
+  });
+
+  /**
+   * A field called `jobId` holding a request id is the kind of quiet lie that survives every test.
+   * The lifecycle names it `watching` instead.
+   */
+  it('carries what is being watched under a name that does not claim to be a job', () => {
+    expect(POLL).not.toMatch(/\bjobId:/);
+    expect(PAGE).not.toMatch(/submitState\.jobId/);
+  });
+});

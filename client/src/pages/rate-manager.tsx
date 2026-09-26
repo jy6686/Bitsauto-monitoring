@@ -2291,8 +2291,21 @@ function SendRateTab({
         if (r.status === 404) { dispatchSubmit({ type: 'JOB_NOT_FOUND' }); return; }
         if (!r.ok) return;   // transient; keep polling
         const d = await r.json();
-        const status = d?.summary?.total > 0 ? d.summary.status : d?.job?.status;
-        if (d?.job?.jobId && status) dispatchSubmit({ type: 'JOB', jobId: d.job.jobId, status });
+        // ── The status must speak for the WHOLE submission ──────────────────
+        // A submission is one job per account. `request` is the roll-up across every sibling and
+        // is the only safe source: a sibling nobody has started yet has NO operation rows, so
+        // neither the anchor row's status nor an operation count can see that work is still owed.
+        // Reading either of those would release Submit while another customer's rates were still
+        // being written — the 2026-09-19 double-submit, re-created by the split.
+        //
+        // The two fallbacks are for rows written before migration 527, which carry no request id
+        // and are single-job submissions that genuinely answer for themselves.
+        const status = d?.request?.status
+                    ?? (d?.summary?.total > 0 ? d.summary.status : d?.job?.status);
+        // One account still shows its job id. Several show the request, because no sibling's id
+        // stands for the submission.
+        const watching = d?.request && d.request.jobs?.length > 1 ? d.request.requestId : d?.job?.jobId;
+        if (watching && status) dispatchSubmit({ type: 'JOB', watching, status });
       } catch { /* transient; keep polling */ }
     };
     void tick();
@@ -2306,7 +2319,7 @@ function SendRateTab({
     if (submitState.phase !== 'terminal') return;
     qc.invalidateQueries({ queryKey: ["/api/rate-manager/jobs"] });
     toast({
-      title: `Rate Push — ${submitState.jobId}: ${submitState.status}`,
+      title: `Rate Push — ${submitState.watching}: ${submitState.status}`,
       description: statusMessage(submitState),
       variant: submitState.status === 'completed' ? "default" : "destructive",
     });
@@ -2472,7 +2485,13 @@ function SendRateTab({
       setPushResults(data.results ?? []);
       // The server answered — but the row decides. The lifecycle keeps the button locked and the
       // poll running until the job is terminal; the terminal effect reports and clears the queue.
-      dispatchSubmit({ type: 'RESPONSE_OK', jobId: data?.job?.jobId });
+      // Seeds the label only; the poll below is what settles the status, and it reads the request.
+      // Several account jobs have no single job id that stands for the submission, so the request
+      // id is what the screen names.
+      dispatchSubmit({
+        type: 'RESPONSE_OK',
+        watching: (data?.jobs?.length ?? 0) > 1 ? data?.requestId : data?.job?.jobId,
+      });
     } catch (e: any) {
       const status = typeof e?.status === 'number' ? e.status : 0;
       if (status >= 400 && status < 500) {
