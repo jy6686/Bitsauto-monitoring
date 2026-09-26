@@ -187,8 +187,11 @@ async function main() {
       iAccount = first?.iAccount ?? first?.i_account;
       accountName = first?.username ?? first?.name ?? '';
       record('3. Test account query', arr.length ? 'VERIFIED' : 'FAILED',
-        arr.length ? `${arr.length} account(s) listed; using ${accountName || '(unnamed)'} i_account=${iAccount ?? 'n/a'}`
-                   : 'the switch listed no accounts');
+        arr.length
+          ? `${arr.length} account(s) listed; using ${accountName || '(unnamed)'} i_account=${iAccount ?? 'n/a'}`
+          : 'the switch listed no accounts. This is a statement about ACCOUNT DISCOVERY, not about ' +
+            'CDR access — a reseller credential may be unable to enumerate accounts while still ' +
+            `reading their CDRs. Raw shape: ${JSON.stringify(list).slice(0, 240)}`);
     }
   } catch (e: any) {
     record('3. Test account query', 'FAILED', e?.message ?? String(e));
@@ -204,12 +207,35 @@ async function main() {
     );
     const ok = page?.ok !== false;
     cdrs = page?.cdrs ?? [];
+    const scoped = iAccount != null;
     record('4. CDR retrieval', ok ? (cdrs.length ? 'VERIFIED' : 'UNVERIFIED') : 'FAILED',
       ok ? (cdrs.length
-              ? `${cdrs.length} CDR(s) returned${page?.method ? ` via ${page.method}` : ''}`
+              ? `${cdrs.length} CDR(s) returned${page?.method ? ` via ${page.method}` : ''}` +
+                (scoped ? ` for i_account=${iAccount}` : ' — UNSCOPED: no i_account filter was applied')
               : `the call succeeded but returned 0 rows in this window — retrieval is UNPROVEN, not disproven` +
                 `; widen GATE0_DAYS or pick a busier account`)
          : (page?.message ?? 'the call did not succeed'));
+
+    /**
+     * SCOPED retrieval is the thing Gate 0 actually needs: the collector fetches PER ACCOUNT per
+     * business day. An unscoped call proves the method answers, not that a named account's day can
+     * be retrieved — and reporting the first as if it were the second is precisely the overclaim
+     * this script exists to refuse.
+     */
+    record('4b. Account-scoped retrieval', scoped ? (cdrs.length ? 'VERIFIED' : 'UNVERIFIED') : 'NOT EXERCISED',
+      scoped
+        ? `filtered on i_account=${iAccount}`
+        : 'no i_account filter was applied, because account discovery (step 3) supplied none. ' +
+          'Re-run with GATE0_TEST_ACCOUNT=<username> to exercise this.');
+
+    // Which accounts did the switch actually answer with? Read off the rows, not assumed.
+    if (cdrs.length) {
+      const accounts = [...new Set(cdrs.map((c: any) => c?.iAccount ?? c?.i_account).filter((v: any) => v != null))];
+      record('4c. Accounts present in the returned rows', accounts.length ? 'VERIFIED' : 'UNVERIFIED',
+        accounts.length
+          ? `i_account ${accounts.join(', ')}${accounts.length > 1 ? ' — the unscoped query spans multiple accounts' : ''}`
+          : 'the rows carry no i_account field, so the account they belong to cannot be read off them');
+    }
     if (page?.method) record('4a. Pagination / method', 'VERIFIED',
       `answered by ${page.method}; total=${page?.total ?? 'not reported'}, pinning available for deeper pages`);
   } catch (e: any) {
@@ -254,7 +280,7 @@ function summary() {
   for (const r of rows) console.log(`  ${r.verdict.padEnd(14)} ${r.step}`);
   console.log(`\n  VERIFIED ${n('VERIFIED')} · FAILED ${n('FAILED')} · UNVERIFIED ${n('UNVERIFIED')} · NOT EXERCISED ${n('NOT EXERCISED')}`);
 
-  const gate0 = ['1.', '2.', '3.', '4.', '5.'].every(p =>
+  const gate0 = ['1.', '2.', '3.', '4.', '4b', '5.'].every(p =>
     rows.find(r => r.step.startsWith(p))?.verdict === 'VERIFIED');
   console.log(`\n  Gate 0 status: ${gate0 ? 'steps 1-5 VERIFIED — repository capture still unproven (step 6)' : 'NOT COMPLETE'}`);
   console.log('  Reachability and authentication alone do NOT constitute Gate 0.\n');
