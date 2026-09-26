@@ -48,7 +48,19 @@
  */
 import { readFileSync } from 'node:fs';
 import * as sippy from '../server/sippy';
-import { MUTATION_PRIMITIVES } from '../server/services/rates/canonical-seam-guard';
+
+/**
+ * SELF-CONTAINED ON PURPOSE. This list is duplicated from `canonical-seam-guard.ts` rather than
+ * imported, because this script must run from a workspace that holds ONLY this file — extracted
+ * with `git checkout <branch> -- scripts/gate0-sippy-verify.ts`, without the branch's other
+ * modules. An import there fails at module resolution before the self-check can run, which is the
+ * one moment a verification script must not be fragile. Keep the two lists in step by hand; the
+ * guard's copy is authoritative.
+ */
+const MUTATION_PRIMITIVES = [
+  'pushRateToSippy', 'setSippyRateEntry', 'deleteSippyRateEntry',
+  'deleteAllRatesInTariff', 'addRateDirectToTariff', 'uploadRateGroup', 'pushRatesBulkXlsx',
+] as const;
 
 type Verdict = 'VERIFIED' | 'FAILED' | 'UNVERIFIED' | 'NOT EXERCISED';
 const rows: Array<{ step: string; verdict: Verdict; detail: string }> = [];
@@ -96,7 +108,15 @@ async function resolveAdminApiCredentials(): Promise<{ username: string; passwor
     const u = s?.apiAdminUsername ?? '';
     const p = s?.apiAdminPassword ?? '';
     if (u && p) {
-      return { username: u, password: p, source: 'platform settings (api_admin_*)', portal: s?.portalUrl ?? undefined };
+      // Name the DATABASE, not just "settings". A shell run in the Replit workspace reads DEV
+      // (heliumdb) while the deployed app reads production (neondb) — an ambiguity that has
+      // already nearly produced a false finding once in this project, so the instrument says
+      // which one it used rather than leaving it to be remembered.
+      const dbHost = (() => {
+        try { return new URL(process.env.DATABASE_URL ?? '').pathname.replace(/^\//, '') || 'unknown'; }
+        catch { return 'unknown'; }
+      })();
+      return { username: u, password: p, source: `platform settings (api_admin_*) in db "${dbHost}"`, portal: s?.portalUrl ?? undefined };
     }
     refuse(
       'the platform Settings record holds no Admin API credentials.\n' +
