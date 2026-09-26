@@ -136,8 +136,29 @@ const DAYS    = Number(process.env.GATE0_DAYS  ?? 2);
 const LIMIT   = Number(process.env.GATE0_LIMIT ?? 25);
 
 const iso = (d: Date) => d.toISOString().slice(0, 19).replace('T', ' ');
-const endDate = iso(new Date());
-const startDate = iso(new Date(Date.now() - DAYS * 86_400_000));
+
+/**
+ * An explicit window, so a DISPUTED BUSINESS DAY can be asked about directly rather than only
+ * "the last N days". The collection anomaly this was built alongside — 48/48 slices, 0 stored,
+ * reported Complete — has two halves, and they need different instruments:
+ *
+ *   does Sippy still hold CDRs for that account on that day?   ← this script, GATE0_FROM/TO
+ *   did the repository persist them?                           ← /api/finance/cdr-repository/
+ *                                                                completeness, on PRODUCTION
+ *
+ * Answering only one of them cannot distinguish "the collection lost rows" from "there were no
+ * rows to collect". HALF-OPEN like the completeness endpoint: GATE0_TO is EXCLUSIVE, so
+ * 2026-09-19 -> 2026-09-20 is the single business day 2026-09-19.
+ */
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const explicitFrom = process.env.GATE0_FROM ?? '';
+const explicitTo   = process.env.GATE0_TO   ?? '';
+if ((explicitFrom || explicitTo) && !(DATE_ONLY.test(explicitFrom) && DATE_ONLY.test(explicitTo))) {
+  refuse('GATE0_FROM and GATE0_TO must BOTH be supplied as YYYY-MM-DD; GATE0_TO is exclusive.');
+}
+const usingExplicitWindow = Boolean(explicitFrom && explicitTo);
+const endDate   = usingExplicitWindow ? `${explicitTo} 00:00:00`   : iso(new Date());
+const startDate = usingExplicitWindow ? `${explicitFrom} 00:00:00` : iso(new Date(Date.now() - DAYS * 86_400_000));
 
 async function main() {
   const cred = await resolveAdminApiCredentials();
@@ -147,7 +168,8 @@ async function main() {
   console.log('\nGate 0 — read-only Sippy verification');
   console.log(`  target      ${PORTAL}`);
   console.log(`  credential  ${username.slice(0, 2)}***  (Admin API, from ${cred.source}; rate-admin never consulted)`);
-  console.log(`  window      ${startDate} .. ${endDate}   limit ${LIMIT}`);
+  console.log(`  window      ${startDate} .. ${endDate}   limit ${LIMIT}` +
+    (usingExplicitWindow ? '   (explicit, GATE0_TO exclusive)' : `   (last ${DAYS}d)`));
   console.log(`  mode        READ-ONLY · no writes · no SB1 · no database\n`);
 
   // ── 1 + 2. Reachability and authentication ─────────────────────────────────
@@ -216,6 +238,8 @@ async function main() {
                 `; widen GATE0_DAYS or pick a busier account`)
          : (page?.message ?? 'the call did not succeed'));
 
+    if (page?.method) record('4a. Pagination / method', 'VERIFIED',
+      `answered by ${page.method}; total=${page?.total ?? 'not reported'}, pinning available for deeper pages`);
     /**
      * SCOPED retrieval is the thing Gate 0 actually needs: the collector fetches PER ACCOUNT per
      * business day. An unscoped call proves the method answers, not that a named account's day can
@@ -236,8 +260,6 @@ async function main() {
           ? `i_account ${accounts.join(', ')}${accounts.length > 1 ? ' — the unscoped query spans multiple accounts' : ''}`
           : 'the rows carry no i_account field, so the account they belong to cannot be read off them');
     }
-    if (page?.method) record('4a. Pagination / method', 'VERIFIED',
-      `answered by ${page.method}; total=${page?.total ?? 'not reported'}, pinning available for deeper pages`);
   } catch (e: any) {
     record('4. CDR retrieval', 'FAILED', e?.message ?? String(e));
   }
