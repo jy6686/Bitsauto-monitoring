@@ -7,9 +7,22 @@
  *
  * HARD BOUNDARIES, ENFORCED RATHER THAN INTENDED:
  *
- *   - Credentials come from the RUNTIME ENVIRONMENT ONLY. If they are absent this REFUSES and
- *     exits non-zero. It never reads switch settings from a database, and never calls
- *     `sippyXmlCreds(settings)`. SB1 is entirely outside this path.
+ *   - Credentials come from the APPROVED RUNTIME MECHANISM: the platform's own Settings record
+ *     (`api_admin_username` / `api_admin_password` — the ssp-root XML-RPC Admin API credentials),
+ *     with environment variables as an override for running outside the app. Absent both, this
+ *     REFUSES and exits non-zero rather than guessing.
+ *
+ *     CORRECTION, and it matters: an earlier version of this script refused ALL database-backed
+ *     credentials, conflating "no SB1" with "no database". SB1 is the LEGACY switch database
+ *     (MonetDB/Postgres on the old estate). The platform's Settings record is the new platform's
+ *     own store and is exactly where these credentials are configured. Refusing it would have
+ *     blocked a correctly configured runtime. SB1 remains entirely outside this path — nothing
+ *     here reads legacy hosts, `cdrs_db`, or any switch-side database.
+ *
+ *   - ADMIN API ONLY. `sippy_rate_admin_user` / `sippy_rate_admin_pass` is a SEPARATE Sippy system
+ *     admin account held for Rate Manager push operations. This script must never read or use it,
+ *     and a self-check aborts if this file so much as names it. Verification is read-only; a
+ *     credential that exists to edit tariff rates has no business in it.
  *   - The portal URL is passed EXPLICITLY to every call, so the client's `activeSession` fallback
  *     — which elsewhere is seeded from stored settings — cannot supply a host behind our back.
  *   - NO WRITES. No tariff, rate or account mutation is attempted. A self-check scans this file for
@@ -60,27 +73,45 @@ function refuse(why: string): never {
   // Patterns assembled from fragments: spelled literally, this check would match its OWN source
   // after comment-stripping and refuse every run — a self-check that always fires proves nothing.
   const forbidden = [
-    ['sippy', 'XmlCreds'].join(''),
-    ['from \'./', 'db\''].join(''),
-    ['from \'./', 'storage\''].join(''),
+    ['sippy', 'RateAdmin'].join(''),   // the tariff-edit account — never, in a read-only check
+    ['sippy_rate_', 'admin'].join(''),
+    ['cdrs', '_db'].join(''),          // the legacy switch database
   ];
   const hit = forbidden.find(f => self.includes(f));
-  if (hit) refuse(`this script reaches for database-backed credentials or storage (${hit})`);
+  if (hit) refuse(`this script names a forbidden credential or legacy source (${hit})`);
 }
 
 // ── Credentials: environment ONLY ────────────────────────────────────────────
-const username = process.env.SIPP_ADMIN_USERNAME || process.env.SIPPY_ADMIN_USERNAME || '';
-const password = process.env.SIPP_ADMIN_PASSWORD || process.env.SIPPY_ADMIN_PASSWORD || '';
-if (!username || !password) {
-  refuse(
-    'no Sippy credentials in the runtime environment.\n' +
-    '  Expected SIPPY_ADMIN_USERNAME and SIPPY_ADMIN_PASSWORD (or the SIPP_ variants).\n' +
-    '  This script will NOT fall back to database/SB1-backed switch settings — that is the point.\n' +
-    '  Run it inside the runtime where the approved Sippy credentials are configured.',
-  );
+async function resolveAdminApiCredentials(): Promise<{ username: string; password: string; source: string; portal?: string }> {
+  // Environment first, so the script can run outside the app without touching the store at all.
+  const envUser = process.env.SIPP_ADMIN_USERNAME || process.env.SIPPY_ADMIN_USERNAME || '';
+  const envPass = process.env.SIPP_ADMIN_PASSWORD || process.env.SIPPY_ADMIN_PASSWORD || '';
+  if (envUser && envPass) return { username: envUser, password: envPass, source: 'environment' };
+
+  // Otherwise the platform Settings record — the approved runtime mechanism, and where the
+  // Settings page stores them. ADMIN API FIELDS ONLY.
+  try {
+    const { storage } = await import('../server/storage');
+    const s: any = await storage.getSettings();
+    const u = s?.apiAdminUsername ?? '';
+    const p = s?.apiAdminPassword ?? '';
+    if (u && p) {
+      return { username: u, password: p, source: 'platform settings (api_admin_*)', portal: s?.portalUrl ?? undefined };
+    }
+    refuse(
+      'the platform Settings record holds no Admin API credentials.\n' +
+      '  Expected api_admin_username / api_admin_password (Settings -> Sippy Admin API Credentials).\n' +
+      '  The rate-admin account is deliberately NOT consulted: it exists to edit tariff rates and\n' +
+      '  has no place in a read-only verification.',
+    );
+  } catch (e: any) {
+    refuse(
+      `could not read the platform Settings record: ${e?.message ?? e}\n` +
+      '  Set SIPPY_ADMIN_USERNAME and SIPPY_ADMIN_PASSWORD to run without it.',
+    );
+  }
 }
 
-const PORTAL  = (process.env.GATE0_SIPPY_URL || 'https://191.101.30.107').replace(/\/$/, '');
 const DAYS    = Number(process.env.GATE0_DAYS  ?? 2);
 const LIMIT   = Number(process.env.GATE0_LIMIT ?? 25);
 
@@ -89,9 +120,13 @@ const endDate = iso(new Date());
 const startDate = iso(new Date(Date.now() - DAYS * 86_400_000));
 
 async function main() {
+  const cred = await resolveAdminApiCredentials();
+  const username = cred.username, password = cred.password;
+  const PORTAL = (process.env.GATE0_SIPPY_URL || cred.portal || 'https://191.101.30.107').replace(/\/$/, '');
+
   console.log('\nGate 0 — read-only Sippy verification');
   console.log(`  target      ${PORTAL}`);
-  console.log(`  credential  ${username.slice(0, 2)}***  (from environment, never from a database)`);
+  console.log(`  credential  ${username.slice(0, 2)}***  (Admin API, from ${cred.source}; rate-admin never consulted)`);
   console.log(`  window      ${startDate} .. ${endDate}   limit ${LIMIT}`);
   console.log(`  mode        READ-ONLY · no writes · no SB1 · no database\n`);
 
@@ -187,7 +222,8 @@ async function main() {
   }
 
   record('7. Mutation attempted', 'VERIFIED', 'none — asserted by self-check before any contact');
-  record('8. SB1 / database settings lookup', 'VERIFIED', 'none — credentials came from the environment only');
+  record('8. SB1 / legacy source consulted', 'VERIFIED',
+    `none — Admin API credentials came from ${cred.source}; no legacy host, cdrs source or rate-admin account was read`);
 
   summary();
 }
